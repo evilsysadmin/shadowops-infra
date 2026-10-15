@@ -14,7 +14,7 @@ import stat
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import ProxyHandler, Request, build_opener
 
 
 class SmokeError(Exception):
@@ -22,7 +22,11 @@ class SmokeError(Exception):
 
 
 def local_base_url(value: str) -> str:
-    parsed = urlsplit(value)
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError as exc:
+        raise SmokeError("malformed staging loopback URL") from exc
     if (
         parsed.scheme != "http"
         or parsed.hostname not in {"127.0.0.1", "localhost"}
@@ -31,10 +35,10 @@ def local_base_url(value: str) -> str:
         or parsed.path not in {"", "/"}
         or parsed.query
         or parsed.fragment
-        or parsed.port is None
+        or port is None
     ):
         raise SmokeError("staging smoke requires an explicit loopback HTTP URL")
-    return f"http://{parsed.hostname}:{parsed.port}"
+    return f"http://{parsed.hostname}:{port}"
 
 
 def read_private_token(path: str) -> str:
@@ -55,6 +59,9 @@ def read_private_token(path: str) -> str:
     return token
 
 
+_DIRECT_LOOPBACK_OPENER = build_opener(ProxyHandler({}))
+
+
 def request_get(base: str, path: str, token: str | None) -> tuple[int, bytes]:
     request = Request(
         base + path,
@@ -62,7 +69,7 @@ def request_get(base: str, path: str, token: str | None) -> tuple[int, bytes]:
         method="GET",
     )
     try:
-        with urlopen(request, timeout=6) as response:
+        with _DIRECT_LOOPBACK_OPENER.open(request, timeout=6) as response:
             return response.status, response.read(1_000_001)
     except HTTPError as exc:
         try:
