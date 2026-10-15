@@ -4,13 +4,13 @@ The command `scripts/check-staging-candidate.mjs` is an explicit, **read-only
 pre-deployment gate**. It never invokes Docker, OCI, Render or Cloudflare and
 never stores or changes secrets or game state.
 
-It accepts only a SHA, an immutable image digest and the GitHub source
+Provide `GH_TOKEN` securely through an approved secret injector before\nrunning the command; do not paste the token into shell history.\n\nIt accepts only a SHA, an immutable image digest and the GitHub source
 publication run ID. The repository, service, staging environment and dispatch
 identity are fixed internally. Check names and source evidence cannot be
 supplied by the calling process.
 
 ```sh
-GH_TOKEN="<read-only GitHub token>" node scripts/check-staging-candidate.mjs \
+node scripts/check-staging-candidate.mjs \
   --sha 329b6b63244bd1dbe9d504d5a0340a78acf933bb \
   --digest sha256:3aa847cb86f7e29b1473c6ccaefdceddfcf8e1e5208fb25b84e82ce22f07bd50 \
   --run-id 38808611625
