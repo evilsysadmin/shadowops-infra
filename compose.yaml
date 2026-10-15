@@ -1,7 +1,7 @@
 name: shadowops-chronicles
 services:
   chronicles-api:
-    image: ghcr.io/evilsysadmin/chronicles-api@\${CHRONICLES_IMAGE_DIGEST:?Set a verified sha256 image digest}
+    image: ghcr.io/evilsysadmin/chronicles-api@${CHRONICLES_IMAGE_DIGEST:?Set a verified sha256 image digest}
     restart: unless-stopped
     read_only: true
     init: true
