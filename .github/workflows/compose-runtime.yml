@@ -1,0 +1,25 @@
+name: Chronicles Compose runtime validation
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate actual Docker Compose interpolation and schema
+        env:
+          CHRONICLES_IMAGE_DIGEST: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        run: |
+          docker compose -f compose.yaml config --quiet
+          docker compose -f compose.yaml config --images | grep -Fx 'ghcr.io/evilsysadmin/chronicles-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+      - name: Reject missing digest
+        run: |
+          if env -u CHRONICLES_IMAGE_DIGEST docker compose -f compose.yaml config --quiet >/dev/null 2>&1; then
+            echo 'ERROR: Compose accepted missing image digest' >&2
+            exit 1
+          fi
