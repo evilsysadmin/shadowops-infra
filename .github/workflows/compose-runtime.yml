@@ -77,6 +77,8 @@ jobs:
             echo "ERROR: staging Compose accepted absent JWT signing secret path" >&2
             exit 1
           fi
+      - name: Verify OCI staging host preflight contract
+        run: python3 -m unittest discover -s scripts -p 'test_staging_host_preflight.py' -v
       - name: Reject missing image digest or Mongo configuration
         run: |
           set -euo pipefail

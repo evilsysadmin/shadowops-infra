@@ -86,3 +86,31 @@ and the intentionally absent bootstrap route. It never attempts a write,
 delete or checkpoint. A passing synthetic smoke is **not proof of F5/browser
 continuity or production migration**. Do not perform smoke with real player
 identities or saves.
+
+
+## Host preflight before the first OCI Compose launch
+
+On the isolated OCI staging host, set the verified immutable
+`CHRONICLES_IMAGE_DIGEST`, dedicated
+`CHRONICLES_MONGODB_DATABASE=chronicles_staging` and absolute local paths
+`CHRONICLES_MONGO_SECRET_FILE` and `CHRONICLES_STAGING_JWT_SECRET_FILE`.
+Before invoking Docker Compose run:
+
+```sh
+python3 scripts/staging_host_preflight.py
+docker compose -f compose.yaml -f compose.staging.yaml config --quiet
+```
+
+The preflight is offline and read-only. It rejects mutable image tags,
+non-staging database names, missing/malformed secrets, reused credential
+files, symlinks, directories, world-accessible modes and credentials not
+readable by the non-root container's UID/GID `65532:65532`. Acceptable
+examples are owner `65532` with mode `0400` or group `65532` with
+mode `0440`, subject to container host user-ID mappings. Secrets are
+never printed, and the script does not infer OCI connectivity from a
+successful static check.
+
+This is an **additional preflight**, not a replacement for the independently
+verified GHCR signature/source-SHA admission gate or real MongoDB readiness
+and authenticated smoke tests. Run only against synthetic staging identities
+and a dedicated staging database, never against Chess Studio production.
