@@ -8,7 +8,7 @@ export function createStagingReceipt(input) {
  if(!SHA.test(input.sha||'') || !DIGEST.test(input.digest||'')) throw new Error('untrusted release identity');
  if(!Number.isSafeInteger(input.workflowRunId)||input.workflowRunId<=0) throw new Error('invalid workflow run');
  if(input.healthPassed!==true || input.smokePassed!==true) throw new Error('staging tests not passed');
- if(typeof input.deployedAt!=='string'||!/^\\d{4}-\\d{2}-\\d{2}T/.test(input.deployedAt)||!Number.isFinite(Date.parse(input.deployedAt))) throw new Error('invalid timestamp');
+ if(typeof input.deployedAt!=='string'||!/^\d{4}-\d{2}-\d{2}T/.test(input.deployedAt)||!Number.isFinite(Date.parse(input.deployedAt))) throw new Error('invalid timestamp');
  return Object.freeze({...input});
 }
 export function assertPromotionCandidate(receipt, candidate) {
