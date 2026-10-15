@@ -129,3 +129,46 @@ Always pass the **new multiarch manifest digest** to
 `CHRONICLES_IMAGE_DIGEST`; historical pre-multiarch image digests should
 not be selected for the A1 staging rollout. A protected-main source SHA and
 a passing Sigstore/CI admission are still mandatory.
+
+
+## One-command OCI A1 staging operator (no production access)
+
+A fully provisioned OCI Ampere A1 staging host can use the new orchestrator:
+
+```sh
+# GH_TOKEN is supplied by a short-lived read-only secret injector.
+# CHRONICLES_IMAGE_DIGEST and the two host-local secret paths are set.
+python3 scripts/oci_staging_deploy.py \
+  --sha 3322ca30f0009f7f371940bf689429e45968e187 \
+  --run-id 38812775390 --check-only
+```
+
+**Default mode never deploys.** It verifies the live GitHub-protected source,
+five required jobs, Sigstore-signed GHCR digest, A1 architecture, the
+host-local secret file permissions and the exact Compose staging project
+contract. It also takes an exclusive private deploy lock. No credentials
+or potentially sensitive command output are printed.
+
+For the explicitly approved synthetic staging deployment, first provision a
+dedicated staging database and two synthetic accounts with an existing
+fixture run. Configure distinct private owner/other JWT files and:
+`CHRONICLES_SMOKE_OWNER_TOKEN_FILE`,
+`CHRONICLES_SMOKE_OTHER_TOKEN_FILE`,
+`CHRONICLES_SMOKE_RUN_ID`, `CHRONICLES_SMOKE_EXPECTED_MAP`.
+Then use `--deploy-staging` instead of `--check-only`. The orchestrator
+pulls **only** `chronicles-api` by approved digest, updates
+`shadowops-chronicles-staging` through its two Compose files, waits for
+dependency readiness, and checks owner/other JWT isolation through the
+loopback-only read smoke. It never invokes Docker against the Chess Studio
+project and never performs gameplay writes or production promotion.
+
+On failed readiness or smoke, the command fails clearly without printing
+tokens or mutating other services. Operators must inspect or roll back the
+staging service using the previously approved digest; there is **no
+automatic production rollback** or implicit assumption of a successful
+deployment. Keep this staging launcher on the isolated host, not on an
+untrusted workstation.
+
+This repository **does not provision OCI A1**, populate MongoDB, install
+the Docker/GitHub CLI/Node/Python tools or provide the cloud credentials.
+A passing CI unit test is not proof the script ran on the user's OCI instance.
