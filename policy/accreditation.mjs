@@ -1,5 +1,6 @@
 import { admitCandidate } from './chronicles.mjs';
-const TRUSTED_WORKFLOW = '.github/workflows/publish-chronicles.yml';
+// Must correspond to the published image workflow checked by github-evidence.
+const TRUSTED_WORKFLOW = '.github/workflows/staging-image.yml';
 export function accredit(candidate, context, evidence) {
   const admitted = admitCandidate(candidate, context);
   if (!evidence || typeof evidence !== 'object') throw new Error('missing evidence');
