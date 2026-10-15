@@ -13,4 +13,4 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --test tests/release-admission.test.mjs
+      - run: node --test tests/release-admission.test.mjs tests/staging-candidate-cli.test.mjs
