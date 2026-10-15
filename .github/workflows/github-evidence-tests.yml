@@ -13,4 +13,4 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --test tests/github-evidence.test.mjs
+      - run: node --test tests/github-evidence.test.mjs tests/inspect-main-protection.test.mjs
