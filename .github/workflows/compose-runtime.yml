@@ -51,6 +51,8 @@ jobs:
           from pathlib import Path
           baseline=json.loads(Path("/tmp/chronicles-compose.json").read_text())
           stage=json.loads(Path("/tmp/chronicles-staging-compose.json").read_text())
+          assert baseline["name"] == "shadowops-chronicles"
+          assert stage["name"] == "shadowops-chronicles-staging"
           prod_api=baseline["services"]["chronicles-api"]
           stage_api=stage["services"]["chronicles-api"]
           assert "CHRONICLES_ENABLE_READ_API" not in prod_api.get("environment", {})
