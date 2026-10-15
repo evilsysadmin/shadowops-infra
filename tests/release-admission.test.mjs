@@ -5,7 +5,7 @@ const sha='a'.repeat(40),digest='sha256:'+'b'.repeat(64);
 const candidate={repository:'evilsysadmin/chronicles-of-matthias',service:'chronicles-api',sha,digest,environment:'staging'};
 const context={event:'repository_dispatch',actorRepository:candidate.repository};
 const run={workflow_id:386009048,repository:{full_name:'evilsysadmin/chronicles-of-matthias'},head_sha:sha,event:'push',head_branch:'main',status:'completed',conclusion:'success',path:'.github/workflows/staging-image.yml'};
-const statement={subject:[{digest:{sha256:'b'.repeat(64)}}],predicate:{buildDefinition:{externalParameters:{workflow:{repository:'https://github.com/evilsysadmin/chronicles-of-matthias'}},resolvedDependencies:[{digest:{gitCommit:sha}}]}}};
+const statement={predicateType:'https://slsa.dev/provenance/v1',subject:[{digest:{sha256:'b'.repeat(64)}}],predicate:{buildDefinition:{externalParameters:{workflow:{repository:'https://github.com/evilsysadmin/chronicles-of-matthias'}},resolvedDependencies:[{digest:{gitCommit:sha}}]}}};
 const attestationRunner=()=>({status:0,stdout:JSON.stringify([{verificationResult:{statement}}])});
 function fetchImpl(url) {
  const path=new URL(url).pathname;

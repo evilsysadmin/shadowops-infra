@@ -1,0 +1,26 @@
+name: Verify published Chronicles GHCR provenance
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+  packages: read
+jobs:
+  verify-known-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EXPECTED_SHA: 329b6b63244bd1dbe9d504d5a0340a78acf933bb
+      EXPECTED_DIGEST: sha256:3aa847cb86f7e29b1473c6ccaefdceddfcf8e1e5208fb25b84e82ce22f07bd50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify exact known published image and signer
+        run: |
+          node --input-type=module <<'NODE'
+          import { verifyImage } from './scripts/verify-image-attestation.mjs';
+          const result=verifyImage({sha:process.env.EXPECTED_SHA,digest:process.env.EXPECTED_DIGEST});
+          if(!result.verified) throw new Error('source attestation unverified');
+          console.log('Verified historical GHCR image with signed source and workflow identity');
+          NODE
