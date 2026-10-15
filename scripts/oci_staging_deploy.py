@@ -17,6 +17,8 @@ import platform
 import re
 import subprocess
 import sys
+import tempfile
+from datetime import datetime, timezone
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Mapping
@@ -110,6 +112,51 @@ def _exclusive_lock(directory: Path):
         raise DeployError("cannot acquire private staging deploy lock") from exc
 
 
+
+def _write_verified_receipt(
+    state: Path, sha: str, digest: str, run_id: int,
+    now: Callable[[], datetime] | None = None,
+) -> Path:
+    """Atomically persist evidence only after authenticated smoke succeeds.
+
+    This is a host-local receipt, not a signature or independent proof of
+    OCI deployment. The release ledger must still validate source evidence.
+    """
+    moment = (now or (lambda: datetime.now(timezone.utc)))()
+    if moment.tzinfo is None:
+        raise DeployError("receipt timestamp must include a timezone")
+    receipt = {
+        "repository": "evilsysadmin/chronicles-of-matthias",
+        "service": "chronicles-api",
+        "environment": "staging",
+        "sha": sha,
+        "digest": digest,
+        "workflowRunId": run_id,
+        "healthPassed": True,
+        "smokePassed": True,
+        "deployedAt": moment.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+    final = state / "last-verified-staging-receipt.json"
+    if final.is_symlink():
+        raise DeployError("unsafe staging receipt destination")
+    temporary = None
+    try:
+        fd, temporary = tempfile.mkstemp(prefix=".receipt-", suffix=".json", dir=state)
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(receipt, handle, separators=(",", ":"), sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, final)
+        return final
+    except OSError as exc:
+        raise DeployError("unable to persist verified staging receipt") from exc
+    finally:
+        if temporary is not None and os.path.exists(temporary):
+            os.unlink(temporary)
+
+
 def run_staging(
     *, sha: str, run_id: int, env: Mapping[str, str],
     deploy: bool = False, runner: Callable = subprocess.run,
@@ -179,6 +226,7 @@ def run_staging(
             smoke("http://127.0.0.1:18081", owner, other, expected["run"], expected["map"])
         except (SmokeError, OSError, TimeoutError) as exc:
             raise DeployError("synthetic staging HTTP smoke failed; investigate or roll back") from exc
+        _write_verified_receipt(state, sha, digest, run_id)
         return "CHRONICLES_OCI_STAGING_VERIFIED"
 
 
