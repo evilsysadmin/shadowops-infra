@@ -31,3 +31,28 @@ and GitHub attestation `56438420`. These are historical evidence pointers,
 **not an automatic deployment decision or a permanent current image pin**.
 Actual release admission must query current GitHub evidence, verify signed
 provenance and pass the independent gates.
+
+
+## Diagnosing a ruleset that looks active but does not protect main
+
+The read-only diagnostic `node scripts/inspect-main-protection.mjs` queries
+GitHub's branch API, lists active repository rulesets, and fetches their full
+conditions and required check definitions. It exits nonzero unless `main` is
+reported protected and an active rule targets `main` with PR merging, no
+force-push/deletion, and the four **PR-available** checks:
+`repository-contract`, `build-and-test`, `smoke`, and
+`staging-image-policy`. The post-merge publication job is deliberately not
+a required PR check. The script does **not** change GitHub settings.
+
+The initial `Protect main` rule (ID `25198769`) was active, but inspection
+on October 15 found both `conditions.ref_name.include: []` and
+`required_status_checks: []`, while `main.protected` remained false.
+Fix it in
+[the Chronicles rule editor](https://github.com/evilsysadmin/chronicles-of-matthias/rules/25198769):
+set target to default branch (`~DEFAULT_BRANCH`) and select the four check
+contexts above. This user-facing GitHub action is required before the
+admission controller will accept a release.
+
+This is a supplementary configuration diagnostic, **not a substitute** for
+the existing independently authenticated release admission chain. It does
+not sign a receipt or deploy an OCI artifact.
