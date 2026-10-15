@@ -58,3 +58,31 @@ or alter MongoDB data while rolling back.
 **Not yet solved:** browser CORS/auth flow, identity/save migration across
 origins, full Python HTTP parity, gameplay writes/checkpoints and production
 promotion. Passing this contract is not permission for production cutover.
+
+
+## Read-only HTTP smoke after an actual staging deployment
+
+Create two **synthetic** staging accounts with different valid session tokens.
+Seed a test expedition for the first account in the staging MongoDB database.
+Store each JWT in a separate private regular file (permissions 0600 or 0400)
+on the staging host. Never put JWTs in command arguments, shell history,
+GitHub Actions logs or test reports.
+
+From the staging host, while the exact approved image digest is running:
+
+```sh
+python3 scripts/staging_read_smoke.py \
+  --base-url http://127.0.0.1:18081 \
+  --owner-token-file /path/to/private/owner.jwt \
+  --other-token-file /path/to/private/other.jwt \
+  --run-id fixture-run \
+  --expected-map crypt-eight-squares
+```
+
+The script allows **loopback HTTP only**, bypasses HTTP proxies and issues
+**GET requests only**. It checks liveness/readiness, anonymous 401s, list and
+full-save restore, isolation between the two accounts, private-field omission
+and the intentionally absent bootstrap route. It never attempts a write,
+delete or checkpoint. A passing synthetic smoke is **not proof of F5/browser
+continuity or production migration**. Do not perform smoke with real player
+identities or saves.
