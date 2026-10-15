@@ -17,7 +17,7 @@ export async function verifyGithubBuild({sha, runId, token, fetchImpl = fetch}) 
   }
   const run = await get('/actions/runs/' + runId);
   if (run.head_sha !== sha || run.event !== 'push' || run.head_branch !== 'main' || run.status !== 'completed' || run.conclusion !== 'success') throw new Error('untrusted workflow run');
-  if (run.path !== '.github/workflows/' + WORKFLOW && run.name !== 'Publish Chronicles') throw new Error('untrusted workflow identity');
+  if (run.path !== '.github/workflows/' + WORKFLOW) throw new Error('untrusted workflow identity');
   const commit = await get('/commits/' + sha);
   if (commit.sha !== sha) throw new Error('commit mismatch');
   const branch = await get('/branches/main');
