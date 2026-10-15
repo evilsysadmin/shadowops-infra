@@ -81,6 +81,8 @@ jobs:
           fi
       - name: Verify OCI staging host preflight contract
         run: python3 -m unittest discover -s scripts -p 'test_staging_host_preflight.py' -v
+      - name: Exercise OCI A1 preflight and deploy executor with fake services
+        run: python3 -m unittest discover -s scripts -p 'test_oci_staging_deploy.py' -v
       - name: Reject missing image digest or Mongo configuration
         run: |
           set -euo pipefail
