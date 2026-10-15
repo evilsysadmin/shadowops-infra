@@ -3,6 +3,11 @@ services:
   chronicles-api:
     image: ghcr.io/evilsysadmin/chronicles-api@${CHRONICLES_IMAGE_DIGEST:?Set a verified sha256 image digest}
     restart: unless-stopped
+    environment:
+      CHRONICLES_MONGODB_URI_FILE: /run/secrets/chronicles_mongodb_uri
+      CHRONICLES_MONGODB_DATABASE: ${CHRONICLES_MONGODB_DATABASE:?Set a dedicated Chronicles MongoDB database}
+    secrets:
+      - chronicles_mongodb_uri
     read_only: true
     init: true
     security_opt:
@@ -17,8 +22,12 @@ services:
     ports:
       - "127.0.0.1:18081:8080"
     healthcheck:
-      test: ["CMD", "/app/chronicles-api", "healthcheck"]
+      test: ["CMD", "/app/chronicles-api", "readycheck"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
+
+secrets:
+  chronicles_mongodb_uri:
+    file: ${CHRONICLES_MONGO_SECRET_FILE:?Set an absolute host path to the MongoDB URI secret}

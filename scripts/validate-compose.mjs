@@ -10,7 +10,12 @@ const required = [
   'cap_drop:',
   'mem_limit:',
   '127.0.0.1:18081:8080',
-  'healthcheck:'
+  'healthcheck:',
+  'readycheck',
+  'CHRONICLES_MONGODB_URI_FILE: /run/secrets/chronicles_mongodb_uri',
+  'CHRONICLES_MONGODB_DATABASE',
+  'CHRONICLES_MONGO_SECRET_FILE',
+  'secrets:',
 ];
 for (const item of required) if (!compose.includes(item)) throw new Error('Missing Compose safeguard: ' + item);
 if (/chess-api:|chess-studio-api:/.test(compose)) throw new Error('Chess Studio is outside scope');
