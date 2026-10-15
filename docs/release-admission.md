@@ -4,7 +4,10 @@ The command `scripts/check-staging-candidate.mjs` is an explicit, **read-only
 pre-deployment gate**. It never invokes Docker, OCI, Render or Cloudflare and
 never stores or changes secrets or game state.
 
-Provide `GH_TOKEN` securely through an approved secret injector before\nrunning the command; do not paste the token into shell history.\n\nIt accepts only a SHA, an immutable image digest and the GitHub source
+Provide `GH_TOKEN` securely through an approved secret injector before
+running the command; do not paste the token into shell history.
+
+It accepts only a SHA, an immutable image digest and the GitHub source
 publication run ID. The repository, service, staging environment and dispatch
 identity are fixed internally. Check names and source evidence cannot be
 supplied by the calling process.
@@ -37,12 +40,18 @@ Successful accreditation requires, in order:
 
 The command prints `STAGING_CANDIDATE_ACCREDITED` only when every gate
 passes, otherwise returns nonzero with `STAGING_CANDIDATE_BLOCKED`. The
-current Chronicles `main` branch reported **unprotected** on 2026-10-15,
-so an otherwise valid real candidate should be **blocked** pending
-[Chronicles #49](https://github.com/evilsysadmin/chronicles-of-matthias/issues/49).
+current Chronicles `main` branch is now protected (verified through GitHub's branch and active ruleset
+APIs on 2026-10-15), with the four required pull-request checks configured.
+The full live admission proof executes in the GHCR provenance workflow
+before any new staging deployment is authorized.
 
 **No deployment is triggered even on success.** Staging still needs an
 approved OCI executor, host/secret provisioning, independent live smoke,
 trusted receipt and rollback before any production promotion. This CLI
 does not accept untrusted external `requiredContexts`, evidence JSON
 or actor identity.
+
+The preflight workflow uses an exact **historical** build as a signed evidence
+fixture. To deploy a new candidate, rerun the admission against the exact
+current SHA, digest and source run; a passing historical fixture alone is not
+deployment permission.
