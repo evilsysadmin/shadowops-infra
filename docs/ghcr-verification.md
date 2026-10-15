@@ -30,3 +30,21 @@ permissions; **never** disable signature verification, accept untrusted
 predicate claims, or move signing secrets into repository files.
 
 No OCI/Render deployment or Chess Studio change is performed here.
+
+
+## Current OCI A1 candidate verified from protected main
+
+After Chronicles PR #50, the source build publishes a genuine multi-platform
+manifest with both `linux/amd64` and `linux/arm64`. ShadowOps live CI
+independently reads its OCI manifest and runs the **complete release
+accreditation** against:
+
+- Source SHA: `3322ca30f0009f7f371940bf689429e45968e187`
+- Source publication workflow run: `38812775390`
+- Immutable multiarch manifest digest:
+  `sha256:09d91f4a45e1c3b69098526aea5fdff1fe74daf0537ffd22badc5217fbb58634`
+- Sigstore provenance: `https://github.com/evilsysadmin/chronicles-of-matthias/attestations/56447971`
+
+The earlier `329b6b6` image is historical and **not suitable for OCI A1**.
+This verification is read-only; it does not create a staging server, provision
+secrets, register DNS, write a game save or deploy to production.

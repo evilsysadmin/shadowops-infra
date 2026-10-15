@@ -13,10 +13,19 @@ jobs:
     timeout-minutes: 8
     env:
       GH_TOKEN: ${{ github.token }}
-      EXPECTED_SHA: 329b6b63244bd1dbe9d504d5a0340a78acf933bb
-      EXPECTED_DIGEST: sha256:3aa847cb86f7e29b1473c6ccaefdceddfcf8e1e5208fb25b84e82ce22f07bd50
+      EXPECTED_SHA: 3322ca30f0009f7f371940bf689429e45968e187
+      EXPECTED_DIGEST: sha256:09d91f4a45e1c3b69098526aea5fdff1fe74daf0537ffd22badc5217fbb58634
     steps:
       - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Verify published multiarch manifest includes OCI A1 ARM64
+        run: |
+          set -euo pipefail
+          docker buildx imagetools inspect --raw \
+            "ghcr.io/evilsysadmin/chronicles-api@$EXPECTED_DIGEST" \
+            > "$RUNNER_TEMP/chronicles-a1-manifest.json"
+          jq -e '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64")] | length == 1' "$RUNNER_TEMP/chronicles-a1-manifest.json"
+          jq -e '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == "arm64")] | length == 1' "$RUNNER_TEMP/chronicles-a1-manifest.json"
       - name: Verify exact known published image and signer
         run: |
           node --input-type=module <<'NODE'
@@ -27,7 +36,7 @@ jobs:
           NODE
       - name: Verify fixed source CI jobs against real GitHub check runs
         env:
-          PUBLISHED_RUN_ID: 38808611625
+          PUBLISHED_RUN_ID: 38812775390
         run: |
           node --input-type=module <<'NODE'
           import { verifyRequiredChecks } from './policy/required-checks.mjs';
@@ -41,7 +50,7 @@ jobs:
 
       - name: Exercise full release admission against real protected main
         env:
-          VERIFIED_RUN_ID: 38808611625
+          VERIFIED_RUN_ID: 38812775390
         run: |
           set -euo pipefail
           node scripts/check-staging-candidate.mjs \
