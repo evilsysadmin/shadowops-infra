@@ -6,6 +6,7 @@ on:
 permissions:
   contents: read
   packages: read
+  checks: read
 jobs:
   verify-known-image:
     runs-on: ubuntu-latest
@@ -23,4 +24,17 @@ jobs:
           const result=verifyImage({sha:process.env.EXPECTED_SHA,digest:process.env.EXPECTED_DIGEST});
           if(!result.verified) throw new Error('source attestation unverified');
           console.log('Verified historical GHCR image with signed source and workflow identity');
+          NODE
+      - name: Verify fixed source CI jobs against real GitHub check runs
+        env:
+          PUBLISHED_RUN_ID: 38808611625
+        run: |
+          node --input-type=module <<'NODE'
+          import { verifyRequiredChecks } from './policy/required-checks.mjs';
+          const result = await verifyRequiredChecks({
+            sha: process.env.EXPECTED_SHA,
+            token: process.env.GH_TOKEN,
+            sourceRunId: Number(process.env.PUBLISHED_RUN_ID)
+          });
+          console.log('Verified '+ result.requiredContexts.length +' trusted source jobs');
           NODE
