@@ -1,0 +1,24 @@
+name: shadowops-chronicles
+services:
+  chronicles-api:
+    image: ghcr.io/evilsysadmin/chronicles-api@\${CHRONICLES_IMAGE_DIGEST:?Set a verified sha256 image digest}
+    restart: unless-stopped
+    read_only: true
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 0.75
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    ports:
+      - "127.0.0.1:18081:8080"
+    healthcheck:
+      test: ["CMD", "/app/chronicles-api", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
