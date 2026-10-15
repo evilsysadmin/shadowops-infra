@@ -1,0 +1,14 @@
+# Explicit staging-only opt-in. Never include this file in production.
+# Requires Chronicles Go API >= PR #45 (authenticated read-only runs).
+services:
+  chronicles-api:
+    environment:
+      CHRONICLES_ENVIRONMENT: staging
+      CHRONICLES_ENABLE_READ_API: "true"
+      CHRONICLES_JWT_SECRET_FILE: /run/secrets/chronicles_staging_jwt
+    secrets:
+      - chronicles_staging_jwt
+
+secrets:
+  chronicles_staging_jwt:
+    file: ${CHRONICLES_STAGING_JWT_SECRET_FILE:?Set a staging-only JWT signing key file}
