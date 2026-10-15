@@ -38,3 +38,13 @@ jobs:
           });
           console.log('Verified '+ result.requiredContexts.length +' trusted source jobs');
           NODE
+
+      - name: Exercise full release admission against real protected main
+        env:
+          VERIFIED_RUN_ID: 38808611625
+        run: |
+          set -euo pipefail
+          node scripts/check-staging-candidate.mjs \
+            --sha "$EXPECTED_SHA" \
+            --digest "$EXPECTED_DIGEST" \
+            --run-id "$VERIFIED_RUN_ID"
