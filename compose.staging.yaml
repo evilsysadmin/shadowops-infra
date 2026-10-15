@@ -4,6 +4,8 @@ name: shadowops-chronicles-staging
 # Requires Chronicles Go API >= PR #45 (authenticated read-only runs).
 services:
   chronicles-api:
+    # OCI Ampere A1: refuse to start an amd64-only image in staging.
+    platform: linux/arm64
     environment:
       CHRONICLES_ENVIRONMENT: staging
       CHRONICLES_ENABLE_READ_API: "true"
