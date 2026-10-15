@@ -9,17 +9,41 @@ jobs:
   compose:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      CHRONICLES_IMAGE_DIGEST: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      CHRONICLES_MONGODB_DATABASE: chronicles_ci
+      CHRONICLES_MONGO_SECRET_FILE: /tmp/chronicles-ci-mongo-uri
     steps:
       - uses: actions/checkout@v4
-      - name: Validate actual Docker Compose interpolation and schema
-        env:
-          CHRONICLES_IMAGE_DIGEST: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      - name: Create fake mounted-secret fixture
         run: |
+          printf '%s' 'mongodb://127.0.0.1:27017' > "$CHRONICLES_MONGO_SECRET_FILE"
+          chmod 0400 "$CHRONICLES_MONGO_SECRET_FILE"
+      - name: Validate interpolated Compose and secret/readiness contract
+        run: |
+          set -euo pipefail
           docker compose -f compose.yaml config --quiet
           docker compose -f compose.yaml config --images | grep -Fx 'ghcr.io/evilsysadmin/chronicles-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
-      - name: Reject missing digest
+          docker compose -f compose.yaml config --format json > /tmp/chronicles-compose.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path("/tmp/chronicles-compose.json").read_text())
+          api = data["services"]["chronicles-api"]
+          assert api["healthcheck"]["test"] == ["CMD", "/app/chronicles-api", "readycheck"]
+          assert api["environment"]["CHRONICLES_MONGODB_URI_FILE"] == "/run/secrets/chronicles_mongodb_uri"
+          assert api["environment"]["CHRONICLES_MONGODB_DATABASE"] == "chronicles_ci"
+          assert "CHRONICLES_MONGODB_URI" not in api["environment"]
+          assert "chronicles_mongodb_uri" in api["secrets"][0]["source"]
+          assert data["secrets"]["chronicles_mongodb_uri"]["file"] == "/tmp/chronicles-ci-mongo-uri"
+          print("Chronicles Mongo secret and readiness wiring verified")
+          PY
+      - name: Reject missing image digest or Mongo configuration
         run: |
-          if env -u CHRONICLES_IMAGE_DIGEST docker compose -f compose.yaml config --quiet >/dev/null 2>&1; then
-            echo 'ERROR: Compose accepted missing image digest' >&2
-            exit 1
-          fi
+          set -euo pipefail
+          for variable in CHRONICLES_IMAGE_DIGEST CHRONICLES_MONGODB_DATABASE CHRONICLES_MONGO_SECRET_FILE; do
+            if env -u "$variable" docker compose -f compose.yaml config --quiet >/dev/null 2>&1; then
+              echo "ERROR: Compose accepted missing $variable" >&2
+              exit 1
+            fi
+          done
