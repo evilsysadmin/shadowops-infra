@@ -53,11 +53,13 @@ jobs:
           stage=json.loads(Path("/tmp/chronicles-staging-compose.json").read_text())
           assert baseline["name"] == "shadowops-chronicles"
           assert stage["name"] == "shadowops-chronicles-staging"
+          assert stage["services"]["chronicles-api"]["platform"] == "linux/arm64"
           prod_api=baseline["services"]["chronicles-api"]
           stage_api=stage["services"]["chronicles-api"]
           assert "CHRONICLES_ENABLE_READ_API" not in prod_api.get("environment", {})
           assert "CHRONICLES_ENVIRONMENT" not in prod_api.get("environment", {})
           assert "CHRONICLES_JWT_SECRET_FILE" not in prod_api.get("environment", {})
+          assert "platform" not in prod_api
           config=stage_api["environment"]
           assert config["CHRONICLES_ENVIRONMENT"] == "staging"
           assert config["CHRONICLES_ENABLE_READ_API"] == "true"

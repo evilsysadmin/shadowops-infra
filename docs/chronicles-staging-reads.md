@@ -114,3 +114,18 @@ This is an **additional preflight**, not a replacement for the independently
 verified GHCR signature/source-SHA admission gate or real MongoDB readiness
 and authenticated smoke tests. Run only against synthetic staging identities
 and a dedicated staging database, never against Chess Studio production.
+
+
+## Architecture gate for OCI Ampere A1
+
+This staging overlay pins `platform: linux/arm64`. It is intentionally
+applied **only** on OCI Ampere A1; baseline `compose.yaml` remains
+architecture-neutral. A manifest without an ARM64 variant must not be
+deployed. The current Chronicles publisher builds a multi-platform manifest
+with `linux/amd64` and `linux/arm64`, validates both manifest entries
+and runs an ARM64 container smoke before pushing a signed digest.
+
+Always pass the **new multiarch manifest digest** to
+`CHRONICLES_IMAGE_DIGEST`; historical pre-multiarch image digests should
+not be selected for the A1 staging rollout. A protected-main source SHA and
+a passing Sigstore/CI admission are still mandatory.
