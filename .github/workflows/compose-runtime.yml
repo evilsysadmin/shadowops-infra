@@ -13,12 +13,15 @@ jobs:
       CHRONICLES_IMAGE_DIGEST: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
       CHRONICLES_MONGODB_DATABASE: chronicles_ci
       CHRONICLES_MONGO_SECRET_FILE: /tmp/chronicles-ci-mongo-uri
+      CHRONICLES_STAGING_JWT_SECRET_FILE: /tmp/chronicles-ci-stage-jwt
     steps:
       - uses: actions/checkout@v4
       - name: Create fake mounted-secret fixture
         run: |
           printf '%s' 'mongodb://127.0.0.1:27017' > "$CHRONICLES_MONGO_SECRET_FILE"
           chmod 0400 "$CHRONICLES_MONGO_SECRET_FILE"
+          printf "%s" "fake-staging-test-signing-key-not-for-production" > "$CHRONICLES_STAGING_JWT_SECRET_FILE"
+          chmod 0400 "$CHRONICLES_STAGING_JWT_SECRET_FILE"
       - name: Validate interpolated Compose and secret/readiness contract
         run: |
           set -euo pipefail
@@ -38,6 +41,42 @@ jobs:
           assert data["secrets"]["chronicles_mongodb_uri"]["file"] == "/tmp/chronicles-ci-mongo-uri"
           print("Chronicles Mongo secret and readiness wiring verified")
           PY
+      - name: Verify staging-only read API overlay and baseline isolation
+        run: |
+          set -euo pipefail
+          docker compose -f compose.yaml -f compose.staging.yaml config --quiet
+          docker compose -f compose.yaml -f compose.staging.yaml config --format json > /tmp/chronicles-staging-compose.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          baseline=json.loads(Path("/tmp/chronicles-compose.json").read_text())
+          stage=json.loads(Path("/tmp/chronicles-staging-compose.json").read_text())
+          assert baseline["name"] == "shadowops-chronicles"
+          assert stage["name"] == "shadowops-chronicles-staging"
+          prod_api=baseline["services"]["chronicles-api"]
+          stage_api=stage["services"]["chronicles-api"]
+          assert "CHRONICLES_ENABLE_READ_API" not in prod_api.get("environment", {})
+          assert "CHRONICLES_ENVIRONMENT" not in prod_api.get("environment", {})
+          assert "CHRONICLES_JWT_SECRET_FILE" not in prod_api.get("environment", {})
+          config=stage_api["environment"]
+          assert config["CHRONICLES_ENVIRONMENT"] == "staging"
+          assert config["CHRONICLES_ENABLE_READ_API"] == "true"
+          assert config["CHRONICLES_JWT_SECRET_FILE"] == "/run/secrets/chronicles_staging_jwt"
+          assert "CHRONICLES_JWT_SECRET" not in config
+          assert "CHRONICLES_MONGODB_URI" not in config
+          secret_sources={entry["source"] for entry in stage_api["secrets"]}
+          assert secret_sources == {"chronicles_mongodb_uri", "chronicles_staging_jwt"}
+          assert stage["secrets"]["chronicles_staging_jwt"]["file"] == "/tmp/chronicles-ci-stage-jwt"
+          assert stage_api["healthcheck"]["test"] == ["CMD", "/app/chronicles-api", "readycheck"]
+          assert stage_api["ports"] == prod_api["ports"]
+          print("Staging overlay isolated; baseline retains disabled API")
+          PY
+      - name: Reject staging overlay without dedicated JWT secret path
+        run: |
+          if env -u CHRONICLES_STAGING_JWT_SECRET_FILE docker compose -f compose.yaml -f compose.staging.yaml config --quiet >/dev/null 2>&1; then
+            echo "ERROR: staging Compose accepted absent JWT signing secret path" >&2
+            exit 1
+          fi
       - name: Reject missing image digest or Mongo configuration
         run: |
           set -euo pipefail
