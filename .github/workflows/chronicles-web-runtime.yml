@@ -5,12 +5,18 @@ on:
       - 'compose.web.staging.yaml'
       - '.github/workflows/chronicles-web-runtime.yml'
       - 'docs/chronicles-web-staging.md'
+      - 'scripts/oci_web_staging_preflight.py'
+      - 'scripts/test_oci_web_staging_preflight.py'
+      - 'scripts/shared_a1_host_guard.py'
   push:
     branches: [main]
     paths:
       - 'compose.web.staging.yaml'
       - '.github/workflows/chronicles-web-runtime.yml'
       - 'docs/chronicles-web-staging.md'
+      - 'scripts/oci_web_staging_preflight.py'
+      - 'scripts/test_oci_web_staging_preflight.py'
+      - 'scripts/shared_a1_host_guard.py'
 permissions:
   contents: read
 jobs:
@@ -49,6 +55,8 @@ jobs:
           assert not project.get("secrets")
           print("Isolated staging web contract verified")
           PY
+      - name: Exercise signed A1 web release admission with fake GitHub, GHCR and Docker
+        run: python3 -m unittest discover -s scripts -p 'test_oci_web_staging_preflight.py' -v
       - name: Reject missing manifest digest
         run: |
           set -euo pipefail
