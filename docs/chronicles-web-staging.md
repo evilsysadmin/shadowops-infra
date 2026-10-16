@@ -114,3 +114,25 @@ operator investigation or rollback; there is no claim of automatic recovery.
 the dedicated wrapper is not installed on OCI, and the Chronicles web origin
 has not been deployed. The first real release, DNS/TLS and extraction of the
 playable game are separate gates.
+
+## Trusted-main OCI release controller — ready to wire, manual-only
+
+ShadowOps owns `.github/workflows/chronicles-web-oci-release.yml`.
+It is **manually dispatched** from protected `main` with the immutable source
+SHA, GHCR manifest digest and completed source publication run ID. The
+admission job has **no OCI secrets**: it verifies GitHub protected-source
+ancestry, both trusted publish jobs, Sigstore provenance tied to the exact
+source workflow, multiarch support and the independent hardened Compose
+policy. Only when that succeeds may a second job use the OCI API credentials.
+
+OCI Run Command sends the literal digest and an exact fixed
+`sudo --non-interactive /usr/local/sbin/shadowops-chronicles-web deploy`
+invocation to the **already adopted A1**. It targets no other host, exposes
+no runtime credentials and demands an exact post-deploy smoke marker.
+It never invokes Chess Studio's deploy wrapper.
+
+The controller is currently **not executable to completion** until the
+one-time, authorized root installation described above has installed the
+restricted Chronicles-only host wrapper and sudoers. Running it prematurely
+fails closed; passing offline CI checks does not constitute a deployment.
+No Cloudflare routing or production change is included.
