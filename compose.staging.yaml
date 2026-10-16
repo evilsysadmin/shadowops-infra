@@ -1,5 +1,6 @@
 # Explicit staging-only opt-in. Never include this file in production.
-# Deploy on a separate staging host: the loopback published port is shared.
+# A1 is shared with Chess Studio. The baseline Chronicles project must NOT
+# coexist with this staging overlay because both use loopback port 18081.
 name: shadowops-chronicles-staging
 # Requires Chronicles Go API >= PR #45 (authenticated read-only runs).
 services:

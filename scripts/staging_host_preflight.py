@@ -67,8 +67,8 @@ def verify_staging_environment(env: Mapping[str, str], loader=None) -> str:
     database = env.get("CHRONICLES_MONGODB_DATABASE", "")
     if not DIGEST.fullmatch(digest):
         raise PreflightError("staging image must be an immutable sha256 digest")
-    if not DATABASE.fullmatch(database) or "staging" not in database.lower():
-        raise PreflightError("MongoDB name must be dedicated to staging")
+    if database != "chronicles_staging":
+        raise PreflightError("MongoDB name must be exactly chronicles_staging")
     if env.get("CHRONICLES_ENABLE_READ_API") not in (None, "", "true"):
         raise PreflightError("unexpected staging read API configuration")
     if env.get("CHRONICLES_ENVIRONMENT") not in (None, "", "staging"):

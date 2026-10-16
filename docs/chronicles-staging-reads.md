@@ -1,16 +1,24 @@
 # Chronicles authenticated read API: staging opt-in
 
-**Status:** configuration contract only. This change does not provision a server,
+**Status:** shared-A1 deployment contract only. This change does not provision a server,
 publish a container, transfer a save, create an account or deploy staging.
 
 ## Isolation and prerequisites
 
-- Apply only on the dedicated OCI staging host. `compose.staging.yaml` uses
-  the `shadowops-chronicles-staging` project; the baseline Compose project is
-  `shadowops-chronicles`. Both publish the same loopback port, so **do not run
-  them on the same host**.
+- The existing OCI Ampere A1 is **shared with Chess Studio**. `compose.staging.yaml`
+  uses only `shadowops-chronicles-staging`, bound to 127.0.0.1:18081. The
+  baseline `shadowops-chronicles` Compose project also reserves 18081 and
+  must not coexist, even as a stopped container. The independent Chronicles web
+  project `shadowops-chronicles-web-staging` owns 127.0.0.1:18082. Both
+  projects must be independent of the Chess Studio services on 4000/4100.
+  `scripts/shared_a1_host_guard.py` reads Docker's full container census
+  and blocks unknown services on 18081/18082, duplicate staging containers,
+  foreign/wildcard bindings, and the legacy baseline project. This guard is
+  checked twice for a deployment, including immediately before image pull.
 - Use an attested, digest-pinned Chronicles API image that contains
   `chronicles-of-matthias` PR #45 or later, from a reviewed staging SHA.
+- Use **exactly** `CHRONICLES_MONGODB_DATABASE=chronicles_staging`; names
+  merely containing `staging` are not sufficient for isolation.
 - Supply a **staging-only** MongoDB URI via
   `CHRONICLES_MONGO_SECRET_FILE` and the explicitly isolated
   `CHRONICLES_MONGODB_DATABASE`. Staging must never point to a production
@@ -25,7 +33,7 @@ publish a container, transfer a save, create an account or deploy staging.
 
 ## Deployment admission
 
-Run on the dedicated staging host only, with the three required host-local
+Run on the shared A1 only after the collision census passes, with the required host-local
 environment variables and a vetted `CHRONICLES_IMAGE_DIGEST` already set:
 
 ```sh
@@ -90,7 +98,7 @@ identities or saves.
 
 ## Host preflight before the first OCI Compose launch
 
-On the isolated OCI staging host, set the verified immutable
+On the shared OCI A1, set the verified immutable
 `CHRONICLES_IMAGE_DIGEST`, dedicated
 `CHRONICLES_MONGODB_DATABASE=chronicles_staging` and absolute local paths
 `CHRONICLES_MONGO_SECRET_FILE` and `CHRONICLES_STAGING_JWT_SECRET_FILE`.
@@ -166,9 +174,10 @@ On failed readiness or smoke, the command fails clearly without printing
 tokens or mutating other services. Operators must inspect or roll back the
 staging service using the previously approved digest; there is **no
 automatic production rollback** or implicit assumption of a successful
-deployment. Keep this staging launcher on the isolated host, not on an
-untrusted workstation.
+deployment. Keep this staging launcher on the reviewed shared A1, not on an
+untrusted workstation. `--check-only` also runs the collision census:
+a green offline unit test is not proof that the A1 ports are free.
 
-This repository **does not provision OCI A1**, populate MongoDB, install
+This repository **does not provision another OCI A1**, populate MongoDB, install
 the Docker/GitHub CLI/Node/Python tools or provide the cloud credentials.
 A passing CI unit test is not proof the script ran on the user's OCI instance.

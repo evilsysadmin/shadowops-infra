@@ -26,6 +26,7 @@ from typing import Callable, Mapping
 
 from staging_host_preflight import PreflightError, verify_staging_environment
 from staging_read_smoke import SmokeError, read_private_token, verify_staging_reads
+from shared_a1_host_guard import SharedHostError, verify_shared_a1_containers
 
 ROOT = Path(__file__).resolve().parents[1]
 SHA = re.compile(r"^[a-f0-9]{40}$")
@@ -82,7 +83,7 @@ def _assert_compose(config: dict, digest: str) -> None:
     }
     if not isinstance(environment, dict) or any(
         environment.get(key) != value for key, value in expected.items()
-    ) or "CHRONICLES_MONGODB_URI" in environment or "CHRONICLES_JWT_SECRET" in environment:
+    ) or environment.get("CHRONICLES_MONGODB_DATABASE") != "chronicles_staging" or "CHRONICLES_MONGODB_URI" in environment or "CHRONICLES_JWT_SECRET" in environment:
         raise DeployError("staging read API secrets or runtime policy mismatch")
     sources = {item.get("source") for item in api.get("secrets", [])}
     if sources != {"chronicles_mongodb_uri", "chronicles_staging_jwt"}:
@@ -210,6 +211,7 @@ def run_staging(
     architecture: str | None = None, host_preflight: Callable = verify_staging_environment,
     smoke: Callable = verify_staging_reads, token_reader: Callable = read_private_token,
     lock_dir: Path | None = None,
+    host_collision_guard: Callable = verify_shared_a1_containers,
 ) -> str:
     if not SHA.fullmatch(sha) or not isinstance(run_id, int) or run_id <= 0:
         raise DeployError("source SHA or publishing workflow run ID is invalid")
@@ -225,6 +227,12 @@ def run_staging(
     home = Path(env.get("HOME") or str(Path.home()))
     state = lock_dir or home / ".local" / "state" / "chronicles-staging"
     with _exclusive_lock(state):
+        # A1 is shared with Chess Studio: enumerate current Docker owners
+        # before any image admission, and fail closed on collisions.
+        try:
+            host_collision_guard(runner)
+        except SharedHostError as exc:
+            raise DeployError("shared A1: " + str(exc)) from exc
         # Independently verify source workflow, main protection, all CI jobs
         # and signed GHCR manifest. No operator-provided check lists allowed.
         _command(runner, [
@@ -264,6 +272,12 @@ def run_staging(
         if owner == other:
             raise DeployError("synthetic smoke users must be different")
 
+        # Recheck immediately before the first Docker mutation; other projects
+        # may have started while source/GHCR admission was running.
+        try:
+            host_collision_guard(runner)
+        except SharedHostError as exc:
+            raise DeployError("shared A1: " + str(exc)) from exc
         _command(runner, [*COMPOSE, "pull", "chronicles-api"], env, "immutable staging image pull")
         # The image pull is not a deployment. Retire any old success proof
         # immediately before the first operation that can change live state.
