@@ -6,6 +6,7 @@ on:
       - 'scripts/oci_host_probe.py'
       - 'scripts/oci_control_plane.py'
       - 'tests/test_oci_host_probe.py'
+      - 'tests/test_oci_probe_admission.py'
   push:
     branches: [main]
     paths:
@@ -30,7 +31,7 @@ jobs:
   probe:
     name: Nonprivileged host readiness via OCI Run Command
     needs: contracts
-    if: (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     concurrency:
