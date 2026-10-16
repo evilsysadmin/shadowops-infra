@@ -216,3 +216,26 @@ built `.woff2` asset in the independent root Vite bundle. React root
 `/legacy-preview/` the static backup. Neither route is proof of the
 full legacy game's functional parity: HP/SP, combat, NPC/shops and
 persistent runs still require the complete original runtime extraction.
+
+## Canonical MM3 reducer and full Terra map topology milestone
+
+The protected source chain now includes
+[Chronicles PR #74](https://github.com/evilsysadmin/chronicles-of-matthias/pull/74)
+(13 exact MM3 world/economy modules plus 17 explicit authored maps) and
+[Chronicles PR #75](https://github.com/evilsysadmin/chronicles-of-matthias/pull/75)
+(the entire original 35KB `chroniclesOfMatthias.js` reducer, all 44
+previously missing Terra maps, plus a live boot of the four-person MM3
+party). All 61 original map manifests are present and validated against
+missing/broken bidirectional region return links; 11 real Chromium tests
+confirmed WebGL and real initial party PV/PH in landscape and portrait.
+
+Infra's Pages release now checks the canonical initial MM3 party markers in
+the built **root** React JavaScript and CSS and the six previously missing
+Terra regions in the pinned protected checkout. Deployment still requires
+successful HTTPS smoke and preserves `/react/` + `/legacy-preview/`.
+
+The walking controls in the current Swordhaven view remain a separate
+preview adapter: restoring original source code and initial party vitals
+does not yet mean actual initiative, NPC interaction, dungeon switches or
+owner-scoped save APIs have been connected to the view. Those remain next
+PRs; no pretend games or fabricated health values.
