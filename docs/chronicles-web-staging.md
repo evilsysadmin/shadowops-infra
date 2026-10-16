@@ -66,3 +66,51 @@ a container, creates public routing, or records a deployment receipt. It is
 not permission to launch an unreviewed digest or reuse Chess Studio's
 privileged host deploy wrapper. A separate restricted deploy controller and
 post-start origin smoke must be validated before staging goes live.
+
+## Dedicated root-owned host deployer (prepared, not installed)
+
+The OCI Run Command account `ocarun` was **actually checked** in trusted-main
+run [38885330529](https://github.com/evilsysadmin/shadowops-infra/actions/runs/38885330529).
+Its four observations were `docker=no repo=no wrapper=no gh=no`.
+Oracle authentication alone does not give that account Docker permission.
+
+ShadowOps supplies a root-owned **Chronicles web only** deployer in
+`host/chronicles-web-deploy.py`, a fixed Compose policy, an isolated
+sudoers allowlist, and one-time `host/install-chronicles-web.sh`.
+The installer is **not run by CI or OCI Run Command**. It requires a
+pre-existing operator-authorized privileged SSH/console session on the
+existing A1, and a root-owned, clean ShadowOps checkout pinned to a reviewed
+protected-main commit at `/opt/shadowops-infra`. The host administrator
+runs this only after verifying the exact source commit:
+
+```sh
+sudo /opt/shadowops-infra/host/install-chronicles-web.sh <reviewed-40-char-SHA>
+```
+
+This installs a private Compose project rooted at
+`/etc/shadowops/chronicles-web-staging`, a root-owned Python wrapper
+at `/usr/local/sbin/shadowops-chronicles-web`, a fixed Docker-ownership
+guard library, and one narrowly scoped sudoers entry for `ocarun`.
+It does not grant generic sudo, the Docker group or permission to modify
+Chess Studio. It does not touch an application container during bootstrap.
+
+**After independent GitHub/GHCR/Sigstore release accreditation**, a separate
+trusted-main deployment controller can call the fixed program through OCI
+Run Command:
+
+```sh
+sudo --non-interactive /usr/local/sbin/shadowops-chronicles-web deploy sha256:<64 lowercase hex>
+```
+
+The wrapper itself permits **only** `deploy` with an immutable SHA-256 digest,
+renders the installed root-owned Compose project, audits all Docker bindings
+(including stopped containers), pulls only the fixed Chronicles web image,
+starts only `chronicles-web` and checks its local landing-page marker.
+Only after a passing local smoke does it atomically record the deployed
+digest. A failed replacement has no success receipt and requires explicit
+operator investigation or rollback; there is no claim of automatic recovery.
+
+**Current status:** no authenticated host bootstrap has been executed,
+the dedicated wrapper is not installed on OCI, and the Chronicles web origin
+has not been deployed. The first real release, DNS/TLS and extraction of the
+playable game are separate gates.
