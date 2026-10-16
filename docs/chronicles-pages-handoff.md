@@ -199,3 +199,20 @@ repo but **gameplay is still only partially integrated**: saving,
 campaign progression, combat and equipment cannot be advertised as available
 until the real runtime/services pass parity. Home disables unavailable
 resume/load actions rather than displaying false player saves.
+
+## Exact Chronicles original MM3 VGA art release
+
+Source Chronicles PR #73 ports the **original five pixel textures**
+(frame, ruby, stone, sandstone, sapphire) and **VT323 pixel font** from
+Chess Studio into the standalone React frontend without changing their
+bytes, including its original SIL OFL license. The art now textures the
+actual in-game Swordhaven HUD rather than the old flat-color imitation.
+Source CI validates Git blob identity and Chromium WebGL/computed textures.
+
+This protected Pages release verifies original `--mm3-frame` and
+`--mm3-sapphire` CSS variables, `Chronicles Pixel` font and an actual
+built `.woff2` asset in the independent root Vite bundle. React root
+`/` is now the app; `/react/` remains a parallel preview and
+`/legacy-preview/` the static backup. Neither route is proof of the
+full legacy game's functional parity: HP/SP, combat, NPC/shops and
+persistent runs still require the complete original runtime extraction.
