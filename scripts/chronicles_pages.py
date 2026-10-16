@@ -294,10 +294,16 @@ def probe_react_preview(
             and b'Chronicles of Matthias' in html
         ):
             return "html_missing"
-        matches = set(re.findall(re.escape(assets) + rb'[A-Za-z0-9._-]+\.(?:js|css)', html))
+        asset = re.escape(assets) + rb'[A-Za-z0-9._-]+'
+        # Entry points only: the module script and the stylesheet. Vite also
+        # emits <link rel="modulepreload"> for vendor chunks; those are not
+        # entries and must not make the reference ambiguous.
+        entries = {
+            "js": set(re.findall(rb'<script\b[^>]*\bsrc="(' + asset + rb'\.js)"', html)),
+            "css": set(re.findall(rb'<link\b[^>]*\brel="stylesheet"[^>]*\bhref="(' + asset + rb'\.css)"', html)),
+        }
         for extension in ("js", "css"):
-            urls = sorted(path.decode("ascii") for path in matches
-                          if path.endswith(("." + extension).encode("ascii")))
+            urls = sorted(path.decode("ascii") for path in entries[extension])
             if len(urls) != 1:
                 return extension + "_reference"
             mime, content = get_public(urls[0],
