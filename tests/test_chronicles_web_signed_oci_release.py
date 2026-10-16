@@ -2,6 +2,8 @@
 import pathlib
 import sys
 import unittest
+import io
+from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -14,10 +16,27 @@ from test_oci_host_probe import HostSDK, ENV as OCI_ENV
 from test_oci_web_staging_preflight import (
     SHA, DIGEST, RUN_ID, ENV, read, Runner,
 )
+import oci_web_staging_preflight as preflight
 from oci_web_staging_preflight import WebPreflightError
 
 
 class SignedChroniclesReleaseTests(unittest.TestCase):
+    def test_github_compare_uses_three_dots_without_permitting_path_traversal(self):
+        # GitHub's legitimate compare SHA...main is not a ../ traversal.
+        valid = f"/repos/{preflight.SOURCE}/compare/{SHA}...main"
+        with patch.object(preflight.urllib.request, "urlopen",
+                          return_value=io.BytesIO(b'{"status":"identical","behind_by":0}')) as request:
+            self.assertEqual(preflight.github_read(valid, "read-only-token")["status"], "identical")
+            request.assert_called_once()
+        for invalid in (
+            f"/repos/{preflight.SOURCE}/compare/../actions",
+            f"/repos/{preflight.SOURCE}/compare/%2e%2e/actions",
+            f"/repos/{preflight.SOURCE}/compare/http://wrong.test",
+            "/repos/other/repo/actions/runs/1",
+        ):
+            with self.subTest(path=invalid), self.assertRaises(WebPreflightError):
+                preflight.github_read(invalid, "read-only-token")
+
     def test_admission_proves_exact_source_signature_manifest_and_compose(self):
         fake = Runner()
         result = admission.admit(SHA, DIGEST, RUN_ID, env=ENV,

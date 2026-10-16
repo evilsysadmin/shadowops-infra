@@ -35,7 +35,8 @@ class WebPreflightError(ValueError):
 
 def github_read(path: str, token: str) -> dict:
     prefix = "/repos/" + SOURCE + "/"
-    if not path.startswith(prefix) or ".." in path or "://" in path:
+    if (not path.startswith(prefix) or "://" in path or "%" in path
+            or any(part in {".", ".."} for part in path.split("/"))):
         raise WebPreflightError("GitHub request outside the fixed source repository")
     request = urllib.request.Request(
         "https://api.github.com" + path,
