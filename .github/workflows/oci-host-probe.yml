@@ -30,7 +30,7 @@ jobs:
   probe:
     name: Nonprivileged host readiness via OCI Run Command
     needs: contracts
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     concurrency:
