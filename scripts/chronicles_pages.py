@@ -182,7 +182,11 @@ def probe_https() -> str:
             if "CHRONICLES OF MATTHIAS" not in page or "todavía no es el juego" not in page:
                 return "unexpected_content"
             return "ok"
-    except urllib.error.HTTPError:
+    except urllib.error.HTTPError as exc:
+        # HTTP status is non-sensitive, unlike the response body or headers.
+        # Separate a 403 policy denial from Pages origin 522/525 or 404.
+        if isinstance(exc.code, int) and 400 <= exc.code <= 599:
+            return "http_" + str(exc.code)
         return "http_error"
     except urllib.error.URLError as exc:
         if isinstance(exc.reason, ssl.SSLError):
