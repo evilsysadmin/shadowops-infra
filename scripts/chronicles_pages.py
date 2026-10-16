@@ -290,7 +290,7 @@ def probe_react_preview() -> str:
             and b'Chronicles of Matthias' in html
         ):
             return "html_missing"
-        matches = set(re.findall(rb'/react/assets/[A-Za-z0-9._-]+\\.(?:js|css)', html))
+        matches = set(re.findall(rb'/react/assets/[A-Za-z0-9._-]+\.(?:js|css)', html))
         for extension in ("js", "css"):
             urls = sorted(path.decode("ascii") for path in matches
                           if path.endswith(("." + extension).encode("ascii")))
