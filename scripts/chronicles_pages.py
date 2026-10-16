@@ -220,6 +220,45 @@ def probe_https() -> str:
         return "invalid_response"
 
 
+
+# Only exact, same-origin assets for the real independent exploration preview.
+# Source SHA is still admitted by ShadowOps before publication.
+EXPLORATION_ASSETS = (
+    ("map", "/game/crypt-map.js", b"export const CRYPT_MAP"),
+    ("rules", "/game/exploration-core.js", b"export function explorationStep"),
+    ("viewport", "/game/exploration-preview.js", b"mountExplorationPreview"),
+    ("forge", "/game/party-preview.js", b"mountPartyForge"),
+)
+
+
+def probe_exploration_assets() -> str:
+    """Reject 200 HTML fallbacks and missing JS without printing response data."""
+    for name, path, marker in EXPLORATION_ASSETS:
+        browser_request = urllib.request.Request(
+            "https://" + HOST + path,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36"
+                ),
+                "Accept": "text/javascript,application/javascript,*/*",
+            },
+        )
+        try:
+            with urllib.request.urlopen(browser_request, timeout=10) as response:
+                mime = str(response.headers.get("Content-Type", "")).lower()
+                if response.status != 200 or "javascript" not in mime:
+                    return name + "_response"
+                if marker not in response.read(300000):
+                    return name + "_content"
+        except urllib.error.HTTPError as exc:
+            status = exc.code if isinstance(exc.code, int) and 400 <= exc.code <= 599 else None
+            return name + ("_http_" + str(status) if status else "_http_error")
+        except (urllib.error.URLError, TimeoutError, socket.timeout, UnicodeError):
+            return name + "_unavailable"
+    return "ok"
+
+
 def safe_domain_state(value: object) -> str:
     """Allowlisted Cloudflare state only: never print untrusted API payloads."""
     return value if isinstance(value, str) and value in {
@@ -246,8 +285,12 @@ def verify(timeout_seconds: int = 120) -> None:
         # otherwise hides behind ten minutes of silent status polling.
         last_probe = probe_https()
         if state == "active" and last_probe == "ok":
-            print("CHRONICLES_PAGES_STAGING_HTTPS_OK " + HOST)
-            return
+            asset_result = probe_exploration_assets()
+            if asset_result == "ok":
+                print("CHRONICLES_PAGES_STAGING_HTTPS_OK " + HOST)
+                print("CHRONICLES_PAGES_EXPLORATION_ASSETS_OK " + HOST)
+                return
+            last_probe = "assets_" + asset_result
         time.sleep(5)
     reason = (
         "Pages custom domain HTTPS did not converge"
