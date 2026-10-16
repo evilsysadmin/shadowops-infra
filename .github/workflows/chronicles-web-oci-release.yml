@@ -1,0 +1,102 @@
+name: ShadowOps OCI · signed Chronicles staging web release
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/chronicles-web-oci-release.yml'
+      - 'scripts/chronicles_web_release_admission.py'
+      - 'scripts/oci_chronicles_web_release.py'
+      - 'tests/test_chronicles_web_signed_oci_release.py'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/chronicles-web-oci-release.yml'
+      - 'scripts/chronicles_web_release_admission.py'
+      - 'scripts/oci_chronicles_web_release.py'
+      - 'tests/test_chronicles_web_signed_oci_release.py'
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact protected Chronicles main SHA (40 lowercase hex)
+        type: string
+        required: true
+      digest:
+        description: Signed GHCR multiarch manifest digest (sha256:64 lowercase hex)
+        type: string
+        required: true
+      source_run_id:
+        description: Successful Chronicles web-publish.yml Actions run ID
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_web_signed_oci_release.py' -v
+      - run: python3 scripts/oci_chronicles_web_release.py --self-test
+
+  admit:
+    name: Verify Chronicles source and GHCR signature (no OCI secrets)
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      digest: ${{ steps.admission.outputs.digest }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CHRONICLES_WEB_IMAGE_DIGEST: ${{ inputs.digest }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - name: Require independently signed and accredited immutable source
+        id: admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/chronicles_web_release_admission.py \
+            --sha "$SOURCE_SHA" \
+            --digest "$CHRONICLES_WEB_IMAGE_DIGEST" \
+            --run-id "$SOURCE_RUN_ID"
+          echo "digest=$CHRONICLES_WEB_IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Invoke installed Chronicles-only host wrapper via OCI
+    needs: admit
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: staging
+    concurrency:
+      group: shadowops-oci-host-operations
+      cancel-in-progress: false
+    env:
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+      SIGNED_DIGEST: ${{ needs.admit.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Execute only the restricted Chronicles web deployer on the adopted A1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/oci_chronicles_web_release.py --digest "$SIGNED_DIGEST"
