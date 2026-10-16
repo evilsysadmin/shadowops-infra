@@ -18,7 +18,7 @@ class Capture:
 
 
 class HostSDK(FakeSDK):
-    def __init__(self, *, lifecycle="SUCCEEDED", code=0, output=hp.HOST_READY+"\\n", **kwargs):
+    def __init__(self, *, lifecycle="SUCCEEDED", code=0, output=hp.HOST_READY+"\n", **kwargs):
         super().__init__(**kwargs)
         self.invocations = []
         self.lifecycle, self.code, self.output = lifecycle, code, output
