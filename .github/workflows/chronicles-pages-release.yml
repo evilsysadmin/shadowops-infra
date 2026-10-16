@@ -95,6 +95,10 @@ jobs:
           node --test test/*.test.mjs
           npm run build
           grep -q '/react/assets/' dist/index.html
+          # The original authored Three.js town must be in the compiled
+          # application: merely displaying the old 2D preview is insufficient.
+          grep -lFq 'swordhaven-sky-dome' dist/assets/*.js
+          grep -lFq 'chronicles-swordhaven-town' dist/assets/*.js
           test "$(find dist/assets -maxdepth 1 -name '*.webp' | wc -l)" -ge 4
       - name: Assemble isolated static root and nested React preview
         shell: bash
