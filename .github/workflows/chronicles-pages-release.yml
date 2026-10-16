@@ -75,6 +75,7 @@ jobs:
         working-directory: chronicles-source
         run: |
           node --test web/shell.test.mjs
+          node --test web/game/exploration-core.test.mjs
           grep -q 'CHRONICLES OF MATTHIAS' web/index.html
           grep -q 'todavía no es el juego' web/index.html
       - name: Require Cloudflare credentials in Infra, not the game repository
@@ -99,5 +100,5 @@ jobs:
             --commit-dirty=false
       - name: Reconcile the exact domain without overwriting other DNS
         run: python3 scripts/chronicles_pages.py domain
-      - name: Prove live HTTPS and independent landing-page marker
+      - name: Prove live HTTPS, independent landing and explorer modules
         run: python3 scripts/chronicles_pages.py verify
