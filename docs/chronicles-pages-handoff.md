@@ -95,3 +95,19 @@ Cloudflare Pages remains owned solely by ShadowOps Infra.
 **Do not redirect `/` to React** until the original first-person 3D renderer,
 actual engine, character sheet, initiative, quest content, API parity and
 owner-scoped persistence pass real browser smoke tests.
+
+## Original Swordhaven 3D parity milestone
+
+Source Chronicles PR #68 brings the **unaltered** Swordhaven Three.js scene
+builder and MM3 pixel-texture generator into the independently built React app.
+The protected Pages release validates that the compiled `/react/` bundle
+actually contains the original `swordhaven-sky-dome` and
+`chronicles-swordhaven-town` geometry markers, in addition to previous HTML,
+JS, CSS and canonical portrait tests.
+
+The view is opened from the React Home via **Recorrer Swordhaven original en 3D**.
+It is still an isolated first-person **visual walk** of the actual geometry
+and actual walkable city grid, not the full Chronicles gameplay engine.
+Real browser WebGL appearance still requires manual/visual smoke beyond CI's
+public HTTPS/static asset verification; never call the full game migrated
+based on the source or release gate alone. Leave root `/` fallback unchanged.
