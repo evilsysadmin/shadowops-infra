@@ -136,6 +136,7 @@ class ParallelReactPagesTest(unittest.TestCase):
             "react-town-playfield", "react-town-party-member",
             "react-town-minimap", "react-town-journal",
             "react-town-hud", "react-town-minimap-cells",
+            "--mm3-frame", "--mm3-sapphire", "Chronicles Pixel", "woff2",
             "orientation-unsupported", "manifest.webmanifest",
             '\"orientation\": \"landscape\"', '\"display\": \"standalone\"',
             'cp -a chronicles-source/web/. "$root/legacy-preview/"',
