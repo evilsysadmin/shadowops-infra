@@ -126,31 +126,26 @@ class ParallelReactPagesTest(unittest.TestCase):
         with patch.object(pages.urllib.request, "urlopen", side_effect=private):
             self.assertEqual(pages.probe_react_preview(), "http_403")
 
-    def test_source_sha_and_fallback_are_preserved_in_deploy(self):
+    def test_deploy_publishes_the_verbatim_chess_studio_game(self):
         workflow = (pathlib.Path(__file__).resolve().parents[1]
                     / ".github/workflows/chronicles-pages-release.yml").read_text()
         for required in [
-            "ref: main", "CHRONICLES_SOURCE_SHA:", "CHRONICLES_DEPLOY_BASE: /react/",
-            "node --test test/*.test.mjs", "npm run build",
-            "swordhaven-sky-dome", "chronicles-swordhaven-town",
-            "react-town-playfield", "react-town-party-member",
-            "react-town-minimap", "react-town-journal",
-            "react-town-hud", "react-town-minimap-cells",
-            "--mm3-frame", "--mm3-sapphire", "Chronicles Pixel", "woff2",
-            "data-chronicles-initial-mm3", "react-town-party-vitals",
-            "terra-c2.json", "terra-d4.json", "terra-e3.json",
-            "orientation-unsupported", "manifest.webmanifest",
-            '\"orientation\": \"landscape\"', '\"display\": \"standalone\"',
-            'cp -a chronicles-source/web/. "$root/legacy-preview/"',
+            "ref: main", "CHRONICLES_SOURCE_SHA:", "CHRONICLES_DEPLOY_BASE: /",
+            "VENDOR.lock.json", "vendor_chess_studio.py check chess-studio-source",
+            "npm ci", "npm run build",
+            "ChroniclesOfMatthias-*.js", "ChroniclesOfMatthiasTactics-*.js",
+            "chroniclesOfMatthiasThree-*.js", "/chronicles/runs",
+            "VITE_API_URL: https://api-staging.chess-studio.shadowops.dpdns.org/api",
             'cp -a chronicles-source/frontend/dist/. "$root/"',
-            'cp -a "$RUNNER_TEMP/chronicles-react-preview/." "$root/react/"',
             'wrangler@4.127.1 pages deploy "$RUNNER_TEMP/chronicles-pages"',
         ]:
             self.assertIn(required, workflow)
         self.assertNotIn("wrangler pages deploy chronicles-source/frontend", workflow)
         self.assertLess(workflow.index("scripts/pages_owner_admission.py"),
                         workflow.index("npm run build"))
-
+        # Byte identity with Chess Studio is proven before building.
+        self.assertLess(workflow.index("vendor_chess_studio.py check"),
+                        workflow.index("npm run build"))
 
 if __name__ == "__main__":
     unittest.main()
