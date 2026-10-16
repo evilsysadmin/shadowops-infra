@@ -1,0 +1,55 @@
+name: ShadowOps OCI · Chronicles A1 reserved-port check
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/oci-chronicles-ports.yml'
+      - 'scripts/oci_chronicles_ports_probe.py'
+      - 'tests/test_oci_chronicles_ports_probe.py'
+      - 'docs/chronicles-oci-host-preflight.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/oci-chronicles-ports.yml'
+      - 'scripts/oci_chronicles_ports_probe.py'
+      - 'tests/test_oci_chronicles_ports_probe.py'
+      - 'docs/chronicles-oci-host-preflight.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: Offline fixed-command and trusted-main contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s tests -p 'test_oci_*.py' -v
+      - run: python3 scripts/oci_chronicles_ports_probe.py self-test
+
+  ports:
+    name: Pre-deployment listener check on adopted A1
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    concurrency:
+      group: shadowops-oci-host-operations
+      cancel-in-progress: false
+    env:
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Probe only unused 18081 and 18082 listeners
+        run: python scripts/oci_chronicles_ports_probe.py run
