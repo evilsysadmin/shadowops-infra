@@ -31,7 +31,7 @@ class HTTPSVerification(unittest.TestCase):
                 return False
             def read(self, size):
                 return self.html.encode("utf-8")
-        good = "CHRONICLES OF MATTHIAS — todavía no es el juego"
+        good = "<div id="root"></div><title>Chronicles of Matthias</title>"
         with patch.object(pages.urllib.request, "urlopen", return_value=Response(good)):
             self.assertEqual(pages.probe_https(), "ok")
         with patch.object(pages.urllib.request, "urlopen", return_value=Response("wrong project")):
@@ -45,7 +45,7 @@ class HTTPSVerification(unittest.TestCase):
             def __exit__(self, *args):
                 return False
             def read(self, size):
-                return "CHRONICLES OF MATTHIAS — todavía no es el juego".encode("utf-8")
+                return "<div id="root"></div><title>Chronicles of Matthias</title>".encode("utf-8")
         with patch.object(pages.urllib.request, "urlopen", return_value=Response()) as open_page:
             self.assertEqual(pages.probe_https(), "ok")
         request = open_page.call_args.args[0]
