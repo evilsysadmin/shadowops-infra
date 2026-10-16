@@ -109,6 +109,12 @@ jobs:
           grep -lFq 'react-town-journal' dist/assets/*.js
           grep -lFq '.react-town-hud' dist/assets/*.css
           grep -lFq '.react-town-minimap-cells' dist/assets/*.css
+          # Source gate: mobile Play must request landscape with browser APIs
+          # and installed standalone app must declare landscape.
+          grep -lFq 'orientation-unsupported' dist/assets/*.js
+          test -s dist/manifest.webmanifest
+          grep -Fq '"orientation": "landscape"' dist/manifest.webmanifest
+          grep -Fq '"display": "standalone"' dist/manifest.webmanifest
           test "$(find dist/assets -maxdepth 1 -name '*.webp' | wc -l)" -ge 4
       - name: Assemble isolated static root and nested React preview
         shell: bash

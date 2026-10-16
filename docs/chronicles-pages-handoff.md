@@ -147,3 +147,24 @@ HUD in **actual compiled Vite JS/CSS**, plus the previous Three.js and
 static root checks. Browser viewport tests live in the source workflow;
 ShadowOps continues owning only the protected Cloudflare Pages release and
 live HTTPS smoke. Treat this as **HUD layout progress** not complete gameplay.
+
+## Android landscape preference for entering gameplay
+
+The independent React source PR #71 adds a **user-gesture** fullscreen
+request followed by the browser-native Screen Orientation API lock to
+landscape on entering Swordhaven or the dungeon. The hook releases its
+own fullscreen/lock on exit and uses a rotate/retry overlay only when
+the device is still in portrait. The installed-app PWA manifest declares
+`display: standalone` and `orientation: landscape`.
+
+Cloudflare Pages release now checks that the compiled React JavaScript
+contains the real browser fallback contract and both the built and live
+`/react/manifest.webmanifest` advertise landscape. The root static
+rollback remains unchanged.
+
+**Important:** No web deployment can silently override Android rotation
+lock or force Brave to grant fullscreen/orientation permissions simply
+by visiting a URL. The native app/browser decides. A rejected request
+must offer manual rotation rather than CSS-transforming a Three.js
+canvas and breaking touch hit testing. Source CI includes emulated
+touch-browser success/denial/cleanup tests, in addition to 4 WebGL layouts.
