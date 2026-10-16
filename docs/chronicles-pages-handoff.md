@@ -66,3 +66,32 @@ Missing Cloudflare secrets, unavailable domain ownership or missing managed
 TLS also fail closed. **Do not claim public readiness** until the workflow
 prints `CHRONICLES_PAGES_STAGING_HTTPS_OK` after real HTTPS verification.
 This is still the character forge, not the full game.
+
+
+## Parallel React Vite preview (non-production migration gate)
+
+The Cloudflare Pages project now serves two deliberately distinct surfaces
+from **one protected, SHA-pinned source checkout**:
+
+- `/` stays the existing static forge and authored crypt explorer; it is the
+  known-good visual rollback and retains all prior HTTPS/JS smoke markers.
+- `/react/` is built inside ShadowOps from the original Chronicles React app
+  in `frontend/`, using `CHRONICLES_DEPLOY_BASE=/react/`. It contains the
+  original migrated character creator and Chronicle journal while core 3D,
+  combat, saves and authentication still await migration.
+
+The publisher installs only declared Node dependencies from that checkout,
+tests original React source, builds the Vite bundle, and copies
+`web/` plus `frontend/dist/` into a distinct temporary Pages root.
+No cloud credentials are exposed to the source repository, and no files under
+Chess Studio or the production hostname are modified.
+
+The release is not green unless the old root, existing explorer ES modules,
+React HTML at `/react/`, and its hashed JS **and** CSS URLs all return
+HTTPS 200 with correct content types. A 200 HTML fallback for JavaScript
+must fail the release. No WAF/TLS bypass or mock gameplay is permitted.
+Cloudflare Pages remains owned solely by ShadowOps Infra.
+
+**Do not redirect `/` to React** until the original first-person 3D renderer,
+actual engine, character sheet, initiative, quest content, API parity and
+owner-scoped persistence pass real browser smoke tests.
