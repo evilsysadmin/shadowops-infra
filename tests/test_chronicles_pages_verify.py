@@ -42,7 +42,8 @@ class HTTPSVerification(unittest.TestCase):
             (urllib.error.URLError(socket.gaierror("private dns details")), "dns_error"),
             (urllib.error.URLError(TimeoutError("private timeout")), "timeout"),
             (urllib.error.URLError(OSError("private host data")), "connection_error"),
-            (urllib.error.HTTPError(pages.HOST, 522, "private response", {}, None), "http_error"),
+            (urllib.error.HTTPError(pages.HOST, 403, "private policy", {}, None), "http_403"),
+            (urllib.error.HTTPError(pages.HOST, 522, "private origin", {}, None), "http_522"),
         ]
         for exception, expected in cases:
             with self.subTest(expected=expected), patch.object(
