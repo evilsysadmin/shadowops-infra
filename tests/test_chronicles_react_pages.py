@@ -162,7 +162,7 @@ class ParallelReactPagesTest(unittest.TestCase):
             "npm ci", "npm run build",
             "ChroniclesOfMatthias-*.js", "ChroniclesOfMatthiasTactics-*.js",
             "chroniclesOfMatthiasThree-*.js", "/chronicles/runs",
-            "VITE_API_URL: https://api-staging.chess-studio.shadowops.dpdns.org/api",
+            "VITE_API_URL: https://chronicles-api-staging.shadowops.dpdns.org/api",
             'cp -a chronicles-source/frontend/dist/. "$root/"',
             'wrangler@4.127.1 pages deploy "$RUNNER_TEMP/chronicles-pages"',
         ]:

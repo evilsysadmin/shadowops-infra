@@ -93,8 +93,8 @@ jobs:
       - name: Build the verbatim game against the Chess Studio staging API
         working-directory: chronicles-source/frontend
         env:
-          # Iteración 1: cuentas y runs en la API de staging de Chess Studio.
-          VITE_API_URL: https://api-staging.chess-studio.shadowops.dpdns.org/api
+          # Iteración 2: API propia de Chronicles (cuentas y partidas propias).
+          VITE_API_URL: https://chronicles-api-staging.shadowops.dpdns.org/api
           VITE_BUILD_SHA: ${{ steps.source.outputs.sha }}
           CHRONICLES_DEPLOY_BASE: /
         run: |
@@ -109,7 +109,7 @@ jobs:
           ls dist/assets/ChroniclesOfMatthiasTactics-*.js
           ls dist/assets/chroniclesOfMatthiasThree-*.js
           grep -lFq '/chronicles/runs' dist/assets/*.js
-          grep -lFq 'api-staging.chess-studio.shadowops.dpdns.org' dist/assets/*.js
+          grep -lFq 'chronicles-api-staging.shadowops.dpdns.org' dist/assets/*.js
       - name: Assemble static root
         shell: bash
         run: |
