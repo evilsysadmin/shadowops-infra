@@ -1,0 +1,58 @@
+name: Independent Chronicles staging web Compose contract
+on:
+  pull_request:
+    paths:
+      - 'compose.web.staging.yaml'
+      - '.github/workflows/chronicles-web-runtime.yml'
+      - 'docs/chronicles-web-staging.md'
+  push:
+    branches: [main]
+    paths:
+      - 'compose.web.staging.yaml'
+      - '.github/workflows/chronicles-web-runtime.yml'
+      - 'docs/chronicles-web-staging.md'
+permissions:
+  contents: read
+jobs:
+  web-compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CHRONICLES_WEB_IMAGE_DIGEST: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    steps:
+      - uses: actions/checkout@v4
+      - name: Render the independent Compose project
+        run: |
+          set -euo pipefail
+          docker compose -f compose.web.staging.yaml config --quiet
+          docker compose -f compose.web.staging.yaml config --format json > "$RUNNER_TEMP/chronicles-web-compose.json"
+      - name: Assert exact service, digest, loopback binding and container hardening
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          project=json.loads((Path(os.environ["RUNNER_TEMP"])/"chronicles-web-compose.json").read_text())
+          assert project["name"] == "shadowops-chronicles-web-staging"
+          assert set(project["services"]) == {"chronicles-web"}
+          web=project["services"]["chronicles-web"]
+          digest=os.environ["CHRONICLES_WEB_IMAGE_DIGEST"]
+          assert re.fullmatch(r"sha256:[0-9a-f]{64}", digest)
+          assert web["image"] == "ghcr.io/evilsysadmin/chronicles-web@" + digest
+          assert web["platform"] == "linux/arm64"
+          assert web["user"] == "101:101"
+          assert web["read_only"] is True and web["init"] is True
+          assert web["cap_drop"] == ["ALL"]
+          assert "no-new-privileges:true" in web["security_opt"]
+          assert web["ports"] == [{"mode":"ingress","target":8080,"published":"18082","protocol":"tcp","host_ip":"127.0.0.1"}]
+          assert any(x.startswith("/tmp:") for x in web["tmpfs"])
+          assert web["healthcheck"]["test"] == ["CMD","wget","-q","-O","/dev/null","http://127.0.0.1:8080/"]
+          assert not project.get("secrets")
+          print("Isolated staging web contract verified")
+          PY
+      - name: Reject missing manifest digest
+        run: |
+          set -euo pipefail
+          if env -u CHRONICLES_WEB_IMAGE_DIGEST docker compose -f compose.web.staging.yaml config --quiet >/dev/null 2>&1; then
+            echo "Refused to reject empty Chronicles web digest" >&2
+            exit 1
+          fi
