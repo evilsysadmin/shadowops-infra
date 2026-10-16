@@ -42,6 +42,7 @@ def inspect_container_rows(stdout: str) -> None:
     if len(stdout.encode("utf-8")) > MAX_BYTES:
         raise SharedHostError("Docker inventory exceeds safe size")
     managed_count = 0
+    web_count = 0
     for line in stdout.splitlines():
         if not line.strip():
             continue
@@ -62,8 +63,12 @@ def inspect_container_rows(stdout: str) -> None:
             managed_count += 1
             if managed_count > 1:
                 raise SharedHostError("Ambiguous duplicate Chronicles staging containers")
-        if project == PROJECT_WEB and service != "chronicles-web":
-            raise SharedHostError("Unexpected service inside Chronicles staging web project")
+        if project == PROJECT_WEB:
+            if service != "chronicles-web":
+                raise SharedHostError("Unexpected service inside Chronicles staging web project")
+            web_count += 1
+            if web_count > 1:
+                raise SharedHostError("Ambiguous duplicate Chronicles staging web containers")
         for fragment in row["Ports"].split(","):
             fragment = fragment.strip()
             if "->" not in fragment:
@@ -81,8 +86,51 @@ def inspect_container_rows(stdout: str) -> None:
                 raise SharedHostError(f"Port {port} must be bound to loopback only")
 
 
+# A stopped container can reserve a Docker host port without a listener or
+# a visible 'docker ps -a' Ports entry. Inspect configured bindings explicitly.
+# Never inspect the full object: Docker metadata may contain secret Env values.
+ID = re.compile(r"^[a-f0-9]{12,64}$")
+MAX_CONTAINERS = 256
+
+
+def inspect_reserved_bindings(stdout: str, rows: list[dict]) -> None:
+    if len(stdout.encode("utf-8")) > MAX_BYTES:
+        raise SharedHostError("Docker reserved port inventory exceeds safe size")
+    lines = stdout.splitlines()
+    if len(lines) != len(rows):
+        raise SharedHostError("Docker reserved port inventory count mismatch")
+    for row, raw in zip(rows, lines):
+        try:
+            bindings = json.loads(raw)
+        except ValueError:
+            raise SharedHostError("Docker reserved port inventory has invalid JSON") from None
+        if bindings is None:
+            bindings = {}
+        if not isinstance(bindings, dict):
+            raise SharedHostError("Docker reserved port inventory has invalid shape")
+        project, service = _compose_labels(row["Labels"])
+        for target, destinations in bindings.items():
+            if not isinstance(target, str) or not isinstance(destinations, (list, type(None))):
+                raise SharedHostError("Docker host binding is malformed")
+            for destination in destinations or []:
+                if (not isinstance(destination, dict)
+                    or not isinstance(destination.get("HostIp"), str)
+                    or not isinstance(destination.get("HostPort"), str)):
+                    raise SharedHostError("Docker host binding destination is malformed")
+                host_port = destination["HostPort"]
+                if not host_port.isascii() or not host_port.isdecimal():
+                    raise SharedHostError("Docker host port is invalid")
+                port = int(host_port)
+                if port not in PORT_OWNERS:
+                    continue
+                if (project, service) != PORT_OWNERS[port]:
+                    raise SharedHostError(f"Port {port} is reserved by another container")
+                if destination["HostIp"] != "127.0.0.1" or target != "8080/tcp":
+                    raise SharedHostError(f"Port {port} has unsafe Docker binding")
+
+
 def verify_shared_a1_containers(runner: Callable = subprocess.run) -> None:
-    """Read-only Docker census; fail closed if Docker cannot be inspected."""
+    """Read-only Docker census, including the configured binds of stopped containers."""
     args = ["docker", "ps", "--all", "--format", "{{json .}}"]
     try:
         result = runner(args, text=True, capture_output=True, timeout=20)
@@ -91,6 +139,24 @@ def verify_shared_a1_containers(runner: Callable = subprocess.run) -> None:
     if result.returncode != 0 or not isinstance(result.stdout, str):
         raise SharedHostError("Docker inventory command failed")
     inspect_container_rows(result.stdout)
+
+    rows = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+    if len(rows) > MAX_CONTAINERS:
+        raise SharedHostError("Too many containers for bounded Docker inventory")
+    ids = [row.get("ID") for row in rows]
+    if any(not isinstance(cid, str) or not ID.fullmatch(cid) for cid in ids) or len(set(ids)) != len(ids):
+        raise SharedHostError("Missing or ambiguous Docker container ID")
+    if not ids:
+        return
+    args = ["docker", "inspect", "--type", "container", "--format",
+            "{{json .HostConfig.PortBindings}}", *ids]
+    try:
+        detail = runner(args, text=True, capture_output=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise SharedHostError("Docker reserved port inventory could not run") from exc
+    if detail.returncode != 0 or not isinstance(detail.stdout, str):
+        raise SharedHostError("Docker reserved port inventory command failed")
+    inspect_reserved_bindings(detail.stdout, rows)
 
 
 if __name__ == "__main__":

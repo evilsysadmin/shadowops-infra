@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import subprocess
 import sys
 import tempfile
@@ -18,7 +19,7 @@ from test_oci_staging_deploy import COMPOSE, DIGEST, ENV, Runner, SHA, fake_host
 
 def container(name, project="", service="", ports="", *, state="running"):
     labels = ",".join([f"com.docker.compose.project={project}", f"com.docker.compose.service={service}"]) if project else ""
-    return json.dumps({"Names": name, "Labels": labels, "Ports": ports, "State": state})
+    return json.dumps({"ID": hashlib.sha256(name.encode()).hexdigest()[:12], "Names": name, "Labels": labels, "Ports": ports, "State": state})
 
 
 def rows(*items):
@@ -26,12 +27,16 @@ def rows(*items):
 
 
 class DockerCensus:
-    def __init__(self, output, exit_code=0):
+    def __init__(self, output, exit_code=0, bindings=None, inspect_exit=0):
         self.output, self.exit_code = output, exit_code
+        self.bindings, self.inspect_exit = bindings, inspect_exit
         self.args = []
 
     def __call__(self, args, **kwargs):
         self.args.append(tuple(args))
+        if args[:2] == ["docker", "inspect"]:
+            output = self.bindings if self.bindings is not None else "{}\n" * len(args[6:])
+            return subprocess.CompletedProcess(args, self.inspect_exit, output, "private credentials")
         return subprocess.CompletedProcess(args, self.exit_code, self.output, "private credentials")
 
 
@@ -57,6 +62,8 @@ class SharedA1GuardTests(unittest.TestCase):
             container("web-extra", "shadowops-chronicles-web-staging", "other", ""),
             rows(container("one", "shadowops-chronicles-staging", "chronicles-api"),
                  container("two", "shadowops-chronicles-staging", "chronicles-api")),
+            rows(container("web-one", "shadowops-chronicles-web-staging", "chronicles-web"),
+                 container("web-two", "shadowops-chronicles-web-staging", "chronicles-web")),
             '{"Names": "broken"}',
             "not-json",
             container("weird", "", "", "not-a-port->8080/tcp"),
@@ -69,10 +76,43 @@ class SharedA1GuardTests(unittest.TestCase):
     def test_census_is_read_only_and_failed_inventory_hides_output(self):
         census = DockerCensus(rows(container("chess", "chess-studio", "backend")))
         verify_shared_a1_containers(census)
-        self.assertEqual(census.args, [("docker", "ps", "--all", "--format", "{{json .}}")])
+        self.assertEqual(census.args[0], ("docker", "ps", "--all", "--format", "{{json .}}"))
+        self.assertEqual(census.args[1][:6], (
+            "docker", "inspect", "--type", "container", "--format",
+            "{{json .HostConfig.PortBindings}}"))
+        self.assertEqual(len(census.args), 2)
         with self.assertRaises(SharedHostError) as error:
             verify_shared_a1_containers(DockerCensus("secret", 1))
         self.assertNotIn("secret", str(error.exception))
+
+    def test_stopped_foreign_container_blocks_even_without_a_visible_port(self):
+        stopped = container("foreign-stopped", "unknown", "backend", "", state="exited")
+        reserved = '{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"18082"}]}\n'
+        with self.assertRaisesRegex(SharedHostError, "Port 18082 is reserved"):
+            verify_shared_a1_containers(DockerCensus(rows(stopped), bindings=reserved))
+
+    def test_authorized_stopped_container_can_reclaim_exact_loopback_binding(self):
+        stopped = container("chronicles-web", "shadowops-chronicles-web-staging",
+                            "chronicles-web", "", state="exited")
+        reserved = '{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"18082"}]}\n'
+        verify_shared_a1_containers(DockerCensus(rows(stopped), bindings=reserved))
+
+    def test_rejects_wildcard_or_wrong_container_port_even_when_stopped(self):
+        stopped = container("chronicles-web", "shadowops-chronicles-web-staging",
+                            "chronicles-web", "", state="exited")
+        for bound in (
+            {"8080/tcp": [{"HostIp": "0.0.0.0", "HostPort": "18082"}]},
+            {"80/tcp": [{"HostIp": "127.0.0.1", "HostPort": "18082"}]},
+            {"8080/tcp": [{"HostIp": "::", "HostPort": "18082"}]},
+        ):
+            with self.subTest(bound=bound), self.assertRaises(SharedHostError):
+                verify_shared_a1_containers(DockerCensus(rows(stopped), bindings=json.dumps(bound) + "\n"))
+
+    def test_docker_inspect_failure_or_incomplete_output_fails_closed(self):
+        stopped = container("misc", "other", "backend", "", state="exited")
+        for bindings, code in (("", 0), ("not-json\n", 0), ("{}\n", 1)):
+            with self.subTest(bindings=bindings, code=code), self.assertRaises(SharedHostError):
+                verify_shared_a1_containers(DockerCensus(rows(stopped), bindings=bindings, inspect_exit=code))
 
     def test_deploy_hard_stops_before_candidate_checks_if_shared_a1_conflicts(self):
         with tempfile.TemporaryDirectory() as folder:

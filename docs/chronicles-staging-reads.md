@@ -11,10 +11,13 @@ publish a container, transfer a save, create an account or deploy staging.
   must not coexist, even as a stopped container. The independent Chronicles web
   project `shadowops-chronicles-web-staging` owns 127.0.0.1:18082. Both
   projects must be independent of the Chess Studio services on 4000/4100.
-  `scripts/shared_a1_host_guard.py` reads Docker's full container census
-  and blocks unknown services on 18081/18082, duplicate staging containers,
-  foreign/wildcard bindings, and the legacy baseline project. This guard is
-  checked twice for a deployment, including immediately before image pull.
+  `scripts/shared_a1_host_guard.py` reads all Docker container identities
+  and each container's configured `HostConfig.PortBindings`, including stopped
+  containers whose published ports can be absent from `docker ps -a` output.
+  It blocks unknown services on 18081/18082, duplicate staging containers,
+  foreign/wildcard bindings, and the legacy baseline project. Docker inspect
+  is restricted to PortBindings rather than full sensitive container metadata.
+  This guard is checked twice for a deployment, including before image pull.
 - Use an attested, digest-pinned Chronicles API image that contains
   `chronicles-of-matthias` PR #45 or later, from a reviewed staging SHA.
 - Use **exactly** `CHRONICLES_MONGODB_DATABASE=chronicles_staging`; names
