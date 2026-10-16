@@ -13,7 +13,7 @@ from test_oci_host_probe import HostSDK, ENV
 
 class CapabilityTests(unittest.TestCase):
     def test_one_exact_nonprivileged_command(self):
-        sdk = HostSDK(output=capability.PREFIX + " docker=no repo=no wrapper=no gh=no\\n")
+        sdk = HostSDK(output=capability.PREFIX + " docker=no repo=no wrapper=no gh=no\n")
         output = capability.run(sdk, cp.config_from_env(sdk, ENV), pause=lambda _: None)
         self.assertEqual(output, capability.PREFIX + " docker=no repo=no wrapper=no gh=no")
         command = sdk.invocations[0][1]["create_instance_agent_command_details"]
@@ -23,9 +23,9 @@ class CapabilityTests(unittest.TestCase):
 
     def test_all_failures_are_fail_closed(self):
         for options in (
-            {"output": "sensitive output\\n"},
-            {"output": capability.PREFIX + " docker=yes repo=no wrapper=no gh=no\\nsecret"},
-            {"output": capability.PREFIX + " docker=perhaps repo=no wrapper=no gh=no\\n"},
+            {"output": "sensitive output\n"},
+            {"output": capability.PREFIX + " docker=yes repo=no wrapper=no gh=no\nsecret"},
+            {"output": capability.PREFIX + " docker=perhaps repo=no wrapper=no gh=no\n"},
             {"code": 1}, {"lifecycle": "FAILED"}, {"plugin": "STOPPED"},
             {"shape": "VM.Standard.E4.Flex"},
         ):
@@ -37,7 +37,7 @@ class CapabilityTests(unittest.TestCase):
                     self.assertFalse(sdk.invocations)
 
     def test_rejects_any_edited_command(self):
-        for value in ("", "sudo docker info", capability.COMMAND + "id\\n"):
+        for value in ("", "sudo docker info", capability.COMMAND + "id\n"):
             with self.assertRaises(cp.InventoryError):
                 capability.fixed_command(value)
 
