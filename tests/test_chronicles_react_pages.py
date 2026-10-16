@@ -53,10 +53,12 @@ class ParallelReactPagesTest(unittest.TestCase):
                 return FakeResponse(req.full_url, JS, "application/javascript")
             if req.full_url.endswith(".css"):
                 return FakeResponse(req.full_url, CSS, "text/css")
+            if req.full_url.endswith("/manifest.webmanifest"):
+                return FakeResponse(req.full_url, b'{"orientation":"landscape","display":"standalone","start_url":"./"}', "application/manifest+json")
             raise AssertionError("Unexpected asset path " + req.full_url)
         with patch.object(pages.urllib.request, "urlopen", side_effect=request):
             self.assertEqual(pages.probe_react_preview(), "ok")
-        self.assertEqual(len(requested), 3)
+        self.assertEqual(len(requested), 4)
 
     def test_rejects_html_fallback_mismatched_root_or_missing_asset(self):
         def html_only(req, timeout):
@@ -75,6 +77,20 @@ class ParallelReactPagesTest(unittest.TestCase):
             return FakeResponse(req.full_url, HTML, "text/html", "https://other.example.com/React")
         with patch.object(pages.urllib.request, "urlopen", side_effect=redirects):
             self.assertEqual(pages.probe_react_preview(), "html_missing")
+
+    def test_missing_or_stale_landscape_manifest_fails_closed(self):
+        def request(req, timeout):
+            if req.full_url.endswith("/react/"):
+                return FakeResponse(req.full_url, HTML, "text/html")
+            if req.full_url.endswith(".js"):
+                return FakeResponse(req.full_url, JS, "application/javascript")
+            if req.full_url.endswith(".css"):
+                return FakeResponse(req.full_url, CSS, "text/css")
+            if req.full_url.endswith("/manifest.webmanifest"):
+                return FakeResponse(req.full_url, b'{"orientation":"portrait"}', "application/json")
+            raise AssertionError("Unexpected path")
+        with patch.object(pages.urllib.request, "urlopen", side_effect=request):
+            self.assertEqual(pages.probe_react_preview(), "manifest_content")
 
     def test_http_status_never_exposes_sensitive_payloads(self):
         private = urllib.error.HTTPError(pages.HOST, 403, "SECRET RESPONSE", {}, None)
