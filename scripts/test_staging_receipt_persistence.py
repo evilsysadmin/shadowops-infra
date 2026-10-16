@@ -65,7 +65,7 @@ class ReceiptContractTest(unittest.TestCase):
             (self.state / "last-verified-staging-receipt.json").exists()
         )
 
-    def test_failed_smoke_preserves_prior_verified_receipt(self):
+    def test_failed_smoke_retires_current_proof_but_preserves_history(self):
         prior = _write_verified_receipt(
             self.state, "c" * 40, "sha256:" + "d" * 64, 1,
             now=lambda: datetime(2026, 10, 15, tzinfo=timezone.utc),
@@ -83,7 +83,90 @@ class ReceiptContractTest(unittest.TestCase):
                 token_reader=lambda p: "alice-token" if "owner" in p else "bob-token",
                 smoke=fail_smoke,
             )
-        self.assertEqual(prior.read_bytes(), original)
+        self.assertFalse(prior.exists(), "failed rollout cannot leave a current success proof")
+        self.assertEqual((self.state / "previous-verified-staging-receipt.json").read_bytes(), original)
+
+    def test_successful_redeployment_archives_previous_success_and_publishes_new(self):
+        prior = _write_verified_receipt(
+            self.state, "c" * 40, "sha256:" + "d" * 64, 12
+        )
+        before = json.loads(prior.read_text())
+        result = run_staging(
+            sha=SHA, run_id=RUN_ID, env=ENV, deploy=True,
+            runner=Runner(), architecture="aarch64",
+            host_preflight=fake_host_preflight, lock_dir=self.state,
+            token_reader=lambda p: "alice-token" if "owner" in p else "bob-token",
+            smoke=lambda *_args: None,
+        )
+        self.assertEqual(result, "CHRONICLES_OCI_STAGING_VERIFIED")
+        current = json.loads(prior.read_text())
+        history = json.loads(
+            (self.state / "previous-verified-staging-receipt.json").read_text()
+        )
+        self.assertEqual(current["sha"], SHA)
+        self.assertEqual(current["digest"], DIGEST)
+        self.assertEqual(history, before)
+
+    def test_failed_pull_preserves_current_because_live_state_not_changed(self):
+        prior = _write_verified_receipt(self.state, "c" * 40, "sha256:" + "d" * 64, 12)
+        before = prior.read_bytes()
+        class PullFailed(Runner):
+            def __call__(self, args, **kwargs):
+                if "pull" in args:
+                    self.calls.append(tuple(args))
+                    from subprocess import CompletedProcess
+                    return CompletedProcess(args, 1, "", "private details")
+                return super().__call__(args, **kwargs)
+        with self.assertRaises(DeployError):
+            run_staging(
+                sha=SHA, run_id=RUN_ID, env=ENV, deploy=True,
+                runner=PullFailed(), architecture="aarch64",
+                host_preflight=fake_host_preflight, lock_dir=self.state,
+                token_reader=lambda p: "alice-token" if "owner" in p else "bob-token",
+                smoke=lambda *_args: None,
+            )
+        self.assertEqual(prior.read_bytes(), before)
+        self.assertFalse((self.state / "previous-verified-staging-receipt.json").exists())
+
+    def test_failed_compose_up_cannot_leave_stale_success_receipt(self):
+        prior = _write_verified_receipt(self.state, "c" * 40, "sha256:" + "d" * 64, 12)
+        before = prior.read_bytes()
+        class UpFailed(Runner):
+            def __call__(self, args, **kwargs):
+                if "up" in args:
+                    self.calls.append(tuple(args))
+                    from subprocess import CompletedProcess
+                    return CompletedProcess(args, 1, "", "private details")
+                return super().__call__(args, **kwargs)
+        with self.assertRaises(DeployError):
+            run_staging(
+                sha=SHA, run_id=RUN_ID, env=ENV, deploy=True,
+                runner=UpFailed(), architecture="aarch64",
+                host_preflight=fake_host_preflight, lock_dir=self.state,
+                token_reader=lambda p: "alice-token" if "owner" in p else "bob-token",
+                smoke=lambda *_args: None,
+            )
+        self.assertFalse(prior.exists())
+        self.assertEqual(
+            (self.state / "previous-verified-staging-receipt.json").read_bytes(), before
+        )
+
+    def test_untrusted_prior_receipt_blocks_deploy_before_up(self):
+        target = self.state / "other.json"
+        target.write_text("do not modify")
+        active = self.state / "last-verified-staging-receipt.json"
+        active.symlink_to(target)
+        runner = Runner()
+        with self.assertRaisesRegex(DeployError, "unsafe staging receipt"):
+            run_staging(
+                sha=SHA, run_id=RUN_ID, env=ENV, deploy=True,
+                runner=runner, architecture="aarch64",
+                host_preflight=fake_host_preflight, lock_dir=self.state,
+                token_reader=lambda p: "alice-token" if "owner" in p else "bob-token",
+                smoke=lambda *_args: None,
+            )
+        self.assertNotIn("up", [arg for call in runner.calls for arg in call])
+        self.assertEqual(target.read_text(), "do not modify")
 
     def test_refuse_to_replace_symlink_receipt(self):
         other = self.state / "other.json"
