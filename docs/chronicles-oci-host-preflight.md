@@ -28,3 +28,14 @@ This is an intentionally narrow, read-only **preliminary check**:
 PRs and ordinary pushes only run offline mock tests. The credential-backed
 probe requires an explicit workflow dispatch on protected ShadowOps `main`.
 This check should not be rerun as an always-on heartbeat.
+
+## First live snapshot — 2026-10-16
+
+Protected-main push [38879214696](https://github.com/evilsysadmin/shadowops-infra/actions/runs/38879214696)
+passed the real, credential-backed OCI Run Command preflight with marker
+`SHADOWOPS_CHRONICLES_A1_PORTS_AVAILABLE`. Both reserved ports had no
+TCP listeners **at the time of this observation**, and the existing Chess
+Studio staging readiness check also passed. This is **not** proof of Docker
+project ownership, future port availability or any Chronicles deployment.
+The temporary push admission was removed immediately afterward; use manual
+dispatch for further checks.
