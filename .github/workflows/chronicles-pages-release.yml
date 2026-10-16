@@ -132,6 +132,17 @@ jobs:
           grep -lFq -- '--mm3-sapphire' dist/assets/*.css
           grep -lFq -- 'Chronicles Pixel' dist/assets/*.css
           test "$(find dist/assets -maxdepth 1 -name '*.woff2' | wc -l)" -ge 1
+          # Original reducer initializes real PV/PH from 61 authored maps,
+          # not the earlier 1KB party compatibility stub.
+          grep -lFq 'data-chronicles-initial-mm3' dist/assets/*.js
+          grep -lFq 'react-town-party-vitals' dist/assets/*.js
+          grep -lFq '.react-town-party-vitals' dist/assets/*.css
+          test -s chronicles-source/frontend/src/chronicles/maps/terra-c2.json
+          test -s chronicles-source/frontend/src/chronicles/maps/terra-d4.json
+          test -s chronicles-source/frontend/src/chronicles/maps/terra-e3.json
+          test -s chronicles-source/frontend/src/chronicles/maps/terra-b3.json
+          test -s chronicles-source/frontend/src/chronicles/maps/terra-c4.json
+          test -s chronicles-source/frontend/src/chronicles/maps/terra-d2.json
           test -s dist/manifest.webmanifest
           test "$(find dist/assets -maxdepth 1 -name '*.webp' | wc -l)" -ge 4
       - name: Assemble isolated static root and nested React preview
