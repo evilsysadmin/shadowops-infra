@@ -21,15 +21,17 @@ from oci_web_staging_preflight import (
 )
 
 
-def fixed_command(runner: Callable, args: list[str], env: Mapping[str, str]) -> str:
+def fixed_command(runner: Callable, args: list[str], env: Mapping[str, str], stage: str) -> str:
+    if stage not in {"signature", "manifest", "compose"}:
+        raise WebPreflightError("Unknown signed-release verification stage")
     try:
         result = runner(args, text=True, capture_output=True, timeout=90, env=dict(env))
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise WebPreflightError("Signed-release verification tool unavailable") from exc
+        raise WebPreflightError("Signed-release " + stage + " tool unavailable") from exc
     if result.returncode != 0 or not isinstance(result.stdout, str):
-        raise WebPreflightError("Signed-release verification command failed")
+        raise WebPreflightError("Signed-release " + stage + " command failed")
     if len(result.stdout) > 2_000_000:
-        raise WebPreflightError("Signed-release verification output too large")
+        raise WebPreflightError("Signed-release " + stage + " output too large")
     return result.stdout
 
 
@@ -51,16 +53,17 @@ def admit(sha: str, digest: str, run_id: int, *,
         "--repo", SOURCE, "--signer-workflow", SIGNER,
         "--source-digest", sha, "--source-ref", "refs/heads/main",
         "--predicate-type", PROVENANCE, "--format", "json",
-    ], env)
+        "--bundle-from-oci",
+    ], env, "signature")
     verified_provenance(checked, digest)
     manifest = fixed_command(runner, [
         "docker", "buildx", "imagetools", "inspect", "--raw", IMAGE + "@" + digest,
-    ], env)
+    ], env, "manifest")
     verify_manifest(manifest)
     composed = fixed_command(runner, [
         "docker", "compose", "-f", "compose.web.staging.yaml",
         "config", "--format", "json",
-    ], env)
+    ], env, "compose")
     verify_compose(composed, digest)
     return "CHRONICLES_WEB_SIGNED_A1_RELEASE_ADMITTED sha=" + sha + " digest=" + digest
 
@@ -74,8 +77,8 @@ def main() -> int:
     try:
         print(admit(args.sha, args.digest, args.run_id, env=os.environ))
     except WebPreflightError as exc:
-        print("CHRONICLES_WEB_SIGNED_ADMISSION_BLOCKED type=" +
-              type(exc).__name__, file=sys.stderr)
+        print("CHRONICLES_WEB_SIGNED_ADMISSION_BLOCKED reason=" +
+              str(exc), file=sys.stderr)
         return 1
     return 0
 
