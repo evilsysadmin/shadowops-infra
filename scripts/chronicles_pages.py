@@ -264,7 +264,7 @@ def probe_exploration_assets() -> str:
 def probe_react_preview(
     path: str = "/react/",
     assets: bytes = b"/react/assets/",
-    manifest_path: str = "/react/manifest.webmanifest",
+    manifest_path: str | None = "/react/manifest.webmanifest",
 ) -> str:
     """Prove the isolated built React entry, JS and CSS on the public HTTPS host.
 
@@ -308,6 +308,8 @@ def probe_react_preview(
                 return "css_mime"
             if len(content) < 128 or content.lstrip().lower().startswith(b"<"):
                 return extension + "_content"
+        if manifest_path is None:
+            return "ok"
         # Installed standalone Chronicles must advertise landscape. The
         # ordinary Brave tab still requires a user gesture and browser API.
         _, manifest_bytes = get_public(
@@ -356,25 +358,14 @@ def verify(timeout_seconds: int = 120) -> None:
         # otherwise hides behind ten minutes of silent status polling.
         last_probe = probe_https()
         if state == "active" and last_probe == "ok":
-            asset_result = probe_exploration_assets()
-            if asset_result == "ok":
-                react_result = probe_react_preview()
-                if react_result == "ok":
-                    home_result = probe_react_preview(
-                        path="/", assets=b"/assets/",
-                        manifest_path="/manifest.webmanifest",
-                    )
-                    if home_result == "ok":
-                        print("CHRONICLES_PAGES_STAGING_HTTPS_OK " + HOST)
-                        print("CHRONICLES_PAGES_HOME_REACT_OK " + HOST)
-                        print("CHRONICLES_PAGES_EXPLORATION_ASSETS_OK " + HOST)
-                        print("CHRONICLES_PAGES_REACT_PREVIEW_OK " + HOST)
-                        return
-                    last_probe = "home_" + home_result
-                else:
-                    last_probe = "react_" + react_result
-            else:
-                last_probe = "assets_" + asset_result
+            # The root serves the verbatim Chess Studio game build (Vite):
+            # exactly one entry JS and one CSS under /assets/, same origin.
+            home_result = probe_react_preview(path="/", assets=b"/assets/", manifest_path=None)
+            if home_result == "ok":
+                print("CHRONICLES_PAGES_STAGING_HTTPS_OK " + HOST)
+                print("CHRONICLES_PAGES_HOME_GAME_OK " + HOST)
+                return
+            last_probe = "home_" + home_result
         time.sleep(5)
     reason = (
         "Pages custom domain HTTPS did not converge"

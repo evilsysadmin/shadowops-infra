@@ -74,95 +74,50 @@ jobs:
         env:
           CHRONICLES_SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: python3 scripts/pages_owner_admission.py
-      - name: Check source shell before publication
-        working-directory: chronicles-source
-        run: |
-          node --test web/shell.test.mjs
-          node --test web/game/exploration-core.test.mjs
-          grep -q 'CHRONICLES OF MATTHIAS' web/index.html
-          grep -q 'todavía no es el juego' web/index.html
-      - name: Prepare pinned Node.js for the original React frontend
+      - name: Prepare pinned Node.js for the Chronicles frontend
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Build original Chronicles React Home at / and keep /react/ compatibility
+      - name: Read the Chess Studio commit the game is vendored from
+        id: vendor
+        run: echo "commit=$(python3 -c 'import json;print(json.load(open("chronicles-source/frontend/VENDOR.lock.json"))["commit"])')" >> "$GITHUB_OUTPUT"
+      - name: Checkout pinned Chess Studio source (read-only, for byte identity)
+        uses: actions/checkout@v4
+        with:
+          repository: evilsysadmin/chess-studio
+          ref: ${{ steps.vendor.outputs.commit }}
+          path: chess-studio-source
+          persist-credentials: false
+      - name: Prove the game is byte-identical to Chess Studio
+        run: python3 chronicles-source/scripts/vendor_chess_studio.py check chess-studio-source
+      - name: Build the verbatim game against the Chess Studio staging API
         working-directory: chronicles-source/frontend
         env:
-          CHRONICLES_DEPLOY_BASE: /react/
+          # Iteración 1: cuentas y runs en la API de staging de Chess Studio.
+          VITE_API_URL: https://api-staging.chess-studio.shadowops.dpdns.org/api
+          VITE_BUILD_SHA: ${{ steps.source.outputs.sha }}
+          CHRONICLES_DEPLOY_BASE: /
         run: |
           set -euo pipefail
-          npm install --ignore-scripts --no-audit --no-fund
-          node --test test/*.test.mjs
+          npm ci --ignore-scripts --no-audit --no-fund
           npm run build
-          grep -q '/react/assets/' dist/index.html
-          # The original authored Three.js town must be in the compiled
-          # application: merely displaying the old 2D preview is insufficient.
-          grep -lFq 'swordhaven-sky-dome' dist/assets/*.js
-          grep -lFq 'chronicles-swordhaven-town' dist/assets/*.js
-          # The phone layout must ship in the protected React bundle, not
-          # only as unmerged source / failed styling in a PR.
-          grep -lFq 'react-town-playfield' dist/assets/*.js
-          grep -lFq '.react-town-party-member' dist/assets/*.css
-          # HUD from the original-world reference, not a standalone mock page:
-          # real map, original Chronicle and portraits must be in the bundle.
-          grep -lFq 'react-town-minimap' dist/assets/*.js
-          grep -lFq 'react-town-journal' dist/assets/*.js
-          grep -lFq '.react-town-hud' dist/assets/*.css
-          grep -lFq '.react-town-minimap-cells' dist/assets/*.css
-          # Source gate: mobile Play must request landscape with browser APIs
-          # and installed standalone app must declare landscape.
-          grep -lFq 'orientation-unsupported' dist/assets/*.js
-          test -s dist/manifest.webmanifest
-          grep -Fq '"orientation": "landscape"' dist/manifest.webmanifest
-          grep -Fq '"display": "standalone"' dist/manifest.webmanifest
-          test "$(find dist/assets -maxdepth 1 -name '*.webp' | wc -l)" -ge 4
-          # Preserve the old preview at /react/ for browser/rollback comparison.
-          mkdir -p "$RUNNER_TEMP/chronicles-react-preview"
-          cp -a dist/. "$RUNNER_TEMP/chronicles-react-preview/"
-          # The requested naked hostname serves the actual React expedition Home.
-          CHRONICLES_DEPLOY_BASE=/ npm run build
           grep -q 'Chronicles of Matthias' dist/index.html
           grep -q '/assets/' dist/index.html
-          grep -lFq 'chronicles-save-menu' dist/assets/*.js
-          grep -lFq '.chronicles-save-menu--expedition' dist/assets/*.css
-          grep -lFq '.react-town-menu-button' dist/assets/*.css
-          # The original VGA materials/font have to reach the generated
-          # React CSS, not merely exist as source assets.
-          grep -lFq -- '--mm3-frame' dist/assets/*.css
-          grep -lFq -- '--mm3-sapphire' dist/assets/*.css
-          grep -lFq -- 'Chronicles Pixel' dist/assets/*.css
-          test "$(find dist/assets -maxdepth 1 -name '*.woff2' | wc -l)" -ge 1
-          # Original reducer initializes real PV/PH from 61 authored maps,
-          # not the earlier 1KB party compatibility stub.
-          grep -lFq 'data-chronicles-initial-mm3' dist/assets/*.js
-          grep -lFq 'react-town-party-vitals' dist/assets/*.js
-          grep -lFq '.react-town-party-vitals' dist/assets/*.css
-          test -s src/chronicles/maps/terra-c2.json
-          test -s src/chronicles/maps/terra-d4.json
-          test -s src/chronicles/maps/terra-e3.json
-          test -s src/chronicles/maps/terra-b3.json
-          test -s src/chronicles/maps/terra-c4.json
-          test -s src/chronicles/maps/terra-d2.json
-          test -s dist/manifest.webmanifest
-          test "$(find dist/assets -maxdepth 1 -name '*.webp' | wc -l)" -ge 4
-      - name: Assemble isolated static root and nested React preview
+          # The real game, not a shell: original component, Tactics, the
+          # Three.js renderer and server-side runs must be in the bundle.
+          ls dist/assets/ChroniclesOfMatthias-*.js
+          ls dist/assets/ChroniclesOfMatthiasTactics-*.js
+          ls dist/assets/chroniclesOfMatthiasThree-*.js
+          grep -lFq '/chronicles/runs' dist/assets/*.js
+          grep -lFq 'api-staging.chess-studio.shadowops.dpdns.org' dist/assets/*.js
+      - name: Assemble static root
         shell: bash
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/chronicles-pages"
-          mkdir -p "$root/react" "$root/legacy-preview"
-          cp -a chronicles-source/web/. "$root/legacy-preview/"
-          # Keep old module URLs for explicit fallback smoke/older bookmarks.
-          cp -a chronicles-source/web/game "$root/game"
+          mkdir -p "$root"
           cp -a chronicles-source/frontend/dist/. "$root/"
-          cp -a "$RUNNER_TEMP/chronicles-react-preview/." "$root/react/"
           grep -q 'Chronicles of Matthias' "$root/index.html"
-          grep -q '/assets/' "$root/index.html"
-          grep -q 'CHRONICLES OF MATTHIAS' "$root/legacy-preview/index.html"
-          grep -q '/react/assets/' "$root/react/index.html"
-          test -s "$root/game/crypt-map.js"
-          test -s "$root/react/index.html"
-          test -s "$root/manifest.webmanifest"
       - name: Require Cloudflare credentials in Infra, not the game repository
         shell: bash
         run: |
@@ -185,5 +140,5 @@ jobs:
             --commit-dirty=false
       - name: Reconcile the exact domain without overwriting other DNS
         run: python3 scripts/chronicles_pages.py domain
-      - name: Prove public React Home at root, old explorer fallback and /react/ alias
+      - name: Prove the public game build at root
         run: python3 scripts/chronicles_pages.py verify
