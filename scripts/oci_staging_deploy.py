@@ -16,6 +16,7 @@ import os
 import platform
 import re
 import subprocess
+import stat
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -113,6 +114,51 @@ def _exclusive_lock(directory: Path):
 
 
 
+
+def _sync_directory(path: Path) -> None:
+    """Make receipt creation/retirement durable after an atomic rename."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except OSError as exc:
+        raise DeployError("cannot persist staging receipt directory") from exc
+
+
+def _retire_verified_receipt(state: Path) -> None:
+    """Before altering the live container, revoke the old *current* proof.
+
+    Keep the prior success as rollback history under a distinct name. It must
+    never be mistaken for a currently verified deployment after an interrupted
+    Docker up, health timeout, or smoke failure.
+    """
+    active = state / "last-verified-staging-receipt.json"
+    history = state / "previous-verified-staging-receipt.json"
+    try:
+        metadata = active.lstat()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise DeployError("cannot inspect previous staging receipt") from exc
+    if not stat.S_ISREG(metadata.st_mode):
+        raise DeployError("unsafe staging receipt destination")
+    try:
+        historical = history.lstat()
+    except FileNotFoundError:
+        historical = None
+    except OSError as exc:
+        raise DeployError("cannot inspect staging receipt history") from exc
+    if historical is not None and not stat.S_ISREG(historical.st_mode):
+        raise DeployError("unsafe staging receipt history")
+    try:
+        os.replace(active, history)
+    except OSError as exc:
+        raise DeployError("cannot retire prior verified staging receipt") from exc
+    _sync_directory(state)
+
+
 def _write_verified_receipt(
     state: Path, sha: str, digest: str, run_id: int,
     now: Callable[[], datetime] | None = None,
@@ -149,6 +195,7 @@ def _write_verified_receipt(
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, final)
+        _sync_directory(state)
         return final
     except OSError as exc:
         raise DeployError("unable to persist verified staging receipt") from exc
@@ -218,6 +265,9 @@ def run_staging(
             raise DeployError("synthetic smoke users must be different")
 
         _command(runner, [*COMPOSE, "pull", "chronicles-api"], env, "immutable staging image pull")
+        # The image pull is not a deployment. Retire any old success proof
+        # immediately before the first operation that can change live state.
+        _retire_verified_receipt(state)
         _command(runner, [
             *COMPOSE, "up", "--detach", "--wait", "--wait-timeout", "180",
             "--no-deps", "--no-build", "--pull", "never", "chronicles-api",
