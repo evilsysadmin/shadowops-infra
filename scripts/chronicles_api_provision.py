@@ -5,7 +5,7 @@ Runs in GitHub Actions only (manual dispatch from protected main):
 
 1. Cloudflare: find or create the remotely managed tunnel `chronicles-staging`
    (never Chess Studio's), set its ingress to the API container and point
-   `api-staging.chronicles.shadowops.dpdns.org` at it. An existing DNS record
+   `chronicles-api-staging.shadowops.dpdns.org` at it. An existing DNS record
    that points anywhere else is NEVER overwritten.
 2. OCI Vault: create or update ONE secret, `chronicles-staging-runtime-env`,
    with MONGO_URL, JWT_SECRET, INVITE_CODE (GitHub secrets) and the tunnel
@@ -27,7 +27,11 @@ from typing import Any, Callable, Mapping
 
 CF_API = "https://api.cloudflare.com/client/v4"
 ZONE = "shadowops.dpdns.org"
-HOSTNAME = "api-staging.chronicles.shadowops.dpdns.org"
+# One level under the zone: covered by Cloudflare's Universal SSL. A deeper
+# name (api-staging.chronicles.…) has no edge certificate without ACM.
+HOSTNAME = "chronicles-api-staging.shadowops.dpdns.org"
+# Earlier hostname; removed only if it still points at OUR tunnel.
+LEGACY_HOSTNAMES = ("api-staging.chronicles.shadowops.dpdns.org",)
 TUNNEL_NAME = "chronicles-staging"
 FORBIDDEN_TUNNELS = frozenset({"chess-studio-staging", "chess-studio-production"})
 ORIGIN_SERVICE = "http://chronicles-api:8080"
@@ -151,6 +155,7 @@ def ensure_dns(cf: Cloudflare, tunnel_id: str) -> str:
     records = cf.call("GET", f"/zones/{zone_id}/dns_records?{query}") or []
     if len(records) > 1:
         raise ProvisionError("Ambiguous DNS records for the Chronicles API hostname")
+    retire_legacy(cf, zone_id, target)
     if records:
         record = records[0]
         if record.get("type") == "CNAME" and record.get("content") == target and record.get("proxied") is True:
@@ -160,6 +165,15 @@ def ensure_dns(cf: Cloudflare, tunnel_id: str) -> str:
             {"type": "CNAME", "name": HOSTNAME, "content": target, "proxied": True,
              "comment": "Chronicles API staging tunnel (managed by shadowops-infra)"})
     return "created"
+
+
+def retire_legacy(cf: Cloudflare, zone_id: str, target: str) -> None:
+    """Delete an old Chronicles API record only when it points at our tunnel."""
+    for name in LEGACY_HOSTNAMES:
+        rows = cf.call("GET", f"/zones/{zone_id}/dns_records?" + urllib.parse.urlencode({"name": name})) or []
+        for row in rows:
+            if row.get("type") == "CNAME" and row.get("content") == target and row.get("id"):
+                cf.call("DELETE", f"/zones/{zone_id}/dns_records/{row['id']}")
 
 
 # ---------------------------------------------------------------- OCI Vault

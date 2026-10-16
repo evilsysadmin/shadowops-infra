@@ -1,6 +1,6 @@
 # Chronicles API · staging runbook
 
-`api-staging.chronicles.shadowops.dpdns.org` → own Cloudflare Tunnel
+`chronicles-api-staging.shadowops.dpdns.org` → own Cloudflare Tunnel
 `chronicles-staging` → `chronicles-tunnel` (cloudflared) → `chronicles-api`
 container on the shared A1 (project `shadowops-chronicles-staging`, loopback
 `127.0.0.1:18081`). The API is Chess Studio's Go backend copied verbatim in
@@ -47,4 +47,4 @@ Oracle's `ocarun` call **only** that wrapper. Starts no container.
    `/api/ready` (MongoDB ping). The job finally smokes the public hostname and
    CORS for `https://staging.chronicles.shadowops.dpdns.org`.
 3. Point the game at it: the Pages release builds with
-   `VITE_API_URL=https://api-staging.chronicles.shadowops.dpdns.org/api`.
+   `VITE_API_URL=https://chronicles-api-staging.shadowops.dpdns.org/api`.
