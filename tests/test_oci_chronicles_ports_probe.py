@@ -46,7 +46,7 @@ class TestChroniclesPortsProbe(unittest.TestCase):
                 with self.assertRaises(cp.InventoryError):
                     probe.assert_fixed_command(bad)
 
-    def test_one_shot_oci_execution_requires_trusted_main(self):
+    def test_workflow_cannot_use_credentials_on_pr_or_push(self):
         yaml = (ROOT / ".github/workflows/oci-chronicles-ports.yml").read_text()
         self.assertIn("github.event_name == 'workflow_dispatch'", yaml)
         self.assertIn("github.ref == 'refs/heads/main'", yaml)
@@ -54,8 +54,7 @@ class TestChroniclesPortsProbe(unittest.TestCase):
         self.assertIn("needs: contracts", yaml)
         self.assertIn("cancel-in-progress: false", yaml)
         self.assertNotIn("pull_request_target", yaml)
-        self.assertIn("(github.event_name == 'workflow_dispatch' || github.event_name == 'push')", yaml)
-        self.assertIn("      - '.github/workflows/oci-chronicles-ports.yml'", yaml)
+        self.assertNotIn("|| github.event_name == 'push'", yaml)
         self.assertIn("python scripts/oci_chronicles_ports_probe.py run", yaml)
 
 
