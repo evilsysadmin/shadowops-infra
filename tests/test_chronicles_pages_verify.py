@@ -6,6 +6,7 @@ import ssl
 import sys
 import unittest
 import urllib.error
+import urllib.request
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
@@ -36,6 +37,25 @@ class HTTPSVerification(unittest.TestCase):
         with patch.object(pages.urllib.request, "urlopen", return_value=Response("wrong project")):
             self.assertEqual(pages.probe_https(), "unexpected_content")
 
+    def test_https_probe_is_a_public_browser_request_without_auth(self):
+        class Response:
+            status = 200
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self, size):
+                return "CHRONICLES OF MATTHIAS — todavía no es el juego".encode("utf-8")
+        with patch.object(pages.urllib.request, "urlopen", return_value=Response()) as open_page:
+            self.assertEqual(pages.probe_https(), "ok")
+        request = open_page.call_args.args[0]
+        self.assertIsInstance(request, urllib.request.Request)
+        self.assertEqual(request.full_url, "https://" + pages.HOST + "/")
+        self.assertIn("Mozilla/5.0", request.get_header("User-agent"))
+        self.assertIn("text/html", request.get_header("Accept"))
+        self.assertIsNone(request.get_header("Authorization"))
+        self.assertIsNone(request.get_header("Cookie"))
+
     def test_https_errors_are_classified_not_echoed(self):
         cases = [
             (urllib.error.URLError(ssl.SSLCertVerificationError("private cert body")), "tls_error"),
@@ -43,6 +63,7 @@ class HTTPSVerification(unittest.TestCase):
             (urllib.error.URLError(TimeoutError("private timeout")), "timeout"),
             (urllib.error.URLError(OSError("private host data")), "connection_error"),
             (urllib.error.HTTPError(pages.HOST, 403, "private policy", {}, None), "http_403"),
+            (urllib.error.HTTPError(pages.HOST, 403, "private challenge", {"cf-mitigated": "challenge"}, None), "http_403_challenge"),
             (urllib.error.HTTPError(pages.HOST, 522, "private origin", {}, None), "http_522"),
         ]
         for exception, expected in cases:
