@@ -87,6 +87,7 @@ class ParallelReactPagesTest(unittest.TestCase):
         for required in [
             "ref: main", "CHRONICLES_SOURCE_SHA:", "CHRONICLES_DEPLOY_BASE: /react/",
             "node --test test/*.test.mjs", "npm run build",
+            "swordhaven-sky-dome", "chronicles-swordhaven-town",
             'cp -a chronicles-source/web/. "$root/"',
             'cp -a chronicles-source/frontend/dist/. "$root/react/"',
             'wrangler@4.127.1 pages deploy "$RUNNER_TEMP/chronicles-pages"',
