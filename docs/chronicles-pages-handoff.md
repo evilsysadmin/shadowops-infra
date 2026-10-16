@@ -130,3 +130,20 @@ movement/restart, and retains real screenshots as CI artifacts. This
 supplements, rather than replaces, the protected Pages owner/HTTPS smoke.
 This infra release requires the distinctive new UI classes to be present
 in the published React bundle while preserving the old `/` rollback.
+
+## Screenshot-reference Swordhaven HUD promotion
+
+Chronicles source PR #70 (source `main`, after all 5 workflows green and
+four real Chromium/WebGL mobile E2E cases passing) moves from a document-style
+screen to one full-screen original Three.js Swordhaven view with diegetic
+overlays in portrait and landscape. The real 19×19 walk grid drives an
+explored-only minimap, and the original Chronicle modal opens with J or an
+in-world button. The menu only exposes implemented actions; no invented HP,
+monsters, shop state or attack buttons. Original root `/` remains a
+known-good rollback; React remains only under `/react/`.
+
+The Infra build now requires markers for the minimap, Chronicle and floating
+HUD in **actual compiled Vite JS/CSS**, plus the previous Three.js and
+static root checks. Browser viewport tests live in the source workflow;
+ShadowOps continues owning only the protected Cloudflare Pages release and
+live HTTPS smoke. Treat this as **HUD layout progress** not complete gameplay.
