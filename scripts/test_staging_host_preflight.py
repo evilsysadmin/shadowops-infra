@@ -57,6 +57,8 @@ class StagingPreflightTest(unittest.TestCase):
             {"CHRONICLES_IMAGE_DIGEST": "staging-latest"},
             {"CHRONICLES_IMAGE_DIGEST": "sha256:short"},
             {"CHRONICLES_MONGODB_DATABASE": "chess_studio_prod"},
+            {"CHRONICLES_MONGODB_DATABASE": "chess_study_staging"},
+            {"CHRONICLES_MONGODB_DATABASE": "other_staging"},
             {"CHRONICLES_MONGODB_DATABASE": "bad.name_staging"},
             {"CHRONICLES_ENABLE_READ_API": "false"},
             {"CHRONICLES_ENVIRONMENT": "production"},

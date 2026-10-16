@@ -88,7 +88,8 @@ class A1DeployContractTest(unittest.TestCase):
         return run_staging(
             sha=SHA, run_id=38812775390, env=ENV,
             architecture="aarch64", host_preflight=fake_host_preflight,
-            runner=runner, lock_dir=self.lock_dir, **kwargs
+            runner=runner, lock_dir=self.lock_dir,
+            host_collision_guard=lambda _runner: None, **kwargs
         )
 
     def test_read_only_mode_never_invokes_mutating_docker_actions(self):
@@ -133,6 +134,7 @@ class A1DeployContractTest(unittest.TestCase):
                     "sha": SHA, "run_id": 38812775390, "env": ENV,
                     "architecture": "aarch64", "host_preflight": fake_host_preflight,
                     "runner": runner, "lock_dir": self.lock_dir,
+                    "host_collision_guard": lambda _runner: None,
                     "deploy": True,
                     "token_reader": lambda path: "token-a" if "owner" in path else "token-b",
                 }
@@ -156,6 +158,7 @@ class A1DeployContractTest(unittest.TestCase):
             bad(ports=[{"host_ip": "0.0.0.0", "published": "18081", "target": 8080}]),
             bad(secrets=[]),
             bad(healthcheck={"test": ["CMD", "true"]}),
+            bad(environment={**COMPOSE["services"]["chronicles-api"]["environment"], "CHRONICLES_MONGODB_DATABASE": "chess_study_staging"}),
             bad(environment={"CHRONICLES_ENVIRONMENT": "production"}),
         ]:
             with self.subTest(config=config):
