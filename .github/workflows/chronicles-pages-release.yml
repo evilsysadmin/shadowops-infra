@@ -126,6 +126,12 @@ jobs:
           grep -lFq 'chronicles-save-menu' dist/assets/*.js
           grep -lFq '.chronicles-save-menu--expedition' dist/assets/*.css
           grep -lFq '.react-town-menu-button' dist/assets/*.css
+          # The original VGA materials/font have to reach the generated
+          # React CSS, not merely exist as source assets.
+          grep -lFq -- '--mm3-frame' dist/assets/*.css
+          grep -lFq -- '--mm3-sapphire' dist/assets/*.css
+          grep -lFq -- 'Chronicles Pixel' dist/assets/*.css
+          test "$(find dist/assets -maxdepth 1 -name '*.woff2' | wc -l)" -ge 1
           test -s dist/manifest.webmanifest
           test "$(find dist/assets -maxdepth 1 -name '*.webp' | wc -l)" -ge 4
       - name: Assemble isolated static root and nested React preview
