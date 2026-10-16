@@ -11,6 +11,8 @@ on:
       - 'host/chronicles-web-deploy.py'
       - 'host/install-chronicles-web.sh'
       - 'host/chronicles-web.sudoers'
+      - 'host/bootstrap-chronicles-web-over-ssh.sh'
+      - 'tests/test_chronicles_web_operator_bootstrap.py'
       - 'tests/test_chronicles_web_host_deploy.py'
   push:
     branches: [main]
@@ -24,6 +26,8 @@ on:
       - 'host/chronicles-web-deploy.py'
       - 'host/install-chronicles-web.sh'
       - 'host/chronicles-web.sudoers'
+      - 'host/bootstrap-chronicles-web-over-ssh.sh'
+      - 'tests/test_chronicles_web_operator_bootstrap.py'
       - 'tests/test_chronicles_web_host_deploy.py'
 permissions:
   contents: read
@@ -69,9 +73,11 @@ jobs:
         run: |
           set -euo pipefail
           bash -n host/install-chronicles-web.sh
+          bash -n host/bootstrap-chronicles-web-over-ssh.sh
           test -x /usr/sbin/visudo
           /usr/sbin/visudo -cf host/chronicles-web.sudoers
           python3 -m unittest discover -s tests -p 'test_chronicles_web_host_deploy.py' -v
+          python3 -m unittest discover -s tests -p 'test_chronicles_web_operator_bootstrap.py' -v
       - name: Reject missing manifest digest
         run: |
           set -euo pipefail

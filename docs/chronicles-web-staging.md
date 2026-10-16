@@ -136,3 +136,37 @@ one-time, authorized root installation described above has installed the
 restricted Chronicles-only host wrapper and sudoers. Running it prematurely
 fails closed; passing offline CI checks does not constitute a deployment.
 No Cloudflare routing or production change is included.
+
+## Single-command operator bootstrap over the existing SSH tunnel
+
+**No additional OCI tenancy IDs, API keys, vault transfers, or new SSH keys
+are required** if the operator's existing Ubuntu SSH identity is already
+authorized on the adopted A1 and has noninteractive `sudo`. On a Linux
+operator workstation (e.g. Nobara), install `cloudflared`, `git`, and
+`ssh` if absent, then use the exact reviewed ShadowOps `main` checkout.
+From the root of that checkout:
+
+```sh
+# Record the exact 40-character protected main SHA (no branch name or tag).
+sha="$(git rev-parse HEAD)"
+host/bootstrap-chronicles-web-over-ssh.sh "$sha"
+```
+
+Optional non-default key: set
+`CHRONICLES_OPERATOR_SSH_KEY=/home/<user>/.ssh/<existing-key>`; the
+**private key stays on that workstation**. The script refuses stale SHA,
+dangerous arguments, non-main commits and unknown remotes. It connects to
+the existing operator endpoint
+`ssh-chess-studio-staging.shadowops.dpdns.org` via
+`cloudflared access ssh --hostname %h`, with normal SSH host-key
+verification (no `StrictHostKeyChecking=no`). On the host it requires
+existing operator `sudo -n`, clones/checks a root-owned, clean
+`/opt/shadowops-infra` checkout of current upstream main, and calls the
+fixed install helper. It does **not** deploy a container or change DNS.
+
+This one-time operator bootstrap is intentionally **not** in GitHub Actions
+and is not executable by the unprivileged OCI agent. If the operator's
+existing SSH account cannot authenticate or use `sudo -n`, it fails
+without granting new privileges. Once the fixed wrapper is installed,
+ShadowOps' signed OCI release workflow can perform subsequent releases
+without interactive SSH.
