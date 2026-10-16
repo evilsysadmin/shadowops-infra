@@ -111,3 +111,22 @@ and actual walkable city grid, not the full Chronicles gameplay engine.
 Real browser WebGL appearance still requires manual/visual smoke beyond CI's
 public HTTPS/static asset verification; never call the full game migrated
 based on the source or release gate alone. Leave root `/` fallback unchanged.
+
+## Swordhaven phone layout release
+
+The source PR [chronicles-of-matthias #69](https://github.com/evilsysadmin/chronicles-of-matthias/pull/69)
+corrects the first public mobile screenshot: formerly a long scroll page
+with a small canvas, giant narrative, oversized controls and the party below
+the first viewport. The new independent React `/react/` Swordhaven screen
+uses a viewport-height game composition, full flexible 3D canvas,
+compact compass/narration overlays, two-row touch controls, four portraits
+and a disclosure for migration limitations. The authentic original 3D
+geometry and 19x19 collision runtime are unchanged.
+
+The source workflow now builds in Chromium with WebGL, checks 360/390/430 px
+portrait and 844×390 landscape layouts, verifies controls/party/canvas
+visibility, avoids both horizontal and vertical overflow, exercises
+movement/restart, and retains real screenshots as CI artifacts. This
+supplements, rather than replaces, the protected Pages owner/HTTPS smoke.
+This infra release requires the distinctive new UI classes to be present
+in the published React bundle while preserving the old `/` rollback.
