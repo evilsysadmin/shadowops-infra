@@ -89,6 +89,8 @@ class ParallelReactPagesTest(unittest.TestCase):
             "node --test test/*.test.mjs", "npm run build",
             "swordhaven-sky-dome", "chronicles-swordhaven-town",
             "react-town-playfield", "react-town-party-member",
+            "react-town-minimap", "react-town-journal",
+            "react-town-hud", "react-town-minimap-cells",
             'cp -a chronicles-source/web/. "$root/"',
             'cp -a chronicles-source/frontend/dist/. "$root/react/"',
             'wrangler@4.127.1 pages deploy "$RUNNER_TEMP/chronicles-pages"',
