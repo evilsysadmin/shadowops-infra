@@ -50,6 +50,20 @@ class SharedA1GuardTests(unittest.TestCase):
         ))
         inspect_container_rows(rows(container("chess-studio", "chess-studio", "backend", "")))
 
+    def test_api_project_may_run_its_own_tunnel_connector_once(self):
+        inspect_container_rows(rows(
+            container("chronicles-api", "shadowops-chronicles-staging", "chronicles-api", "127.0.0.1:18081->8080/tcp"),
+            container("chronicles-tunnel", "shadowops-chronicles-staging", "chronicles-tunnel", ""),
+        ))
+        for value in (
+            rows(container("t1", "shadowops-chronicles-staging", "chronicles-tunnel"),
+                 container("t2", "shadowops-chronicles-staging", "chronicles-tunnel")),
+            # The connector must never take the API's reserved port.
+            container("tunnel-port", "shadowops-chronicles-staging", "chronicles-tunnel", "127.0.0.1:18081->8080/tcp"),
+        ):
+            with self.subTest(value=value[:85]), self.assertRaises(SharedHostError):
+                inspect_container_rows(value)
+
     def test_fails_closed_on_competing_baseline_or_port_owner(self):
         cases = [
             container("legacy", "shadowops-chronicles", "chronicles-api", "", state="exited"),

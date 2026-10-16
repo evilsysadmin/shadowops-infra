@@ -17,6 +17,9 @@ PROJECT_BASELINE = "shadowops-chronicles"
 PROJECT_WEB = "shadowops-chronicles-web-staging"
 PORT_OWNERS = {18081: (PROJECT_API, "chronicles-api"),
                18082: (PROJECT_WEB, "chronicles-web")}
+# The API project may run the API and its own Cloudflare Tunnel connector
+# (which publishes no host port); nothing else.
+API_SERVICES = frozenset({"chronicles-api", "chronicles-tunnel"})
 MAX_BYTES = 512_000
 MAPPING = re.compile(r"^(?P<host>.+):(?P<port>[0-9]+)->(?P<target>[0-9]+)/(tcp|udp)$")
 LABEL = re.compile(r"(?:^|,)com[.]docker[.]compose[.](project|service)=([^,]+)")
@@ -41,7 +44,7 @@ def inspect_container_rows(stdout: str) -> None:
     """Reject competing Compose projects and ANY foreign publisher on reserved ports."""
     if len(stdout.encode("utf-8")) > MAX_BYTES:
         raise SharedHostError("Docker inventory exceeds safe size")
-    managed_count = 0
+    api_counts: dict[str, int] = {}
     web_count = 0
     for line in stdout.splitlines():
         if not line.strip():
@@ -58,10 +61,10 @@ def inspect_container_rows(stdout: str) -> None:
         if project == PROJECT_BASELINE:
             raise SharedHostError("Legacy Chronicles baseline project conflicts with staging")
         if project == PROJECT_API:
-            if service != "chronicles-api":
+            if service not in API_SERVICES:
                 raise SharedHostError("Unexpected service inside Chronicles staging project")
-            managed_count += 1
-            if managed_count > 1:
+            api_counts[service] = api_counts.get(service, 0) + 1
+            if api_counts[service] > 1:
                 raise SharedHostError("Ambiguous duplicate Chronicles staging containers")
         if project == PROJECT_WEB:
             if service != "chronicles-web":
