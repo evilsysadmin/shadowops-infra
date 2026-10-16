@@ -89,6 +89,33 @@ class ParallelReactPagesTest(unittest.TestCase):
         self.assertEqual(requested[0], "https://" + pages.HOST + "/")
         self.assertTrue(any("/assets/" in value for value in requested))
 
+    def test_vite_modulepreload_links_do_not_hide_the_entry_script(self):
+        # Real root HTML of the verbatim game build: one entry module, one
+        # stylesheet and several vendor modulepreload links.
+        html = (b'<!doctype html><html><head><title>Chronicles of Matthias</title>'
+                b'<script type="module" crossorigin src="/assets/index-O94sP1mA.js"></script>'
+                b'<link rel="modulepreload" crossorigin href="/assets/vendor-CoSDG3-6.js">'
+                b'<link rel="modulepreload" crossorigin href="/assets/vendor-react-BRcWHSNz.js">'
+                b'<link rel="stylesheet" crossorigin href="/assets/index-BDG1Thnq.css">'
+                b'</head><body><div id="root"></div></body></html>')
+        requested = []
+
+        def request(req, timeout):
+            requested.append(req.full_url)
+            if req.full_url == "https://" + pages.HOST + "/":
+                return FakeResponse(req.full_url, html, "text/html")
+            if req.full_url.endswith(".js"):
+                return FakeResponse(req.full_url, JS, "application/javascript")
+            if req.full_url.endswith(".css"):
+                return FakeResponse(req.full_url, CSS, "text/css")
+            raise AssertionError("Unexpected asset path " + req.full_url)
+
+        with patch.object(pages.urllib.request, "urlopen", side_effect=request):
+            self.assertEqual(pages.probe_react_preview(
+                path="/", assets=b"/assets/", manifest_path=None), "ok")
+        self.assertIn("https://" + pages.HOST + "/assets/index-O94sP1mA.js", requested)
+        self.assertNotIn("https://" + pages.HOST + "/assets/vendor-CoSDG3-6.js", requested)
+
     def test_rejects_html_fallback_mismatched_root_or_missing_asset(self):
         def html_only(req, timeout):
             return FakeResponse(req.full_url, b'<html>not React</html>', "text/html")
