@@ -106,7 +106,7 @@ class SignedChroniclesReleaseTests(unittest.TestCase):
         self.assertNotIn("pull_request_target", wf)
         self.assertNotIn("|| github.event_name == 'push'", wf)
         self.assertNotIn("docker compose up", wf)
-        self.assertIn("permissions:\\n  contents: read", wf)
+        self.assertIn("permissions:\n  contents: read", wf)
         self.assertIn("packages: read", wf)
         self.assertIn("docker/login-action@v3", wf)
         self.assertIn("registry: ghcr.io", wf)
