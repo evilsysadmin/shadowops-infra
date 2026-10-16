@@ -1,0 +1,7 @@
+# This grants ONLY the root-owned Chronicles web wrapper, never docker/shell.
+# The wrapper itself rejects every invocation except:
+#   deploy sha256:<exactly 64 lowercase hex digits>
+# sudoers arguments '*' can match whitespace: the Python argv parser enforces
+# exact arity, validates the digest, and fixes every Docker/Compose argument.
+Cmnd_Alias SHADOWOPS_CHRONICLES_WEB = /usr/local/sbin/shadowops-chronicles-web *
+ocarun ALL=(root) NOPASSWD: SHADOWOPS_CHRONICLES_WEB

@@ -8,6 +8,10 @@ on:
       - 'scripts/oci_web_staging_preflight.py'
       - 'scripts/test_oci_web_staging_preflight.py'
       - 'scripts/shared_a1_host_guard.py'
+      - 'host/chronicles-web-deploy.py'
+      - 'host/install-chronicles-web.sh'
+      - 'host/chronicles-web.sudoers'
+      - 'tests/test_chronicles_web_host_deploy.py'
   push:
     branches: [main]
     paths:
@@ -17,6 +21,10 @@ on:
       - 'scripts/oci_web_staging_preflight.py'
       - 'scripts/test_oci_web_staging_preflight.py'
       - 'scripts/shared_a1_host_guard.py'
+      - 'host/chronicles-web-deploy.py'
+      - 'host/install-chronicles-web.sh'
+      - 'host/chronicles-web.sudoers'
+      - 'tests/test_chronicles_web_host_deploy.py'
 permissions:
   contents: read
 jobs:
@@ -57,6 +65,13 @@ jobs:
           PY
       - name: Exercise signed A1 web release admission with fake GitHub, GHCR and Docker
         run: python3 -m unittest discover -s scripts -p 'test_oci_web_staging_preflight.py' -v
+      - name: Verify the installed root-only Chronicles web wrapper policy (offline)
+        run: |
+          set -euo pipefail
+          bash -n host/install-chronicles-web.sh
+          test -x /usr/sbin/visudo
+          /usr/sbin/visudo -cf host/chronicles-web.sudoers
+          python3 -m unittest discover -s tests -p 'test_chronicles_web_host_deploy.py' -v
       - name: Reject missing manifest digest
         run: |
           set -euo pipefail
