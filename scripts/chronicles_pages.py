@@ -175,7 +175,21 @@ def ensure_dns() -> None:
 def probe_https() -> str:
     """Diagnose only the public page; never log raw TLS, DNS, HTTP or page data."""
     try:
-        with urllib.request.urlopen("https://" + HOST + "/", timeout=10) as response:
+        # Exercise the public browser path rather than urllib's default
+        # User-Agent, which can be singled out by anti-bot policies. No
+        # authentication/cookies, redirects disabled by marker verification,
+        # no exceptions to TLS certificate validation.
+        browser_request = urllib.request.Request(
+            "https://" + HOST + "/",
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36"
+                ),
+                "Accept": "text/html,application/xhtml+xml",
+            },
+        )
+        with urllib.request.urlopen(browser_request, timeout=10) as response:
             page = response.read(200000).decode("utf-8")
             if response.status != 200:
                 return "http_status"
@@ -183,6 +197,12 @@ def probe_https() -> str:
                 return "unexpected_content"
             return "ok"
     except urllib.error.HTTPError as exc:
+        # The presence of Cloudflare's challenge marker is safe to report;
+        # do not expose the response headers, body, or origin details.
+        if exc.code == 403 and exc.headers and (
+            str(exc.headers.get("cf-mitigated", "")).lower() == "challenge"
+        ):
+            return "http_403_challenge"
         # HTTP status is non-sensitive, unlike the response body or headers.
         # Separate a 403 policy denial from Pages origin 522/525 or 404.
         if isinstance(exc.code, int) and 400 <= exc.code <= 599:
