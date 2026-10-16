@@ -52,7 +52,8 @@ def _one(rows: Any, *, label: str) -> Any:
     return entries[0]
 
 
-def inspect(sdk: Any, config: dict[str, str]) -> dict[str, str]:
+def resolve_existing_host(sdk: Any, config: dict[str, str]) -> tuple[str, str]:
+    """Resolve exactly the adopted A1; never an operator-provided host."""
     identity = sdk.identity.IdentityClient(config)
     compartments = sdk.pagination.list_call_get_all_results(
         identity.list_compartments,
@@ -79,10 +80,15 @@ def inspect(sdk: Any, config: dict[str, str]) -> dict[str, str]:
     )
     if instance.shape != SHAPE or instance.lifecycle_state != "RUNNING":
         raise InventoryError("Adopted OCI host shape or lifecycle mismatch")
+    return str(compartment.id), str(instance.id)
+
+
+def inspect(sdk: Any, config: dict[str, str]) -> dict[str, str]:
+    compartment_id, instance_id = resolve_existing_host(sdk, config)
     agent = sdk.compute_instance_agent.PluginClient(config)
     response = agent.get_instance_agent_plugin(
-        instanceagent_id=instance.id,
-        compartment_id=compartment.id,
+        instanceagent_id=instance_id,
+        compartment_id=compartment_id,
         plugin_name=PLUGIN,
         retry_strategy=sdk.retry.DEFAULT_RETRY_STRATEGY,
     ).data
