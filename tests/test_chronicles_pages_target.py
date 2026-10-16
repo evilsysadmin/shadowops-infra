@@ -11,6 +11,9 @@ import chronicles_pages as pages
 class TargetPreflight(unittest.TestCase):
     def setUp(self):
         self.calls = []
+        self.env = patch.dict(pages.os.environ, {"CLOUDFLARE_ACCOUNT_ID": "test-account"})
+        self.env.start()
+        self.addCleanup(self.env.stop)
 
     def check(self, *, dns=None, project=None, domain=None):
         def read(method, path, payload=None):
