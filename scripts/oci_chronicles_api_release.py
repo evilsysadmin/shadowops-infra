@@ -21,6 +21,7 @@ DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 WRAPPER = "/usr/local/sbin/shadowops-chronicles-api"
 VAULT = re.compile(r"^ocid1\.vault\.[A-Za-z0-9._-]{10,200}$")
 MARKER = "CHRONICLES_API_OCI_STAGING_SMOKE_OK digest="
+BLOCKED = re.compile(r"^CHRONICLES_API_OCI_DEPLOY_BLOCKED type=[A-Za-z]{1,40} reason=[A-Za-z0-9 ,./:()'_-]{0,120}$")
 TERMINAL = {"SUCCEEDED", "FAILED", "TIMED_OUT", "CANCELED"}
 
 
@@ -32,7 +33,9 @@ def command_for(digest: str, vault_id: str) -> str:
     command = (
         "set -euo pipefail\n"
         "test -x " + WRAPPER + "\n"
-        "sudo --non-interactive " + WRAPPER + " deploy " + digest + " " + vault_id + "\n"
+        # stderr joins stdout so the wrapper's bounded BLOCKED reason (fixed,
+        # authored strings only) can be surfaced; nothing else is ever echoed.
+        "sudo --non-interactive " + WRAPPER + " deploy " + digest + " " + vault_id + " 2>&1\n"
     )
     if len(command.encode()) > 4096 or WRAPPER not in command:
         raise InventoryError("Chronicles API Run Command exceeds fixed policy")
@@ -76,12 +79,16 @@ def execute(
         if status in TERMINAL:
             result = getattr(execution, "content", None)
             stdout = str(getattr(result, "text", "") or "").strip()
+            last = stdout.splitlines()[-1] if stdout else ""
             if (status != "SUCCEEDED" or getattr(result, "exit_code", None) != 0
-                    or stdout != MARKER + digest):
-                # Never echo Oracle's raw remote output.
-                raise InventoryError("Chronicles API root-wrapper smoke did not succeed")
+                    or last != MARKER + digest):
+                # Never echo Oracle's raw remote output: only the wrapper's own
+                # bounded reason line, matched strictly.
+                reason = next((line for line in stdout.splitlines() if BLOCKED.fullmatch(line)), "")
+                raise InventoryError("Chronicles API root-wrapper smoke did not succeed"
+                                     + (" | " + reason if reason else f" | status={status}"))
             print(MARKER + digest)
-            return stdout
+            return last
         pause(3)
     raise InventoryError("Chronicles API OCI release timed out")
 
@@ -103,8 +110,9 @@ def main() -> int:
         import oci
         execute(oci, config_from_env(oci, os.environ), args.digest)
     except Exception as exc:
-        print("CHRONICLES_API_OCI_RELEASE_BLOCKED type=" +
-              type(exc).__name__, file=sys.stderr)
+        detail = str(exc) if isinstance(exc, InventoryError) else ""
+        print("CHRONICLES_API_OCI_RELEASE_BLOCKED type=" + type(exc).__name__
+              + (" detail=" + detail[:300] if detail else ""), file=sys.stderr)
         return 1
     return 0
 
