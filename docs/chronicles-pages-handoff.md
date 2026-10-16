@@ -168,3 +168,34 @@ by visiting a URL. The native app/browser decides. A rejected request
 must offer manual rotation rather than CSS-transforming a Three.js
 canvas and breaking touch hit testing. Source CI includes emulated
 touch-browser success/denial/cleanup tests, in addition to 4 WebGL layouts.
+
+## Root-host promotion: canonical Chronicles library Home
+
+After Chronicles source PR #72 is green and merged, **the root URL**
+`https://staging.chronicles.shadowops.dpdns.org/` directly serves the
+independent Vite/React frontend and its authentic imported
+`ChroniclesSaveMenu.jsx`, original expedition-study artwork, and the real
+MM3 sapphire/menu stone visual materials. This is the desired official entry;
+users do **not** have to append `/react/`.
+
+For rollback and comparison, the same protected source SHA is built a
+second time using `/react/` base and deployed under that path, and the
+previous static preview moves to `/legacy-preview/`. The original static
+`/game/` JS modules are retained at the same origin so old previews/tests
+still work. No other domain, production backend, staging OCI, WAF or DNS
+ownership changes.
+
+Verification requires:
+- `/`: actual React index with same-origin hashed JS/CSS and landscape
+  manifest served as real resources, not a static fallback/HTML 200.
+- `/react/`: compatibility entry with its own correct base and manifest.
+- `/game/`: previous authored explorer modules, still available.
+- `/legacy-preview/`: complete previous shell and original explorer.
+- Source provenance, authentic library/stone/gem bundle markers, and
+  Cloudflare ownership checks remain required.
+
+The original full React/game source snapshot is present in the standalone
+repo but **gameplay is still only partially integrated**: saving,
+campaign progression, combat and equipment cannot be advertised as available
+until the real runtime/services pass parity. Home disables unavailable
+resume/load actions rather than displaying false player saves.

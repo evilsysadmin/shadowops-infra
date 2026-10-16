@@ -194,7 +194,7 @@ def probe_https() -> str:
             page = response.read(200000).decode("utf-8")
             if response.status != 200:
                 return "http_status"
-            if "CHRONICLES OF MATTHIAS" not in page or "todavía no es el juego" not in page:
+            if 'Chronicles of Matthias' not in page or '<div id="root"></div>' not in page:
                 return "unexpected_content"
             return "ok"
     except urllib.error.HTTPError as exc:
@@ -261,7 +261,11 @@ def probe_exploration_assets() -> str:
 
 
 
-def probe_react_preview() -> str:
+def probe_react_preview(
+    path: str = "/react/",
+    assets: bytes = b"/react/assets/",
+    manifest_path: str = "/react/manifest.webmanifest",
+) -> str:
     """Prove the isolated built React entry, JS and CSS on the public HTTPS host.
 
     Never follow an asset outside the expected /react/assets/ path, and never
@@ -284,13 +288,13 @@ def probe_react_preview() -> str:
             return str(response.headers.get("Content-Type", "")).lower(), response.read(500000)
 
     try:
-        html_type, html = get_public("/react/", "text/html,application/xhtml+xml")
+        html_type, html = get_public(path, "text/html,application/xhtml+xml")
         if "text/html" not in html_type or not (
             b'<div id="root"></div>' in html
             and b'Chronicles of Matthias' in html
         ):
             return "html_missing"
-        matches = set(re.findall(rb'/react/assets/[A-Za-z0-9._-]+\.(?:js|css)', html))
+        matches = set(re.findall(re.escape(assets) + rb'[A-Za-z0-9._-]+\.(?:js|css)', html))
         for extension in ("js", "css"):
             urls = sorted(path.decode("ascii") for path in matches
                           if path.endswith(("." + extension).encode("ascii")))
@@ -307,7 +311,7 @@ def probe_react_preview() -> str:
         # Installed standalone Chronicles must advertise landscape. The
         # ordinary Brave tab still requires a user gesture and browser API.
         _, manifest_bytes = get_public(
-            "/react/manifest.webmanifest", "application/manifest+json,application/json,*/*"
+            manifest_path, "application/manifest+json,application/json,*/*"
         )
         try:
             manifest = json.loads(manifest_bytes)
@@ -356,11 +360,19 @@ def verify(timeout_seconds: int = 120) -> None:
             if asset_result == "ok":
                 react_result = probe_react_preview()
                 if react_result == "ok":
-                    print("CHRONICLES_PAGES_STAGING_HTTPS_OK " + HOST)
-                    print("CHRONICLES_PAGES_EXPLORATION_ASSETS_OK " + HOST)
-                    print("CHRONICLES_PAGES_REACT_PREVIEW_OK " + HOST)
-                    return
-                last_probe = "react_" + react_result
+                    home_result = probe_react_preview(
+                        path="/", assets=b"/assets/",
+                        manifest_path="/manifest.webmanifest",
+                    )
+                    if home_result == "ok":
+                        print("CHRONICLES_PAGES_STAGING_HTTPS_OK " + HOST)
+                        print("CHRONICLES_PAGES_HOME_REACT_OK " + HOST)
+                        print("CHRONICLES_PAGES_EXPLORATION_ASSETS_OK " + HOST)
+                        print("CHRONICLES_PAGES_REACT_PREVIEW_OK " + HOST)
+                        return
+                    last_probe = "home_" + home_result
+                else:
+                    last_probe = "react_" + react_result
             else:
                 last_probe = "assets_" + asset_result
         time.sleep(5)
