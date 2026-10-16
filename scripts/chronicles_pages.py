@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import os
+import socket
+import ssl
 import sys
 import time
 import urllib.error
@@ -170,8 +172,44 @@ def ensure_dns() -> None:
         raise RuntimeError("Unable to create dedicated staging DNS CNAME")
 
 
-def verify() -> None:
-    deadline = time.monotonic() + 600
+def probe_https() -> str:
+    """Diagnose only the public page; never log raw TLS, DNS, HTTP or page data."""
+    try:
+        with urllib.request.urlopen("https://" + HOST + "/", timeout=10) as response:
+            page = response.read(200000).decode("utf-8")
+            if response.status != 200:
+                return "http_status"
+            if "CHRONICLES OF MATTHIAS" not in page or "todavía no es el juego" not in page:
+                return "unexpected_content"
+            return "ok"
+    except urllib.error.HTTPError:
+        return "http_error"
+    except urllib.error.URLError as exc:
+        if isinstance(exc.reason, ssl.SSLError):
+            return "tls_error"
+        if isinstance(exc.reason, socket.gaierror):
+            return "dns_error"
+        if isinstance(exc.reason, (TimeoutError, socket.timeout)):
+            return "timeout"
+        return "connection_error"
+    except (UnicodeError, TimeoutError, socket.timeout):
+        return "invalid_response"
+
+
+def safe_domain_state(value: object) -> str:
+    """Allowlisted Cloudflare state only: never print untrusted API payloads."""
+    return value if isinstance(value, str) and value in {
+        "active", "pending", "initializing", "verifying",
+        "pending_validation", "pending_issuance", "pending_deployment",
+    } else "unknown"
+
+
+def verify(timeout_seconds: int = 120) -> None:
+    # Domain activation and certificate issuance may take much longer than a
+    # CI job. Fail closed with actionable status rather than burning ten minutes
+    # and emitting a generic timeout. Never disable TLS verification.
+    deadline = time.monotonic() + timeout_seconds
+    last_state, last_probe = "unknown", "not_checked"
     while time.monotonic() < deadline:
         status, obj = request("GET", domain_path())
         if status != 200 or not isinstance(obj, dict):
@@ -179,20 +217,24 @@ def verify() -> None:
         state = obj.get("status")
         if state in {"blocked", "deactivated", "error"}:
             raise RuntimeError("Pages domain activation failed")
-        if state == "active":
-            try:
-                with urllib.request.urlopen("https://" + HOST + "/", timeout=15) as response:
-                    page = response.read(200000).decode("utf-8")
-                    if response.status == 200 and (
-                        "CHRONICLES OF MATTHIAS" in page
-                        and "todavía no es el juego" in page
-                    ):
-                        print("CHRONICLES_PAGES_STAGING_HTTPS_OK " + HOST)
-                        return
-            except (urllib.error.URLError, UnicodeError):
-                pass
+        last_state = safe_domain_state(state)
+        # Probe even when Pages is pending: a single missing custom certificate
+        # otherwise hides behind ten minutes of silent status polling.
+        last_probe = probe_https()
+        if state == "active" and last_probe == "ok":
+            print("CHRONICLES_PAGES_STAGING_HTTPS_OK " + HOST)
+            return
         time.sleep(5)
-    raise RuntimeError("Pages custom domain HTTPS did not converge")
+    reason = (
+        "Pages custom domain HTTPS did not converge"
+        + " (domain_status=" + last_state + ", https_probe=" + last_probe + ")"
+    )
+    if last_probe == "tls_error":
+        reason += (
+            "; confirm a valid edge certificate for this deeper-level hostname"
+            " (Universal SSL alone covers only one level in full-zone setup)"
+        )
+    raise RuntimeError(reason)
 
 
 def self_test() -> None:
