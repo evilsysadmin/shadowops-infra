@@ -1,0 +1,54 @@
+name: ShadowOps OCI · existing A1 inventory
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/oci-inventory.yml'
+      - 'scripts/oci_control_plane.py'
+      - 'tests/test_oci_control_plane.py'
+      - 'docs/platform-ownership.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/oci-inventory.yml'
+      - 'scripts/oci_control_plane.py'
+      - 'tests/test_oci_control_plane.py'
+      - 'docs/platform-ownership.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read-only OCI inventory contracts
+        run: |
+          python3 -m unittest discover -s tests -p 'test_oci_control_plane.py' -v
+          python3 scripts/oci_control_plane.py self-test
+
+  inventory:
+    name: Inventory existing A1 (no mutations)
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install pinned read-only OCI SDK
+        run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Inspect existing compartment, A1 and Oracle agent
+        run: python scripts/oci_control_plane.py inventory
