@@ -304,6 +304,21 @@ def probe_react_preview() -> str:
                 return "css_mime"
             if len(content) < 128 or content.lstrip().lower().startswith(b"<"):
                 return extension + "_content"
+        # Installed standalone Chronicles must advertise landscape. The
+        # ordinary Brave tab still requires a user gesture and browser API.
+        _, manifest_bytes = get_public(
+            "/react/manifest.webmanifest", "application/manifest+json,application/json,*/*"
+        )
+        try:
+            manifest = json.loads(manifest_bytes)
+        except (ValueError, UnicodeDecodeError):
+            return "manifest_content"
+        if not isinstance(manifest, dict) or (
+            manifest.get("orientation") != "landscape"
+            or manifest.get("display") != "standalone"
+            or manifest.get("start_url") != "./"
+        ):
+            return "manifest_content"
     except urllib.error.HTTPError as exc:
         return "http_" + str(exc.code) if isinstance(exc.code, int) and 400 <= exc.code <= 599 else "http_error"
     except (urllib.error.URLError, TimeoutError, socket.timeout, UnicodeError, ValueError):
