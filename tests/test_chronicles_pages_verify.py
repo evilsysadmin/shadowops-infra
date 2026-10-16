@@ -56,6 +56,56 @@ class HTTPSVerification(unittest.TestCase):
         self.assertIsNone(request.get_header("Authorization"))
         self.assertIsNone(request.get_header("Cookie"))
 
+    def test_exploration_modules_require_real_js_and_public_browser_headers(self):
+        class Response:
+            status = 200
+            headers = {"Content-Type": "application/javascript; charset=utf-8"}
+            def __init__(self, data):
+                self.data = data
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self, size):
+                return self.data
+
+        requested = []
+        def open_asset(req, timeout):
+            requested.append(req)
+            asset = next(item for item in pages.EXPLORATION_ASSETS
+                         if req.full_url.endswith(item[1]))
+            return Response(b"// authentic source\n" + asset[2] + b"()")
+        with patch.object(pages.urllib.request, "urlopen", side_effect=open_asset):
+            self.assertEqual(pages.probe_exploration_assets(), "ok")
+        self.assertEqual(len(requested), len(pages.EXPLORATION_ASSETS))
+        for req in requested:
+            self.assertEqual(req.full_url.split("/game/")[0], "https://" + pages.HOST)
+            self.assertIn("Mozilla/5.0", req.get_header("User-agent"))
+            self.assertIsNone(req.get_header("Authorization"))
+            self.assertIsNone(req.get_header("Cookie"))
+
+    def test_exploration_missing_asset_and_html_fallback_fail_closed(self):
+        class Response:
+            status = 200
+            def __init__(self, mime, data):
+                self.headers = {"Content-Type": mime}
+                self.data = data
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self, size):
+                return self.data
+        with patch.object(pages.urllib.request, "urlopen",
+                          return_value=Response("text/html", b"<html>404</html>")):
+            self.assertEqual(pages.probe_exploration_assets(), "map_response")
+        with patch.object(pages.urllib.request, "urlopen",
+                          return_value=Response("text/javascript", b"wrong version")):
+            self.assertEqual(pages.probe_exploration_assets(), "map_content")
+        with patch.object(pages.urllib.request, "urlopen",
+                          side_effect=urllib.error.HTTPError(pages.HOST, 404, "private", {}, None)):
+            self.assertEqual(pages.probe_exploration_assets(), "map_http_404")
+
     def test_https_errors_are_classified_not_echoed(self):
         cases = [
             (urllib.error.URLError(ssl.SSLCertVerificationError("private cert body")), "tls_error"),
@@ -79,6 +129,7 @@ class HTTPSVerification(unittest.TestCase):
             return 200, {"status": state}
         with patch.object(pages, "request", side_effect=cloudflare), \
              patch.object(pages, "probe_https", return_value=probe), \
+             patch.object(pages, "probe_exploration_assets", return_value="ok"), \
              patch.object(pages.time, "monotonic", side_effect=[0, 0, 2]), \
              patch.object(pages.time, "sleep") as sleeper:
             with redirect_stdout(io.StringIO()):
