@@ -28,7 +28,7 @@ the A1's Instance Principal. Nothing secret travels in Run Command or logs.
 ## One-time host install (operator machine)
 
 ```sh
-host/bootstrap-chronicles-api-over-ssh.sh <exact protected main SHA of shadowops-infra>
+host/bootstrap-chronicles-api-over-ssh.sh   # installs current protected main
 ```
 
 Installs the root-owned wrapper `/usr/local/sbin/shadowops-chronicles-api`,

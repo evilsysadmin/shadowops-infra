@@ -6,11 +6,13 @@ set -euo pipefail
 readonly source_repo='https://github.com/evilsysadmin/shadowops-infra.git'
 readonly destination='ubuntu@ssh-chess-studio-staging.shadowops.dpdns.org'
 
-if [[ $# -ne 1 || ! "$1" =~ ^[0-9a-f]{40}$ ]]; then
-  printf '%s\n' 'Usage: host/bootstrap-chronicles-api-over-ssh.sh <exact-protected-main-SHA>' >&2
+# Optional argument: an exact protected main SHA to pin. Without it, the
+# script installs the CURRENT protected main (resolved below and re-verified
+# on the host), so the operator never has to copy a hash.
+if [[ $# -gt 1 || ( $# -eq 1 && ! "$1" =~ ^[0-9a-f]{40}$ ) ]]; then
+  printf '%s\n' 'Usage: host/bootstrap-chronicles-api-over-ssh.sh [exact-protected-main-SHA]' >&2
   exit 64
 fi
-readonly expected="$1"
 
 for executable in ssh cloudflared git; do
   command -v "$executable" >/dev/null 2>&1 || {
@@ -23,6 +25,9 @@ done
 # Recheck on the host too: main can change between these two observations.
 main_line="$(GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code "$source_repo" refs/heads/main)"
 main_sha="${main_line%%$'\t'*}"
+expected="${1:-$main_sha}"
+readonly expected
+printf 'Installing protected main %s\n' "$expected"
 if [[ ! "$main_sha" =~ ^[0-9a-f]{40}$ || "$main_sha" != "$expected" ]]; then
   printf '%s\n' 'CHRONICLES_API_BOOTSTRAP_BLOCKED source-main-sha-mismatch' >&2
   exit 65
