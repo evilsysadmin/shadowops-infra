@@ -27,8 +27,21 @@ class SignedChroniclesReleaseTests(unittest.TestCase):
         self.assertEqual(len(fake.commands), 3)
         self.assertEqual(fake.commands[0][:3], ["gh", "attestation", "verify"])
         self.assertIn("--source-digest", fake.commands[0])
+        self.assertIn("--bundle-from-oci", fake.commands[0])
         self.assertEqual(fake.commands[1][:3], ["docker", "buildx", "imagetools"])
         self.assertEqual(fake.commands[2][:3], ["docker", "compose", "-f"])
+
+    def test_fail_closed_errors_name_only_static_stages_not_process_output(self):
+        from types import SimpleNamespace
+        def rejected(*args, **kwargs):
+            return SimpleNamespace(returncode=1, stdout="", stderr="SENSITIVE_TEST_SENTINEL")
+        for stage in ("signature", "manifest", "compose"):
+            with self.subTest(stage=stage):
+                with self.assertRaisesRegex(WebPreflightError, "Signed-release " + stage + " command failed") as caught:
+                    admission.fixed_command(rejected, ["ignored"], {}, stage)
+                self.assertNotIn("SENSITIVE_TEST_SENTINEL", str(caught.exception))
+        with self.assertRaisesRegex(WebPreflightError, "Unknown signed-release verification stage"):
+            admission.fixed_command(rejected, ["ignored"], {}, "arbitrary")
 
     def test_admission_failure_never_invokes_oci(self):
         for sha, digest, run_id, env in (
@@ -93,7 +106,12 @@ class SignedChroniclesReleaseTests(unittest.TestCase):
         self.assertNotIn("pull_request_target", wf)
         self.assertNotIn("|| github.event_name == 'push'", wf)
         self.assertNotIn("docker compose up", wf)
-        self.assertIn("permissions:\n  contents: read", wf)
+        self.assertIn("permissions:\\n  contents: read", wf)
+        self.assertIn("packages: read", wf)
+        self.assertIn("docker/login-action@v3", wf)
+        self.assertIn("registry: ghcr.io", wf)
+        self.assertIn("password: ${{ secrets.GITHUB_TOKEN }}", wf)
+        self.assertNotIn("packages: write", wf)
 
 
 if __name__ == "__main__":
