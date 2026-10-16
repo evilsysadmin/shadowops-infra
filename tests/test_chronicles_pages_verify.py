@@ -14,6 +14,11 @@ import chronicles_pages as pages
 
 
 class HTTPSVerification(unittest.TestCase):
+    def setUp(self):
+        self.account = patch.dict(pages.os.environ, {"CLOUDFLARE_ACCOUNT_ID": "test-account"})
+        self.account.start()
+        self.addCleanup(self.account.stop)
+
     def test_exact_independent_html_is_required(self):
         class Response:
             status = 200
