@@ -88,7 +88,7 @@ class SignedChroniclesReleaseTests(unittest.TestCase):
         self.assertIn("needs: admit", wf)
         self.assertIn("environment:", wf)
         self.assertIn("shadowops-oci-host-operations", wf)
-        self.assertIn("python scripts/chronicles_web_release_admission.py", wf)
+        self.assertIn("python3 scripts/chronicles_web_release_admission.py", wf)
         self.assertIn("python scripts/oci_chronicles_web_release.py", wf)
         self.assertNotIn("pull_request_target", wf)
         self.assertNotIn("|| github.event_name == 'push'", wf)
