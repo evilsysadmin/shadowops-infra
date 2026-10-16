@@ -103,6 +103,12 @@ jobs:
           # only as unmerged source / failed styling in a PR.
           grep -lFq 'react-town-playfield' dist/assets/*.js
           grep -lFq '.react-town-party-member' dist/assets/*.css
+          # HUD from the original-world reference, not a standalone mock page:
+          # real map, original Chronicle and portraits must be in the bundle.
+          grep -lFq 'react-town-minimap' dist/assets/*.js
+          grep -lFq 'react-town-journal' dist/assets/*.js
+          grep -lFq '.react-town-hud' dist/assets/*.css
+          grep -lFq '.react-town-minimap-cells' dist/assets/*.css
           test "$(find dist/assets -maxdepth 1 -name '*.webp' | wc -l)" -ge 4
       - name: Assemble isolated static root and nested React preview
         shell: bash
