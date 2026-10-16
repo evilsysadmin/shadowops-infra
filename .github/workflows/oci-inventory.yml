@@ -26,13 +26,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Read-only OCI inventory contracts
         run: |
-          python3 -m unittest discover -s tests -p 'test_oci_control_plane.py' -v
+          python3 -m unittest discover -s tests -p 'test_oci_*.py' -v
           python3 scripts/oci_control_plane.py self-test
 
   inventory:
     name: Inventory existing A1 (no mutations)
     needs: contracts
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     env:
