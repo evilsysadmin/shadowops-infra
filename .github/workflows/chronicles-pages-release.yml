@@ -78,6 +78,33 @@ jobs:
           node --test web/game/exploration-core.test.mjs
           grep -q 'CHRONICLES OF MATTHIAS' web/index.html
           grep -q 'todavía no es el juego' web/index.html
+      - name: Prepare pinned Node.js for the original React frontend
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build independent React preview at /react/ from admitted source SHA
+        working-directory: chronicles-source/frontend
+        env:
+          CHRONICLES_DEPLOY_BASE: /react/
+        run: |
+          set -euo pipefail
+          npm install --ignore-scripts --no-audit --no-fund
+          node --test test/*.test.mjs
+          npm run build
+          grep -q '/react/assets/' dist/index.html
+          test "$(find dist/assets -maxdepth 1 -name '*.webp' | wc -l)" -ge 4
+      - name: Assemble isolated static root and nested React preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/chronicles-pages"
+          mkdir -p "$root/react"
+          cp -a chronicles-source/web/. "$root/"
+          cp -a chronicles-source/frontend/dist/. "$root/react/"
+          grep -q 'CHRONICLES OF MATTHIAS' "$root/index.html"
+          grep -q '/react/assets/' "$root/react/index.html"
+          test -s "$root/game/crypt-map.js"
+          test -s "$root/react/index.html"
       - name: Require Cloudflare credentials in Infra, not the game repository
         shell: bash
         run: |
@@ -93,12 +120,12 @@ jobs:
           CHRONICLES_SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: |
           set -euo pipefail
-          npx --yes wrangler@4.127.1 pages deploy chronicles-source/web \
+          npx --yes wrangler@4.127.1 pages deploy "$RUNNER_TEMP/chronicles-pages" \
             --project-name chronicles-staging \
             --branch main \
             --commit-hash "$CHRONICLES_SOURCE_SHA" \
             --commit-dirty=false
       - name: Reconcile the exact domain without overwriting other DNS
         run: python3 scripts/chronicles_pages.py domain
-      - name: Prove live HTTPS, independent landing and explorer modules
+      - name: Prove HTTPS static fallback, JS explorer and parallel React preview
         run: python3 scripts/chronicles_pages.py verify
