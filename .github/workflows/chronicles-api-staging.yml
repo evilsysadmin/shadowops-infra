@@ -141,7 +141,7 @@ jobs:
     timeout-minutes: 20
     environment:
       name: staging
-      url: https://api-staging.chronicles.shadowops.dpdns.org/api/health
+      url: https://chronicles-api-staging.shadowops.dpdns.org/api/health
     env:
       OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
       OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
@@ -166,15 +166,15 @@ jobs:
           set -euo pipefail
           for path in health ready; do
             for i in $(seq 1 30); do
-              if curl -fsS --max-time 10 "https://api-staging.chronicles.shadowops.dpdns.org/api/${path}" >/dev/null; then break; fi
+              if curl -fsS --max-time 10 "https://chronicles-api-staging.shadowops.dpdns.org/api/${path}" >/dev/null; then break; fi
               sleep 5
             done
-            curl -fsS --max-time 10 "https://api-staging.chronicles.shadowops.dpdns.org/api/${path}" >/dev/null
+            curl -fsS --max-time 10 "https://chronicles-api-staging.shadowops.dpdns.org/api/${path}" >/dev/null
           done
           # CORS for the game's own origin only.
           origin="$(curl -fsS -o /dev/null -D - -X OPTIONS \
             -H 'Origin: https://staging.chronicles.shadowops.dpdns.org' \
             -H 'Access-Control-Request-Method: POST' \
-            https://api-staging.chronicles.shadowops.dpdns.org/api/auth/login | tr -d '\r' | awk -F': ' 'tolower($1)=="access-control-allow-origin"{print $2}')"
+            https://chronicles-api-staging.shadowops.dpdns.org/api/auth/login | tr -d '\r' | awk -F': ' 'tolower($1)=="access-control-allow-origin"{print $2}')"
           [[ "$origin" == "https://staging.chronicles.shadowops.dpdns.org" ]]
           echo "CHRONICLES_API_PUBLIC_SMOKE_OK"

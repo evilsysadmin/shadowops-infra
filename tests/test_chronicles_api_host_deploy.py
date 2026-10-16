@@ -185,7 +185,30 @@ class ProvisionAndReleaseContracts(unittest.TestCase):
         self.assertEqual(provision.ensure_dns(same, tunnel), "unchanged")
         fresh = FakeCF([])
         self.assertEqual(provision.ensure_dns(fresh, tunnel), "created")
-        self.assertEqual(fresh.posts[0][2]["content"], tunnel + ".cfargotunnel.com")
+        self.assertEqual(fresh.posts[-1][2]["content"], tunnel + ".cfargotunnel.com")
+        self.assertEqual(provision.HOSTNAME.count("."), 3)  # one level: Universal SSL
+
+    def test_legacy_record_is_retired_only_when_it_is_ours(self):
+        tunnel = "12345678-1234-1234-1234-123456789abc"
+
+        class FakeCF:
+            account = "acc"
+
+            def __init__(self, legacy):
+                self.legacy, self.calls = legacy, []
+
+            def call(self, method, path, payload=None):
+                self.calls.append((method, path))
+                if "/dns_records?" in path:
+                    return self.legacy if "api-staging.chronicles" in path else []
+                return {}
+
+        ours = FakeCF([{"id": "r1", "type": "CNAME", "content": tunnel + ".cfargotunnel.com"}])
+        provision.retire_legacy(ours, "zone", tunnel + ".cfargotunnel.com")
+        self.assertIn(("DELETE", "/zones/zone/dns_records/r1"), ours.calls)
+        foreign = FakeCF([{"id": "r2", "type": "CNAME", "content": "other.cfargotunnel.com"}])
+        provision.retire_legacy(foreign, "zone", tunnel + ".cfargotunnel.com")
+        self.assertFalse(any(m == "DELETE" for m, _ in foreign.calls))
 
     def test_release_command_carries_no_secret(self):
         command = release.command_for(DIGEST, VAULT)
