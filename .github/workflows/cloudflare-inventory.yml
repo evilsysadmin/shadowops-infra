@@ -1,0 +1,41 @@
+name: ShadowOps Cloudflare · existing resource inventory
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/cloudflare-inventory.yml'
+      - 'scripts/cloudflare_control_plane.py'
+      - 'tests/test_cloudflare_control_plane.py'
+      - 'docs/cloudflare-ownership.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cloudflare-inventory.yml'
+      - 'scripts/cloudflare_control_plane.py'
+      - 'tests/test_cloudflare_control_plane.py'
+      - 'docs/cloudflare-ownership.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s tests -p 'test_cloudflare_control_plane.py' -v
+      - run: python3 scripts/cloudflare_control_plane.py self-test
+  inventory:
+    name: Read existing Cloudflare resources only
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Observe existing tunnel, Pages projects and DNS without writes
+        run: python3 scripts/cloudflare_control_plane.py inventory
