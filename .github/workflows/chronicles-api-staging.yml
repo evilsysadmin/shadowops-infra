@@ -1,0 +1,180 @@
+name: ShadowOps OCI · Chronicles API staging
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/chronicles-api-staging.yml'
+      - 'compose.api.staging.yaml'
+      - 'host/chronicles-api*'
+      - 'host/install-chronicles-api.sh'
+      - 'host/bootstrap-chronicles-api-over-ssh.sh'
+      - 'scripts/chronicles_api_provision.py'
+      - 'scripts/oci_chronicles_api_release.py'
+      - 'scripts/shared_a1_host_guard.py'
+      - 'tests/test_chronicles_api_host_deploy.py'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/chronicles-api-staging.yml'
+      - 'compose.api.staging.yaml'
+      - 'host/chronicles-api*'
+      - 'host/install-chronicles-api.sh'
+      - 'scripts/chronicles_api_provision.py'
+      - 'scripts/oci_chronicles_api_release.py'
+      - 'scripts/shared_a1_host_guard.py'
+      - 'tests/test_chronicles_api_host_deploy.py'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: provision = tunnel + DNS + Vault bundle; deploy = run an admitted image on the A1
+        type: choice
+        options: [provision, deploy]
+        required: true
+      source_sha:
+        description: Chronicles main SHA whose API image to deploy (empty = current main)
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: Chronicles API host + provisioning contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_host_deploy.py' -v
+      - run: python3 -m unittest discover -s scripts -p 'test_shared_a1_host_guard.py' -v
+      - run: python3 scripts/chronicles_api_provision.py --self-test
+      - run: python3 scripts/oci_chronicles_api_release.py --self-test
+      - run: bash -n host/install-chronicles-api.sh && bash -n host/bootstrap-chronicles-api-over-ssh.sh
+      - name: Compose file parses and names only the API project
+        run: python3 -c "import yaml;c=yaml.safe_load(open('compose.api.staging.yaml'));assert c['name']=='shadowops-chronicles-staging';assert set(c['services'])=={'chronicles-api','chronicles-tunnel'}"
+
+  provision:
+    name: Own tunnel, DNS and Vault runtime bundle
+    concurrency:
+      group: shadowops-oci-host-operations
+      cancel-in-progress: false
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'provision' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: staging
+    env:
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CHRONICLES_STAGING_MONGO_URL: ${{ secrets.CHRONICLES_STAGING_MONGO_URL }}
+      CHRONICLES_STAGING_JWT_SECRET: ${{ secrets.CHRONICLES_STAGING_JWT_SECRET }}
+      CHRONICLES_STAGING_INVITE_CODE: ${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Provision (never prints secrets, tokens, IDs or DNS targets)
+        working-directory: scripts
+        run: python chronicles_api_provision.py
+
+  admit:
+    name: Admit the signed Chronicles API image (no OCI secrets)
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      digest: ${{ steps.admission.outputs.digest }}
+      source_sha: ${{ steps.admission.outputs.source_sha }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REQUESTED_SHA: ${{ inputs.source_sha }}
+      IMAGE: ghcr.io/evilsysadmin/chronicles-api
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - name: Resolve source SHA, digest and build provenance
+        id: admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="${REQUESTED_SHA:-}"
+          if [[ -z "$sha" ]]; then
+            sha="$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)"
+          fi
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo 'CHRONICLES_API_ADMISSION_BLOCKED bad-sha' >&2; exit 64; }
+          # The SHA must be on protected main, not a branch or fork.
+          status="$(gh api "repos/evilsysadmin/chronicles-of-matthias/compare/${sha}...main" --jq .status)"
+          [[ "$status" == "identical" || "$status" == "ahead" ]] || { echo 'CHRONICLES_API_ADMISSION_BLOCKED not-on-main' >&2; exit 65; }
+          digest="$(docker buildx imagetools inspect "${IMAGE}:staging-${sha}" --format '{{json .Manifest}}' | python3 -c 'import json,sys;print(json.load(sys.stdin)["digest"])')"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo 'CHRONICLES_API_ADMISSION_BLOCKED no-image' >&2; exit 66; }
+          docker buildx imagetools inspect "${IMAGE}@${digest}" --format '{{json .Manifest}}' \
+            | python3 -c 'import json,sys;m=json.load(sys.stdin);p={(x["platform"]["os"],x["platform"]["architecture"]) for x in m.get("manifests",[]) if "platform" in x};assert ("linux","arm64") in p, p'
+          gh attestation verify "oci://${IMAGE}@${digest}" \
+            --owner evilsysadmin \
+            --signer-workflow evilsysadmin/chronicles-of-matthias/.github/workflows/api.yml \
+            --source-ref refs/heads/main --source-digest "$sha" >/dev/null
+          echo "CHRONICLES_API_ADMITTED sha=${sha} digest=${digest}"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "source_sha=${sha}" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Run the admitted API on the A1 via its root wrapper
+    concurrency:
+      group: shadowops-oci-host-operations
+      cancel-in-progress: false
+    needs: admit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: staging
+      url: https://api-staging.chronicles.shadowops.dpdns.org/api/health
+    env:
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+      DIGEST: ${{ needs.admit.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Execute only the restricted Chronicles API deployer
+        working-directory: scripts
+        run: python oci_chronicles_api_release.py --digest "$DIGEST"
+      - name: Public smoke through the Chronicles tunnel
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in health ready; do
+            for i in $(seq 1 30); do
+              if curl -fsS --max-time 10 "https://api-staging.chronicles.shadowops.dpdns.org/api/${path}" >/dev/null; then break; fi
+              sleep 5
+            done
+            curl -fsS --max-time 10 "https://api-staging.chronicles.shadowops.dpdns.org/api/${path}" >/dev/null
+          done
+          # CORS for the game's own origin only.
+          origin="$(curl -fsS -o /dev/null -D - -X OPTIONS \
+            -H 'Origin: https://staging.chronicles.shadowops.dpdns.org' \
+            -H 'Access-Control-Request-Method: POST' \
+            https://api-staging.chronicles.shadowops.dpdns.org/api/auth/login | tr -d '\r' | awk -F': ' 'tolower($1)=="access-control-allow-origin"{print $2}')"
+          [[ "$origin" == "https://staging.chronicles.shadowops.dpdns.org" ]]
+          echo "CHRONICLES_API_PUBLIC_SMOKE_OK"
