@@ -130,6 +130,7 @@ class HTTPSVerification(unittest.TestCase):
         with patch.object(pages, "request", side_effect=cloudflare), \
              patch.object(pages, "probe_https", return_value=probe), \
              patch.object(pages, "probe_exploration_assets", return_value="ok"), \
+             patch.object(pages, "probe_react_preview", return_value="ok"), \
              patch.object(pages.time, "monotonic", side_effect=[0, 0, 2]), \
              patch.object(pages.time, "sleep") as sleeper:
             with redirect_stdout(io.StringIO()):

@@ -7,6 +7,7 @@ This fixed-domain reconciler refuses to overwrite any existing record not alread
 from __future__ import annotations
 
 import json
+import re
 import os
 import socket
 import ssl
@@ -259,6 +260,57 @@ def probe_exploration_assets() -> str:
     return "ok"
 
 
+
+def probe_react_preview() -> str:
+    """Prove the isolated built React entry, JS and CSS on the public HTTPS host.
+
+    Never follow an asset outside the expected /react/assets/ path, and never
+    return provider response bodies, redirects or headers in CI diagnostics.
+    """
+    def get_public(path: str, accept: str):
+        req = urllib.request.Request(
+            "https://" + HOST + path,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36"
+                ),
+                "Accept": accept,
+            },
+        )
+        with urllib.request.urlopen(req, timeout=10) as response:
+            if response.status != 200 or response.geturl() != req.full_url:
+                return "", b""
+            return str(response.headers.get("Content-Type", "")).lower(), response.read(500000)
+
+    try:
+        html_type, html = get_public("/react/", "text/html,application/xhtml+xml")
+        if "text/html" not in html_type or not (
+            b'<div id="root"></div>' in html
+            and b'Chronicles of Matthias' in html
+        ):
+            return "html_missing"
+        matches = set(re.findall(rb'/react/assets/[A-Za-z0-9._-]+\.(?:js|css)', html))
+        for extension in ("js", "css"):
+            urls = sorted(path.decode("ascii") for path in matches
+                          if path.endswith(("." + extension).encode("ascii")))
+            if len(urls) != 1:
+                return extension + "_reference"
+            mime, content = get_public(urls[0],
+                "text/javascript,application/javascript,*/*" if extension == "js" else "text/css,*/*")
+            if extension == "js" and "javascript" not in mime:
+                return "js_mime"
+            if extension == "css" and "text/css" not in mime:
+                return "css_mime"
+            if len(content) < 128 or content.lstrip().lower().startswith(b"<"):
+                return extension + "_content"
+    except urllib.error.HTTPError as exc:
+        return "http_" + str(exc.code) if isinstance(exc.code, int) and 400 <= exc.code <= 599 else "http_error"
+    except (urllib.error.URLError, TimeoutError, socket.timeout, UnicodeError, ValueError):
+        return "unavailable"
+    return "ok"
+
+
 def safe_domain_state(value: object) -> str:
     """Allowlisted Cloudflare state only: never print untrusted API payloads."""
     return value if isinstance(value, str) and value in {
@@ -287,10 +339,15 @@ def verify(timeout_seconds: int = 120) -> None:
         if state == "active" and last_probe == "ok":
             asset_result = probe_exploration_assets()
             if asset_result == "ok":
-                print("CHRONICLES_PAGES_STAGING_HTTPS_OK " + HOST)
-                print("CHRONICLES_PAGES_EXPLORATION_ASSETS_OK " + HOST)
-                return
-            last_probe = "assets_" + asset_result
+                react_result = probe_react_preview()
+                if react_result == "ok":
+                    print("CHRONICLES_PAGES_STAGING_HTTPS_OK " + HOST)
+                    print("CHRONICLES_PAGES_EXPLORATION_ASSETS_OK " + HOST)
+                    print("CHRONICLES_PAGES_REACT_PREVIEW_OK " + HOST)
+                    return
+                last_probe = "react_" + react_result
+            else:
+                last_probe = "assets_" + asset_result
         time.sleep(5)
     reason = (
         "Pages custom domain HTTPS did not converge"
