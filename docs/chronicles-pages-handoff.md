@@ -42,3 +42,27 @@ be installed. A guarded manual first publication is safer than enabling
 competing production-grade writers. After one verified deployment and
 source workflow retirement, automatic main -> Pages releases can be enabled
 in a subsequent small PR.
+
+## First protected-main publication
+
+The independent OCI web container passed its **local** smoke on the shared A1
+([run 38903782258](https://github.com/evilsysadmin/shadowops-infra/actions/runs/38903782258)).
+It listens only on `127.0.0.1:18082`, not the public HTTPS endpoint.
+
+Because Chess Studio still reconciles the existing A1 Cloudflare Tunnel,
+adding Chronicles ingress there would create two competing tunnel writers.
+This bootstrap instead publishes the **character-forge static preview** to
+Chronicles' isolated Cloudflare Pages project; the OCI container stays private.
+
+Merging the reviewed Pages workflow to protected ShadowOps `main` triggers
+one guarded publish through a `push` event. Later source-only updates still
+require `workflow_dispatch`, until we add a separately reviewed source-sync
+mechanism. The job checks protected current SHA of both repositories, absence
+of the retired source-side Pages publisher and actual shell tests. Before any
+Cloudflare writes it performs a GET-only exact-hostname DNS/Pages preflight;
+any foreign tunnel/Pages owner aborts without overwriting the record.
+
+Missing Cloudflare secrets, unavailable domain ownership or missing managed
+TLS also fail closed. **Do not claim public readiness** until the workflow
+prints `CHRONICLES_PAGES_STAGING_HTTPS_OK` after real HTTPS verification.
+This is still the character forge, not the full game.

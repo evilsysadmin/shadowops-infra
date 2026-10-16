@@ -65,6 +65,46 @@ def project_path() -> str:
     return account_path() + "/pages/projects/" + PROJECT
 
 
+def preflight() -> None:
+    """Read-only early ownership gate; never hijack existing host DNS or Pages."""
+    query = urllib.parse.urlencode({"name": ZONE, "account.id": require("CLOUDFLARE_ACCOUNT_ID")})
+    status, zones = request("GET", "/zones?" + query)
+    if status != 200 or not isinstance(zones, list):
+        raise RuntimeError("Cannot inspect the Cloudflare zone")
+    selected = [z for z in zones if isinstance(z, dict) and z.get("name") == ZONE]
+    if len(selected) != 1 or not selected[0].get("id"):
+        raise RuntimeError("Expected exactly one Cloudflare zone")
+    zone = str(selected[0]["id"])
+    status, rows = request("GET", "/zones/" + zone + "/dns_records?" +
+                           urllib.parse.urlencode({"name": HOST}))
+    if status != 200 or not isinstance(rows, list):
+        raise RuntimeError("Cannot inspect Chronicles DNS")
+    records = [r for r in rows if isinstance(r, dict) and r.get("name") == HOST]
+    if len(records) > 1:
+        raise RuntimeError("Ambiguous Chronicles DNS: multiple records")
+    if records:
+        item = records[0]
+        if (item.get("type") != "CNAME" or item.get("proxied") is not True
+                or str(item.get("content", "")).rstrip(".") != TARGET):
+            raise RuntimeError("Existing Chronicles DNS belongs to a different origin")
+
+    status, project = request("GET", project_path())
+    if status == 200:
+        if (not isinstance(project, dict) or project.get("name") != PROJECT
+                or project.get("production_branch") != "main"):
+            raise RuntimeError("Existing Pages project is not Chronicles staging")
+        domain_status, domain = request("GET", domain_path())
+        if domain_status == 200:
+            if (not isinstance(domain, dict) or domain.get("name") != HOST
+                    or domain.get("status") in {"blocked", "deactivated", "error"}):
+                raise RuntimeError("Existing Pages domain does not belong to Chronicles")
+        elif domain_status != 404:
+            raise RuntimeError("Cannot inspect Pages custom domain")
+    elif status != 404:
+        raise RuntimeError("Cannot inspect Pages project")
+    print("CHRONICLES_PAGES_HOSTNAME_PRECHECK_OK " + HOST)
+
+
 def ensure_project() -> None:
     status, obj = request("GET", project_path())
     if status == 404:
@@ -183,10 +223,10 @@ def self_test() -> None:
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("operation", choices=("project", "domain", "verify", "self-test"))
+    parser.add_argument("operation", choices=("preflight", "project", "domain", "verify", "self-test"))
     args = parser.parse_args()
     try:
-        {"project": ensure_project, "domain": ensure_domain,
+        {"preflight": preflight, "project": ensure_project, "domain": ensure_domain,
          "verify": verify, "self-test": self_test}[args.operation]()
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)

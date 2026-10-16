@@ -49,6 +49,11 @@ class TestPagesHandoff(unittest.TestCase):
         self.assertEqual(len(read.calls), 3)
         self.assertEqual(read.calls[-1].split("?")[0], f"/repos/{a.SOURCE}/contents/{a.OLD_PUBLISHER}")
 
+    def test_allows_protected_main_push_from_owner_for_first_release(self):
+        read = Read()
+        self.assertEqual(a.admit({**ENV, "GITHUB_EVENT_NAME": "push"}, read), SOURCE_SHA)
+        self.assertEqual(len(read.calls), 3)
+
     def test_fail_closed_if_protection_is_disabled_or_previous_owner_remains(self):
         for case in (
             {"owner_protected": False}, {"source_protected": False},
