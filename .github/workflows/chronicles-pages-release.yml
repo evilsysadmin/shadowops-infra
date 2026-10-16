@@ -6,6 +6,7 @@ on:
       - 'scripts/chronicles_pages.py'
       - 'scripts/pages_owner_admission.py'
       - 'tests/test_pages_owner_admission.py'
+      - 'tests/test_chronicles_pages_target.py'
       - 'docs/chronicles-pages-handoff.md'
   push:
     branches: [main]
@@ -14,6 +15,7 @@ on:
       - 'scripts/chronicles_pages.py'
       - 'scripts/pages_owner_admission.py'
       - 'tests/test_pages_owner_admission.py'
+      - 'tests/test_chronicles_pages_target.py'
       - 'docs/chronicles-pages-handoff.md'
   workflow_dispatch:
 permissions:
@@ -29,12 +31,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: python3 -m unittest discover -s tests -p 'test_pages_owner_admission.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_target.py' -v
       - run: python3 scripts/chronicles_pages.py self-test
 
   release:
     name: Publish Chronicles staging from protected source main
     needs: contracts
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     environment:
@@ -76,6 +79,8 @@ jobs:
         run: |
           set -euo pipefail
           [[ -n "${CLOUDFLARE_API_TOKEN:-}" && -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]]
+      - name: Reject foreign hostname ownership before any mutations
+        run: python3 scripts/chronicles_pages.py preflight
       - name: Reconcile independent Chronicles Pages project
         run: python3 scripts/chronicles_pages.py project
       - name: Publish exact source SHA to the isolated Pages project
