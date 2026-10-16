@@ -38,3 +38,31 @@ production deployment, or live smoke is performed by this repository PR.
 The separate production name `chronicles.shadowops.dpdns.org` remains inactive.
 The independent frontend must later replace this probe with a real Vite-bundled
 game before anyone can play Chronicles at this hostname.
+
+## Verified host-side web admission (check-only)
+
+Once an OCI operator has provisioned a trusted checkout of ShadowOps and
+**read-only** GitHub evidence access on the adopted Ampere A1, run:
+
+```sh
+export CHRONICLES_WEB_IMAGE_DIGEST=sha256:<independently-retrieved-manifest-digest>
+# GH_TOKEN must be a scoped, read-only GitHub API / attestation token.
+python3 scripts/oci_web_staging_preflight.py \\
+  --sha <full-protected-main-source-SHA> \\
+  --digest "$CHRONICLES_WEB_IMAGE_DIGEST" \\
+  --run-id <actual-web-publish-workflow-run-id>
+```
+
+This runs the full **stopped-container-aware** shared-A1 Docker collision
+census, independently verifies the completed `web-publish.yml` source workflow
+and both successful jobs, protected main/ancestry, Sigstore **signed** GHCR
+provenance for the exact digest, the multi-platform manifest's ARM64 and AMD64
+variants, and the hardened, isolated Compose configuration bound to
+`127.0.0.1:18082`. On success it prints
+`CHRONICLES_WEB_A1_VERIFIED_PREFLIGHT_OK`.
+
+**This command is deliberately check-only.** It never pulls an image, starts
+a container, creates public routing, or records a deployment receipt. It is
+not permission to launch an unreviewed digest or reuse Chess Studio's
+privileged host deploy wrapper. A separate restricted deploy controller and
+post-start origin smoke must be validated before staging goes live.
