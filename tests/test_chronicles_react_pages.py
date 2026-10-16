@@ -60,6 +60,35 @@ class ParallelReactPagesTest(unittest.TestCase):
             self.assertEqual(pages.probe_react_preview(), "ok")
         self.assertEqual(len(requested), 4)
 
+    def test_root_html_scripts_css_and_manifest_are_real_react_assets(self):
+        root_html = HTML.replace(b"/react/assets/", b"/assets/")
+        requested = []
+
+        def request(req, timeout):
+            requested.append(req.full_url)
+            self.assertTrue(req.full_url.startswith("https://" + pages.HOST + "/"))
+            self.assertIsNone(req.get_header("Authorization"))
+            self.assertIsNone(req.get_header("Cookie"))
+            if req.full_url == "https://" + pages.HOST + "/":
+                return FakeResponse(req.full_url, root_html, "text/html")
+            if req.full_url.endswith(".js"):
+                return FakeResponse(req.full_url, JS, "application/javascript")
+            if req.full_url.endswith(".css"):
+                return FakeResponse(req.full_url, CSS, "text/css")
+            if req.full_url.endswith("/manifest.webmanifest"):
+                return FakeResponse(req.full_url,
+                    b'{"orientation":"landscape","display":"standalone","start_url":"./"}',
+                    "application/manifest+json")
+            raise AssertionError("Bad root asset path")
+
+        with patch.object(pages.urllib.request, "urlopen", side_effect=request):
+            self.assertEqual(pages.probe_react_preview(
+                path="/", assets=b"/assets/", manifest_path="/manifest.webmanifest",
+            ), "ok")
+        self.assertEqual(len(requested), 4)
+        self.assertEqual(requested[0], "https://" + pages.HOST + "/")
+        self.assertTrue(any("/assets/" in value for value in requested))
+
     def test_rejects_html_fallback_mismatched_root_or_missing_asset(self):
         def html_only(req, timeout):
             return FakeResponse(req.full_url, b'<html>not React</html>', "text/html")
@@ -109,8 +138,9 @@ class ParallelReactPagesTest(unittest.TestCase):
             "react-town-hud", "react-town-minimap-cells",
             "orientation-unsupported", "manifest.webmanifest",
             '\"orientation\": \"landscape\"', '\"display\": \"standalone\"',
-            'cp -a chronicles-source/web/. "$root/"',
-            'cp -a chronicles-source/frontend/dist/. "$root/react/"',
+            'cp -a chronicles-source/web/. "$root/legacy-preview/"',
+            'cp -a chronicles-source/frontend/dist/. "$root/"',
+            'cp -a "$RUNNER_TEMP/chronicles-react-preview/." "$root/react/"',
             'wrangler@4.127.1 pages deploy "$RUNNER_TEMP/chronicles-pages"',
         ]:
             self.assertIn(required, workflow)
