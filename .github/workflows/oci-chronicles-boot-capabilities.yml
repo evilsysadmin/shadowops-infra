@@ -1,4 +1,4 @@
-name: ShadowOps OCI · one-shot Chronicles first-boot capabilities
+name: ShadowOps OCI · Chronicles first-boot capabilities (manual)
 on:
   pull_request:
     paths:
@@ -28,7 +28,7 @@ jobs:
   capabilities:
     name: One-shot nonprivileged A1 boot authority inventory
     needs: contracts
-    if: (github.event_name == 'push' && contains(github.event.head_commit.message, 'one-shot Chronicles boot capability probe') || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     concurrency:

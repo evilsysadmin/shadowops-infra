@@ -43,10 +43,11 @@ class CapabilityTests(unittest.TestCase):
 
     def test_trusted_main_workflow_only(self):
         wf = (ROOT / ".github/workflows/oci-chronicles-boot-capabilities.yml").read_text()
-        self.assertIn("github.event_name == 'push'", wf)
+        self.assertIn("github.event_name == 'workflow_dispatch'", wf)
         self.assertIn("github.ref == 'refs/heads/main'", wf)
         self.assertIn("github.repository == 'evilsysadmin/shadowops-infra'", wf)
-        self.assertIn("contains(github.event.head_commit.message, 'one-shot Chronicles boot capability probe')", wf)
+        self.assertNotIn("contains(github.event.head_commit.message", wf)
+        self.assertNotIn("|| github.event_name == 'push'", wf)
         self.assertIn("needs: contracts", wf)
         self.assertIn("cancel-in-progress: false", wf)
         self.assertNotIn("pull_request_target", wf)
