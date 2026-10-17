@@ -1,6 +1,10 @@
 # ShadowOps-owned Cloudflare Pages deployment — Chronicles staging
 
-> **Actualización (2026-10-16): el juego verbatim sustituye al shell React.**
+> **Actualización (2026-10-17): Chronicles es dueño de su código.** Ya no se
+> compara con Chess Studio; el release construye `frontend/` tal cual está en
+> `chronicles-of-matthias` contra su propia API.
+>
+> **(2026-10-16): el juego verbatim sustituye al shell React.**
 > La raíz de `staging.chronicles.shadowops.dpdns.org` publica `frontend/` de
 > `chronicles-of-matthias`: el juego de Chess Studio copiado byte a byte
 > (`frontend/VENDOR.lock.json`, verificado en el release contra el SHA de

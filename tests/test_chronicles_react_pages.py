@@ -153,12 +153,12 @@ class ParallelReactPagesTest(unittest.TestCase):
         with patch.object(pages.urllib.request, "urlopen", side_effect=private):
             self.assertEqual(pages.probe_react_preview(), "http_403")
 
-    def test_deploy_publishes_the_verbatim_chess_studio_game(self):
+    def test_deploy_publishes_the_chronicles_game(self):
         workflow = (pathlib.Path(__file__).resolve().parents[1]
                     / ".github/workflows/chronicles-pages-release.yml").read_text()
         for required in [
             "ref: main", "CHRONICLES_SOURCE_SHA:", "CHRONICLES_DEPLOY_BASE: /",
-            "VENDOR.lock.json", "vendor_chess_studio.py check chess-studio-source",
+            "dist/audio/orchestra/violin-fs3.mp3", "dist/models/matthias-home-canonical.glb",
             "npm ci", "npm run build",
             "ChroniclesOfMatthias-*.js", "ChroniclesOfMatthiasTactics-*.js",
             "chroniclesOfMatthiasThree-*.js", "/chronicles/runs",
@@ -170,9 +170,8 @@ class ParallelReactPagesTest(unittest.TestCase):
         self.assertNotIn("wrangler pages deploy chronicles-source/frontend", workflow)
         self.assertLess(workflow.index("scripts/pages_owner_admission.py"),
                         workflow.index("npm run build"))
-        # Byte identity with Chess Studio is proven before building.
-        self.assertLess(workflow.index("vendor_chess_studio.py check"),
-                        workflow.index("npm run build"))
+        # Chronicles owns its source: no dependency on a Chess Studio checkout.
+        self.assertNotIn("evilsysadmin/chess-studio", workflow)
 
 if __name__ == "__main__":
     unittest.main()

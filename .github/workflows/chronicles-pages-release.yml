@@ -78,19 +78,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Read the Chess Studio commit the game is vendored from
-        id: vendor
-        run: echo "commit=$(python3 -c 'import json;print(json.load(open("chronicles-source/frontend/VENDOR.lock.json"))["commit"])')" >> "$GITHUB_OUTPUT"
-      - name: Checkout pinned Chess Studio source (read-only, for byte identity)
-        uses: actions/checkout@v4
-        with:
-          repository: evilsysadmin/chess-studio
-          ref: ${{ steps.vendor.outputs.commit }}
-          path: chess-studio-source
-          persist-credentials: false
-      - name: Prove the game is byte-identical to Chess Studio
-        run: python3 chronicles-source/scripts/vendor_chess_studio.py check chess-studio-source
-      - name: Build the verbatim game against the Chess Studio staging API
+      - name: Build the game against its own API
         working-directory: chronicles-source/frontend
         env:
           # Iteración 2: API propia de Chronicles (cuentas y partidas propias).
@@ -108,6 +96,9 @@ jobs:
           ls dist/assets/ChroniclesOfMatthias-*.js
           ls dist/assets/ChroniclesOfMatthiasTactics-*.js
           ls dist/assets/chroniclesOfMatthiasThree-*.js
+          # Runtime assets served from public/ (not the SPA fallback).
+          test -s dist/audio/orchestra/violin-fs3.mp3
+          test -s dist/models/matthias-home-canonical.glb
           grep -lFq '/chronicles/runs' dist/assets/*.js
           grep -lFq 'chronicles-api-staging.shadowops.dpdns.org' dist/assets/*.js
       - name: Assemble static root
