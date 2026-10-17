@@ -27,22 +27,34 @@ from typing import Any, Callable, Mapping
 
 CF_API = "https://api.cloudflare.com/client/v4"
 ZONE = "shadowops.dpdns.org"
-# One level under the zone: covered by Cloudflare's Universal SSL. A deeper
-# name (api-staging.chronicles.…) has no edge certificate without ACM.
-HOSTNAME = "chronicles-api-staging.shadowops.dpdns.org"
-# Earlier hostname; removed only if it still points at OUR tunnel.
-LEGACY_HOSTNAMES = ("api-staging.chronicles.shadowops.dpdns.org",)
-TUNNEL_NAME = "chronicles-staging"
+# Hostnames sit one level under the zone: covered by Cloudflare's Universal
+# SSL (a deeper name such as api-staging.chronicles.… has no edge cert).
+ENVIRONMENTS = {
+    "staging": {
+        "hostname": "chronicles-api-staging.shadowops.dpdns.org",
+        # Earlier hostname; removed only if it still points at OUR tunnel.
+        "legacy": ("api-staging.chronicles.shadowops.dpdns.org",),
+    },
+    "production": {"hostname": "chronicles-api.shadowops.dpdns.org", "legacy": ()},
+}
+ENVIRONMENT = os.environ.get("CHRONICLES_API_ENV", "staging").strip() or "staging"
+if ENVIRONMENT not in ENVIRONMENTS:
+    raise SystemExit("CHRONICLES_API_ENV must be staging or production")
+HOSTNAME = ENVIRONMENTS[ENVIRONMENT]["hostname"]
+LEGACY_HOSTNAMES = ENVIRONMENTS[ENVIRONMENT]["legacy"]
+TUNNEL_NAME = "chronicles-" + ENVIRONMENT
 FORBIDDEN_TUNNELS = frozenset({"chess-studio-staging", "chess-studio-production"})
 ORIGIN_SERVICE = "http://chronicles-api:8080"
+# The A1's Vault (read by its Instance Principal) holds both environments.
 VAULT_NAME = "chess-studio-staging"
 KEY_NAME = "chess-studio-staging-secrets"
-SECRET_NAME = "chronicles-staging-runtime-env"
+SECRET_NAME = "chronicles-" + ENVIRONMENT + "-runtime-env"
 BUNDLE_KEYS = ("MONGO_URL", "JWT_SECRET", "INVITE_CODE", "TUNNEL_TOKEN")
+_PREFIX = "CHRONICLES_" + ENVIRONMENT.upper() + "_"
 GITHUB_SECRETS = {
-    "MONGO_URL": "CHRONICLES_STAGING_MONGO_URL",
-    "JWT_SECRET": "CHRONICLES_STAGING_JWT_SECRET",
-    "INVITE_CODE": "CHRONICLES_STAGING_INVITE_CODE",
+    "MONGO_URL": _PREFIX + "MONGO_URL",
+    "JWT_SECRET": _PREFIX + "JWT_SECRET",
+    "INVITE_CODE": _PREFIX + "INVITE_CODE",
 }
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
@@ -63,9 +75,9 @@ def read_inputs(env: Mapping[str, str]) -> dict[str, str]:
             raise ProvisionError(f"GitHub secret {name} has an unsafe shape")
         values[key] = value
     if not values["MONGO_URL"].startswith(("mongodb://", "mongodb+srv://")):
-        raise ProvisionError("CHRONICLES_STAGING_MONGO_URL is not a MongoDB URL")
+        raise ProvisionError(GITHUB_SECRETS["MONGO_URL"] + " is not a MongoDB URL")
     if len(values["JWT_SECRET"]) < 32:
-        raise ProvisionError("CHRONICLES_STAGING_JWT_SECRET must be at least 32 characters")
+        raise ProvisionError(GITHUB_SECRETS["JWT_SECRET"] + " must be at least 32 characters")
     return values
 
 
@@ -163,7 +175,7 @@ def ensure_dns(cf: Cloudflare, tunnel_id: str) -> str:
         raise ProvisionError("Chronicles API hostname is already owned by another target")
     cf.call("POST", f"/zones/{zone_id}/dns_records",
             {"type": "CNAME", "name": HOSTNAME, "content": target, "proxied": True,
-             "comment": "Chronicles API staging tunnel (managed by shadowops-infra)"})
+             "comment": "Chronicles API " + ENVIRONMENT + " tunnel (managed by shadowops-infra)"})
     return "created"
 
 
@@ -215,8 +227,8 @@ def upsert_bundle(oci: Any, config: dict, compartment_id: str, vault_id: str, ke
     composite.create_secret_and_wait_for_state(
         oci.vault.models.CreateSecretDetails(
             compartment_id=compartment_id, vault_id=vault_id, key_id=key_id,
-            secret_name=SECRET_NAME, description="Chronicles of Matthias API staging runtime.",
-            freeform_tags={"application": "chronicles-of-matthias", "environment": "staging",
+            secret_name=SECRET_NAME, description="Chronicles of Matthias API " + ENVIRONMENT + " runtime.",
+            freeform_tags={"application": "chronicles-of-matthias", "environment": ENVIRONMENT,
                            "managed-by": "shadowops-infra"},
             secret_content=content),
         wait_for_states=["ACTIVE"], waiter_kwargs=waiter)

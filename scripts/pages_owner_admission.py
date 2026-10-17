@@ -64,6 +64,9 @@ def admit(
     token = env.get("GH_TOKEN", "")
     if not SHA.fullmatch(owner_sha) or not SHA.fullmatch(source_sha) or not token:
         raise AdmissionError("Missing source or owner SHA / read token")
+    # Promotion (production) may ship an earlier commit of protected main —
+    # the one validated on staging — but never a branch or unmerged commit.
+    promote = env.get("CHRONICLES_RELEASE_MODE", "") == "promote"
     for repo, expected in ((OWNER, owner_sha), (SOURCE, source_sha)):
         status, branch = read(f"/repos/{repo}/branches/main", token)
         if status != 200:
@@ -71,8 +74,14 @@ def admit(
         if branch.get("protected") is not True:
             raise AdmissionError("Main branch protection is inactive in " + repo)
         actual = (branch.get("commit") or {}).get("sha")
-        if actual != expected:
-            raise AdmissionError("Main has advanced; refusing stale " + repo + " release")
+        if actual == expected:
+            continue
+        if promote and repo == SOURCE:
+            status, compare = read(f"/repos/{SOURCE}/compare/{expected}...main", token)
+            if status == 200 and compare.get("status") in {"ahead", "identical"}:
+                continue
+            raise AdmissionError("Promoted source is not on protected main")
+        raise AdmissionError("Main has advanced; refusing stale " + repo + " release")
 
     # Strong handoff gate: an old manual publisher must not be runnable from
     # Chronicles main while ShadowOps can also write the same Pages domain.

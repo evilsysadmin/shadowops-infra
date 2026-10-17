@@ -1,5 +1,5 @@
 # Grants ONLY the root-owned Chronicles API wrapper, never docker or a shell.
 # The wrapper itself rejects every invocation except:
-#   deploy sha256:<64 lowercase hex> ocid1.vault.<...>
+#   deploy sha256:<64 lowercase hex> ocid1.vault.<...> [staging|production]
 Cmnd_Alias SHADOWOPS_CHRONICLES_API = /usr/local/sbin/shadowops-chronicles-api *
 ocarun ALL=(root) NOPASSWD: SHADOWOPS_CHRONICLES_API
