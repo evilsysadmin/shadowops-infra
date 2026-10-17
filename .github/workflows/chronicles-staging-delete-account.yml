@@ -1,0 +1,52 @@
+name: ShadowOps · Chronicles staging · delete one account
+# Staging has no email recovery. When an owner can no longer sign in, this
+# removes that one account (and its saved runs) so it can be registered again.
+# Manual only, from main, with an explicit confirmation word.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/chronicles-staging-delete-account.yml'
+      - 'scripts/chronicles_staging_delete_account.py'
+  workflow_dispatch:
+    inputs:
+      username:
+        description: Chronicles staging username to delete
+        type: string
+        required: true
+      confirmation:
+        description: Type BORRAR to confirm
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Delete-account script self-test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 scripts/chronicles_staging_delete_account.py --self-test
+
+  delete:
+    name: Delete the staging account
+    needs: contract
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    environment:
+      name: staging
+    env:
+      CHRONICLES_STAGING_JWT_SECRET: ${{ secrets.CHRONICLES_STAGING_JWT_SECRET }}
+      TARGET_USERNAME: ${{ inputs.username }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Delete (prints only the username and the API answer)
+        run: python3 scripts/chronicles_staging_delete_account.py
