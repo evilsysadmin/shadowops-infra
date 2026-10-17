@@ -234,3 +234,58 @@ class ProvisionAndReleaseContracts(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def prod_policy(digest=DIGEST):
+    prod = api.TARGETS["production"]
+    config = policy(digest)
+    config["name"] = prod.project
+    config["services"]["chronicles-api"]["env_file"] = [{"path": str(prod.api_env), "required": True}]
+    config["services"]["chronicles-api"]["ports"] = [{"host_ip": "127.0.0.1", "published": "18091", "target": 8080, "protocol": "tcp"}]
+    config["services"]["chronicles-tunnel"]["env_file"] = [{"path": str(prod.tunnel_env), "required": True}]
+    return config
+
+
+class ChroniclesApiProductionTests(unittest.TestCase):
+    def run_prod(self, config, tmp, bundle_reader=None):
+        state, runtime = pathlib.Path(tmp, "state"), pathlib.Path(tmp, "runtime")
+        kwargs = {"bundle_reader": bundle_reader} if bundle_reader else {}
+        return api.deploy(DIGEST, VAULT, "production", runner=Runner(config=config), guard=lambda _r: None,
+                          smoke=lambda: None, state=state, runtime=runtime, require_root=False, **kwargs), runtime
+
+    def test_production_has_its_own_project_port_db_origin_secret_and_marker(self):
+        seen = {}
+
+        def reader(vault, runner, target):
+            seen["secret"] = target.secret
+            return dict(SECRETS)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            marker, runtime = self.run_prod(prod_policy(), tmp, reader)
+            env = (runtime / "api.env").read_text()
+        self.assertEqual(marker, "CHRONICLES_API_OCI_PRODUCTION_SMOKE_OK digest=" + DIGEST)
+        self.assertEqual(seen["secret"], "chronicles-production-runtime-env")
+        self.assertIn("MONGO_DB_NAME='chronicles_production'", env)
+        self.assertIn("ENVIRONMENT='production'", env)
+        self.assertIn("CORS_ORIGINS='https://chronicles.shadowops.dpdns.org'", env)
+        static = "".join(line for line in env.splitlines(True) if not line.startswith("MONGO_URL="))
+        self.assertNotIn("staging", static)
+
+    def test_production_refuses_the_staging_compose(self):
+        with tempfile.TemporaryDirectory() as tmp, self.assertRaises(api.ReleaseError):
+            self.run_prod(policy(), tmp)
+
+    def test_environment_is_validated_and_defaults_to_staging(self):
+        with self.assertRaises(api.ReleaseError):
+            api.validate_request("deploy", DIGEST, VAULT, "prod; rm -rf /")
+        self.assertEqual(api.TARGETS["staging"].compose, api.COMPOSE)
+        self.assertEqual(api.TARGETS["staging"].static_env, api.STATIC_API_ENV)
+
+
+class ReleaseEnvironmentContracts(unittest.TestCase):
+    def test_staging_keeps_two_arguments_production_adds_environment(self):
+        self.assertIn("deploy " + DIGEST + " " + VAULT + " 2>&1", release.command_for(DIGEST, VAULT))
+        self.assertIn("deploy " + DIGEST + " " + VAULT + " production 2>&1", release.command_for(DIGEST, VAULT, "production"))
+        with self.assertRaises(Exception):
+            release.command_for(DIGEST, VAULT, "prod; reboot")
+        self.assertEqual(release.marker_for("production"), "CHRONICLES_API_OCI_PRODUCTION_SMOKE_OK digest=")

@@ -25,17 +25,28 @@ BLOCKED = re.compile(r"^CHRONICLES_API_OCI_DEPLOY_BLOCKED type=[A-Za-z]{1,40} re
 TERMINAL = {"SUCCEEDED", "FAILED", "TIMED_OUT", "CANCELED"}
 
 
-def command_for(digest: str, vault_id: str) -> str:
+ENVIRONMENTS = ("staging", "production")
+
+
+def marker_for(environment: str) -> str:
+    return "CHRONICLES_API_OCI_" + environment.upper() + "_SMOKE_OK digest="
+
+
+def command_for(digest: str, vault_id: str, environment: str = "staging") -> str:
     if not isinstance(digest, str) or not DIGEST.fullmatch(digest):
         raise InventoryError("Invalid immutable Chronicles API digest")
     if not isinstance(vault_id, str) or not VAULT.fullmatch(vault_id):
         raise InventoryError("Invalid Vault OCID")
+    if environment not in ENVIRONMENTS:
+        raise InventoryError("Invalid environment")
+    # Staging keeps the original 2-argument form (works with any installed wrapper).
+    suffix = "" if environment == "staging" else " " + environment
     command = (
         "set -euo pipefail\n"
         "test -x " + WRAPPER + "\n"
         # stderr joins stdout so the wrapper's bounded BLOCKED reason (fixed,
         # authored strings only) can be surfaced; nothing else is ever echoed.
-        "sudo --non-interactive " + WRAPPER + " deploy " + digest + " " + vault_id + " 2>&1\n"
+        "sudo --non-interactive " + WRAPPER + " deploy " + digest + " " + vault_id + suffix + " 2>&1\n"
     )
     if len(command.encode()) > 4096 or WRAPPER not in command:
         raise InventoryError("Chronicles API Run Command exceeds fixed policy")
@@ -43,14 +54,15 @@ def command_for(digest: str, vault_id: str) -> str:
 
 
 def execute(
-    sdk: Any, config: dict[str, str], digest: str, *,
+    sdk: Any, config: dict[str, str], digest: str, environment: str = "staging", *,
     pause=time.sleep, clock=time.monotonic
 ) -> str:
     from chronicles_api_provision import resolve_vault
     inspect(sdk, config)
     compartment_id, instance_id = resolve_existing_host(sdk, config)
     vault_id, _key, _ = resolve_vault(sdk, config, compartment_id)
-    fixed = command_for(digest, vault_id)
+    fixed = command_for(digest, vault_id, environment)
+    marker = marker_for(environment)
     models = sdk.compute_instance_agent.models
     content = models.InstanceAgentCommandContent(
         source=models.InstanceAgentCommandSourceViaTextDetails(text=fixed),
@@ -61,7 +73,7 @@ def execute(
         execution_time_out_in_seconds=420,
         target=models.InstanceAgentCommandTarget(instance_id=instance_id),
         content=content,
-        display_name="shadowops-chronicles-api-staging-release",
+        display_name="shadowops-chronicles-api-" + environment + "-release",
     )
     agent = sdk.compute_instance_agent.ComputeInstanceAgentClient(config)
     created = agent.create_instance_agent_command(
@@ -81,13 +93,13 @@ def execute(
             stdout = str(getattr(result, "text", "") or "").strip()
             last = stdout.splitlines()[-1] if stdout else ""
             if (status != "SUCCEEDED" or getattr(result, "exit_code", None) != 0
-                    or last != MARKER + digest):
+                    or last != marker + digest):
                 # Never echo Oracle's raw remote output: only the wrapper's own
                 # bounded reason line, matched strictly.
                 reason = next((line for line in stdout.splitlines() if BLOCKED.fullmatch(line)), "")
                 raise InventoryError("Chronicles API root-wrapper smoke did not succeed"
                                      + (" | " + reason if reason else f" | status={status}"))
-            print(MARKER + digest)
+            print(marker + digest)
             return last
         pause(3)
     raise InventoryError("Chronicles API OCI release timed out")
@@ -96,6 +108,7 @@ def execute(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--digest", required=False, default="")
+    parser.add_argument("--environment", choices=ENVIRONMENTS, default="staging")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
@@ -104,11 +117,12 @@ def main() -> int:
         assert command.count("sudo --non-interactive ") == 1
         assert "docker " not in command and "chess-studio-deploy" not in command
         assert "MONGO" not in command and "TOKEN" not in command
+        assert command_for(sample, "ocid1.vault.oc1.eu-frankfurt-1.example", "production").rstrip().endswith(" production 2>&1")
         print("SHADOWOPS_CHRONICLES_API_OCI_RELEASE_SELF_TEST_OK")
         return 0
     try:
         import oci
-        execute(oci, config_from_env(oci, os.environ), args.digest)
+        execute(oci, config_from_env(oci, os.environ), args.digest, args.environment)
     except Exception as exc:
         detail = str(exc) if isinstance(exc, InventoryError) else ""
         print("CHRONICLES_API_OCI_RELEASE_BLOCKED type=" + type(exc).__name__

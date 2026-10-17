@@ -19,8 +19,15 @@ import urllib.request
 
 API = "https://api.cloudflare.com/client/v4"
 ZONE = "shadowops.dpdns.org"
-PROJECT = "chronicles-staging"
-HOST = "staging.chronicles.shadowops.dpdns.org"
+# Each environment owns its own Pages project, hostname and DNS record.
+ENVIRONMENTS = {
+    "staging": ("chronicles-staging", "staging.chronicles.shadowops.dpdns.org"),
+    "production": ("chronicles-production", "chronicles.shadowops.dpdns.org"),
+}
+ENVIRONMENT = os.environ.get("CHRONICLES_PAGES_ENV", "staging").strip() or "staging"
+if ENVIRONMENT not in ENVIRONMENTS:
+    raise SystemExit("CHRONICLES_PAGES_ENV must be staging or production")
+PROJECT, HOST = ENVIRONMENTS[ENVIRONMENT]
 TARGET = PROJECT + ".pages.dev"
 
 
@@ -95,7 +102,7 @@ def preflight() -> None:
     if status == 200:
         if (not isinstance(project, dict) or project.get("name") != PROJECT
                 or project.get("production_branch") != "main"):
-            raise RuntimeError("Existing Pages project is not Chronicles staging")
+            raise RuntimeError("Existing Pages project is not Chronicles " + ENVIRONMENT)
         domain_status, domain = request("GET", domain_path())
         if domain_status == 200:
             if (not isinstance(domain, dict) or domain.get("name") != HOST
@@ -167,10 +174,10 @@ def ensure_dns() -> None:
     status, _ = request("POST", dns_path, {
         "type": "CNAME", "name": HOST, "content": TARGET,
         "proxied": True, "ttl": 1,
-        "comment": "Chronicles standalone staging Pages (not Chess Studio)",
+        "comment": "Chronicles " + ENVIRONMENT + " Pages (managed by shadowops-infra)",
     })
     if status not in (200, 201):
-        raise RuntimeError("Unable to create dedicated staging DNS CNAME")
+        raise RuntimeError("Unable to create dedicated Chronicles DNS CNAME")
 
 
 def probe_https() -> str:
@@ -387,7 +394,9 @@ def verify(timeout_seconds: int = 120) -> None:
 
 def self_test() -> None:
     assert HOST.endswith("." + ZONE)
-    assert TARGET == "chronicles-staging.pages.dev"
+    assert TARGET == f"chronicles-{ENVIRONMENT}.pages.dev"
+    assert ENVIRONMENTS["production"][1] == "chronicles." + ZONE
+    assert ENVIRONMENTS["staging"][0] != ENVIRONMENTS["production"][0]
     assert PROJECT != "chess-studio-staging"
     assert HOST != "staging.chess-studio.shadowops.dpdns.org"
     assert "chess-studio" not in PROJECT

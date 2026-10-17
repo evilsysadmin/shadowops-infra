@@ -22,7 +22,7 @@ done
 [[ -z "$(git -C "$repo" status --porcelain --untracked-files=no)" ]] || {
   echo 'CHRONICLES_API_INSTALL_BLOCKED modified-tracked-source' >&2; exit 65; }
 for file in host/chronicles-api-deploy.py host/chronicles-api.sudoers \
-            scripts/shared_a1_host_guard.py compose.api.staging.yaml; do
+            scripts/shared_a1_host_guard.py compose.api.staging.yaml compose.api.production.yaml; do
   source="$repo/$file"
   [[ -f "$source" && ! -L "$source" && "$(stat -c %u "$source")" == 0 ]] || exit 66
   if (( 8#$(stat -c %a "$source") & 8#022 )); then
@@ -33,14 +33,16 @@ visudo -cf "$repo/host/chronicles-api.sudoers" >/dev/null
 readonly helper=/usr/local/sbin/shadowops-chronicles-api
 readonly guards=/usr/local/lib/shadowops/shared_a1_host_guard.py
 readonly composition=/etc/shadowops/chronicles-api-staging/compose.yaml
+readonly production_composition=/etc/shadowops/chronicles-api-production/compose.yaml
 readonly sudoers=/etc/sudoers.d/103-shadowops-chronicles-api
 readonly venv=/opt/shadowops/oci-venv
-for dest in "$helper" "$guards" "$composition" "$sudoers" "$venv"; do
+for dest in "$helper" "$guards" "$composition" "$production_composition" "$sudoers" "$venv"; do
   [[ ! -L "$dest" ]] || { echo 'CHRONICLES_API_INSTALL_BLOCKED unsafe-target' >&2; exit 65; }
 done
 install -d -o root -g root -m 0755 /usr/local/lib/shadowops /etc/shadowops /opt/shadowops
 # The runtime directory holds the Vault-derived env files: root only.
-install -d -o root -g root -m 0700 /etc/shadowops/chronicles-api-staging /var/lib/shadowops/chronicles-api-staging
+install -d -o root -g root -m 0700 /etc/shadowops/chronicles-api-staging /var/lib/shadowops/chronicles-api-staging \
+  /etc/shadowops/chronicles-api-production /var/lib/shadowops/chronicles-api-production
 # Root-owned OCI SDK used only to read the Chronicles bundle by Instance Principal.
 if [[ ! -x "$venv/bin/python" ]]; then
   python3 -m venv "$venv"
@@ -49,6 +51,7 @@ fi
 chown -R root:root "$venv"; chmod -R go-w "$venv"
 install -o root -g root -m 0644 "$repo/scripts/shared_a1_host_guard.py" "$guards"
 install -o root -g root -m 0644 "$repo/compose.api.staging.yaml" "$composition"
+install -o root -g root -m 0644 "$repo/compose.api.production.yaml" "$production_composition"
 install -o root -g root -m 0755 "$repo/host/chronicles-api-deploy.py" "$helper"
 # Only after the tested wrapper and policy exist, authorize Oracle's agent.
 install -o root -g root -m 0440 "$repo/host/chronicles-api.sudoers" "$sudoers"

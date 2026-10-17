@@ -1,9 +1,10 @@
-name: ShadowOps OCI · Chronicles API staging
+name: ShadowOps OCI · Chronicles API
 on:
   pull_request:
     paths:
       - '.github/workflows/chronicles-api-staging.yml'
       - 'compose.api.staging.yaml'
+      - 'compose.api.production.yaml'
       - 'host/chronicles-api*'
       - 'host/install-chronicles-api.sh'
       - 'host/bootstrap-chronicles-api-over-ssh.sh'
@@ -17,6 +18,7 @@ on:
     paths:
       - '.github/workflows/chronicles-api-staging.yml'
       - 'compose.api.staging.yaml'
+      - 'compose.api.production.yaml'
       - 'host/chronicles-api*'
       - 'host/install-chronicles-api.sh'
       - 'scripts/chronicles_api_provision.py'
@@ -31,8 +33,13 @@ on:
         type: choice
         options: [provision, deploy]
         required: true
+      environment:
+        description: Target environment
+        type: choice
+        options: [staging, production]
+        default: staging
       source_sha:
-        description: Chronicles main SHA whose API image to deploy (empty = current main)
+        description: Chronicles main SHA whose API image to deploy (empty = current main; production should promote the SHA validated on staging)
         type: string
         required: false
       email_recovery:
@@ -59,10 +66,12 @@ jobs:
       - run: python3 scripts/chronicles_staging_smoke.py --self-test
       - run: bash -n host/install-chronicles-api.sh && bash -n host/bootstrap-chronicles-api-over-ssh.sh
       - name: Compose file parses and names only the API project
-        run: python3 -c "import yaml;c=yaml.safe_load(open('compose.api.staging.yaml'));assert c['name']=='shadowops-chronicles-staging';assert set(c['services'])=={'chronicles-api','chronicles-tunnel'}"
+        run: |
+          python3 -c "import yaml;c=yaml.safe_load(open('compose.api.staging.yaml'));assert c['name']=='shadowops-chronicles-staging';assert set(c['services'])=={'chronicles-api','chronicles-tunnel'}"
+          python3 -c "import yaml;c=yaml.safe_load(open('compose.api.production.yaml'));assert c['name']=='shadowops-chronicles-production';assert set(c['services'])=={'chronicles-api','chronicles-tunnel'}"
 
   provision:
-    name: Own tunnel, DNS and Vault runtime bundle
+    name: Own tunnel, DNS and Vault runtime bundle (${{ inputs.environment }})
     concurrency:
       group: shadowops-oci-host-operations
       cancel-in-progress: false
@@ -71,8 +80,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment:
-      name: staging
+      name: ${{ inputs.environment }}
     env:
+      CHRONICLES_API_ENV: ${{ inputs.environment }}
       OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
       OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
       OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
@@ -84,6 +94,9 @@ jobs:
       CHRONICLES_STAGING_JWT_SECRET: ${{ secrets.CHRONICLES_STAGING_JWT_SECRET }}
       CHRONICLES_STAGING_INVITE_CODE: ${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}
       CHRONICLES_EMAIL_RECOVERY: ${{ inputs.email_recovery }}
+      CHRONICLES_PRODUCTION_MONGO_URL: ${{ secrets.CHRONICLES_PRODUCTION_MONGO_URL }}
+      CHRONICLES_PRODUCTION_JWT_SECRET: ${{ secrets.CHRONICLES_PRODUCTION_JWT_SECRET }}
+      CHRONICLES_PRODUCTION_INVITE_CODE: ${{ secrets.CHRONICLES_PRODUCTION_INVITE_CODE }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -140,7 +153,7 @@ jobs:
           echo "source_sha=${sha}" >> "$GITHUB_OUTPUT"
 
   deploy:
-    name: Run the admitted API on the A1 via its root wrapper
+    name: Run the admitted API on the A1 via its root wrapper (${{ inputs.environment }})
     concurrency:
       group: shadowops-oci-host-operations
       cancel-in-progress: false
@@ -148,8 +161,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment:
-      name: staging
-      url: https://chronicles-api-staging.shadowops.dpdns.org/api/health
+      name: ${{ inputs.environment }}
+      url: ${{ inputs.environment == 'production' && 'https://chronicles-api.shadowops.dpdns.org/api/health' || 'https://chronicles-api-staging.shadowops.dpdns.org/api/health' }}
     env:
       OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
       OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
@@ -157,6 +170,9 @@ jobs:
       OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
       OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
       DIGEST: ${{ needs.admit.outputs.digest }}
+      TARGET_ENV: ${{ inputs.environment }}
+      API_HOST: ${{ inputs.environment == 'production' && 'chronicles-api.shadowops.dpdns.org' || 'chronicles-api-staging.shadowops.dpdns.org' }}
+      GAME_ORIGIN: ${{ inputs.environment == 'production' && 'https://chronicles.shadowops.dpdns.org' || 'https://staging.chronicles.shadowops.dpdns.org' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -167,26 +183,28 @@ jobs:
       - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
       - name: Execute only the restricted Chronicles API deployer
         working-directory: scripts
-        run: python oci_chronicles_api_release.py --digest "$DIGEST"
+        run: python oci_chronicles_api_release.py --digest "$DIGEST" --environment "$TARGET_ENV"
       - name: Public smoke through the Chronicles tunnel
         shell: bash
         run: |
           set -euo pipefail
           for path in health ready; do
             for i in $(seq 1 30); do
-              if curl -fsS --max-time 10 "https://chronicles-api-staging.shadowops.dpdns.org/api/${path}" >/dev/null; then break; fi
+              if curl -fsS --max-time 10 "https://${API_HOST}/api/${path}" >/dev/null; then break; fi
               sleep 5
             done
-            curl -fsS --max-time 10 "https://chronicles-api-staging.shadowops.dpdns.org/api/${path}" >/dev/null
+            curl -fsS --max-time 10 "https://${API_HOST}/api/${path}" >/dev/null
           done
           # CORS for the game's own origin only.
           origin="$(curl -fsS -o /dev/null -D - -X OPTIONS \
-            -H 'Origin: https://staging.chronicles.shadowops.dpdns.org' \
+            -H "Origin: ${GAME_ORIGIN}" \
             -H 'Access-Control-Request-Method: POST' \
-            https://chronicles-api-staging.shadowops.dpdns.org/api/auth/login | tr -d '\r' | awk -F': ' 'tolower($1)=="access-control-allow-origin"{print $2}')"
-          [[ "$origin" == "https://staging.chronicles.shadowops.dpdns.org" ]]
+            "https://${API_HOST}/api/auth/login" | tr -d '\r' | awk -F': ' 'tolower($1)=="access-control-allow-origin"{print $2}')"
+          [[ "$origin" == "$GAME_ORIGIN" ]]
           echo "CHRONICLES_API_PUBLIC_SMOKE_OK"
       - name: Player-path smoke (register, run, save, reload; account always deleted)
+        # Staging only: production never gets throwaway accounts.
+        if: inputs.environment != 'production'
         working-directory: scripts
         env:
           INVITE_CODE: ${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}

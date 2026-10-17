@@ -50,6 +50,23 @@ class SharedA1GuardTests(unittest.TestCase):
         ))
         inspect_container_rows(rows(container("chess-studio", "chess-studio", "backend", "")))
 
+    def test_staging_and_production_api_projects_coexist_on_their_own_ports(self):
+        inspect_container_rows(rows(
+            container("stg-api", "shadowops-chronicles-staging", "chronicles-api", "127.0.0.1:18081->8080/tcp"),
+            container("stg-tun", "shadowops-chronicles-staging", "chronicles-tunnel", ""),
+            container("prd-api", "shadowops-chronicles-production", "chronicles-api", "127.0.0.1:18091->8080/tcp"),
+            container("prd-tun", "shadowops-chronicles-production", "chronicles-tunnel", ""),
+        ))
+        for value in (
+            # Production must never take staging's port, nor the reverse.
+            container("prd-on-stg", "shadowops-chronicles-production", "chronicles-api", "127.0.0.1:18081->8080/tcp"),
+            container("stg-on-prd", "shadowops-chronicles-staging", "chronicles-api", "127.0.0.1:18091->8080/tcp"),
+            rows(container("p1", "shadowops-chronicles-production", "chronicles-api"),
+                 container("p2", "shadowops-chronicles-production", "chronicles-api")),
+        ):
+            with self.subTest(value=value[:85]), self.assertRaises(SharedHostError):
+                inspect_container_rows(value)
+
     def test_api_project_may_run_its_own_tunnel_connector_once(self):
         inspect_container_rows(rows(
             container("chronicles-api", "shadowops-chronicles-staging", "chronicles-api", "127.0.0.1:18081->8080/tcp"),

@@ -1,7 +1,8 @@
 #!/usr/bin/python3 -I
 """Root-only, Chronicles-API-only Compose deployer for the EXISTING OCI A1.
 
-Accepts exactly: deploy sha256:<64 hex> ocid1.vault.<...>
+Accepts exactly: deploy sha256:<64 hex> ocid1.vault.<...> [staging|production]
+(without an environment it is staging, as before).
 
 Runtime secrets are never passed in: the wrapper reads ONE Vault bundle,
 `chronicles-staging-runtime-env`, with the A1's Instance Principal through a
@@ -66,6 +67,42 @@ STATIC_API_ENV = (
 MARKER = "CHRONICLES_API_OCI_STAGING_SMOKE_OK"
 LOCAL = "http://127.0.0.1:18081"
 
+
+class Target:
+    """Everything that differs between environments; nothing else may."""
+
+    def __init__(self, name: str, port: int, origin: str, database: str):
+        self.name = name
+        self.project = "shadowops-chronicles-" + name
+        self.runtime = Path("/etc/shadowops/chronicles-api-" + name)
+        self.compose = self.runtime / "compose.yaml"
+        self.api_env = self.runtime / "api.env"
+        self.tunnel_env = self.runtime / "tunnel.env"
+        self.state = Path("/var/lib/shadowops/chronicles-api-" + name)
+        self.secret = "chronicles-" + name + "-runtime-env"
+        self.port = port
+        self.local = f"http://127.0.0.1:{port}"
+        self.marker = "CHRONICLES_API_OCI_" + name.upper() + "_SMOKE_OK"
+        self.static_env = (
+            ("MONGO_DB_NAME", database),
+            ("ENVIRONMENT", name),
+            ("PORT", "8080"),
+            ("CORS_ORIGINS", origin),
+            ("ALLOW_REGISTRATION", "true"),
+            # Recovery links land on the game itself, which reads ?resetToken=.
+            ("PASSWORD_RESET_URL", origin + "/"),
+            ("PASSWORD_RESET_FROM", "Chronicles of Matthias <onboarding@resend.dev>"),
+            ("TRUST_CLOUDFLARE_CLIENT_IP", "true"),
+        )
+
+
+TARGETS = {
+    "staging": Target("staging", 18081, PUBLIC_ORIGIN, "chronicles_staging"),
+    "production": Target("production", 18091, "https://chronicles.shadowops.dpdns.org", "chronicles_production"),
+}
+STAGING = TARGETS["staging"]
+assert STAGING.static_env == STATIC_API_ENV and STAGING.compose == COMPOSE
+
 # Fixed program run by the root-owned OCI venv. Inputs arrive as environment,
 # the bundle leaves as base64 on stdout (captured, never printed).
 VAULT_READER = r"""
@@ -83,11 +120,14 @@ class ReleaseError(ValueError):
     pass
 
 
-def validate_request(operation: str, digest: str, vault_id: str) -> tuple[str, str]:
+def validate_request(operation: str, digest: str, vault_id: str,
+                     environment: str = "staging") -> tuple[str, str]:
     if operation != "deploy" or not isinstance(digest, str) or not DIGEST_RE.fullmatch(digest):
         raise ReleaseError("Only deploy with a lowercase immutable SHA-256 digest is permitted")
     if not isinstance(vault_id, str) or not VAULT_RE.fullmatch(vault_id):
         raise ReleaseError("A Vault OCID is required")
+    if environment not in TARGETS:
+        raise ReleaseError("Environment must be staging or production")
     return digest, vault_id
 
 
@@ -121,8 +161,8 @@ def parse_bundle(text: str) -> dict[str, str]:
     return values
 
 
-def read_bundle(vault_id: str, runner: Callable) -> dict[str, str]:
-    env = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "SECRET_NAME": SECRET_NAME, "VAULT_ID": vault_id}
+def read_bundle(vault_id: str, runner: Callable, target: Target = STAGING) -> dict[str, str]:
+    env = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "SECRET_NAME": target.secret, "VAULT_ID": vault_id}
     try:
         result = runner([str(OCI_PYTHON), "-I", "-c", VAULT_READER], env=env,
                         text=True, capture_output=True, timeout=60)
@@ -156,10 +196,10 @@ def write_private(path: Path, content: str) -> None:
         tmp.unlink(missing_ok=True)
 
 
-def write_runtime(values: Mapping[str, str], runtime: Path = RUNTIME) -> None:
+def write_runtime(values: Mapping[str, str], runtime: Path = RUNTIME, target: Target = STAGING) -> None:
     resend = values.get("RESEND_API_KEY")
     api_rows = [("MONGO_URL", values["MONGO_URL"]), ("JWT_SECRET", values["JWT_SECRET"]),
-                ("INVITE_CODE", values["INVITE_CODE"]), *STATIC_API_ENV,
+                ("INVITE_CODE", values["INVITE_CODE"]), *target.static_env,
                 ("ENABLE_EMAIL_RECOVERY", "true" if resend else "false")]
     if resend:
         api_rows.append(("RESEND_API_KEY", resend))
@@ -200,8 +240,8 @@ API_ENV_OPTIONAL_KEYS = frozenset({"RESEND_API_KEY"})
 TUNNEL_ENV_KEYS = frozenset({"TUNNEL_TOKEN"})
 
 
-def assert_compose(config: dict, digest: str) -> None:
-    if not isinstance(config, dict) or config.get("name") != PROJECT:
+def assert_compose(config: dict, digest: str, target: Target = STAGING) -> None:
+    if not isinstance(config, dict) or config.get("name") != target.project:
         raise ReleaseError("Unexpected Compose project identity")
     if config.get("secrets") or config.get("configs"):
         raise ReleaseError("Unexpected Compose secrets or configs")
@@ -211,26 +251,28 @@ def assert_compose(config: dict, digest: str) -> None:
     api, tunnel = services[API], services[TUNNEL]
     if api.get("image") != API_IMAGE + digest or not _common_hardening(api, "65532:65532"):
         raise ReleaseError("Unadmitted or unsafe API container config")
-    if not _env_ok(api, API_ENV, API_ENV_KEYS, API_ENV_OPTIONAL_KEYS):
+    if not _env_ok(api, target.api_env, API_ENV_KEYS, API_ENV_OPTIONAL_KEYS):
         raise ReleaseError("API must read only its root-owned env file")
     ports = api.get("ports")
     if (not isinstance(ports, list) or len(ports) != 1 or ports[0].get("host_ip") != "127.0.0.1"
-            or str(ports[0].get("published")) != "18081" or ports[0].get("target") != 8080
+            or str(ports[0].get("published")) != str(target.port) or ports[0].get("target") != 8080
             or ports[0].get("protocol", "tcp") != "tcp"):
-        raise ReleaseError("Chronicles API must bind loopback port 18081 only")
+        raise ReleaseError(f"Chronicles API must bind loopback port {target.port} only")
     if tunnel.get("image") != TUNNEL_IMAGE or not _common_hardening(tunnel, "65532:65532"):
         raise ReleaseError("Unpinned or unsafe tunnel container config")
-    if tunnel.get("ports") or not _env_ok(tunnel, TUNNEL_ENV, TUNNEL_ENV_KEYS):
+    if tunnel.get("ports") or not _env_ok(tunnel, target.tunnel_env, TUNNEL_ENV_KEYS):
         raise ReleaseError("Tunnel must publish nothing and read only its env file")
 
 
-def fixed_compose_args(*parts: str) -> list[str]:
-    return ["docker", "compose", "--project-directory", str(COMPOSE.parent), "-f", str(COMPOSE), *parts]
+def fixed_compose_args(*parts: str, target: Target = STAGING) -> list[str]:
+    return ["docker", "compose", "--project-directory", str(target.compose.parent),
+            "-f", str(target.compose), *parts]
 
 
-def checked_run(runner: Callable, args: list[str], env: Mapping[str, str], *, output: bool = False) -> str:
+def checked_run(runner: Callable, args: list[str], env: Mapping[str, str], *, output: bool = False,
+                target: Target = STAGING) -> str:
     try:
-        result = runner(args, env=dict(env), cwd=str(COMPOSE.parent), text=True,
+        result = runner(args, env=dict(env), cwd=str(target.compose.parent), text=True,
                         capture_output=True, timeout=240)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise ReleaseError("Chronicles-only Docker action could not complete") from exc
@@ -248,11 +290,11 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def verify_local_api(opener=None) -> None:
+def verify_local_api(opener=None, target: Target = STAGING) -> None:
     """Loopback only: liveness, then readiness (a real MongoDB ping)."""
     client = opener or build_opener(ProxyHandler({}), NoRedirect())
     for path in ("/api/health", "/api/ready"):
-        url = LOCAL + path
+        url = target.local + path
         try:
             with client.open(Request(url, method="GET"), timeout=10) as response:
                 if response.geturl() != url or response.status != 200:
@@ -264,8 +306,8 @@ def verify_local_api(opener=None) -> None:
             raise ReleaseError("Chronicles API smoke response too large")
 
 
-def persist_receipt(state: Path, digest: str) -> None:
-    payload = {"project": PROJECT, "services": [API, TUNNEL], "digest": digest, "smoke": True,
+def persist_receipt(state: Path, digest: str, target: Target = STAGING) -> None:
+    payload = {"project": target.project, "services": [API, TUNNEL], "digest": digest, "smoke": True,
                "deployedAt": datetime.now(timezone.utc).isoformat()}
     fd, name = tempfile.mkstemp(dir=state, prefix=".verified-", suffix=".json")
     tmp = Path(name)
@@ -293,15 +335,20 @@ def private_dir(path: Path, *, require_root: bool) -> None:
 
 
 def deploy(
-    digest: str, vault_id: str, *, runner: Callable = subprocess.run,
-    guard: Callable = verify_shared_a1_containers, smoke: Callable = verify_local_api,
-    bundle_reader: Callable = read_bundle, state: Path = STATE, runtime: Path = RUNTIME,
-    policy: Path = COMPOSE, require_root: bool = True,
+    digest: str, vault_id: str, environment: str = "staging", *, runner: Callable = subprocess.run,
+    guard: Callable = verify_shared_a1_containers, smoke: Callable | None = None,
+    bundle_reader: Callable = read_bundle, state: Path | None = None, runtime: Path | None = None,
+    policy: Path | None = None, require_root: bool = True,
 ) -> str:
-    validate_request("deploy", digest, vault_id)
+    validate_request("deploy", digest, vault_id, environment)
+    target = TARGETS[environment]
+    state = state or target.state
+    runtime = runtime or target.runtime
+    policy = policy or target.compose
+    smoke = smoke or (lambda: verify_local_api(target=target))
     if require_root and os.geteuid() != 0:
         raise ReleaseError("Chronicles API deployer requires root")
-    if policy != COMPOSE:
+    if policy != target.compose:
         raise ReleaseError("Only the installed fixed Compose policy is permitted")
     if require_root:
         check_root_file(policy)
@@ -314,14 +361,15 @@ def deploy(
             guard(runner)
         except SharedHostError as exc:
             raise ReleaseError("Shared A1 ownership guard rejected host state") from exc
-        write_runtime(bundle_reader(vault_id, runner), runtime)
-        config_text = checked_run(runner, fixed_compose_args("config", "--format", "json"), values, output=True)
+        write_runtime(bundle_reader(vault_id, runner, target), runtime, target)
+        config_text = checked_run(runner, fixed_compose_args("config", "--format", "json", target=target),
+                                  values, output=True, target=target)
         try:
             config = json.loads(config_text)
         except ValueError as exc:
             raise ReleaseError("Compose configuration returned invalid JSON") from exc
-        assert_compose(config, digest)
-        checked_run(runner, fixed_compose_args("pull", API, TUNNEL), values)
+        assert_compose(config, digest, target)
+        checked_run(runner, fixed_compose_args("pull", API, TUNNEL, target=target), values, target=target)
         try:
             guard(runner)
         except SharedHostError as exc:
@@ -329,11 +377,11 @@ def deploy(
         (state / "last-verified-api.json").unlink(missing_ok=True)
         checked_run(runner, fixed_compose_args(
             "up", "--detach", "--wait", "--wait-timeout", "150", "--no-build",
-            "--pull", "never", "--remove-orphans", API, TUNNEL,
-        ), values)
+            "--pull", "never", "--remove-orphans", API, TUNNEL, target=target,
+        ), values, target=target)
         smoke()
-        persist_receipt(state, digest)
-    return MARKER + " digest=" + digest
+        persist_receipt(state, digest, target)
+    return target.marker + " digest=" + digest
 
 
 def main() -> int:
@@ -341,9 +389,11 @@ def main() -> int:
     parser.add_argument("operation", choices=("deploy",))
     parser.add_argument("digest")
     parser.add_argument("vault_id")
+    parser.add_argument("environment", nargs="?", default="staging")
     args = parser.parse_args()
     try:
-        print(deploy(*validate_request(args.operation, args.digest, args.vault_id)))
+        digest, vault = validate_request(args.operation, args.digest, args.vault_id, args.environment)
+        print(deploy(digest, vault, args.environment))
     except (ReleaseError, BlockingIOError, OSError) as exc:
         print("CHRONICLES_API_OCI_DEPLOY_BLOCKED type=" + type(exc).__name__
               + " reason=" + str(exc)[:120], file=sys.stderr)
