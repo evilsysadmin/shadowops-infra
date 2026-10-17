@@ -33,6 +33,7 @@ PURPOSE = "ops_delete_account"
 LIFETIME_SECONDS = 300
 USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{2,63}$")
 CONFIRMATION = "BORRAR"
+USER_AGENT = "shadowops-infra-chronicles-ops/1"
 
 
 class DeleteError(RuntimeError):
@@ -71,7 +72,8 @@ def call_api(token: str, username: str, opener: Callable = urllib.request.urlope
         API,
         data=json.dumps({"username": username}).encode("utf-8"),
         method="POST",
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        # Cloudflare rejects the default Python-urllib agent with a bare 403.
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json", "User-Agent": USER_AGENT},
     )
     try:
         with opener(request, timeout=20) as response:
@@ -135,10 +137,12 @@ def self_test() -> None:
     def opener(request, timeout):
         seen["auth"] = request.headers.get("Authorization", "")
         seen["body"] = json.loads(request.data)
+        seen["agent"] = request.get_header("User-agent", "")
         return Response(200, {"deleted": True, "username": "evilsysadmin", "deletedGames": 0})
 
     assert run(good, opener, lambda: 1_800_000_000) == 0
     assert seen["body"] == {"username": "evilsysadmin"} and seen["auth"].startswith("Bearer ")
+    assert seen["agent"] == USER_AGENT
     print("chronicles_staging_delete_account self-test OK")
 
 
