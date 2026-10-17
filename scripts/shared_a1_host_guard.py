@@ -13,10 +13,13 @@ import subprocess
 from typing import Callable
 
 PROJECT_API = "shadowops-chronicles-staging"
+PROJECT_API_PRODUCTION = "shadowops-chronicles-production"
+API_PROJECTS = frozenset({PROJECT_API, PROJECT_API_PRODUCTION})
 PROJECT_BASELINE = "shadowops-chronicles"
 PROJECT_WEB = "shadowops-chronicles-web-staging"
 PORT_OWNERS = {18081: (PROJECT_API, "chronicles-api"),
-               18082: (PROJECT_WEB, "chronicles-web")}
+               18082: (PROJECT_WEB, "chronicles-web"),
+               18091: (PROJECT_API_PRODUCTION, "chronicles-api")}
 # The API project may run the API and its own Cloudflare Tunnel connector
 # (which publishes no host port); nothing else.
 API_SERVICES = frozenset({"chronicles-api", "chronicles-tunnel"})
@@ -44,7 +47,7 @@ def inspect_container_rows(stdout: str) -> None:
     """Reject competing Compose projects and ANY foreign publisher on reserved ports."""
     if len(stdout.encode("utf-8")) > MAX_BYTES:
         raise SharedHostError("Docker inventory exceeds safe size")
-    api_counts: dict[str, int] = {}
+    api_counts: dict[tuple[str, str], int] = {}
     web_count = 0
     for line in stdout.splitlines():
         if not line.strip():
@@ -60,11 +63,11 @@ def inspect_container_rows(stdout: str) -> None:
         project, service = _compose_labels(row["Labels"])
         if project == PROJECT_BASELINE:
             raise SharedHostError("Legacy Chronicles baseline project conflicts with staging")
-        if project == PROJECT_API:
+        if project in API_PROJECTS:
             if service not in API_SERVICES:
-                raise SharedHostError("Unexpected service inside Chronicles staging project")
-            api_counts[service] = api_counts.get(service, 0) + 1
-            if api_counts[service] > 1:
+                raise SharedHostError("Unexpected service inside a Chronicles API project")
+            api_counts[(project, service)] = api_counts.get((project, service), 0) + 1
+            if api_counts[(project, service)] > 1:
                 raise SharedHostError("Ambiguous duplicate Chronicles staging containers")
         if project == PROJECT_WEB:
             if service != "chronicles-web":
