@@ -39,6 +39,11 @@ VAULT_NAME = "chess-studio-staging"
 KEY_NAME = "chess-studio-staging-secrets"
 SECRET_NAME = "chronicles-staging-runtime-env"
 BUNDLE_KEYS = ("MONGO_URL", "JWT_SECRET", "INVITE_CODE", "TUNNEL_TOKEN")
+# Password recovery by email reuses Chess Studio's staging Resend key, read
+# from the same Vault by name. Opt-in per dispatch: the A1 wrapper must
+# already accept it (installed by the operator bootstrap).
+OPTIONAL_BUNDLE_KEYS = ("RESEND_API_KEY",)
+RESEND_SECRET_NAME = "chess-studio-staging-resend-api-key"
 GITHUB_SECRETS = {
     "MONGO_URL": "CHRONICLES_STAGING_MONGO_URL",
     "JWT_SECRET": "CHRONICLES_STAGING_JWT_SECRET",
@@ -70,9 +75,21 @@ def read_inputs(env: Mapping[str, str]) -> dict[str, str]:
 
 
 def render_bundle(values: Mapping[str, str]) -> bytes:
-    if set(values) != set(BUNDLE_KEYS):
+    keys = set(values)
+    if not set(BUNDLE_KEYS) <= keys <= set(BUNDLE_KEYS) | set(OPTIONAL_BUNDLE_KEYS):
         raise ProvisionError("Bundle keys do not match the contract")
-    return "".join(f"{key}={values[key]}\n" for key in BUNDLE_KEYS).encode("utf-8")
+    ordered = [key for key in (*BUNDLE_KEYS, *OPTIONAL_BUNDLE_KEYS) if key in values]
+    return "".join(f"{key}={values[key]}\n" for key in ordered).encode("utf-8")
+
+
+def read_vault_secret(oci: Any, config: dict, vault_id: str, name: str) -> str:
+    """One secret's CURRENT value, by name; never printed."""
+    client = oci.secrets.SecretsClient(config)
+    bundle = client.get_secret_bundle_by_name(secret_name=name, vault_id=vault_id, stage="CURRENT").data
+    value = base64.b64decode(bundle.secret_bundle_content.content).decode("utf-8").strip()
+    if not value or len(value) > 4096 or any(ch in value for ch in "'\x00\r\n"):
+        raise ProvisionError(f"Vault secret {name} is empty or has an unsafe shape")
+    return value
 
 
 # ---------------------------------------------------------------- Cloudflare
@@ -236,10 +253,13 @@ def provision(env: Mapping[str, str], oci: Any, cf: Cloudflare) -> list[str]:
     config = config_from_env(oci, env)
     compartment_id, _instance = resolve_existing_host(oci, config)
     vault_id, key_id, compartment_id = resolve_vault(oci, config, compartment_id)
+    recovery = str(env.get("CHRONICLES_EMAIL_RECOVERY", "")).strip().lower() == "true"
+    if recovery:
+        values["RESEND_API_KEY"] = read_vault_secret(oci, config, vault_id, RESEND_SECRET_NAME)
     secret = upsert_bundle(oci, config, compartment_id, vault_id, key_id, render_bundle(values))
     return [f"CHRONICLES_API_TUNNEL_OK name={TUNNEL_NAME}",
             f"CHRONICLES_API_DNS_OK hostname={HOSTNAME} state={dns}",
-            f"CHRONICLES_API_VAULT_BUNDLE_OK name={SECRET_NAME} state={secret}"]
+            f"CHRONICLES_API_VAULT_BUNDLE_OK name={SECRET_NAME} state={secret} email_recovery={str(recovery).lower()}"]
 
 
 def self_test() -> None:
@@ -247,6 +267,15 @@ def self_test() -> None:
     bundle = render_bundle({"MONGO_URL": "mongodb+srv://u:p@h/", "JWT_SECRET": "x" * 64,
                             "INVITE_CODE": "INV", "TUNNEL_TOKEN": "t" * 40}).decode()
     assert [line.split("=", 1)[0] for line in bundle.splitlines()] == list(BUNDLE_KEYS)
+    with_mail = render_bundle({"MONGO_URL": "mongodb+srv://u:p@h/", "JWT_SECRET": "x" * 64,
+                               "INVITE_CODE": "INV", "TUNNEL_TOKEN": "t" * 40, "RESEND_API_KEY": "re_x"}).decode()
+    assert with_mail.splitlines()[-1].startswith("RESEND_API_KEY=")
+    try:
+        render_bundle({"MONGO_URL": "m", "JWT_SECRET": "j", "INVITE_CODE": "i", "TUNNEL_TOKEN": "t", "EXTRA": "x"})
+    except ProvisionError:
+        pass
+    else:
+        raise AssertionError("render_bundle accepted an unknown key")
     assert desired_ingress()["config"]["ingress"][-1] == {"service": "http_status:404"}
     print("CHRONICLES_API_PROVISION_SELF_TEST_OK")
 

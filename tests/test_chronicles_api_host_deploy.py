@@ -89,6 +89,9 @@ class ChroniclesApiHostDeployTests(unittest.TestCase):
             self.assertIn("MONGO_URL='" + SECRETS["MONGO_URL"] + "'", api_env)
             self.assertIn("MONGO_DB_NAME='chronicles_staging'", api_env)
             self.assertIn("CORS_ORIGINS='https://staging.chronicles.shadowops.dpdns.org'", api_env)
+            # Without a Resend key in the bundle, recovery stays off.
+            self.assertIn("ENABLE_EMAIL_RECOVERY='false'", api_env)
+            self.assertNotIn("RESEND_API_KEY", api_env)
             self.assertNotIn("TUNNEL_TOKEN", api_env)
             self.assertEqual(tunnel_env, "TUNNEL_TOKEN='" + SECRETS["TUNNEL_TOKEN"] + "'\n")
             self.assertTrue((state / "last-verified-api.json").exists())
@@ -97,6 +100,16 @@ class ChroniclesApiHostDeployTests(unittest.TestCase):
         # Vault is read by the fixed OCI venv, never through a shell.
         vault_call = runner.commands[0]
         self.assertEqual(vault_call[:3], [str(api.OCI_PYTHON), "-I", "-c"])
+
+    def test_resend_key_in_the_bundle_turns_recovery_on(self):
+        values = dict(SECRETS, RESEND_API_KEY="re_" + "k" * 30)
+        with tempfile.TemporaryDirectory() as tmp:
+            _marker, _state, runtime = run_deploy(Runner(vault_out=bundle_b64(values)), tmp)
+            api_env = (runtime / "api.env").read_text()
+            self.assertIn("ENABLE_EMAIL_RECOVERY='true'", api_env)
+            self.assertIn("RESEND_API_KEY='" + values["RESEND_API_KEY"] + "'", api_env)
+            self.assertIn("PASSWORD_RESET_URL='https://staging.chronicles.shadowops.dpdns.org/'", api_env)
+            self.assertNotIn("RESEND_API_KEY", (runtime / "tunnel.env").read_text())
 
     def test_bundle_contract_is_strict(self):
         bad = [dict(SECRETS, EXTRA="x"), {k: v for k, v in SECRETS.items() if k != "INVITE_CODE"},

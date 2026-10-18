@@ -33,6 +33,10 @@ on:
         description: Chronicles main SHA whose API image to deploy (empty = current main)
         type: string
         required: false
+      email_recovery:
+        description: provision only — copy Chess Studio's staging Resend key into the bundle (password recovery by email). Needs the bootstrapped wrapper that accepts it.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -76,6 +80,7 @@ jobs:
       CHRONICLES_STAGING_MONGO_URL: ${{ secrets.CHRONICLES_STAGING_MONGO_URL }}
       CHRONICLES_STAGING_JWT_SECRET: ${{ secrets.CHRONICLES_STAGING_JWT_SECRET }}
       CHRONICLES_STAGING_INVITE_CODE: ${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}
+      CHRONICLES_EMAIL_RECOVERY: ${{ inputs.email_recovery }}
     steps:
       - uses: actions/checkout@v4
         with:

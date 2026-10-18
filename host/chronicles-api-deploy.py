@@ -46,6 +46,9 @@ DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 VAULT_RE = re.compile(r"^ocid1\.vault\.[A-Za-z0-9._-]{10,200}$")
 KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 BUNDLE_KEYS = frozenset({"MONGO_URL", "JWT_SECRET", "INVITE_CODE", "TUNNEL_TOKEN"})
+# Present only once provisioning copies Chess Studio's staging Resend key into
+# the bundle; with it, password recovery by email turns on.
+OPTIONAL_BUNDLE_KEYS = frozenset({"RESEND_API_KEY"})
 PUBLIC_ORIGIN = "https://staging.chronicles.shadowops.dpdns.org"
 # Non-secret runtime contract, versioned here rather than in Vault.
 STATIC_API_ENV = (
@@ -54,7 +57,9 @@ STATIC_API_ENV = (
     ("PORT", "8080"),
     ("CORS_ORIGINS", PUBLIC_ORIGIN),
     ("ALLOW_REGISTRATION", "true"),
-    ("ENABLE_EMAIL_RECOVERY", "false"),
+    # Recovery links land on the game itself, which reads ?resetToken=.
+    ("PASSWORD_RESET_URL", PUBLIC_ORIGIN + "/"),
+    ("PASSWORD_RESET_FROM", "Chronicles of Matthias <onboarding@resend.dev>"),
     # All public traffic arrives through the tunnel: client IPs come from CF.
     ("TRUST_CLOUDFLARE_CLIENT_IP", "true"),
 )
@@ -108,7 +113,7 @@ def parse_bundle(text: str) -> dict[str, str]:
         if not sep or not KEY_RE.fullmatch(key) or key in values:
             raise ReleaseError("Malformed runtime bundle")
         values[key] = value
-    if set(values) != BUNDLE_KEYS:
+    if not BUNDLE_KEYS <= set(values) <= BUNDLE_KEYS | OPTIONAL_BUNDLE_KEYS:
         raise ReleaseError("Runtime bundle keys do not match the contract")
     for value in values.values():
         if not value or len(value) > 4096 or any(ch in value for ch in "'\x00\r\n"):
@@ -152,8 +157,12 @@ def write_private(path: Path, content: str) -> None:
 
 
 def write_runtime(values: Mapping[str, str], runtime: Path = RUNTIME) -> None:
+    resend = values.get("RESEND_API_KEY")
     api_rows = [("MONGO_URL", values["MONGO_URL"]), ("JWT_SECRET", values["JWT_SECRET"]),
-                ("INVITE_CODE", values["INVITE_CODE"]), *STATIC_API_ENV]
+                ("INVITE_CODE", values["INVITE_CODE"]), *STATIC_API_ENV,
+                ("ENABLE_EMAIL_RECOVERY", "true" if resend else "false")]
+    if resend:
+        api_rows.append(("RESEND_API_KEY", resend))
     write_private(runtime / API_ENV.name, env_lines(api_rows))
     write_private(runtime / TUNNEL_ENV.name, env_lines([("TUNNEL_TOKEN", values["TUNNEL_TOKEN"])]))
 
@@ -168,7 +177,8 @@ def _common_hardening(service: dict, user: str) -> bool:
             and service.get("pid") != "host")
 
 
-def _env_ok(service: dict, path: Path, keys: frozenset[str]) -> bool:
+def _env_ok(service: dict, path: Path, keys: frozenset[str],
+            optional: frozenset[str] = frozenset()) -> bool:
     """Compose may echo env_file paths or inline them into environment."""
     rows = service.get("env_file") or []
     files = [row.get("path") if isinstance(row, dict) else row for row in rows]
@@ -179,12 +189,14 @@ def _env_ok(service: dict, path: Path, keys: frozenset[str]) -> bool:
         environment = dict(item.partition("=")[::2] for item in environment)
     if not isinstance(environment, dict):
         return False
-    if not files and set(environment) != keys:
+    if not files and not keys <= set(environment) <= keys | optional:
         return False
-    return set(environment) <= keys
+    return set(environment) <= keys | optional
 
 
-API_ENV_KEYS = frozenset({"MONGO_URL", "JWT_SECRET", "INVITE_CODE", *(k for k, _ in STATIC_API_ENV)})
+API_ENV_KEYS = frozenset({"MONGO_URL", "JWT_SECRET", "INVITE_CODE", "ENABLE_EMAIL_RECOVERY",
+                          *(k for k, _ in STATIC_API_ENV)})
+API_ENV_OPTIONAL_KEYS = frozenset({"RESEND_API_KEY"})
 TUNNEL_ENV_KEYS = frozenset({"TUNNEL_TOKEN"})
 
 
@@ -199,7 +211,7 @@ def assert_compose(config: dict, digest: str) -> None:
     api, tunnel = services[API], services[TUNNEL]
     if api.get("image") != API_IMAGE + digest or not _common_hardening(api, "65532:65532"):
         raise ReleaseError("Unadmitted or unsafe API container config")
-    if not _env_ok(api, API_ENV, API_ENV_KEYS):
+    if not _env_ok(api, API_ENV, API_ENV_KEYS, API_ENV_OPTIONAL_KEYS):
         raise ReleaseError("API must read only its root-owned env file")
     ports = api.get("ports")
     if (not isinstance(ports, list) or len(ports) != 1 or ports[0].get("host_ip") != "127.0.0.1"
