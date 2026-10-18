@@ -9,6 +9,7 @@ on:
       - 'host/bootstrap-chronicles-api-over-ssh.sh'
       - 'scripts/chronicles_api_provision.py'
       - 'scripts/oci_chronicles_api_release.py'
+      - 'scripts/chronicles_staging_smoke.py'
       - 'scripts/shared_a1_host_guard.py'
       - 'tests/test_chronicles_api_host_deploy.py'
   push:
@@ -20,6 +21,7 @@ on:
       - 'host/install-chronicles-api.sh'
       - 'scripts/chronicles_api_provision.py'
       - 'scripts/oci_chronicles_api_release.py'
+      - 'scripts/chronicles_staging_smoke.py'
       - 'scripts/shared_a1_host_guard.py'
       - 'tests/test_chronicles_api_host_deploy.py'
   workflow_dispatch:
@@ -54,6 +56,7 @@ jobs:
       - run: python3 -m unittest discover -s scripts -p 'test_shared_a1_host_guard.py' -v
       - run: python3 scripts/chronicles_api_provision.py --self-test
       - run: python3 scripts/oci_chronicles_api_release.py --self-test
+      - run: python3 scripts/chronicles_staging_smoke.py --self-test
       - run: bash -n host/install-chronicles-api.sh && bash -n host/bootstrap-chronicles-api-over-ssh.sh
       - name: Compose file parses and names only the API project
         run: python3 -c "import yaml;c=yaml.safe_load(open('compose.api.staging.yaml'));assert c['name']=='shadowops-chronicles-staging';assert set(c['services'])=={'chronicles-api','chronicles-tunnel'}"
@@ -183,3 +186,8 @@ jobs:
             https://chronicles-api-staging.shadowops.dpdns.org/api/auth/login | tr -d '\r' | awk -F': ' 'tolower($1)=="access-control-allow-origin"{print $2}')"
           [[ "$origin" == "https://staging.chronicles.shadowops.dpdns.org" ]]
           echo "CHRONICLES_API_PUBLIC_SMOKE_OK"
+      - name: Player-path smoke (register, run, save, reload; account always deleted)
+        working-directory: scripts
+        env:
+          INVITE_CODE: ${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}
+        run: python chronicles_staging_smoke.py
