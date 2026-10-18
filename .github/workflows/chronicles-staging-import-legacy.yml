@@ -1,0 +1,49 @@
+name: ShadowOps · Chronicles staging · import runs from Chess Studio
+# The first iteration of Chronicles saved through Chess Studio's API. This
+# copies one player's runs and hero progression from Chess Studio's staging
+# database into Chronicles' own, idempotently and without overwriting.
+# Manual only, from main. The player must have registered in Chronicles.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/chronicles-staging-import-legacy.yml'
+      - 'scripts/chronicles_staging_import_legacy.py'
+      - 'scripts/chronicles_staging_delete_account.py'
+  workflow_dispatch:
+    inputs:
+      username:
+        description: Chronicles staging username to import
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Import script self-test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 scripts/chronicles_staging_import_legacy.py --self-test
+
+  import:
+    name: Import the player's legacy runs
+    needs: contract
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    environment:
+      name: staging
+    env:
+      CHRONICLES_STAGING_JWT_SECRET: ${{ secrets.CHRONICLES_STAGING_JWT_SECRET }}
+      TARGET_USERNAME: ${{ inputs.username }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Import (prints only the username and the API answer)
+        run: python3 scripts/chronicles_staging_import_legacy.py
