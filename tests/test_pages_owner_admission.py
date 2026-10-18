@@ -87,3 +87,31 @@ class TestPagesHandoff(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestProductionPromotion(unittest.TestCase):
+    def reader(self, compare_status):
+        def read(path, token):
+            if path.endswith("/branches/main"):
+                is_owner = ("/" + a.OWNER + "/") in path
+                return 200, {"protected": True, "commit": {"sha": OWNER_SHA if is_owner else "d" * 40}}
+            if "/compare/" in path:
+                return (200, {"status": compare_status}) if compare_status else (404, {"message": "Not Found"})
+            if "/contents/" in path:
+                return 404, {"message": "Not Found"}
+            raise AssertionError("Unapproved request " + path)
+        return read
+
+    def test_promote_accepts_an_earlier_commit_of_protected_main(self):
+        env = {**ENV, "CHRONICLES_RELEASE_MODE": "promote"}
+        self.assertEqual(a.admit(env, self.reader("ahead")), SOURCE_SHA)
+
+    def test_promote_rejects_branches_and_unknown_commits(self):
+        env = {**ENV, "CHRONICLES_RELEASE_MODE": "promote"}
+        for status in ("diverged", "behind", None):
+            with self.subTest(status=status), self.assertRaises(a.AdmissionError):
+                a.admit(env, self.reader(status))
+
+    def test_without_promote_an_earlier_commit_is_stale(self):
+        with self.assertRaises(a.AdmissionError):
+            a.admit(ENV, self.reader("ahead"))
