@@ -161,6 +161,7 @@ class ParallelReactPagesTest(unittest.TestCase):
             "CHRONICLES_SOURCE_SHA:", "CHRONICLES_DEPLOY_BASE: /",
             "dist/audio/orchestra/violin-fs3.mp3", "dist/models/matthias-home-canonical.glb",
             "npm ci", "npm run build",
+            "test -s dist/release.json", "m.build!==process.env.VITE_BUILD_SHA",
             "ChroniclesOfMatthias-*.js", "ChroniclesOfMatthiasTactics-*.js",
             "chroniclesOfMatthiasThree-*.js", "/chronicles/runs",
             "VITE_API_URL: https://chronicles-api-staging.shadowops.dpdns.org/api",
