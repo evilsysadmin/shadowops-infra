@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/chronicles-pages-release.yml'
+      - 'docs/chronicles-staging-release-request.md'
       - 'scripts/chronicles_pages.py'
       - 'scripts/pages_owner_admission.py'
       - 'scripts/chronicles_source_ci.py'
@@ -16,6 +17,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/chronicles-pages-release.yml'
+      - 'docs/chronicles-staging-release-request.md'
       - 'scripts/chronicles_pages.py'
       - 'scripts/pages_owner_admission.py'
       - 'scripts/chronicles_source_ci.py'
