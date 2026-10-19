@@ -14,9 +14,13 @@ on:
       - 'scripts/shared_a1_host_guard.py'
       - 'tests/test_chronicles_api_host_deploy.py'
       - 'tests/test_chronicles_api_cd_workflow.py'
+      - 'scripts/chronicles_source_ci.py'
+      - 'tests/test_chronicles_source_ci.py'
   push:
     branches: [main]
     paths:
+      - 'scripts/chronicles_source_ci.py'
+      - 'tests/test_chronicles_source_ci.py'
       - '.github/workflows/chronicles-api-staging.yml'
       - 'compose.api.staging.yaml'
       - 'compose.api.production.yaml'
@@ -66,6 +70,7 @@ jobs:
           persist-credentials: false
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_host_deploy.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_cd_workflow.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_source_ci.py' -v
       - run: python3 -m unittest discover -s scripts -p 'test_shared_a1_host_guard.py' -v
       - run: python3 scripts/chronicles_api_provision.py --self-test
       - run: python3 scripts/oci_chronicles_api_release.py --self-test
@@ -138,6 +143,9 @@ jobs:
       REQUESTED_SHA: ${{ inputs.source_sha }}
       IMAGE: ghcr.io/evilsysadmin/chronicles-api
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Select only a new staging generation
         id: candidate
         shell: bash
@@ -151,6 +159,17 @@ jobs:
           fi
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo 'CHRONICLES_API_ADMISSION_BLOCKED bad-sha' >&2; exit 64; }
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          if [[ "$TARGET_ENV" == 'staging' ]]; then
+            verdict="$(python3 scripts/chronicles_source_ci.py "$sha")"
+            if [[ "$verdict" != 'ready' ]]; then
+              if [[ "$GITHUB_EVENT_NAME" == 'workflow_dispatch' ]]; then
+                echo 'Chronicles source CI is not fully green' >&2
+                exit 1
+              fi
+              echo 'deploy_needed=false' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
           # Receipts are written ONLY after OCI + public + player-path smokes.
           # A trusted main receipt avoids redeploying the same SHA on every poll.
           if [[ "$TARGET_ENV" == 'staging' && "$GITHUB_EVENT_NAME" != 'workflow_dispatch' ]]; then

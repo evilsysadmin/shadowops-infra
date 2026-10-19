@@ -157,7 +157,8 @@ class ParallelReactPagesTest(unittest.TestCase):
         workflow = (pathlib.Path(__file__).resolve().parents[1]
                     / ".github/workflows/chronicles-pages-release.yml").read_text()
         for required in [
-            "ref: main", "CHRONICLES_SOURCE_SHA:", "CHRONICLES_DEPLOY_BASE: /",
+            "ref: ${{ needs.staging-candidate.outputs.source_sha }}",
+            "CHRONICLES_SOURCE_SHA:", "CHRONICLES_DEPLOY_BASE: /",
             "dist/audio/orchestra/violin-fs3.mp3", "dist/models/matthias-home-canonical.glb",
             "npm ci", "npm run build",
             "ChroniclesOfMatthias-*.js", "ChroniclesOfMatthiasTactics-*.js",
@@ -168,6 +169,8 @@ class ParallelReactPagesTest(unittest.TestCase):
         ]:
             self.assertIn(required, workflow)
         self.assertNotIn("wrangler pages deploy chronicles-source/frontend", workflow)
+        self.assertIn("python3 scripts/chronicles_source_ci.py \"$sha\"", workflow)
+        self.assertIn("source_sha: ${{ steps.check.outputs.source_sha }}", workflow)
         self.assertLess(workflow.index("scripts/pages_owner_admission.py"),
                         workflow.index("npm run build"))
         # Chronicles owns its source: no dependency on a Chess Studio checkout.
