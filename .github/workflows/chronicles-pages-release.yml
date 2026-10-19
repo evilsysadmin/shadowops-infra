@@ -21,6 +21,9 @@ on:
       - 'tests/test_chronicles_pages_verify.py'
       - 'tests/test_chronicles_react_pages.py'
       - 'docs/chronicles-pages-handoff.md'
+  schedule:
+    # Cross-repo main updates do not emit workflow_run events here.
+    - cron: '47 * * * *'
   workflow_dispatch:
     inputs:
       environment:
@@ -50,10 +53,47 @@ jobs:
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_react_pages.py' -v
       - run: python3 scripts/chronicles_pages.py self-test
 
+  staging-candidate:
+    name: Skip a previously verified Chronicles Pages SHA
+    needs: contracts
+    if: >-
+      (github.event_name == 'schedule' || github.event_name == 'push' ||
+       (github.event_name == 'workflow_dispatch' && inputs.environment != 'production')) &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      publish: ${{ steps.check.outputs.publish }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Compare current source main against verified Pages receipts
+        id: check
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || exit 64
+          if [[ "$GITHUB_EVENT_NAME" != 'workflow_dispatch' ]]; then
+            count="$(gh api -X GET 'repos/evilsysadmin/shadowops-infra/actions/artifacts' \
+              -f name="chronicles-pages-staging-$sha" \
+              --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "main")] | length')"
+            if [[ "$count" =~ ^[0-9]+$ ]] && (( count > 0 )); then
+              echo "CHRONICLES_PAGES_ALREADY_VERIFIED sha=$sha"
+              echo 'publish=false' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo 'publish=true' >> "$GITHUB_OUTPUT"
+
   release:
     name: Publish Chronicles staging from protected source main
-    needs: contracts
-    if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.environment != 'production')) && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    needs: [contracts, staging-candidate]
+    if: needs.staging-candidate.outputs.publish == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     environment:
@@ -143,6 +183,20 @@ jobs:
         run: python3 scripts/chronicles_pages.py domain
       - name: Prove the public game build at root
         run: python3 scripts/chronicles_pages.py verify
+      - name: Record the verified Chronicles Pages source generation
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p verified-pages
+          printf '%s\n' "$SOURCE_SHA" > verified-pages/source-sha.txt
+      - name: Save verified Pages receipt for idempotent hourly sync
+        uses: actions/upload-artifact@v4
+        with:
+          name: chronicles-pages-staging-${{ steps.source.outputs.sha }}
+          path: verified-pages/source-sha.txt
+          retention-days: 90
 
   production:
     name: Promote a Chronicles main SHA to production
