@@ -13,6 +13,7 @@ on:
       - 'scripts/chronicles_staging_smoke.py'
       - 'scripts/shared_a1_host_guard.py'
       - 'tests/test_chronicles_api_host_deploy.py'
+      - 'tests/test_chronicles_api_cd_workflow.py'
   push:
     branches: [main]
     paths:
@@ -26,6 +27,7 @@ on:
       - 'scripts/chronicles_staging_smoke.py'
       - 'scripts/shared_a1_host_guard.py'
       - 'tests/test_chronicles_api_host_deploy.py'
+      - 'tests/test_chronicles_api_cd_workflow.py'
   schedule:
     # The source repository owns builds. Infra discovers new signed images hourly.
     - cron: '17 * * * *'
@@ -63,6 +65,7 @@ jobs:
         with:
           persist-credentials: false
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_host_deploy.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_cd_workflow.py' -v
       - run: python3 -m unittest discover -s scripts -p 'test_shared_a1_host_guard.py' -v
       - run: python3 scripts/chronicles_api_provision.py --self-test
       - run: python3 scripts/oci_chronicles_api_release.py --self-test
