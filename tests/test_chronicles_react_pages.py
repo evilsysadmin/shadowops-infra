@@ -169,6 +169,10 @@ class ParallelReactPagesTest(unittest.TestCase):
             'wrangler@4.127.1 pages deploy "$RUNNER_TEMP/chronicles-pages"',
         ]:
             self.assertIn(required, workflow)
+        for guard in ("CHRONICLES_PUBLIC_RELEASE_MANIFEST_OK", "EXPECTED_SHA:",
+                      "https://staging.chronicles.shadowops.dpdns.org/release.json",
+                      'data.get("build") == os.environ["EXPECTED_SHA"]'):
+            self.assertIn(guard, workflow)
         self.assertNotIn("wrangler pages deploy chronicles-source/frontend", workflow)
         self.assertIn("python3 scripts/chronicles_source_ci.py \"$sha\"", workflow)
         self.assertIn("source_sha: ${{ steps.check.outputs.source_sha }}", workflow)
