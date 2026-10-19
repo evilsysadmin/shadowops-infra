@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/chronicles-api-staging.yml'
+      - 'docs/chronicles-staging-release-request.md'
       - 'compose.api.staging.yaml'
       - 'compose.api.production.yaml'
       - 'host/chronicles-api*'
@@ -22,6 +23,7 @@ on:
       - 'scripts/chronicles_source_ci.py'
       - 'tests/test_chronicles_source_ci.py'
       - '.github/workflows/chronicles-api-staging.yml'
+      - 'docs/chronicles-staging-release-request.md'
       - 'compose.api.staging.yaml'
       - 'compose.api.production.yaml'
       - 'host/chronicles-api*'
