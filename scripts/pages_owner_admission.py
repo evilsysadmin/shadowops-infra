@@ -6,6 +6,7 @@ unprotected main in either repository, or the old Chronicles-owned publisher.
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -17,6 +18,7 @@ from typing import Callable, Mapping
 SOURCE = "evilsysadmin/chronicles-of-matthias"
 OWNER = "evilsysadmin/shadowops-infra"
 OLD_PUBLISHER = ".github/workflows/pages-staging.yml"
+SOURCE_FRONTEND_CI = ".github/workflows/react-frontend.yml"
 SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -89,6 +91,19 @@ def admit(
     status, _ = read(path, token)
     if status != 404:
         raise AdmissionError("Legacy Chronicles Pages publisher still present")
+    # Also reject the newer in-repository deploy job. Keeping frontend CI is
+    # correct; giving it Cloudflare publish authority creates two CD owners.
+    status, workflow = read(f"/repos/{SOURCE}/contents/{SOURCE_FRONTEND_CI}?ref=main", token)
+    if status != 200 or workflow.get("encoding") != "base64":
+        raise AdmissionError("Cannot inspect Chronicles frontend workflow ownership")
+    try:
+        source = base64.b64decode(workflow["content"], validate=False).decode("utf-8")
+    except (KeyError, TypeError, ValueError, UnicodeError) as exc:
+        raise AdmissionError("Invalid Chronicles frontend workflow content") from exc
+    if any(needle in source for needle in (
+        "deploy-staging:", "cloudflare/wrangler-action", "pages deploy ",
+    )):
+        raise AdmissionError("Chronicles frontend still has a Pages publisher")
     print("SHADOWOPS_CHRONICLES_PAGES_OWNER_ADMITTED source_sha=" + source_sha)
     return source_sha
 
