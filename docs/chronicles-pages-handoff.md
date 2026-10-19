@@ -1,5 +1,23 @@
 # ShadowOps-owned Cloudflare Pages deployment — Chronicles staging
 
+## Release request: keyboard arrows/A/S and numeric projectile impacts (2026-10-20)
+
+The source [Chronicles PR #145](https://github.com/evilsysadmin/chronicles-of-matthias/pull/145)
+is merged as SHA `2ea192d919418657531b9c4db8bccf6e70808ca4`.
+Direction arrows alone control movement and rotation; **A** attacks in melee,
+**S** fires projectiles, and Space remains an optional auto-attack alias.
+Routine projectile hits are shown by the existing numerical blood-drop
+indicator (not the orange narration band); shots into empty corridors still
+consume a turn and play audio/visual FX but no longer raise a narrator banner.
+Unoccupied hireling slots are clearly identified.
+
+Merging this runbook change requests an **isolated staging-only publication**
+through Infra's sole-owner Cloudflare Pages release. Its guarded source
+admission must verify protected Chronicles main and successful frontend CI;
+the release must check the published SHA and public HTTPS. **Do not treat
+source CI or this PR's tests as successful deployment**. No API, production,
+other Pages project or user save data changes are requested.
+
 ## Release request: visible MM3 S volleys (2026-10-20)
 
 Chronicles [source PR #143](https://github.com/evilsysadmin/chronicles-of-matthias/pull/143)
