@@ -39,6 +39,10 @@ on:
         description: Chronicles main SHA to promote (production only; the one validated on staging)
         type: string
         required: false
+      only_if_new:
+        description: Internal source-CI dispatch; keep manual force/redeploy behavior when false
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -76,6 +80,8 @@ jobs:
       source_sha: ${{ steps.check.outputs.source_sha }}
     env:
       GH_TOKEN: ${{ github.token }}
+      REQUESTED_SHA: ${{ inputs.source_sha }}
+      ONLY_IF_NEW: ${{ inputs.only_if_new || 'false' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -88,6 +94,13 @@ jobs:
           sha="$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || exit 64
           echo "source_sha=$sha" >> "$GITHUB_OUTPUT"
+          # An automatic source dispatch is never allowed to deploy a newer
+          # revision accidentally, or re-publish an already verified SHA.
+          if [[ "$ONLY_IF_NEW" == 'true' && "$REQUESTED_SHA" != "$sha" ]]; then
+            echo "CHRONICLES_PAGES_DISPATCH_SUPERSEDED requested=$REQUESTED_SHA"
+            echo 'publish=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # Fail closed: all three exact-SHA source workflows must finish green.
           verdict="$(python3 scripts/chronicles_source_ci.py "$sha")"
           if [[ "$verdict" != 'ready' ]]; then
@@ -98,7 +111,7 @@ jobs:
             echo 'publish=false' >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if [[ "$GITHUB_EVENT_NAME" != 'workflow_dispatch' ]]; then
+          if [[ "$GITHUB_EVENT_NAME" != 'workflow_dispatch' || "$ONLY_IF_NEW" == 'true' ]]; then
             count="$(gh api -X GET 'repos/evilsysadmin/shadowops-infra/actions/artifacts' \
               -f name="chronicles-pages-staging-$sha" \
               --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "main")] | length')"
