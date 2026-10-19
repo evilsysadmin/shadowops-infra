@@ -253,6 +253,19 @@ jobs:
         with:
           python-version: '3.13'
       - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Reject a superseded staging source before touching OCI
+        if: inputs.environment != 'production'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ADMITTED_SHA: ${{ needs.admit.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)"
+          [[ "$ADMITTED_SHA" =~ ^[0-9a-f]{40}$ && "$ADMITTED_SHA" == "$current" ]] || {
+            echo 'CHRONICLES_OCI_STALE_SOURCE_BLOCKED' >&2
+            exit 1
+          }
       - name: Execute only the restricted Chronicles API deployer
         working-directory: scripts
         run: python oci_chronicles_api_release.py --digest "$DIGEST" --environment "$TARGET_ENV"
