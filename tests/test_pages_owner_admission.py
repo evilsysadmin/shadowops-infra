@@ -42,9 +42,9 @@ class Read:
         if "/contents/" + a.OLD_PUBLISHER in path:
             return (200, {"path": a.OLD_PUBLISHER}) if self.old_workflow else (404, {"message": "Not Found"})
         if "/contents/" + a.SOURCE_FRONTEND_CI in path:
-            source = "jobs:\\n  build:\\n"
+            source = "jobs:\n  build:\n"
             if self.duplicate_publisher:
-                source += "  deploy-staging:\\n    uses: cloudflare/wrangler-action@v3\\n"
+                source += "  deploy-staging:\n    uses: cloudflare/wrangler-action@v3\n"
             return 200, {"encoding": "base64", "content": base64.b64encode(source.encode()).decode()}
         raise AssertionError("Unapproved request " + path)
 
@@ -59,7 +59,7 @@ class TestPagesHandoff(unittest.TestCase):
     def test_allows_protected_main_push_from_owner_for_first_release(self):
         read = Read()
         self.assertEqual(a.admit({**ENV, "GITHUB_EVENT_NAME": "push"}, read), SOURCE_SHA)
-        self.assertEqual(len(read.calls), 3)
+        self.assertEqual(len(read.calls), 4)
 
     def test_fail_closed_if_protection_is_disabled_or_previous_owner_remains(self):
         for case in (
@@ -107,7 +107,7 @@ class TestProductionPromotion(unittest.TestCase):
             if "/contents/" + a.OLD_PUBLISHER in path:
                 return 404, {"message": "Not Found"}
             if "/contents/" + a.SOURCE_FRONTEND_CI in path:
-                return 200, {"encoding": "base64", "content": base64.b64encode(b"jobs:\\n  build:\\n").decode()}
+                return 200, {"encoding": "base64", "content": base64.b64encode(b"jobs:\n  build:\n").decode()}
             raise AssertionError("Unapproved request " + path)
         return read
 
