@@ -1,5 +1,31 @@
 # ShadowOps-owned Cloudflare Pages deployment — Chronicles staging
 
+## Verified staging cutover: update notifications (2026-10-20)
+
+Chronicles [#146](https://github.com/evilsysadmin/chronicles-of-matthias/pull/146)
+adds a standalone client update notice. A visible client checks the published
+`release.json` on its own origin and offers an explicit refresh at the login
+screen. An authenticated expedition never reloads automatically. The Vite
+build emits `release.json` with the immutable `VITE_BUILD_SHA`, and
+`public/_headers` prevents edge caching of the manifest.
+
+Infra [#84](https://github.com/evilsysadmin/shadowops-infra/pull/84)
+checks the file matches its pinned checkout; [#86](https://github.com/evilsysadmin/shadowops-infra/pull/86)
+requires the **actual public HTTPS** manifest to report that same build SHA
+before storing a release receipt. The release is **not confirmed deployed**
+until `CHRONICLES_PUBLIC_RELEASE_MANIFEST_OK` and
+`CHRONICLES_PAGES_HOME_GAME_OK` are present in the real Infra job.
+
+All three source-main checks must be green for the exact same SHA before Infra
+mutates staging. This runbook change intentionally triggers one guarded Pages
+staging publication on merge. The API deploy, also requested by the same Infra
+merge, verifies signed multiarch provenance and refuses a superseded SHA
+immediately before modifying OCI. Failed/pending checks leave the previous
+staging version in place. The source's optional fast CD signal needs the
+`SHADOWOPS_INFRA_ACTIONS_TOKEN` secret; absent that, hourly Infra polling
+remains active without new cross-repo credentials.
+
+
 ## Release request: keyboard arrows/A/S and numeric projectile impacts (2026-10-20)
 
 The source [Chronicles PR #145](https://github.com/evilsysadmin/chronicles-of-matthias/pull/145)
