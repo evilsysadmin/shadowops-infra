@@ -31,6 +31,18 @@ class StagingConvergenceContracts(unittest.TestCase):
         self.assertIn("actions", admit["permissions"])
         self.assertIn("needs.admit.outputs.deploy_needed", self.workflow["jobs"]["deploy"]["if"])
 
+    def test_staging_source_remains_current_immediately_before_mutation(self):
+        steps = self.workflow["jobs"]["deploy"]["steps"]
+        labels = [step.get("name", "") for step in steps]
+        guard = "Reject a superseded staging source before touching OCI"
+        self.assertLess(labels.index(guard), labels.index("Execute only the restricted Chronicles API deployer"))
+        code = next(step["run"] for step in steps if step.get("name") == guard)
+        self.assertIn("commits/main", code)
+        self.assertIn("ADMITTED_SHA", code)
+        self.assertIn("CHRONICLES_OCI_STALE_SOURCE_BLOCKED", code)
+        self.assertIn("inputs.environment != 'production'",
+                      next(step["if"] for step in steps if step.get("name") == guard))
+
     def test_receipt_is_created_only_after_three_live_smokes(self):
         steps = self.workflow["jobs"]["deploy"]["steps"]
         names = [step.get("name", "") for step in steps]
