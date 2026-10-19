@@ -219,6 +219,29 @@ jobs:
         run: python3 scripts/chronicles_pages.py domain
       - name: Prove the public game build at root
         run: python3 scripts/chronicles_pages.py verify
+      - name: Prove the public update manifest serves the exact SHA
+        env:
+          EXPECTED_SHA: ${{ steps.source.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 3 --retry-delay 2 --max-time 20 \
+            --user-agent 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/154.0.0.0 Safari/537.36' \
+            -H 'Accept: application/json' -H 'Cache-Control: no-cache' \
+            "https://staging.chronicles.shadowops.dpdns.org/release.json?ts=${GITHUB_RUN_ID}" \
+            -o "$RUNNER_TEMP/chronicles-published-release.json"
+          python3 - <<'PY'
+          import json, os, pathlib
+          path = pathlib.Path(os.environ["RUNNER_TEMP"]) / "chronicles-published-release.json"
+          try:
+              data = json.loads(path.read_text(encoding="utf-8"))
+              valid = isinstance(data, dict) and data.get("build") == os.environ["EXPECTED_SHA"]
+          except (ValueError, UnicodeError):
+              valid = False
+          if not valid:
+              raise SystemExit("CHRONICLES_PUBLIC_RELEASE_MANIFEST_MISMATCH")
+          print("CHRONICLES_PUBLIC_RELEASE_MANIFEST_OK")
+          PY
       - name: Record the verified Chronicles Pages source generation
         shell: bash
         env:
