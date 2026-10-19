@@ -51,6 +51,10 @@ on:
         description: Chronicles main SHA whose API image to deploy (empty = current main; production should promote the SHA validated on staging)
         type: string
         required: false
+      only_if_new:
+        description: Internal source-CI dispatch; keep manual force/redeploy behavior when false
+        type: boolean
+        default: false
       email_recovery:
         description: provision only — copy Chess Studio's staging Resend key into the bundle (password recovery by email). Needs the bootstrapped wrapper that accepts it.
         type: boolean
@@ -141,6 +145,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       REQUESTED_SHA: ${{ inputs.source_sha }}
+      ONLY_IF_NEW: ${{ inputs.only_if_new || 'false' }}
       IMAGE: ghcr.io/evilsysadmin/chronicles-api
     steps:
       - uses: actions/checkout@v4
@@ -159,10 +164,18 @@ jobs:
           fi
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo 'CHRONICLES_API_ADMISSION_BLOCKED bad-sha' >&2; exit 64; }
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          if [[ "$TARGET_ENV" == 'staging' && "$ONLY_IF_NEW" == 'true' ]]; then
+            head="$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)"
+            if [[ "$sha" != "$head" ]]; then
+              echo 'CHRONICLES_API_DISPATCH_SUPERSEDED'
+              echo 'deploy_needed=false' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
           if [[ "$TARGET_ENV" == 'staging' ]]; then
             verdict="$(python3 scripts/chronicles_source_ci.py "$sha")"
             if [[ "$verdict" != 'ready' ]]; then
-              if [[ "$GITHUB_EVENT_NAME" == 'workflow_dispatch' ]]; then
+              if [[ "$GITHUB_EVENT_NAME" == 'workflow_dispatch' && "$ONLY_IF_NEW" != 'true' ]]; then
                 echo 'Chronicles source CI is not fully green' >&2
                 exit 1
               fi
@@ -172,7 +185,7 @@ jobs:
           fi
           # Receipts are written ONLY after OCI + public + player-path smokes.
           # A trusted main receipt avoids redeploying the same SHA on every poll.
-          if [[ "$TARGET_ENV" == 'staging' && "$GITHUB_EVENT_NAME" != 'workflow_dispatch' ]]; then
+          if [[ "$TARGET_ENV" == 'staging' && ( "$GITHUB_EVENT_NAME" != 'workflow_dispatch' || "$ONLY_IF_NEW" == 'true' ) ]]; then
             count="$(gh api -X GET 'repos/evilsysadmin/shadowops-infra/actions/artifacts' \
               -f name="chronicles-api-staging-$sha" \
               --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "main")] | length')"
