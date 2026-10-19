@@ -159,6 +159,9 @@ jobs:
           set -euo pipefail
           npm ci --ignore-scripts --no-audit --no-fund
           npm run build
+          # The in-app update banner must read the exact release being deployed.
+          test -s dist/release.json
+          node -e "const fs=require('node:fs');const m=JSON.parse(fs.readFileSync('dist/release.json','utf8'));if(m.build!==process.env.VITE_BUILD_SHA) process.exit(1)"
           grep -q 'Chronicles of Matthias' dist/index.html
           grep -q '/assets/' dist/index.html
           # The real game, not a shell: original component, Tactics, the
@@ -272,6 +275,9 @@ jobs:
           set -euo pipefail
           npm ci --ignore-scripts --no-audit --no-fund
           npm run build
+          # The in-app update banner must read the exact release being deployed.
+          test -s dist/release.json
+          node -e "const fs=require('node:fs');const m=JSON.parse(fs.readFileSync('dist/release.json','utf8'));if(m.build!==process.env.VITE_BUILD_SHA) process.exit(1)"
           grep -q 'Chronicles of Matthias' dist/index.html
           grep -q '/assets/' dist/index.html
           # The real game, not a shell: original component, Tactics, the
