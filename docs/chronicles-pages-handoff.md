@@ -1,5 +1,24 @@
 # ShadowOps-owned Cloudflare Pages deployment — Chronicles staging
 
+## Release request: visible MM3 S volleys (2026-10-20)
+
+Chronicles [source PR #143](https://github.com/evilsysadmin/chronicles-of-matthias/pull/143)
+was merged after full green CI. It corrects the missing **S** projectile
+animation/sound while exploring without any enemies in missile range, where
+damage resolution had returned an empty shot list. A valid equipped hero now
+fires into empty space without inventing hits, enemy reactions or rewards.
+
+This Infra change is an explicit **staging publish request**: after it merges,
+the guarded `ShadowOps · Chronicles staging Pages release` `push` workflow
+resolves the latest protected Chronicles `main` source, builds it, publishes
+the exact source SHA to `chronicles-staging`, and verifies the public root.
+The source PR's squash commit is `6b56136f22b6b9dca87052a9bdd4726621c63296`.
+**Do not equate source CI with deployment**; use the Pages job's
+`Resolve immutable source SHA`, `Publish exact source SHA`, and
+`Prove the public game build at root` results to establish readiness.
+The root browser view still needs visual confirmation that projectiles
+appear when pressing S, including in an empty corridor.
+
 > **Actualización (2026-10-17): Chronicles es dueño de su código.** Ya no se
 > compara con Chess Studio; el release construye `frontend/` tal cual está en
 > `chronicles-of-matthias` contra su propia API.
