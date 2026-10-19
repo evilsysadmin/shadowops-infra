@@ -1,4 +1,5 @@
 """GitHub-only fake admission tests: no real providers and no mutation."""
+import base64
 import pathlib
 import sys
 import unittest
@@ -20,11 +21,12 @@ ENV = {
 
 class Read:
     def __init__(self, *, owner_protected=True, source_protected=True,
-                 old_workflow=False, stale=False):
+                 old_workflow=False, stale=False, duplicate_publisher=False):
         self.calls = []
         self.owner_protected = owner_protected
         self.source_protected = source_protected
         self.old_workflow = old_workflow
+        self.duplicate_publisher = duplicate_publisher
         self.stale = stale
 
     def __call__(self, path, token):
@@ -39,6 +41,11 @@ class Read:
             }
         if "/contents/" + a.OLD_PUBLISHER in path:
             return (200, {"path": a.OLD_PUBLISHER}) if self.old_workflow else (404, {"message": "Not Found"})
+        if "/contents/" + a.SOURCE_FRONTEND_CI in path:
+            source = "jobs:\\n  build:\\n"
+            if self.duplicate_publisher:
+                source += "  deploy-staging:\\n    uses: cloudflare/wrangler-action@v3\\n"
+            return 200, {"encoding": "base64", "content": base64.b64encode(source.encode()).decode()}
         raise AssertionError("Unapproved request " + path)
 
 
@@ -46,8 +53,8 @@ class TestPagesHandoff(unittest.TestCase):
     def test_accepts_only_protected_current_main_and_retired_publisher(self):
         read = Read()
         self.assertEqual(a.admit(ENV, read), SOURCE_SHA)
-        self.assertEqual(len(read.calls), 3)
-        self.assertEqual(read.calls[-1].split("?")[0], f"/repos/{a.SOURCE}/contents/{a.OLD_PUBLISHER}")
+        self.assertEqual(len(read.calls), 4)
+        self.assertEqual(read.calls[-1].split("?")[0], f"/repos/{a.SOURCE}/contents/{a.SOURCE_FRONTEND_CI}")
 
     def test_allows_protected_main_push_from_owner_for_first_release(self):
         read = Read()
@@ -57,7 +64,7 @@ class TestPagesHandoff(unittest.TestCase):
     def test_fail_closed_if_protection_is_disabled_or_previous_owner_remains(self):
         for case in (
             {"owner_protected": False}, {"source_protected": False},
-            {"old_workflow": True}, {"stale": True},
+            {"old_workflow": True}, {"duplicate_publisher": True}, {"stale": True},
         ):
             with self.subTest(case=case):
                 with self.assertRaises(a.AdmissionError):
@@ -97,8 +104,10 @@ class TestProductionPromotion(unittest.TestCase):
                 return 200, {"protected": True, "commit": {"sha": OWNER_SHA if is_owner else "d" * 40}}
             if "/compare/" in path:
                 return (200, {"status": compare_status}) if compare_status else (404, {"message": "Not Found"})
-            if "/contents/" in path:
+            if "/contents/" + a.OLD_PUBLISHER in path:
                 return 404, {"message": "Not Found"}
+            if "/contents/" + a.SOURCE_FRONTEND_CI in path:
+                return 200, {"encoding": "base64", "content": base64.b64encode(b"jobs:\\n  build:\\n").decode()}
             raise AssertionError("Unapproved request " + path)
         return read
 
