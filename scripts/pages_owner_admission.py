@@ -59,7 +59,7 @@ def admit(
 ) -> str:
     if env.get("GITHUB_REPOSITORY") != OWNER or env.get("GITHUB_REF") != "refs/heads/main":
         raise AdmissionError("Only ShadowOps main may own this deployment")
-    if env.get("GITHUB_EVENT_NAME") not in {"workflow_dispatch", "push"}:
+    if env.get("GITHUB_EVENT_NAME") not in {"workflow_dispatch", "push", "schedule"}:
         raise AdmissionError("Owner handoff requires protected main dispatch or push")
     owner_sha = env.get("GITHUB_SHA", "").strip()
     source_sha = env.get("CHRONICLES_SOURCE_SHA", "").strip()

@@ -61,6 +61,11 @@ class TestPagesHandoff(unittest.TestCase):
         self.assertEqual(a.admit({**ENV, "GITHUB_EVENT_NAME": "push"}, read), SOURCE_SHA)
         self.assertEqual(len(read.calls), 4)
 
+    def test_protected_owner_schedule_is_an_admitted_trigger(self):
+        read = Read()
+        self.assertEqual(a.admit({**ENV, "GITHUB_EVENT_NAME": "schedule"}, read), SOURCE_SHA)
+        self.assertEqual(len(read.calls), 4)
+
     def test_fail_closed_if_protection_is_disabled_or_previous_owner_remains(self):
         for case in (
             {"owner_protected": False}, {"source_protected": False},
