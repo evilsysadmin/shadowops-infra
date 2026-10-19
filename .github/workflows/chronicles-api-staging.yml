@@ -26,6 +26,9 @@ on:
       - 'scripts/chronicles_staging_smoke.py'
       - 'scripts/shared_a1_host_guard.py'
       - 'tests/test_chronicles_api_host_deploy.py'
+  schedule:
+    # The source repository owns builds. Infra discovers new signed images hourly.
+    - cron: '17 * * * *'
   workflow_dispatch:
     inputs:
       action:
@@ -112,13 +115,19 @@ jobs:
   admit:
     name: Admit the signed Chronicles API image (no OCI secrets)
     needs: contracts
-    if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: >-
+      (github.event_name == 'schedule' || github.event_name == 'push' ||
+       (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy')) &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'evilsysadmin/shadowops-infra'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
       packages: read
+      actions: read
     outputs:
+      deploy_needed: ${{ steps.candidate.outputs.deploy_needed }}
       digest: ${{ steps.admission.outputs.digest }}
       source_sha: ${{ steps.admission.outputs.source_sha }}
     env:
@@ -126,16 +135,43 @@ jobs:
       REQUESTED_SHA: ${{ inputs.source_sha }}
       IMAGE: ghcr.io/evilsysadmin/chronicles-api
     steps:
-      - uses: docker/setup-buildx-action@v3
-      - name: Resolve source SHA, digest and build provenance
-        id: admission
+      - name: Select only a new staging generation
+        id: candidate
         shell: bash
+        env:
+          TARGET_ENV: ${{ inputs.environment || 'staging' }}
         run: |
           set -euo pipefail
           sha="${REQUESTED_SHA:-}"
           if [[ -z "$sha" ]]; then
             sha="$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)"
           fi
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo 'CHRONICLES_API_ADMISSION_BLOCKED bad-sha' >&2; exit 64; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          # Receipts are written ONLY after OCI + public + player-path smokes.
+          # A trusted main receipt avoids redeploying the same SHA on every poll.
+          if [[ "$TARGET_ENV" == 'staging' && "$GITHUB_EVENT_NAME" != 'workflow_dispatch' ]]; then
+            count="$(gh api -X GET 'repos/evilsysadmin/shadowops-infra/actions/artifacts' \
+              -f name="chronicles-api-staging-$sha" \
+              --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "main")] | length')"
+            if [[ "$count" =~ ^[0-9]+$ ]] && (( count > 0 )); then
+              echo 'deploy_needed=false' >> "$GITHUB_OUTPUT"
+              echo "CHRONICLES_API_STAGING_ALREADY_VERIFIED sha=$sha"
+              exit 0
+            fi
+          fi
+          echo 'deploy_needed=true' >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+        if: steps.candidate.outputs.deploy_needed == 'true'
+      - name: Resolve source SHA, digest and build provenance
+        if: steps.candidate.outputs.deploy_needed == 'true'
+        id: admission
+        shell: bash
+        env:
+          SELECTED_SHA: ${{ steps.candidate.outputs.sha }}
+        run: |
+          set -euo pipefail
+          sha="$SELECTED_SHA"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo 'CHRONICLES_API_ADMISSION_BLOCKED bad-sha' >&2; exit 64; }
           # The SHA must be on protected main, not a branch or fork.
           status="$(gh api "repos/evilsysadmin/chronicles-of-matthias/compare/${sha}...main" --jq .status)"
@@ -158,10 +194,11 @@ jobs:
       group: shadowops-oci-host-operations
       cancel-in-progress: false
     needs: admit
+    if: needs.admit.outputs.deploy_needed == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment:
-      name: ${{ inputs.environment }}
+      name: ${{ inputs.environment || 'staging' }}
       url: ${{ inputs.environment == 'production' && 'https://chronicles-api.shadowops.dpdns.org/api/health' || 'https://chronicles-api-staging.shadowops.dpdns.org/api/health' }}
     env:
       OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
@@ -170,7 +207,7 @@ jobs:
       OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
       OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
       DIGEST: ${{ needs.admit.outputs.digest }}
-      TARGET_ENV: ${{ inputs.environment }}
+      TARGET_ENV: ${{ inputs.environment || 'staging' }}
       API_HOST: ${{ inputs.environment == 'production' && 'chronicles-api.shadowops.dpdns.org' || 'chronicles-api-staging.shadowops.dpdns.org' }}
       GAME_ORIGIN: ${{ inputs.environment == 'production' && 'https://chronicles.shadowops.dpdns.org' || 'https://staging.chronicles.shadowops.dpdns.org' }}
     steps:
@@ -209,3 +246,20 @@ jobs:
         env:
           INVITE_CODE: ${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}
         run: python chronicles_staging_smoke.py
+      - name: Record successfully verified staging generation
+        if: inputs.environment != 'production'
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.admit.outputs.source_sha }}
+          DIGEST: ${{ needs.admit.outputs.digest }}
+        run: |
+          set -euo pipefail
+          mkdir -p verified-staging
+          printf '%s\n%s\n' "$SOURCE_SHA" "$DIGEST" > verified-staging/generation.txt
+      - name: Publish verified generation receipt (idempotent future sync)
+        if: inputs.environment != 'production'
+        uses: actions/upload-artifact@v4
+        with:
+          name: chronicles-api-staging-${{ needs.admit.outputs.source_sha }}
+          path: verified-staging/generation.txt
+          retention-days: 90
