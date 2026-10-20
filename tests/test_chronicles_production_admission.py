@@ -85,6 +85,28 @@ class PromotionGateTests(unittest.TestCase):
                 return data
             self.assertFalse(promotion.verified_receipt(SHA, kind, TOKEN, expired))
 
+    def test_production_api_receipt_trusted_and_independent(self):
+        def read(path, token):
+            self.assertEqual(token, TOKEN)
+            if "/actions/artifacts?" in path:
+                return {"total_count": 1, "artifacts": [{
+                    "name": "chronicles-api-production-" + SHA, "expired": False,
+                    "workflow_run": {"id": 90, "head_branch": "main"}}]}
+            return {"id": 90, "path": promotion.RECEIPTS["production-api"][0],
+                    "status": "completed", "conclusion": "success",
+                    "head_branch": "main", "event": "workflow_dispatch",
+                    "repository": {"full_name": promotion.INFRA}}
+        self.assertTrue(promotion.verified_receipt(SHA, "production-api", TOKEN, read))
+        def bogus(path, token):
+            value = read(path, token)
+            if "/actions/runs/" in path:
+                value["event"] = "push"
+            return value
+        self.assertFalse(promotion.verified_receipt(SHA, "production-api", TOKEN, bogus))
+        get, calls = fake_get()
+        promotion.admit(SHA, TOKEN, read=get, source_ci=lambda *_: "ready")
+        self.assertFalse(any("chronicles-api-production-" in path for path in calls))
+
 
 if __name__ == "__main__":
     unittest.main()

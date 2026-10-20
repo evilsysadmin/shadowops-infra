@@ -7,7 +7,9 @@ on:
       - 'scripts/chronicles_pages.py'
       - 'scripts/pages_owner_admission.py'
       - 'scripts/chronicles_source_ci.py'
+      - 'scripts/chronicles_production_admission.py'
       - 'tests/test_chronicles_source_ci.py'
+      - 'tests/test_chronicles_production_admission.py'
       - 'tests/test_pages_owner_admission.py'
       - 'tests/test_chronicles_pages_target.py'
       - 'tests/test_chronicles_pages_verify.py'
@@ -24,7 +26,9 @@ on:
       - 'scripts/chronicles_pages.py'
       - 'scripts/pages_owner_admission.py'
       - 'scripts/chronicles_source_ci.py'
+      - 'scripts/chronicles_production_admission.py'
       - 'tests/test_chronicles_source_ci.py'
+      - 'tests/test_chronicles_production_admission.py'
       - 'tests/test_pages_owner_admission.py'
       - 'tests/test_chronicles_pages_target.py'
       - 'tests/test_chronicles_pages_verify.py'
@@ -65,6 +69,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: python3 -m unittest discover -s tests -p 'test_pages_owner_admission.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_source_ci.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_production_admission.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_target.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_verify.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_react_pages.py' -v
@@ -398,6 +403,17 @@ jobs:
         run: |
           set -euo pipefail
           echo "sha=$(git -C chronicles-source rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Require staging evidence and matching production API before Pages
+        env:
+          ADMITTED_SHA: ${{ steps.source.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/chronicles_production_admission.py "$ADMITTED_SHA"
+          python3 scripts/chronicles_production_admission.py --production-api "$ADMITTED_SHA"
+          for path in health ready; do
+            curl -fsS --max-time 15 "https://chronicles-api.shadowops.dpdns.org/api/$path" >/dev/null
+          done
       - name: Require protected mains and single Pages owner before any mutations
         env:
           CHRONICLES_SOURCE_SHA: ${{ steps.source.outputs.sha }}
@@ -464,3 +480,51 @@ jobs:
         run: python3 scripts/chronicles_pages.py domain
       - name: Prove the public game build at root
         run: python3 scripts/chronicles_pages.py verify
+
+      - name: Verify public production release manifest SHA
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 3 --retry-delay 2 --max-time 20 \
+            --user-agent 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/154.0.0.0 Safari/537.36' \
+            -H 'Accept: application/json' -H 'Cache-Control: no-cache' \
+            "https://chronicles.shadowops.dpdns.org/release.json?ts=$GITHUB_RUN_ID" \
+            -o "$RUNNER_TEMP/chronicles-production-release.json"
+          python3 - <<'PY'
+          import json, os, pathlib
+          path = pathlib.Path(os.environ["RUNNER_TEMP"]) / "chronicles-production-release.json"
+          data = json.loads(path.read_text(encoding="utf-8"))
+          if not isinstance(data, dict) or data.get("build") != os.environ["EXPECTED_SHA"]:
+              raise SystemExit("CHRONICLES_PRODUCTION_MANIFEST_MISMATCH")
+          print("CHRONICLES_PAGES_PRODUCTION_SHA_OK")
+          PY
+      - name: Record verified production Pages evidence
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p verified-production-pages
+          python3 - <<'PY'
+          import json, os, pathlib
+          sha = os.environ["SOURCE_SHA"]
+          manifest = json.loads((pathlib.Path(os.environ["RUNNER_TEMP"]) / "chronicles-production-release.json").read_text())
+          assert manifest.get("build") == sha
+          receipt = {"schema": 1, "environment": "production", "source_sha": sha,
+                     "public_origin": "https://chronicles.shadowops.dpdns.org",
+                     "release_manifest": manifest, "public_html_js_css_verified": True,
+                     "api_receipt_verified": True,
+                     "workflow_run": os.environ["GITHUB_SERVER_URL"] + "/" +
+                                     os.environ["GITHUB_REPOSITORY"] + "/actions/runs/" +
+                                     os.environ["GITHUB_RUN_ID"]}
+          pathlib.Path("verified-production-pages/evidence.json").write_text(
+              json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+          PY
+      - name: Save verified production Pages receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: chronicles-pages-production-${{ steps.source.outputs.sha }}
+          path: verified-production-pages/evidence.json
+          retention-days: 90

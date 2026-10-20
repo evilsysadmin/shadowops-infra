@@ -23,6 +23,7 @@ SHA = re.compile(r"^[0-9a-f]{40}$")
 RECEIPTS = {
     "api": (".github/workflows/chronicles-api-staging.yml", "chronicles-api-staging-"),
     "pages": (".github/workflows/chronicles-pages-release.yml", "chronicles-pages-staging-"),
+    "production-api": (".github/workflows/chronicles-api-staging.yml", "chronicles-api-production-"),
 }
 
 
@@ -80,7 +81,7 @@ def verified_receipt(sha: str, kind: str, token: str, read: Callable = github_re
             and run.get("path") == workflow
             and run.get("head_branch") == "main"
             and (run.get("repository") or {}).get("full_name") == INFRA
-            and run.get("event") in {"workflow_dispatch", "push", "schedule"}
+            and run.get("event") in ({"workflow_dispatch"} if kind == "production-api" else {"workflow_dispatch", "push", "schedule"})
         ):
             return True
     return False
@@ -95,17 +96,25 @@ def admit(sha: str, token: str, *, read: Callable = github_read,
         raise PromotionError("Promotion source is not in protected main history")
     if source_ci(sha, token) != "ready":
         raise PromotionError("Exact source SHA did not pass all required CI")
-    for kind in RECEIPTS:
+    for kind in ("api", "pages"):
         if not verified_receipt(sha, kind, token, read):
             raise PromotionError(f"Missing successful exact-SHA staging {kind} receipt")
     print("CHRONICLES_PRODUCTION_STAGING_ADMITTED sha=" + sha)
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
+    prod_api = len(sys.argv) == 3 and sys.argv[1] == "--production-api"
+    if not (len(sys.argv) == 2 or prod_api):
         return 64
     try:
-        admit(sys.argv[1], os.environ.get("GH_TOKEN", ""))
+        token = os.environ.get("GH_TOKEN", "")
+        if prod_api:
+            sha = sys.argv[2]
+            if not SHA.fullmatch(sha) or not token or not verified_receipt(sha, "production-api", token):
+                raise PromotionError("Missing trusted production API receipt for exact SHA")
+            print("CHRONICLES_PRODUCTION_API_ADMITTED sha=" + sha)
+        else:
+            admit(sys.argv[1], token)
     except (PromotionError, Exception) as exc:
         # Never emit raw network errors, URLs or credentials.
         if isinstance(exc, PromotionError):

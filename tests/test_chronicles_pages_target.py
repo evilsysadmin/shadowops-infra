@@ -75,6 +75,23 @@ class TargetPreflight(unittest.TestCase):
         self.assertLess(c, d)
         self.assertNotIn("pull_request_target", workflow)
 
+    def test_production_pages_requires_api_receipt_and_exact_live_manifest(self):
+        path = pathlib.Path(__file__).resolve().parents[1] / ".github/workflows/chronicles-pages-release.yml"
+        content = path.read_text(encoding="utf-8").split("\n  production:\n", 1)[1]
+        self.assertIn("github.event_name == 'workflow_dispatch'", content)
+        gate = content.index("scripts/chronicles_production_admission.py --production-api")
+        api = content.index("chronicles-api.shadowops.dpdns.org/api/")
+        write = content.index("scripts/chronicles_pages.py project")
+        web = content.index("scripts/chronicles_pages.py verify")
+        manifest = content.index("CHRONICLES_PAGES_PRODUCTION_SHA_OK")
+        receipt = content.index("chronicles-pages-production-")
+        self.assertLess(gate, api)
+        self.assertLess(api, write)
+        self.assertLess(write, web)
+        self.assertLess(web, manifest)
+        self.assertLess(manifest, receipt)
+        self.assertIn("VITE_API_URL: https://chronicles-api.shadowops.dpdns.org/api", content)
+
 
 if __name__ == "__main__":
     unittest.main()
