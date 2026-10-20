@@ -133,10 +133,47 @@ jobs:
           fi
           echo 'publish=true' >> "$GITHUB_OUTPUT"
 
-  release:
-    name: Publish Chronicles staging from protected source main
+  api-ready:
+    name: Wait for exact API; skip obsolete client SHAs
     needs: [contracts, staging-candidate]
     if: needs.staging-candidate.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      publish: ${{ steps.gate.outputs.publish }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require successful same-SHA OCI smoke or skip superseded client
+        id: gate
+        env:
+          ADMITTED_SHA: ${{ needs.staging-candidate.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if python3 scripts/chronicles_api_before_pages.py "$ADMITTED_SHA"; then
+            echo 'publish=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          current="$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)"
+          if [[ "$current" != "$ADMITTED_SHA" ]]; then
+            echo "CHRONICLES_PAGES_SUPERSEDED_BEFORE_RELEASE sha=$ADMITTED_SHA"
+            echo 'publish=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo 'API gate failed for current SHA; no Pages mutation' >&2
+          exit 1
+
+  release:
+    name: Publish Chronicles staging from protected source main
+    needs: [contracts, staging-candidate, api-ready]
+    if: needs.api-ready.outputs.publish == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -208,10 +245,6 @@ jobs:
           mkdir -p "$root"
           cp -a chronicles-source/frontend/dist/. "$root/"
           grep -q 'Chronicles of Matthias' "$root/index.html"
-      - name: Require this SHA's verified API before Pages publication
-        env:
-          ADMITTED_SHA: ${{ steps.source.outputs.sha }}
-        run: python3 scripts/chronicles_api_before_pages.py "$ADMITTED_SHA"
       - name: Require Cloudflare credentials in Infra, not the game repository
         shell: bash
         run: |
