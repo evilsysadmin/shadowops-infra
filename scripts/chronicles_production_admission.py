@@ -32,7 +32,7 @@ class PromotionError(RuntimeError):
 
 
 def github_read(path: str, token: str) -> dict:
-    if not path.startswith("repos/") or ".." in path or "://" in path:
+    if not path.startswith("repos/") or any(segment in {".", ".."} for segment in path.partition("?")[0].split("/")) or "://" in path:
         raise PromotionError("Unsafe evidence path")
     request = urllib.request.Request(
         "https://api.github.com/" + path,

@@ -2,6 +2,8 @@
 from pathlib import Path
 import sys
 import unittest
+from io import BytesIO
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import chronicles_production_admission as promotion
@@ -39,6 +41,19 @@ def fake_get(*, missing=None, corrupt=None, ancestor=True):
 
 
 class PromotionGateTests(unittest.TestCase):
+    def test_real_github_compare_route_is_safe_but_traversal_is_not(self):
+        path = f"repos/{promotion.SOURCE}/compare/{SHA}...main"
+        with patch.object(promotion.urllib.request, "urlopen") as request:
+            request.return_value.__enter__.return_value = BytesIO(b'{"status":"ahead"}')
+            self.assertEqual(promotion.github_read(path, TOKEN), {"status": "ahead"})
+            self.assertEqual(request.call_args.args[0].full_url, "https://api.github.com/" + path)
+        for bad in ("repos/owner/repo/../secrets", "repos/owner/repo/./secrets"):
+            with self.subTest(bad=bad):
+                with patch.object(promotion.urllib.request, "urlopen") as request:
+                    with self.assertRaisesRegex(promotion.PromotionError, "Unsafe evidence path"):
+                        promotion.github_read(bad, TOKEN)
+                    request.assert_not_called()
+
     def test_admits_only_two_successful_receipts_and_green_source(self):
         get, calls = fake_get()
         promotion.admit(SHA, TOKEN, read=get, source_ci=lambda *_: "ready")
