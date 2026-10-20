@@ -1,0 +1,55 @@
+name: Watch Chronicles staging health and release drift
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/chronicles-staging-watch.yml'
+      - 'scripts/chronicles_staging_watch.py'
+      - 'tests/test_chronicles_staging_watch.py'
+  workflow_dispatch:
+  schedule:
+    - cron: '37 * * * *'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/chronicles-staging-watch.yml'
+      - 'scripts/chronicles_staging_watch.py'
+      - 'tests/test_chronicles_staging_watch.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shadowops-chronicles-staging-watch
+  cancel-in-progress: false
+
+jobs:
+  contracts:
+    name: Verify watchdog contracts without external mutations
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_staging_watch.py' -v
+
+  watch:
+    name: Observe staging and reconcile one issue
+    needs: contracts
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 scripts/chronicles_staging_watch.py
