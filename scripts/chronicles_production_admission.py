@@ -24,6 +24,7 @@ RECEIPTS = {
     "api": (".github/workflows/chronicles-api-staging.yml", "chronicles-api-staging-"),
     "pages": (".github/workflows/chronicles-pages-release.yml", "chronicles-pages-staging-"),
     "production-api": (".github/workflows/chronicles-api-staging.yml", "chronicles-api-production-"),
+    "production-pages": (".github/workflows/chronicles-pages-release.yml", "chronicles-pages-production-"),
 }
 
 
@@ -81,7 +82,7 @@ def verified_receipt(sha: str, kind: str, token: str, read: Callable = github_re
             and run.get("path") == workflow
             and run.get("head_branch") == "main"
             and (run.get("repository") or {}).get("full_name") == INFRA
-            and run.get("event") in ({"workflow_dispatch"} if kind == "production-api" else {"workflow_dispatch", "push", "schedule"})
+            and run.get("event") in ({"workflow_dispatch"} if kind in {"production-api", "production-pages"} else {"workflow_dispatch", "push", "schedule"})
         ):
             return True
     return False
