@@ -24,8 +24,10 @@ do not follow its historical instructions as if they describe today's pipeline.
    not be published merely because its CI was green in the past.
 2. **API verified:** the OCI deploy finishes public health and player-path
    smoke, then writes `chronicles-api-staging-<SOURCE_SHA>`. Pages checks the
-   exact API artifact **and** a completed successful Infra API workflow run
-   on `main` before proceeding.
+   exact API artifact, its completed successful Infra API workflow run on
+   `main`, **and** the current public `/health` and `/ready` endpoints
+   before starting Pages work. A degraded API blocks Pages mutation even
+   when a valid historical API receipt exists.
 3. **Pages verified:** Pages publishes the exact SHA (or, if the exact SHA is
    already live, retries public checks **without** rebuilding/redeploying).
    It checks custom-domain HTTPS, public `release.json.build`, desktop/mobile
