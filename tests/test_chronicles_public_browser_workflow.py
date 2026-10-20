@@ -20,6 +20,10 @@ class PublicBrowserWorkflow(unittest.TestCase):
                         names.index("Record the verified Chronicles Pages source generation"))
         action = next(s for s in steps if s.get("name") == browser)
         self.assertIn("smoke/public-staging.mjs", action["run"])
+        self.assertIn("smoke/public-staging-journey.mjs", action["run"])
+        self.assertLess(action["run"].index("smoke/public-staging.mjs"),
+                        action["run"].index("smoke/public-staging-journey.mjs"))
+        self.assertIn("chronicles-journey-*.png", PATH.read_text())
         self.assertIn("playwright install --with-deps chromium", action["run"])
         self.assertEqual(action["env"]["CHRONICLES_SOURCE_SHA"],
                          "${{ steps.source.outputs.sha }}")

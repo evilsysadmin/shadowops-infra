@@ -303,12 +303,17 @@ jobs:
           npm install --no-save --no-audit --no-fund playwright@1
           npx playwright install --with-deps chromium
           node smoke/public-staging.mjs
+          # End-to-end first-hour flow with a real Chronicles API user and
+          # completely fresh desktop/mobile browser contexts.
+          node smoke/public-staging-journey.mjs
       - name: Preserve public-browser screenshots as deployment evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: chronicles-public-browser-${{ needs.staging-candidate.outputs.source_sha }}
-          path: chronicles-source/frontend/chronicles-public-*.png
+          path: |
+            chronicles-source/frontend/chronicles-public-*.png
+            chronicles-source/frontend/chronicles-journey-*.png
           if-no-files-found: ignore
           retention-days: 7
       - name: Record the verified Chronicles Pages source generation
