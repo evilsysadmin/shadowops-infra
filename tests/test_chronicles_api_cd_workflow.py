@@ -52,7 +52,8 @@ class StagingConvergenceContracts(unittest.TestCase):
                         names.index("Player-path smoke (register, run, save, reload; account always deleted)"))
         self.assertLess(names.index("Player-path smoke (register, run, save, reload; account always deleted)"),
                         names.index("Record successfully verified staging generation"))
-        receipt = steps[-1]
+        receipt = next(step for step in steps
+                       if step.get("name") == "Publish verified generation receipt (idempotent future sync)")
         self.assertEqual(receipt["uses"], "actions/upload-artifact@v4")
         self.assertIn("inputs.environment != 'production'", receipt["if"])
         self.assertIn("source_sha", receipt["with"]["name"])
