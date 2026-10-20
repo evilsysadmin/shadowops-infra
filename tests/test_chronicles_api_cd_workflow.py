@@ -70,5 +70,23 @@ class StagingConvergenceContracts(unittest.TestCase):
         self.assertIn("--source-digest", admission["run"])
 
 
+    def test_production_api_receipt_requires_real_public_smoke(self):
+        steps = self.workflow["jobs"]["deploy"]["steps"]
+        names = [step.get("name", "") for step in steps]
+        smoke = names.index("Public smoke through the Chronicles tunnel")
+        record = names.index("Record successfully verified production API generation")
+        upload = names.index("Save verified production API receipt for Pages promotion")
+        self.assertLess(smoke, record)
+        self.assertLess(record, upload)
+        self.assertEqual(steps[record]["if"], "inputs.environment == 'production'")
+        self.assertEqual(steps[upload]["if"], "inputs.environment == 'production'")
+        self.assertIn("chronicles-api-production-", steps[upload]["with"]["name"])
+        self.assertIn("source_sha", steps[upload]["with"]["name"])
+        self.assertIn("api_image_digest", steps[record]["run"])
+        # A production receipt is NEVER created by staging's automatic polls.
+        self.assertEqual(steps[-2]["name"], "Record successfully verified production API generation")
+
+
+
 if __name__ == "__main__":
     unittest.main()
