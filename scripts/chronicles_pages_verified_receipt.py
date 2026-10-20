@@ -65,15 +65,31 @@ def verified_live(sha: str, token: str, *, get=fetch, public=read_manifest) -> b
     if not receipt_ok(sha, get(path, token),
                       lambda run_id: get(f"repos/{INFRA}/actions/runs/{run_id}", token)):
         return False
+    return live_matches(sha, public=public)
+
+
+def live_matches(sha: str, *, public=read_manifest) -> bool:
+    """Public-SHA probe only; never replaces trusted receipt and CI admission."""
+    if not SHA.fullmatch(sha):
+        raise GateError("Invalid Chronicles source SHA")
     url = ORIGIN + "/release.json?receipt_check=" + str(time.time_ns())
     try:
         manifest = public(url)
     except (urllib.error.URLError, TimeoutError, OSError, ValueError):
-        return False  # Cannot claim already verified when live Pages is unavailable.
+        return False
     return isinstance(manifest, dict) and manifest.get("build") == sha
 
 
 def main() -> int:
+    if len(sys.argv) == 3 and sys.argv[1] == "--live-only":
+        try:
+            matches = live_matches(sys.argv[2])
+        except GateError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        print(("CHRONICLES_PAGES_SHA_ALREADY_LIVE" if matches else
+               "CHRONICLES_PAGES_NEEDS_PUBLISH") + " sha=" + sys.argv[2])
+        return 0 if matches else 1
     if len(sys.argv) != 2:
         return 64
     try:
