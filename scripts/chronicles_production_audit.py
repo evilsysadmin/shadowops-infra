@@ -11,7 +11,6 @@ import os
 import re
 import sys
 import urllib.error
-import urllib.parse
 import urllib.request
 
 from chronicles_pages import probe_https, probe_react_preview
@@ -19,7 +18,7 @@ from chronicles_production_admission import verified_receipt
 
 ORIGIN = "https://chronicles.shadowops.dpdns.org"
 API = "https://chronicles-api.shadowops.dpdns.org"
-SHA = re.compile(r"[0-9a-f]{40}\\Z")
+SHA = re.compile(r"[0-9a-f]{40}")
 
 
 class AuditError(RuntimeError):
