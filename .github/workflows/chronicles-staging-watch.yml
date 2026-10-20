@@ -1,5 +1,10 @@
 name: Watch Chronicles staging health and release drift
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/chronicles-staging-watch.yml'
+      - 'scripts/chronicles_staging_watch.py'
+      - 'tests/test_chronicles_staging_watch.py'
   workflow_dispatch:
   schedule:
     - cron: '37 * * * *'
