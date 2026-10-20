@@ -370,12 +370,17 @@ def verify(timeout_seconds: int = 120) -> None:
         # Probe even when Pages is pending: a single missing custom certificate
         # otherwise hides behind ten minutes of silent status polling.
         last_probe = probe_https()
-        if state == "active" and last_probe == "ok":
+        # New Pages custom domains may report 'pending' after their HTTPS
+        # endpoint is already functional. For production, accept that lag
+        # ONLY if verified HTTPS and the complete same-origin game pass below;
+        # the workflow separately verifies the exact public release SHA.
+        serving = state == "active" or (ENVIRONMENT == "production" and state == "pending")
+        if serving and last_probe == "ok":
             # The root serves the verbatim Chess Studio game build (Vite):
             # exactly one entry JS and one CSS under /assets/, same origin.
             home_result = probe_react_preview(path="/", assets=b"/assets/", manifest_path=None)
             if home_result == "ok":
-                print("CHRONICLES_PAGES_STAGING_HTTPS_OK " + HOST)
+                print("CHRONICLES_PAGES_" + ENVIRONMENT.upper() + "_HTTPS_OK " + HOST)
                 print("CHRONICLES_PAGES_HOME_GAME_OK " + HOST)
                 return
             last_probe = "home_" + home_result
