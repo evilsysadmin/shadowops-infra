@@ -16,7 +16,10 @@ class LiveJourneySafety(unittest.TestCase):
         code = FILE.read_text()
         for marker in ("release.json?probe=", "CHRONICLES_SOURCE_SHA:",
                        "CHRONICLES_STAGING_INVITE_CODE:", "node --check smoke/public-staging-journey.mjs",
-                       "node smoke/public-staging-journey.mjs"):
+                       "node smoke/public-staging-journey.mjs",
+                       "node --check smoke/public-staging-combat.mjs",
+                       "node smoke/public-staging-combat.mjs",
+                       "chronicles-combat-*.png"):
             self.assertIn(marker, code)
         for denied in ("wrangler pages deploy", "oci_chronicles_api_release.py",
                        "CLOUDFLARE_API_TOKEN", "OCI_PRIVATE_KEY", "GH_TOKEN"):

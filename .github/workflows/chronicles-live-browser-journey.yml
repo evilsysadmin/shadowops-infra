@@ -77,11 +77,17 @@ jobs:
           npx playwright install --with-deps chromium
           node --check smoke/public-staging-journey.mjs
           node smoke/public-staging-journey.mjs
+          # Separate real-encounter check: Swordhaven south gate -> crypt,
+          # S volley, A melee, mobile tap, genuine enemy HP / initiative.
+          node --check smoke/public-staging-combat.mjs
+          node smoke/public-staging-combat.mjs
       - name: Keep browser captures for failures or inspection
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: chronicles-live-journey-${{ github.run_id }}
-          path: chronicles-source/frontend/chronicles-journey-*.png
+          path: |
+            chronicles-source/frontend/chronicles-journey-*.png
+            chronicles-source/frontend/chronicles-combat-*.png
           retention-days: 7
           if-no-files-found: ignore
