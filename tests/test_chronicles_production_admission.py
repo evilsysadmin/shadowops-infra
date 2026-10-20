@@ -123,5 +123,27 @@ class PromotionGateTests(unittest.TestCase):
         self.assertFalse(any("chronicles-api-production-" in path for path in calls))
 
 
+    def test_production_pages_receipt_requires_main_workflow_dispatch(self):
+        def get(path, token):
+            self.assertEqual(token, TOKEN)
+            if "/actions/artifacts?" in path:
+                return {"total_count": 1, "artifacts": [{
+                    "name": "chronicles-pages-production-" + SHA,
+                    "expired": False,
+                    "workflow_run": {"id": 99, "head_branch": "main"},
+                }]}
+            return {"id": 99, "path": promotion.RECEIPTS["production-pages"][0],
+                    "status": "completed", "conclusion": "success",
+                    "head_branch": "main", "event": "workflow_dispatch",
+                    "repository": {"full_name": promotion.INFRA}}
+        self.assertTrue(promotion.verified_receipt(SHA, "production-pages", TOKEN, get))
+        def invalid(path, token):
+            response = get(path, token)
+            if "/actions/runs/" in path:
+                response["event"] = "push"
+            return response
+        self.assertFalse(promotion.verified_receipt(SHA, "production-pages", TOKEN, invalid))
+
+
 if __name__ == "__main__":
     unittest.main()
