@@ -151,6 +151,45 @@ class HTTPSVerification(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "domain_status=pending, https_probe=ok"):
             self.verify_once("pending", "ok")
 
+    def test_production_pending_domain_requires_real_https_and_game_assets(self):
+        # CF's Pages administrative status can lag behind an already serving
+        # custom hostname; the independent release.json SHA check follows.
+        with patch.object(pages, "ENVIRONMENT", "production"), \
+             patch.object(pages, "request", return_value=(200, {"status": "pending"})) as request, \
+             patch.object(pages, "probe_https", return_value="ok") as https, \
+             patch.object(pages, "probe_react_preview", return_value="ok") as game, \
+             patch.object(pages.time, "monotonic", side_effect=[0, 0]), \
+             patch.object(pages.time, "sleep") as sleep:
+            with redirect_stdout(io.StringIO()) as output:
+                pages.verify(timeout_seconds=1)
+            self.assertIn("CHRONICLES_PAGES_PRODUCTION_HTTPS_OK", output.getvalue())
+            request.assert_called_once_with("GET", pages.domain_path())
+            https.assert_called_once()
+            game.assert_called_once_with(path="/", assets=b"/assets/", manifest_path=None)
+            sleep.assert_not_called()
+
+    def test_production_pending_domain_still_rejects_missing_game(self):
+        with patch.object(pages, "ENVIRONMENT", "production"), \
+             patch.object(pages, "request", return_value=(200, {"status": "pending"})), \
+             patch.object(pages, "probe_https", return_value="ok"), \
+             patch.object(pages, "probe_react_preview", return_value="assets_missing"), \
+             patch.object(pages.time, "monotonic", side_effect=[0, 0, 2]), \
+             patch.object(pages.time, "sleep") as sleep:
+            with self.assertRaisesRegex(RuntimeError, "https_probe=home_assets_missing"):
+                pages.verify(timeout_seconds=1)
+            sleep.assert_called_once_with(5)
+
+    def test_production_pending_domain_does_not_bypass_tls_failure(self):
+        with patch.object(pages, "ENVIRONMENT", "production"), \
+             patch.object(pages, "request", return_value=(200, {"status": "pending"})), \
+             patch.object(pages, "probe_https", return_value="tls_error"), \
+             patch.object(pages, "probe_react_preview") as game, \
+             patch.object(pages.time, "monotonic", side_effect=[0, 0, 2]), \
+             patch.object(pages.time, "sleep"):
+            with self.assertRaisesRegex(RuntimeError, "https_probe=tls_error"):
+                pages.verify(timeout_seconds=1)
+            game.assert_not_called()
+
     def test_active_matching_html_passes(self):
         self.verify_once("active", "ok")
 
