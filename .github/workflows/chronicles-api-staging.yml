@@ -331,3 +331,34 @@ jobs:
           name: chronicles-api-staging-${{ needs.admit.outputs.source_sha }}
           path: verified-staging/generation.txt
           retention-days: 90
+
+      - name: Record successfully verified production API generation
+        if: inputs.environment == 'production'
+        env:
+          SOURCE_SHA: ${{ needs.admit.outputs.source_sha }}
+          DIGEST: ${{ needs.admit.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p verified-production
+          python3 - <<'PY'
+          import json, os, pathlib, re
+          sha, digest = os.environ["SOURCE_SHA"], os.environ["DIGEST"]
+          assert re.fullmatch(r"[0-9a-f]{40}", sha)
+          assert re.fullmatch(r"sha256:[0-9a-f]{64}", digest)
+          payload = {
+              "schema": 1, "environment": "production", "source_sha": sha,
+              "api_image_digest": digest, "public_health_ready_cors_passed": True,
+              "workflow_run": os.environ["GITHUB_SERVER_URL"] + "/" +
+                              os.environ["GITHUB_REPOSITORY"] + "/actions/runs/" +
+                              os.environ["GITHUB_RUN_ID"],
+          }
+          pathlib.Path("verified-production/api.json").write_text(json.dumps(payload, indent=2) + "\n")
+          PY
+      - name: Save verified production API receipt for Pages promotion
+        if: inputs.environment == 'production'
+        uses: actions/upload-artifact@v4
+        with:
+          name: chronicles-api-production-${{ needs.admit.outputs.source_sha }}
+          path: verified-production/api.json
+          retention-days: 90
