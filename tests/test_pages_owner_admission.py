@@ -1,8 +1,10 @@
 """GitHub-only fake admission tests: no real providers and no mutation."""
 import base64
+import io
 import pathlib
 import sys
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
 import pages_owner_admission as a
@@ -102,6 +104,27 @@ if __name__ == "__main__":
 
 
 class TestProductionPromotion(unittest.TestCase):
+    def test_real_reader_accepts_github_compare_ellipsis_not_traversal(self):
+        # The earlier mock-only promotion tests never exercised github_read.
+        path = f"/repos/{a.SOURCE}/compare/{SOURCE_SHA}...main"
+        response = io.BytesIO(b'{"status":"ahead"}')
+        response.status = 200
+        with patch.object(a.urllib.request, "urlopen", return_value=response) as call:
+            self.assertEqual(a.github_read(path, ENV["GH_TOKEN"]), (200, {"status": "ahead"}))
+            self.assertEqual(call.call_args.args[0].full_url, "https://api.github.com" + path)
+        for invalid in (
+            "/repos/owner/repo/../contents",
+            "/repos/owner/repo/./contents",
+            "/repos/owner/repo/%2e%2e/contents",
+            "/repos/owner/repo//contents",
+            "https://api.github.com/repos/owner/repo",
+        ):
+            with self.subTest(invalid=invalid):
+                with patch.object(a.urllib.request, "urlopen") as call:
+                    with self.assertRaisesRegex(a.AdmissionError, "Unsafe GitHub API path"):
+                        a.github_read(invalid, ENV["GH_TOKEN"])
+                    call.assert_not_called()
+
     def reader(self, compare_status):
         def read(path, token):
             if path.endswith("/branches/main"):

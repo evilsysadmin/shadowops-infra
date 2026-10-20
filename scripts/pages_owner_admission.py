@@ -27,7 +27,16 @@ class AdmissionError(Exception):
 
 
 def github_read(path: str, token: str) -> tuple[int, dict]:
-    if not path.startswith("/repos/") or ".." in path or "://" in path:
+    # GitHub's compare route uses SHA...main. Reject path traversal as an
+    # entire segment, not a substring of a valid three-dot comparison.
+    route = path.partition("?")[0]
+    if (
+        not route.startswith("/repos/")
+        or "://" in path
+        or "%" in route
+        or "\\" in route
+        or any(segment in {"", ".", ".."} for segment in route.split("/")[1:])
+    ):
         raise AdmissionError("Unsafe GitHub API path")
     req = urllib.request.Request(
         "https://api.github.com" + path,
