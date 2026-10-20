@@ -217,6 +217,26 @@ jobs:
         run: |
           set -euo pipefail
           echo "sha=$(git -C chronicles-source rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Check whether exact SHA is already publicly deployed
+        id: live
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ steps.source.outputs.sha }}
+          FORCE_PUBLISH: ${{ github.event_name == 'workflow_dispatch' && inputs.only_if_new == false }}
+        run: |
+          set -euo pipefail
+          if [[ "$FORCE_PUBLISH" == 'true' ]]; then
+            echo 'already_published=false' >> "$GITHUB_OUTPUT"
+          elif python3 scripts/chronicles_pages_verified_receipt.py --live-only "$EXPECTED_SHA"; then
+            echo 'already_published=true' >> "$GITHUB_OUTPUT"
+            echo "CHRONICLES_PAGES_SMOKE_ONLY_RETRY sha=$EXPECTED_SHA"
+          else
+            status=$?
+            if (( status != 1 )); then
+              exit "$status"
+            fi
+            echo 'already_published=false' >> "$GITHUB_OUTPUT"
+          fi
       - name: Require protected mains and single Pages owner before any mutations
         env:
           CHRONICLES_SOURCE_SHA: ${{ steps.source.outputs.sha }}
@@ -226,6 +246,7 @@ jobs:
         with:
           node-version: '22'
       - name: Build the game against its own API
+        if: steps.live.outputs.already_published != 'true'
         working-directory: chronicles-source/frontend
         env:
           # Iteración 2: API propia de Chronicles (cuentas y partidas propias).
@@ -252,6 +273,7 @@ jobs:
           grep -lFq '/chronicles/runs' dist/assets/*.js
           grep -lFq 'chronicles-api-staging.shadowops.dpdns.org' dist/assets/*.js
       - name: Assemble static root
+        if: steps.live.outputs.already_published != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -265,8 +287,10 @@ jobs:
           set -euo pipefail
           [[ -n "${CLOUDFLARE_API_TOKEN:-}" && -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]]
       - name: Reject foreign hostname ownership before any mutations
+        if: steps.live.outputs.already_published != 'true'
         run: python3 scripts/chronicles_pages.py preflight
       - name: Reject superseded source before Pages mutations
+        if: steps.live.outputs.already_published != 'true'
         shell: bash
         env:
           ADMITTED_SHA: ${{ steps.source.outputs.sha }}
@@ -279,8 +303,10 @@ jobs:
             exit 1
           fi
       - name: Reconcile independent Chronicles Pages project
+        if: steps.live.outputs.already_published != 'true'
         run: python3 scripts/chronicles_pages.py project
       - name: Publish exact source SHA to the isolated Pages project
+        if: steps.live.outputs.already_published != 'true'
         shell: bash
         env:
           CHRONICLES_SOURCE_SHA: ${{ steps.source.outputs.sha }}
@@ -300,6 +326,7 @@ jobs:
             --commit-hash "$CHRONICLES_SOURCE_SHA" \
             --commit-dirty=false
       - name: Reconcile the exact domain without overwriting other DNS
+        if: steps.live.outputs.already_published != 'true'
         run: python3 scripts/chronicles_pages.py domain
       - name: Prove the public game build at root
         run: python3 scripts/chronicles_pages.py verify
@@ -365,6 +392,7 @@ jobs:
         shell: bash
         env:
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          ALREADY_PUBLISHED: ${{ steps.live.outputs.already_published }}
         run: |
           set -euo pipefail
           mkdir -p verified-pages
@@ -380,6 +408,7 @@ jobs:
           evidence = {
               "schema": 1,
               "source_sha": sha,
+              "verification_mode": "existing_live_build" if os.environ["ALREADY_PUBLISHED"] == "true" else "new_publish",
               "published_manifest": manifest,
               "public_origin": "https://staging.chronicles.shadowops.dpdns.org",
               "api_receipt": "chronicles-api-staging-" + sha,
