@@ -122,9 +122,25 @@ class ApiBeforePages(unittest.TestCase):
                 counter["n"] += 1
                 return {"artifacts": [] if counter["n"] == 1 else [receipt()]}
             return run()
-        gate.wait_for_api(SHA, TOKEN, attempts=3, sleep=lambda _: None, get=get)
+        gate.wait_for_api(SHA, TOKEN, attempts=3, sleep=lambda _: None,
+                          get=get, healthy=lambda: True)
         self.assertEqual(counter["n"], 2)
         self.assertEqual(sum(p.endswith("/commits/main") for p in calls), 2)
+
+    def test_pages_cannot_mutate_when_trusted_api_receipt_is_not_live(self):
+        calls = []
+        def get(path, token):
+            calls.append(path)
+            if path.endswith("/commits/main"):
+                return {"sha": SHA}
+            if "/actions/artifacts?" in path:
+                return {"artifacts": [receipt()]}
+            return run()
+        with self.assertRaisesRegex(gate.GateError, "PUBLIC_HEALTH_UNAVAILABLE"):
+            gate.wait_for_api(SHA, TOKEN, attempts=4, sleep=lambda _: None,
+                              get=get, healthy=lambda: False)
+        self.assertEqual(sum("/artifacts?" in path for path in calls), 1)
+        self.assertEqual(sum(path.endswith("/commits/main") for path in calls), 1)
 
     def test_cannot_publish_stale_source_or_missing_api(self):
         def stale(path, token):
