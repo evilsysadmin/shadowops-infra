@@ -12,6 +12,7 @@ on:
       - 'tests/test_chronicles_pages_target.py'
       - 'tests/test_chronicles_pages_verify.py'
       - 'tests/test_chronicles_react_pages.py'
+      - 'tests/test_chronicles_public_browser_workflow.py'
       - 'scripts/chronicles_api_before_pages.py'
       - 'tests/test_chronicles_api_before_pages.py'
       - 'docs/chronicles-pages-handoff.md'
@@ -28,6 +29,7 @@ on:
       - 'tests/test_chronicles_pages_target.py'
       - 'tests/test_chronicles_pages_verify.py'
       - 'tests/test_chronicles_react_pages.py'
+      - 'tests/test_chronicles_public_browser_workflow.py'
       - 'scripts/chronicles_api_before_pages.py'
       - 'tests/test_chronicles_api_before_pages.py'
       - 'docs/chronicles-pages-handoff.md'
@@ -66,6 +68,7 @@ jobs:
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_target.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_verify.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_react_pages.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_public_browser_workflow.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_before_pages.py' -v
       - run: python3 scripts/chronicles_pages.py self-test
 
@@ -256,6 +259,25 @@ jobs:
               raise SystemExit("CHRONICLES_PUBLIC_RELEASE_MANIFEST_MISMATCH")
           print("CHRONICLES_PUBLIC_RELEASE_MANIFEST_OK")
           PY
+      - name: Real public browser smoke (desktop, mobile, login, update deferral)
+        working-directory: chronicles-source/frontend
+        env:
+          CHRONICLES_SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          CHRONICLES_STAGING_INVITE_CODE: ${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-audit --no-fund playwright@1
+          npx playwright install --with-deps chromium
+          node smoke/public-staging.mjs
+      - name: Preserve public-browser screenshots as deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chronicles-public-browser-${{ needs.staging-candidate.outputs.source_sha }}
+          path: chronicles-source/frontend/chronicles-public-*.png
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Record the verified Chronicles Pages source generation
         shell: bash
         env:
