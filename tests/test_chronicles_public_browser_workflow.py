@@ -34,5 +34,40 @@ class PublicBrowserWorkflow(unittest.TestCase):
         self.assertNotIn("environment=production", action["run"])
 
 
+    def test_same_sha_can_retry_public_smokes_without_redeployment(self):
+        workflow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
+        steps = workflow["jobs"]["release"]["steps"]
+        named = {step.get("name", ""): step for step in steps}
+        live = named["Check whether exact SHA is already publicly deployed"]
+        self.assertIn("--live-only", live["run"])
+        self.assertIn("FORCE_PUBLISH", live["env"])
+        self.assertIn("workflow_dispatch", live["env"]["FORCE_PUBLISH"])
+        self.assertIn("only_if_new", live["env"]["FORCE_PUBLISH"])
+        self.assertLess(steps.index(live),
+                        steps.index(named["Build the game against its own API"]))
+        for name in (
+            "Build the game against its own API",
+            "Assemble static root",
+            "Reject foreign hostname ownership before any mutations",
+            "Reject superseded source before Pages mutations",
+            "Reconcile independent Chronicles Pages project",
+            "Publish exact source SHA to the isolated Pages project",
+            "Reconcile the exact domain without overwriting other DNS",
+        ):
+            self.assertEqual(named[name]["if"],
+                             "steps.live.outputs.already_published != 'true'")
+        # Both the HTTPS and real-browser checks remain compulsory in both paths.
+        for name in (
+            "Prove the public game build at root",
+            "Prove the public update manifest serves the exact SHA",
+            "Real public browser smoke (desktop, mobile, login, update deferral)",
+            "Reject superseded source before writing verified receipt",
+            "Record the verified Chronicles Pages source generation",
+        ):
+            self.assertNotIn("if", named[name])
+        self.assertIn("ALREADY_PUBLISHED",
+                      named["Record the verified Chronicles Pages source generation"]["env"])
+
+
 if __name__ == "__main__":
     unittest.main()
