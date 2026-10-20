@@ -252,6 +252,18 @@ jobs:
           [[ -n "${CLOUDFLARE_API_TOKEN:-}" && -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]]
       - name: Reject foreign hostname ownership before any mutations
         run: python3 scripts/chronicles_pages.py preflight
+      - name: Reject superseded source before Pages mutations
+        shell: bash
+        env:
+          ADMITTED_SHA: ${{ steps.source.outputs.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          current="$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)"
+          if [[ "$current" != "$ADMITTED_SHA" ]]; then
+            echo "CHRONICLES_PAGES_SUPERSEDED_BEFORE_PUBLISH sha=$ADMITTED_SHA current=$current"
+            exit 1
+          fi
       - name: Reconcile independent Chronicles Pages project
         run: python3 scripts/chronicles_pages.py project
       - name: Publish exact source SHA to the isolated Pages project
