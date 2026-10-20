@@ -16,12 +16,16 @@ on:
       - 'tests/test_chronicles_api_host_deploy.py'
       - 'tests/test_chronicles_api_cd_workflow.py'
       - 'scripts/chronicles_source_ci.py'
+      - 'scripts/chronicles_production_admission.py'
       - 'tests/test_chronicles_source_ci.py'
+      - 'tests/test_chronicles_production_admission.py'
   push:
     branches: [main]
     paths:
       - 'scripts/chronicles_source_ci.py'
+      - 'scripts/chronicles_production_admission.py'
       - 'tests/test_chronicles_source_ci.py'
+      - 'tests/test_chronicles_production_admission.py'
       - '.github/workflows/chronicles-api-staging.yml'
       - 'docs/chronicles-staging-release-request.md'
       - 'compose.api.staging.yaml'
@@ -77,6 +81,7 @@ jobs:
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_host_deploy.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_cd_workflow.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_source_ci.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_production_admission.py' -v
       - run: python3 -m unittest discover -s scripts -p 'test_shared_a1_host_guard.py' -v
       - run: python3 scripts/chronicles_api_provision.py --self-test
       - run: python3 scripts/oci_chronicles_api_release.py --self-test
@@ -165,6 +170,10 @@ jobs:
             sha="$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)"
           fi
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo 'CHRONICLES_API_ADMISSION_BLOCKED bad-sha' >&2; exit 64; }
+          if [[ "$TARGET_ENV" == 'production' && ! "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'CHRONICLES_PRODUCTION_BLOCKED explicit-source-sha-required' >&2
+            exit 64
+          fi
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           if [[ "$TARGET_ENV" == 'staging' && "$ONLY_IF_NEW" == 'true' ]]; then
             head="$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)"
@@ -268,6 +277,15 @@ jobs:
             echo 'CHRONICLES_OCI_STALE_SOURCE_BLOCKED' >&2
             exit 1
           }
+      - name: Require verified staging API and Pages before production mutation
+        if: inputs.environment == 'production'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ADMITTED_SHA: ${{ needs.admit.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/chronicles_production_admission.py "$ADMITTED_SHA"
       - name: Execute only the restricted Chronicles API deployer
         working-directory: scripts
         run: python oci_chronicles_api_release.py --digest "$DIGEST" --environment "$TARGET_ENV"
