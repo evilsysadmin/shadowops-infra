@@ -12,6 +12,8 @@ on:
       - 'tests/test_chronicles_pages_target.py'
       - 'tests/test_chronicles_pages_verify.py'
       - 'tests/test_chronicles_react_pages.py'
+      - 'scripts/chronicles_api_before_pages.py'
+      - 'tests/test_chronicles_api_before_pages.py'
       - 'docs/chronicles-pages-handoff.md'
   push:
     branches: [main]
@@ -26,6 +28,8 @@ on:
       - 'tests/test_chronicles_pages_target.py'
       - 'tests/test_chronicles_pages_verify.py'
       - 'tests/test_chronicles_react_pages.py'
+      - 'scripts/chronicles_api_before_pages.py'
+      - 'tests/test_chronicles_api_before_pages.py'
       - 'docs/chronicles-pages-handoff.md'
   schedule:
     # Cross-repo main updates do not emit workflow_run events here.
@@ -62,6 +66,7 @@ jobs:
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_target.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_verify.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_react_pages.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_before_pages.py' -v
       - run: python3 scripts/chronicles_pages.py self-test
 
   staging-candidate:
@@ -130,6 +135,9 @@ jobs:
     needs: [contracts, staging-candidate]
     if: needs.staging-candidate.outputs.publish == 'true'
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
     timeout-minutes: 25
     environment:
       name: staging
@@ -197,6 +205,10 @@ jobs:
           mkdir -p "$root"
           cp -a chronicles-source/frontend/dist/. "$root/"
           grep -q 'Chronicles of Matthias' "$root/index.html"
+      - name: Require this SHA's verified API before Pages publication
+        env:
+          ADMITTED_SHA: ${{ steps.source.outputs.sha }}
+        run: python3 scripts/chronicles_api_before_pages.py "$ADMITTED_SHA"
       - name: Require Cloudflare credentials in Infra, not the game repository
         shell: bash
         run: |
