@@ -62,8 +62,11 @@ class StagingConvergenceContracts(unittest.TestCase):
         steps = self.workflow["jobs"]["admit"]["steps"]
         candidate = next(s for s in steps if s.get("id") == "candidate")
         admission = next(s for s in steps if s.get("id") == "admission")
-        self.assertIn("actions/artifacts", candidate["run"])
-        self.assertIn("workflow_run.head_branch", candidate["run"])
+        # The trusted receipt gate checks the successful run and main
+        # provenance; the workflow must not maintain its own artifact counter.
+        self.assertIn("chronicles_api_before_pages.py --receipt-only", candidate["run"])
+        self.assertIn("CHRONICLES_API_RECEIPT_CHECK_INCONCLUSIVE", candidate["run"])
+        self.assertNotIn("workflow_run.head_branch", candidate["run"])
         self.assertIn("deploy_needed=false", candidate["run"])
         self.assertIn("workflow_dispatch", candidate["run"])
         self.assertIn("gh attestation verify", admission["run"])
