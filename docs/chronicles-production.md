@@ -36,3 +36,59 @@ Producción es igual que staging, con su propio estado. Nada se comparte salvo e
 - Estos recibos prueban generaciones históricas validadas, **no** que staging siga sirviendo hoy ese SHA; consultar el manifiesto público antes de elegir candidato.
 - El gate es de solo lectura y se ejecuta antes de cualquier mutación OCI de producción; un recibo ausente, fallido o caducado bloquea el despliegue.
 - La promoción real queda bloqueada hasta completar secretos, Atlas, bootstrap del host, Cloudflare y validación de producción; CI verde por sí sola no demuestra un despliegue.
+
+## Primera release verificada — 20/10/2026
+
+- SHA fuente: 43ffecf5779dc9124bdd0dbc05a3a34e29044c9b (v16.6dm46zfrv), no confundir con SHA de Infra.
+- Staging, mismo SHA: [API #39497113941](https://github.com/evilsysadmin/shadowops-infra/actions/runs/39497113941) y [Pages #39497117194](https://github.com/evilsysadmin/shadowops-infra/actions/runs/39497117194), ambos recibos vigentes en la promoción.
+- Preparación producción: [provision #39498706525](https://github.com/evilsysadmin/shadowops-infra/actions/runs/39498706525).
+- API producción: [deploy #39500699825](https://github.com/evilsysadmin/shadowops-infra/actions/runs/39500699825), health/ready y artefacto chronicles-api-production-43ffecf5779dc9124bdd0dbc05a3a34e29044c9b.
+- Pages producción: [release #39504855366](https://github.com/evilsysadmin/shadowops-infra/actions/runs/39504855366), HTTPS, juego, manifest SHA y artefacto chronicles-pages-production-43ffecf5779dc9124bdd0dbc05a3a34e29044c9b.
+- **Límite de la evidencia:** estos recibos acreditan despliegue técnico, no todavía SSO de usuario real, compras, combates, guardado/recarga ni restauración de Atlas.
+
+### Cierre funcional (manual; no publicar credenciales)
+
+1. En ventana privada, abrir https://chronicles.shadowops.dpdns.org, iniciar sesión mediante **Chess Studio producción** y comprobar logout. Revisar red y CORS; ninguna petición debe apuntar a staging.
+2. Crear personaje/campaña, comprar, combatir, guardar, recargar y continuar. Desde nueva sesión del mismo usuario comprobar persistencia y, con un usuario distinto, comprobar aislamiento.
+3. Repetir la ruta principal en móvil y comprobar que no hay 401/5xx, assets ausentes ni errores de consola.
+4. Verificar por vía administrativa que el usuario Atlas producción solo tiene readWrite@chronicles_production; demostrar separación de staging y Chess Studio. No publicar datos personales ni tokens.
+5. Registrar fecha, SHA, navegador y resultados redactados en [issue #102](https://github.com/evilsysadmin/shadowops-infra/issues/102). **No** marcar estos checks completados sin haberlos ejecutado.
+
+### Smoke público sin acceso de usuario
+
+~~~bash
+curl -fsS https://chronicles-api.shadowops.dpdns.org/api/health
+curl -fsS https://chronicles-api.shadowops.dpdns.org/api/ready
+curl -fsS https://chronicles.shadowops.dpdns.org/release.json | python3 -m json.tool
+~~~
+
+El build de release.json debe coincidir con el SHA desplegado tanto en API como en Pages. Una portada que carga y un health 200 no prueban login, datos ni partida.
+
+## Rollback: procedimiento manual, sin modificar MongoDB
+
+Seleccionar un SHA anterior del juego que **ya** tenga checks de CI y recibos staging API/Pages correctos, pertenezca a main protegido y sea compatible con el esquema de datos actualmente persistido. No usar un SHA aleatorio ni confundir el SHA del repositorio Infra con el SHA del juego. No existe release anterior si solo ha habido un estreno.
+
+~~~bash
+SHA='<40_HEX_SHA_VERIFICADO_ANTERIOR>'
+gh workflow run chronicles-api-staging.yml \
+  -R evilsysadmin/shadowops-infra --ref main \
+  -f action=deploy -f environment=production -f source_sha="$SHA"
+# Exigir run de API verde, /api/health, /api/ready y recibo API prod.
+gh workflow run chronicles-pages-release.yml \
+  -R evilsysadmin/shadowops-infra --ref main \
+  -f environment=production -f source_sha="$SHA"
+# Exigir run de Pages verde, HTTPS y /release.json.build == SHA.
+~~~
+
+- Rollback **API primero, Pages después**, con el mismo SHA. No ejecutar promociones simultáneas. Revalidar SSO/partida después de volver atrás.
+- No restaurar Mongo automáticamente: un rollback de binarios **no** revierte cambios de esquema ni datos. Ante migraciones incompatibles, detenerse y diseñar restauración de datos separada.
+- Registrar SHA, digest de imagen API, recibos y URLs de runs de cada versión de producción. Comprobar que los artefactos necesarios no hayan caducado.
+- Comprobar política real de backups y recuperación puntual (si está disponible) en Atlas. Hacer ensayo de **restore hacia una base aislada**, verificar integridad y medir RPO/RTO antes de considerar el sistema recuperable; jamás ensayar sobre producción.
+
+## Diagnóstico y límites
+
+- Gate API fallido: leer el paso exacto de admisión; no tocar los contenedores o secretos de Chess Studio.
+- Gate Pages fallido: resolver mediante PR y un workflow nuevo desde main; no hacer rerun de un commit que contiene un bug conocido.
+- Cloudflare Pages pending no basta: producción requiere HTTPS TLS válido, recursos HTML/JS/CSS reales y manifest público con SHA exacto.
+- Incidencia de datos: congelar promociones, conservar logs redactados y estado actual, comprobar compatibilidad antes de cualquier cambio.
+- No dar por cerrada la activación hasta tener **smoke funcional y ensayo de backup/restore**. El despliegue técnico sí quedó verificado.
