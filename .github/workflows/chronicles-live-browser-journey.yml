@@ -1,0 +1,87 @@
+name: Chronicles live staging browser journey
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/chronicles-live-browser-journey.yml'
+      - 'tests/test_chronicles_live_browser_immuability.py'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/chronicles-live-browser-journey.yml'
+      - 'tests/test_chronicles_live_browser_immuability.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chronicles-live-browser-journey
+  cancel-in-progress: false
+
+jobs:
+  contracts:
+    name: Validate browser staging scope
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_live_browser_immuability.py' -v
+
+  live:
+    name: Exercise published Chronicles (no infrastructure mutations)
+    needs: contracts
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    environment:
+      name: staging
+      url: https://staging.chronicles.shadowops.dpdns.org
+    steps:
+      - name: Checkout only the source-owned browser tests
+        uses: actions/checkout@v4
+        with:
+          repository: evilsysadmin/chronicles-of-matthias
+          ref: main
+          persist-credentials: false
+          path: chronicles-source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Read the actual published frontend SHA
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 15 \
+            -H 'Cache-Control: no-cache' \
+            "https://staging.chronicles.shadowops.dpdns.org/release.json?probe=${GITHUB_RUN_ID}" \
+            -o "$RUNNER_TEMP/chronicles-public-release.json"
+          sha="$(node -p 'require(process.argv[1]).build' "$RUNNER_TEMP/chronicles-public-release.json")"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || exit 64
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: Real desktop/mobile creation and cross-device persistence
+        working-directory: chronicles-source/frontend
+        env:
+          CHRONICLES_SOURCE_SHA: ${{ steps.release.outputs.sha }}
+          CHRONICLES_STAGING_INVITE_CODE: ${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm install --no-save --no-audit --no-fund playwright@1
+          npx playwright install --with-deps chromium
+          node --check smoke/public-staging-journey.mjs
+          node smoke/public-staging-journey.mjs
+      - name: Keep browser captures for failures or inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chronicles-live-journey-${{ github.run_id }}
+          path: chronicles-source/frontend/chronicles-journey-*.png
+          retention-days: 7
+          if-no-files-found: ignore
