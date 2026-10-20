@@ -19,6 +19,7 @@ INFRA = "evilsysadmin/shadowops-infra"
 SOURCE = "evilsysadmin/chronicles-of-matthias"
 API_WORKFLOW = ".github/workflows/chronicles-api-staging.yml"
 SHA = re.compile(r"^[0-9a-f]{40}$")
+API_ORIGIN = "https://chronicles-api-staging.shadowops.dpdns.org/api"
 
 
 class GateError(RuntimeError):
@@ -87,6 +88,31 @@ def api_receipt_available(sha: str, token: str, *, get=fetch) -> bool:
     )
 
 
+def probe_public(path: str) -> bool:
+    """Require real public 2xx responses, not merely a historical deploy receipt."""
+    request = urllib.request.Request(
+        API_ORIGIN + "/" + path,
+        headers={"Accept": "application/json", "Cache-Control": "no-cache",
+                 "User-Agent": "shadowops-chronicles-api-admission/1"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return 200 <= response.status < 300
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        return False
+
+
+def public_api_healthy(*, probe=probe_public, sleep=time.sleep) -> bool:
+    """Retry each public endpoint once; never redeploy on inconclusive health."""
+    for path in ("health", "ready"):
+        if probe(path):
+            continue
+        sleep(2)
+        if not probe(path):
+            return False
+    return True
+
+
 def wait_for_api(sha: str, token: str, *, attempts: int = 49, sleep=time.sleep, get=fetch) -> None:
     if not SHA.fullmatch(sha) or not token:
         raise GateError("Missing read token or invalid source SHA")
@@ -107,10 +133,13 @@ def main() -> int:
     token = os.environ.get("GH_TOKEN", "")
     if len(sys.argv) == 3 and sys.argv[1] == "--receipt-only":
         try:
-            if api_receipt_available(sys.argv[2], token):
-                print("CHRONICLES_API_STAGING_ALREADY_VERIFIED sha=" + sys.argv[2])
-                return 0
-            return 1  # No trustworthy receipt yet; deploy admission may proceed.
+            if not api_receipt_available(sys.argv[2], token):
+                return 1  # No trusted receipt: normal deploy admission may proceed.
+            if not public_api_healthy():
+                print("CHRONICLES_API_RECEIPT_LIVE_HEALTH_INCONCLUSIVE", file=sys.stderr)
+                return 2  # Do not redeploy automatically on a transient/outage.
+            print("CHRONICLES_API_STAGING_ALREADY_VERIFIED sha=" + sys.argv[2])
+            return 0
         except GateError as exc:
             print(str(exc), file=sys.stderr)
             return 2  # Inconclusive: do not deploy or falsely claim verification.

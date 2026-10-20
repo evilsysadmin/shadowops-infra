@@ -43,8 +43,13 @@ artifact alone does **not** establish current public staging readiness.
 ## Recovery without unnecessary mutations
 
 - **Nothing new:** verified Pages receipt **plus matching public** manifest
-  skips rebuilding; the API also skips when its existing release receipt is
-  present. Check the actual run before claiming a deploy happened.
+  skips rebuilding; the API skips only with a trusted receipt **and** live
+  public `/health` and `/ready` responding (with one retry per endpoint).
+  Check the actual run before claiming a deploy happened.
+- **Trusted API receipt but public health fails:** the API admission fails
+  closed and leaves the deployed container untouched. The staging watchdog
+  reports persistent public failures. Investigate before a deliberate manual
+  redeploy; a single timeout is not grounds for automatic mutation.
 - **Pages artifact missing but correct SHA already live:** the next admitted
   Pages staging run skips build/Cloudflare mutation, repeats public smoke, and
   issues a verified receipt only on success.
