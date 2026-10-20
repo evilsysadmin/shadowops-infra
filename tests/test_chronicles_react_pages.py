@@ -173,6 +173,9 @@ class ParallelReactPagesTest(unittest.TestCase):
                       "https://staging.chronicles.shadowops.dpdns.org/release.json",
                       'data.get("build") == os.environ["EXPECTED_SHA"]'):
             self.assertIn(guard, workflow)
+        self.assertIn('chronicles_api_before_pages.py "$ADMITTED_SHA"', workflow)
+        self.assertLess(workflow.index('chronicles_api_before_pages.py "$ADMITTED_SHA"'),
+                        workflow.index("scripts/chronicles_pages.py preflight"))
         self.assertNotIn("wrangler pages deploy chronicles-source/frontend", workflow)
         self.assertIn("python3 scripts/chronicles_source_ci.py \"$sha\"", workflow)
         self.assertIn("source_sha: ${{ steps.check.outputs.source_sha }}", workflow)
