@@ -2,6 +2,7 @@
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import chronicles_api_before_pages as gate
@@ -69,6 +70,46 @@ class ApiBeforePages(unittest.TestCase):
         self.assertIn("CHRONICLES_API_RECEIPT_CHECK_INCONCLUSIVE", workflow)
         self.assertIn("receipt_status != 1", workflow)
         self.assertNotIn("count=\"$(gh api -X GET", workflow)
+
+    def test_live_health_probe_retries_transient_and_fails_closed(self):
+        calls = []
+        def probe(path):
+            calls.append(path)
+            return len(calls) != 1
+        self.assertTrue(gate.public_api_healthy(probe=probe, sleep=lambda _: None))
+        self.assertEqual(calls, ["health", "health", "ready"])
+
+        calls = []
+        self.assertFalse(gate.public_api_healthy(
+            probe=lambda path: calls.append(path) or False,
+            sleep=lambda _: None))
+        self.assertEqual(calls, ["health", "health"])
+
+    def test_receipt_only_cli_distinguishes_missing_unhealthy_and_verified(self):
+        with patch.object(gate.sys, "argv", ["gate", "--receipt-only", SHA]), \
+             patch.dict(gate.os.environ, {"GH_TOKEN": TOKEN}):
+            with patch.object(gate, "api_receipt_available", return_value=False), \
+                 patch.object(gate, "public_api_healthy") as live:
+                self.assertEqual(gate.main(), 1)
+                live.assert_not_called()
+            with patch.object(gate, "api_receipt_available", return_value=True), \
+                 patch.object(gate, "public_api_healthy", return_value=False):
+                self.assertEqual(gate.main(), 2)
+            with patch.object(gate, "api_receipt_available", return_value=True), \
+                 patch.object(gate, "public_api_healthy", return_value=True):
+                self.assertEqual(gate.main(), 0)
+
+    def test_api_health_probe_uses_both_public_paths_and_https(self):
+        with patch.object(gate.urllib.request, "urlopen") as opener:
+            opener.return_value.__enter__.return_value.status = 200
+            self.assertTrue(gate.probe_public("health"))
+            request = opener.call_args.args[0]
+            self.assertEqual(request.full_url, gate.API_ORIGIN + "/health")
+            self.assertTrue(request.full_url.startswith("https://"))
+            opener.return_value.__enter__.return_value.status = 503
+            self.assertFalse(gate.probe_public("ready"))
+        with patch.object(gate.urllib.request, "urlopen", side_effect=TimeoutError):
+            self.assertFalse(gate.probe_public("ready"))
 
     def test_waits_for_receipt_and_rechecks_source_main(self):
         calls = []
