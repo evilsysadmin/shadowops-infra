@@ -69,5 +69,27 @@ class PublicBrowserWorkflow(unittest.TestCase):
                       named["Record the verified Chronicles Pages source generation"]["env"])
 
 
+    def test_staging_uses_lockfile_keyed_npm_cache_without_skipping_ci(self):
+        workflow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
+        steps = workflow["jobs"]["release"]["steps"]
+        setup = next(step for step in steps
+                     if step.get("name") == "Prepare pinned Node.js for the Chronicles frontend")
+        self.assertEqual(setup["with"]["cache"], "npm")
+        self.assertEqual(setup["with"]["cache-dependency-path"],
+                         "chronicles-source/frontend/package-lock.json")
+        build = next(step for step in steps
+                     if step.get("name") == "Build the game against its own API")
+        self.assertIn("npm ci --ignore-scripts", build["run"])
+        self.assertEqual(build["if"], "steps.live.outputs.already_published != 'true'")
+        browser = next(step for step in steps
+                       if step.get("name") == "Real public browser smoke (desktop, mobile, login, update deferral)")
+        self.assertIn("npm install --no-save", browser["run"])
+        self.assertIn("playwright install --with-deps chromium", browser["run"])
+        production = workflow["jobs"]["production"]["steps"]
+        prod_setup = next(step for step in production
+                          if step.get("name") == "Prepare pinned Node.js for the Chronicles frontend")
+        self.assertNotIn("cache", prod_setup["with"])
+
+
 if __name__ == "__main__":
     unittest.main()
