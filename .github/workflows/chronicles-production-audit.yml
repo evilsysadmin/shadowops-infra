@@ -1,0 +1,36 @@
+name: Chronicles production read-only audit
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/chronicles-production-audit.yml'
+      - 'scripts/chronicles_production_audit.py'
+      - 'scripts/chronicles_production_admission.py'
+      - 'tests/test_chronicles_production_audit.py'
+  workflow_dispatch:
+  schedule:
+    # Once daily, UTC. This never deploys or mutates player data.
+    - cron: '23 6 * * *'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: chronicles-production-readonly-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Production external readiness and signed release evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Contract tests (no network)
+        run: python3 -m unittest discover -s tests -p 'test_chronicles_production_audit.py' -v
+      - name: Public HTTPS, API/CORS and exact-SHA production receipts
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHRONICLES_PAGES_ENV: production
+        run: python3 scripts/chronicles_production_audit.py
