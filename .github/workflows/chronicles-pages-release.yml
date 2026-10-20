@@ -277,6 +277,14 @@ jobs:
           CHRONICLES_SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: |
           set -euo pipefail
+          # Recheck immediately before the irreversible publish operation.
+          # The earlier gate also protects project reconciliation, but a build
+          # can become obsolete while Cloudflare setup runs.
+          current="$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)"
+          if [[ "$current" != "$CHRONICLES_SOURCE_SHA" ]]; then
+            echo "CHRONICLES_PAGES_SUPERSEDED_AT_DEPLOY sha=$CHRONICLES_SOURCE_SHA current=$current"
+            exit 1
+          fi
           npx --yes wrangler@4.127.1 pages deploy "$RUNNER_TEMP/chronicles-pages" \
             --project-name chronicles-staging \
             --branch main \
