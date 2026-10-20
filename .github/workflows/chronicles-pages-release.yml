@@ -336,11 +336,30 @@ jobs:
           set -euo pipefail
           mkdir -p verified-pages
           printf '%s\n' "$SOURCE_SHA" > verified-pages/source-sha.txt
+          # This evidence is created only after HTTPS manifest and public browser
+          # checks succeed; a dispatched or skipped release cannot produce it.
+          python3 - <<'PY'
+          import json, os, pathlib
+          sha = os.environ["SOURCE_SHA"]
+          manifest = json.loads((pathlib.Path(os.environ["RUNNER_TEMP"]) / "chronicles-published-release.json").read_text())
+          if manifest.get("build") != sha:
+              raise SystemExit("CHRONICLES_PAGES_RECEIPT_SHA_MISMATCH")
+          evidence = {
+              "schema": 1,
+              "source_sha": sha,
+              "published_manifest": manifest,
+              "public_origin": "https://staging.chronicles.shadowops.dpdns.org",
+              "manifest_verified": True,
+              "public_browser_smoke_passed": True,
+              "workflow_run": os.environ["GITHUB_SERVER_URL"] + "/" + os.environ["GITHUB_REPOSITORY"] + "/actions/runs/" + os.environ["GITHUB_RUN_ID"],
+          }
+          pathlib.Path("verified-pages/evidence.json").write_text(json.dumps(evidence, indent=2) + "\\n")
+          PY
       - name: Save verified Pages receipt for idempotent hourly sync
         uses: actions/upload-artifact@v4
         with:
           name: chronicles-pages-staging-${{ steps.source.outputs.sha }}
-          path: verified-pages/source-sha.txt
+          path: verified-pages/
           retention-days: 90
 
   production:
