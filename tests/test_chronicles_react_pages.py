@@ -174,6 +174,10 @@ class ParallelReactPagesTest(unittest.TestCase):
                       'data.get("build") == os.environ["EXPECTED_SHA"]'):
             self.assertIn(guard, workflow)
         self.assertIn('chronicles_api_before_pages.py "$ADMITTED_SHA"', workflow)
+        self.assertIn("needs: [contracts, staging-candidate, api-ready]", workflow)
+        self.assertIn("if: needs.api-ready.outputs.publish == 'true'", workflow)
+        self.assertIn("CHRONICLES_PAGES_SUPERSEDED_BEFORE_RELEASE", workflow)
+        self.assertIn("echo 'publish=false' >> \"$GITHUB_OUTPUT\"", workflow)
         self.assertLess(workflow.index('chronicles_api_before_pages.py "$ADMITTED_SHA"'),
                         workflow.index("scripts/chronicles_pages.py preflight"))
         self.assertNotIn("wrangler pages deploy chronicles-source/frontend", workflow)
