@@ -113,7 +113,8 @@ def public_api_healthy(*, probe=probe_public, sleep=time.sleep) -> bool:
     return True
 
 
-def wait_for_api(sha: str, token: str, *, attempts: int = 49, sleep=time.sleep, get=fetch) -> None:
+def wait_for_api(sha: str, token: str, *, attempts: int = 49, sleep=time.sleep,
+                 get=fetch, healthy=public_api_healthy) -> None:
     if not SHA.fullmatch(sha) or not token:
         raise GateError("Missing read token or invalid source SHA")
     for attempt in range(attempts):
@@ -121,6 +122,10 @@ def wait_for_api(sha: str, token: str, *, attempts: int = 49, sleep=time.sleep, 
         if current != sha:
             raise GateError("CHRONICLES_PAGES_STALE_SOURCE_BLOCKED")
         if api_receipt_available(sha, token, get=get):
+            # A past OCI/E2E receipt must not permit Pages mutations while the
+            # actual public API is degraded. Retry on the next admitted run.
+            if not healthy():
+                raise GateError("CHRONICLES_API_PUBLIC_HEALTH_UNAVAILABLE")
             print("CHRONICLES_API_VERIFIED_BEFORE_PAGES sha=" + sha)
             return
         if attempt + 1 < attempts:
