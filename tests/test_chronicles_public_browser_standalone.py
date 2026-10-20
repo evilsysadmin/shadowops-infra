@@ -14,7 +14,7 @@ class BrowserOnlyReleaseTest(unittest.TestCase):
                         names.index("Validate the actual public Chronicles game in desktop and mobile"))
         code = next(s for s in steps if s.get("name") == "Read the public SHA actually served by Pages")["run"]
         self.assertIn("/release.json", code)
-        self.assertIn('^ [0-9a-f]', "literal formatting avoids treating SHA as release label")
+        self.assertIn('[[ "$sha" =~ ^[0-9a-f]{40}$ ]]', code)
         browser = next(s for s in steps if s.get("name") == "Validate the actual public Chronicles game in desktop and mobile")
         self.assertIn("smoke/public-staging.mjs", browser["run"])
         self.assertEqual(browser["env"]["CHRONICLES_SOURCE_SHA"], "${{ steps.current.outputs.sha }}")
