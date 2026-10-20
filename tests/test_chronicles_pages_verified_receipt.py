@@ -67,6 +67,16 @@ class PagesVerifiedReceipt(unittest.TestCase):
             raise TimeoutError("public Pages unavailable")
         self.assertFalse(gate.verified_live(SHA, TOKEN, get=get, public=offline))
 
+    def test_live_only_probe_reuses_public_sha_check_without_receipt(self):
+        self.assertTrue(gate.live_matches(SHA, public=lambda _: {"build": SHA}))
+        self.assertFalse(gate.live_matches(SHA, public=lambda _: {"build": "b" * 40}))
+        self.assertFalse(gate.live_matches(SHA, public=lambda _: {"release": "old"}))
+        def unreachable(_):
+            raise TimeoutError("public HTTPS not responding")
+        self.assertFalse(gate.live_matches(SHA, public=unreachable))
+        with self.assertRaises(gate.GateError):
+            gate.live_matches("not-a-sha", public=lambda _: {"build": SHA})
+
     def test_absent_or_untrusted_receipt_never_consults_live_site(self):
         def get(path, token):
             return {"artifacts": []} if "/artifacts?" in path else run()
