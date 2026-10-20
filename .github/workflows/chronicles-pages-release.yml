@@ -341,6 +341,17 @@ jobs:
             chronicles-source/frontend/chronicles-journey-*.png
           if-no-files-found: ignore
           retention-days: 7
+      - name: Reject superseded source before writing verified receipt
+        shell: bash
+        env:
+          ADMITTED_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          current="$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)"
+          if [[ "$current" != "$ADMITTED_SHA" ]]; then
+            echo "CHRONICLES_PAGES_SUPERSEDED_AFTER_SMOKE sha=$ADMITTED_SHA current=$current"
+            exit 1
+          fi
       - name: Record the verified Chronicles Pages source generation
         shell: bash
         env:
