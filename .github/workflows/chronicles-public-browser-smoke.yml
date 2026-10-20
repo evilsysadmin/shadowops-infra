@@ -1,0 +1,81 @@
+name: Real public Chronicles browser smoke
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/chronicles-public-browser-smoke.yml'
+      - 'tests/test_chronicles_public_browser_standalone.py'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/chronicles-public-browser-smoke.yml'
+      - 'tests/test_chronicles_public_browser_standalone.py'
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_public_browser_standalone.py' -v
+
+  browser:
+    needs: contracts
+    if: >-
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: staging
+      url: https://staging.chronicles.shadowops.dpdns.org
+    steps:
+      - name: Check out source-owned test script (not a deploy)
+        uses: actions/checkout@v4
+        with:
+          repository: evilsysadmin/chronicles-of-matthias
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Read the public SHA actually served by Pages
+        id: current
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 --max-time 20 \
+            --user-agent 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/154.0.0.0 Safari/537.36' \
+            -H 'Cache-Control: no-cache' \
+            'https://staging.chronicles.shadowops.dpdns.org/release.json?smoke='${GITHUB_RUN_ID} \
+            -o "$RUNNER_TEMP/live-chronicles-release.json"
+          sha="$(node -p "JSON.parse(require('node:fs').readFileSync(process.env.RUNNER_TEMP + '/live-chronicles-release.json')).build")"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: Install Chromium for the public smoke
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm install --no-save --no-audit --no-fund playwright@1
+          npx playwright install --with-deps chromium
+      - name: Validate the actual public Chronicles game in desktop and mobile
+        working-directory: frontend
+        env:
+          CHRONICLES_SOURCE_SHA: ${{ steps.current.outputs.sha }}
+          CHRONICLES_STAGING_INVITE_CODE: ${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}
+        run: node smoke/public-staging.mjs
+      - name: Keep only temporary-account browser screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chronicles-public-browser-${{ github.run_id }}
+          path: frontend/chronicles-public-*.png
+          if-no-files-found: ignore
+          retention-days: 7
