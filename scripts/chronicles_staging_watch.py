@@ -34,8 +34,8 @@ def get_url(url: str, token: str = "") -> dict:
     request = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(request, timeout=15) as response:
         data = json.load(response)
-    if not isinstance(data, dict):
-        raise ValueError("Expected object response")
+    if not isinstance(data, (dict, list)):
+        raise ValueError("Expected JSON object or issue list")
     return data
 
 
