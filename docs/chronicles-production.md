@@ -27,3 +27,12 @@ Producción es igual que staging, con su propio estado. Nada se comparte salvo e
 2. `Chronicles API` → `deploy`, environment `production`, `source_sha` = SHA validado en staging.
 3. `Chronicles Pages release` → environment `production`, `source_sha` = el mismo SHA.
    La admisión exige que el SHA esté en `main` protegido; el build falla si apunta a la API de staging.
+
+## Puerta de promoción (control previo a mutaciones)
+
+- Indicar siempre el SHA completo; no se puede usar un `source_sha` vacío en producción.
+- Exigir **ambos** recibos verificados y vigentes del mismo SHA: `chronicles-api-staging-<sha>` y `chronicles-pages-staging-<sha>`, de workflows correctos completados con éxito en `shadowops-infra/main`.
+- Volver a exigir los tres checks reales de CI de `chronicles-of-matthias` para ese SHA y que el commit pertenezca al historial de `main` protegido.
+- Estos recibos prueban generaciones históricas validadas, **no** que staging siga sirviendo hoy ese SHA; consultar el manifiesto público antes de elegir candidato.
+- El gate es de solo lectura y se ejecuta antes de cualquier mutación OCI de producción; un recibo ausente, fallido o caducado bloquea el despliegue.
+- La promoción real queda bloqueada hasta completar secretos, Atlas, bootstrap del host, Cloudflare y validación de producción; CI verde por sí sola no demuestra un despliegue.
