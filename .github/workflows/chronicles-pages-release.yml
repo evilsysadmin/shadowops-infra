@@ -353,7 +353,7 @@ jobs:
               "public_browser_smoke_passed": True,
               "workflow_run": os.environ["GITHUB_SERVER_URL"] + "/" + os.environ["GITHUB_REPOSITORY"] + "/actions/runs/" + os.environ["GITHUB_RUN_ID"],
           }
-          pathlib.Path("verified-pages/evidence.json").write_text(json.dumps(evidence, indent=2) + "\\n")
+          pathlib.Path("verified-pages/evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
           PY
       - name: Save verified Pages receipt for idempotent hourly sync
         uses: actions/upload-artifact@v4
