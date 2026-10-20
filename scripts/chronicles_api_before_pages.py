@@ -74,19 +74,27 @@ def evidence_ok(sha: str, listing: dict, read_run) -> bool:
     return False
 
 
+def api_receipt_available(sha: str, token: str, *, get=fetch) -> bool:
+    """Single, trusted exact-SHA receipt check shared by API admission and Pages."""
+    if not SHA.fullmatch(sha) or not token:
+        raise GateError("Missing read token or invalid source SHA")
+    path = f"repos/{INFRA}/actions/artifacts?" + urllib.parse.urlencode(
+        {"name": "chronicles-api-staging-" + sha, "per_page": 100}
+    )
+    return evidence_ok(
+        sha, get(path, token),
+        lambda run_id: get(f"repos/{INFRA}/actions/runs/{run_id}", token),
+    )
+
+
 def wait_for_api(sha: str, token: str, *, attempts: int = 49, sleep=time.sleep, get=fetch) -> None:
     if not SHA.fullmatch(sha) or not token:
         raise GateError("Missing read token or invalid source SHA")
-    path = (f"repos/{INFRA}/actions/artifacts?" +
-            urllib.parse.urlencode({"name": "chronicles-api-staging-" + sha, "per_page": 100}))
     for attempt in range(attempts):
         current = get(f"repos/{SOURCE}/commits/main", token).get("sha")
         if current != sha:
             raise GateError("CHRONICLES_PAGES_STALE_SOURCE_BLOCKED")
-        if evidence_ok(
-            sha, get(path, token),
-            lambda run_id: get(f"repos/{INFRA}/actions/runs/{run_id}", token),
-        ):
+        if api_receipt_available(sha, token, get=get):
             print("CHRONICLES_API_VERIFIED_BEFORE_PAGES sha=" + sha)
             return
         if attempt + 1 < attempts:
@@ -96,10 +104,20 @@ def wait_for_api(sha: str, token: str, *, attempts: int = 49, sleep=time.sleep, 
 
 
 def main() -> int:
+    token = os.environ.get("GH_TOKEN", "")
+    if len(sys.argv) == 3 and sys.argv[1] == "--receipt-only":
+        try:
+            if api_receipt_available(sys.argv[2], token):
+                print("CHRONICLES_API_STAGING_ALREADY_VERIFIED sha=" + sys.argv[2])
+                return 0
+            return 1  # No trustworthy receipt yet; deploy admission may proceed.
+        except GateError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2  # Inconclusive: do not deploy or falsely claim verification.
     if len(sys.argv) != 2:
         return 64
     try:
-        wait_for_api(sys.argv[1], os.environ.get("GH_TOKEN", ""))
+        wait_for_api(sys.argv[1], token)
         return 0
     except GateError as exc:
         print(str(exc), file=sys.stderr)

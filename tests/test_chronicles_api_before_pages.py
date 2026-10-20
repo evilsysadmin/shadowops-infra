@@ -40,6 +40,36 @@ class ApiBeforePages(unittest.TestCase):
         with self.assertRaises(gate.GateError):
             gate.evidence_ok(SHA, {}, lambda _: run())
 
+    def test_one_shot_receipt_probe_reuses_trusted_run_validation(self):
+        calls = []
+        def get(path, token):
+            calls.append((path, token))
+            return {"artifacts": [receipt()]} if "/actions/artifacts?" in path else run()
+        self.assertTrue(gate.api_receipt_available(SHA, TOKEN, get=get))
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(all(token == TOKEN for _, token in calls))
+        self.assertTrue(any("name=chronicles-api-staging-" + SHA in path
+                            for path, _ in calls))
+        self.assertFalse(gate.api_receipt_available(
+            SHA, TOKEN, get=lambda path, _: {"artifacts": []}))
+        def failed(path, token):
+            return {"artifacts": [receipt()]} if "/actions/artifacts?" in path else run(conclusion="failure")
+        self.assertFalse(gate.api_receipt_available(SHA, TOKEN, get=failed))
+        with self.assertRaises(gate.GateError):
+            gate.api_receipt_available("invalid", TOKEN, get=get)
+        with self.assertRaises(gate.GateError):
+            gate.api_receipt_available(SHA, "", get=get)
+        with self.assertRaisesRegex(gate.GateError, "Missing deployment artifacts"):
+            gate.api_receipt_available(SHA, TOKEN, get=lambda path, _: {})
+
+    def test_api_workflow_reuses_receipt_only_gate_not_artifact_count(self):
+        workflow = (Path(__file__).resolve().parents[1] /
+                    ".github/workflows/chronicles-api-staging.yml").read_text()
+        self.assertIn("chronicles_api_before_pages.py --receipt-only", workflow)
+        self.assertIn("CHRONICLES_API_RECEIPT_CHECK_INCONCLUSIVE", workflow)
+        self.assertIn("receipt_status != 1", workflow)
+        self.assertNotIn("count=\"$(gh api -X GET", workflow)
+
     def test_waits_for_receipt_and_rechecks_source_main(self):
         calls = []
         counter = {"n": 0}
