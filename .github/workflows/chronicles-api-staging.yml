@@ -278,17 +278,27 @@ jobs:
       - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
       - name: Reject a superseded staging source before touching OCI
         if: inputs.environment != 'production'
+        id: staging_freshness
         env:
           GH_TOKEN: ${{ github.token }}
           ADMITTED_SHA: ${{ needs.admit.outputs.source_sha }}
         shell: bash
         run: |
           set -euo pipefail
-          current="$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)"
-          [[ "$ADMITTED_SHA" =~ ^[0-9a-f]{40}$ && "$ADMITTED_SHA" == "$current" ]] || {
-            echo 'CHRONICLES_OCI_STALE_SOURCE_BLOCKED' >&2
-            exit 1
+          [[ "$ADMITTED_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo 'CHRONICLES_OCI_INVALID_SOURCE' >&2
+            exit 64
           }
+          # A failed GitHub lookup is a real failure, never a skipped deploy.
+          current="$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)"
+          if [[ "$ADMITTED_SHA" != "$current" ]]; then
+            echo "CHRONICLES_OCI_STALE_SOURCE_SKIPPED sha=$ADMITTED_SHA"
+            echo '::notice title=Chronicles API staging superseded::The admitted source is no longer main; no OCI mutation or verified receipt will run.'
+            echo 'fresh=false' >> "$GITHUB_OUTPUT"
+            echo '**Staging API skipped:** source SHA was superseded before OCI mutation.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'fresh=true' >> "$GITHUB_OUTPUT"
+          fi
       - name: Require verified staging API and Pages before production mutation
         if: inputs.environment == 'production'
         env:
@@ -299,9 +309,11 @@ jobs:
           set -euo pipefail
           python3 scripts/chronicles_production_admission.py "$ADMITTED_SHA"
       - name: Execute only the restricted Chronicles API deployer
+        if: inputs.environment == 'production' || steps.staging_freshness.outputs.fresh == 'true'
         working-directory: scripts
         run: python oci_chronicles_api_release.py --digest "$DIGEST" --environment "$TARGET_ENV"
       - name: Public smoke through the Chronicles tunnel
+        if: inputs.environment == 'production' || steps.staging_freshness.outputs.fresh == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -320,7 +332,7 @@ jobs:
           [[ "$origin" == "$GAME_ORIGIN" ]]
           echo "CHRONICLES_API_PUBLIC_SMOKE_OK"
       - name: Prove public staging API serves the admitted source SHA
-        if: inputs.environment != 'production'
+        if: inputs.environment != 'production' && steps.staging_freshness.outputs.fresh == 'true'
         env:
           EXPECTED_SHA: ${{ needs.admit.outputs.source_sha }}
         shell: bash
@@ -329,13 +341,13 @@ jobs:
           python3 scripts/chronicles_api_before_pages.py --public-sha-only "$EXPECTED_SHA"
       - name: Player-path smoke (register, run, save, reload; account always deleted)
         # Staging only: production never gets throwaway accounts.
-        if: inputs.environment != 'production'
+        if: inputs.environment != 'production' && steps.staging_freshness.outputs.fresh == 'true'
         working-directory: scripts
         env:
           INVITE_CODE: ${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}
         run: python chronicles_staging_smoke.py
       - name: Record successfully verified staging generation
-        if: inputs.environment != 'production'
+        if: inputs.environment != 'production' && steps.staging_freshness.outputs.fresh == 'true'
         shell: bash
         env:
           SOURCE_SHA: ${{ needs.admit.outputs.source_sha }}
@@ -345,7 +357,7 @@ jobs:
           mkdir -p verified-staging
           printf '%s\n%s\n' "$SOURCE_SHA" "$DIGEST" > verified-staging/generation.txt
       - name: Publish verified generation receipt (idempotent future sync)
-        if: inputs.environment != 'production'
+        if: inputs.environment != 'production' && steps.staging_freshness.outputs.fresh == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: chronicles-api-staging-${{ needs.admit.outputs.source_sha }}

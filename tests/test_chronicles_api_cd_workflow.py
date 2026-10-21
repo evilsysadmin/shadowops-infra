@@ -1,5 +1,8 @@
 """Offline CD safety gates: staging only, immutable images and verified receipts."""
 from pathlib import Path
+import os
+import subprocess
+import tempfile
 import unittest
 import yaml
 
@@ -39,9 +42,80 @@ class StagingConvergenceContracts(unittest.TestCase):
         code = next(step["run"] for step in steps if step.get("name") == guard)
         self.assertIn("commits/main", code)
         self.assertIn("ADMITTED_SHA", code)
-        self.assertIn("CHRONICLES_OCI_STALE_SOURCE_BLOCKED", code)
+        self.assertEqual(next(step['id'] for step in steps if step.get('name') == guard),
+                         'staging_freshness')
+        self.assertIn('CHRONICLES_OCI_STALE_SOURCE_SKIPPED', code)
+        self.assertIn("fresh=false' >> \"$GITHUB_OUTPUT\"", code)
+        self.assertIn("fresh=true' >> \"$GITHUB_OUTPUT\"", code)
+        self.assertIn('CHRONICLES_OCI_INVALID_SOURCE', code)
         self.assertIn("inputs.environment != 'production'",
                       next(step["if"] for step in steps if step.get("name") == guard))
+
+    def test_superseded_staging_gates_all_mutations_smokes_and_receipts(self):
+        steps = self.workflow['jobs']['deploy']['steps']
+        by_name = {step.get('name'): step for step in steps}
+        fresh = "steps.staging_freshness.outputs.fresh == 'true'"
+        for name in (
+            'Execute only the restricted Chronicles API deployer',
+            'Public smoke through the Chronicles tunnel',
+            'Prove public staging API serves the admitted source SHA',
+            'Player-path smoke (register, run, save, reload; account always deleted)',
+            'Record successfully verified staging generation',
+            'Publish verified generation receipt (idempotent future sync)',
+        ):
+            with self.subTest(step=name):
+                self.assertIn(fresh, by_name[name]['if'])
+        for name in (
+            'Execute only the restricted Chronicles API deployer',
+            'Public smoke through the Chronicles tunnel',
+        ):
+            self.assertIn("inputs.environment == 'production'", by_name[name]['if'])
+        for name in (
+            'Require verified staging API and Pages before production mutation',
+            'Record successfully verified production API generation',
+            'Save verified production API receipt for Pages promotion',
+        ):
+            self.assertEqual(by_name[name]['if'], "inputs.environment == 'production'")
+
+    def test_staging_freshness_guard_exits_clean_only_for_superseded_shas(self):
+        steps = self.workflow['jobs']['deploy']['steps']
+        guard = next(s for s in steps if s.get('id') == 'staging_freshness')
+        sha = 'a' * 40
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)
+            gh = path / 'gh'
+            gh.write_text('#!/bin/sh\n'
+                          'if [ "$FAKE_GH_FAIL" = true ]; then exit 7; fi\n'
+                          'printf "%s\\n" "$FAKE_MAIN_SHA"\n')
+            gh.chmod(0o755)
+            for main_sha, gh_fail, expected_code, expected_fresh in (
+                (sha, 'false', 0, 'fresh=true'),
+                ('b' * 40, 'false', 0, 'fresh=false'),
+                (sha, 'true', 7, None),
+            ):
+                output, summary = path / 'output', path / 'summary'
+                output.write_text('')
+                summary.write_text('')
+                env = dict(os.environ,
+                           PATH=f"{path}{os.pathsep}{os.environ.get('PATH', '')}",
+                           ADMITTED_SHA=sha, GH_TOKEN='test-only',
+                           FAKE_MAIN_SHA=main_sha, FAKE_GH_FAIL=gh_fail,
+                           GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(summary))
+                result = subprocess.run(['bash', '-c', guard['run']],
+                                        env=env, capture_output=True, text=True, check=False)
+                with self.subTest(main_sha=main_sha, gh_fail=gh_fail):
+                    self.assertEqual(result.returncode, expected_code, result.stderr)
+                    self.assertEqual(output.read_text().strip(), expected_fresh or '')
+                    if expected_fresh == 'fresh=false':
+                        self.assertIn('STALE_SOURCE_SKIPPED', result.stdout)
+                        self.assertIn('skipped', summary.read_text())
+            output.write_text('')
+            env['ADMITTED_SHA'] = 'invalid'
+            env['FAKE_GH_FAIL'] = 'false'
+            result = subprocess.run(['bash', '-c', guard['run']],
+                                    env=env, capture_output=True, text=True, check=False)
+            self.assertEqual(result.returncode, 64)
+            self.assertEqual(output.read_text(), '')
 
     def test_receipt_is_created_only_after_three_live_smokes(self):
         steps = self.workflow["jobs"]["deploy"]["steps"]
@@ -54,7 +128,7 @@ class StagingConvergenceContracts(unittest.TestCase):
                         names.index("Player-path smoke (register, run, save, reload; account always deleted)"))
         revision = next(step for step in steps if
                         step.get("name") == "Prove public staging API serves the admitted source SHA")
-        self.assertEqual(revision["if"], "inputs.environment != 'production'")
+        self.assertEqual(revision["if"], "inputs.environment != 'production' && steps.staging_freshness.outputs.fresh == 'true'")
         self.assertIn("--public-sha-only", revision["run"])
         self.assertEqual(revision["env"]["EXPECTED_SHA"], "${{ needs.admit.outputs.source_sha }}")
         self.assertLess(names.index("Player-path smoke (register, run, save, reload; account always deleted)"),
