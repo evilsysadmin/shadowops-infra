@@ -137,10 +137,13 @@ def wait_run(kind: str, run_id: int, token: str, *, call=github_api,
     raise TrainError(f"{kind} production workflow timed out (run={run_id})")
 
 
-def receipt_after(sha: str, kind: str, token: str, *,
+def receipt_after(sha: str, kind: str, token: str, run_id: int, *,
                   receipt=verified_receipt, sleep=time.sleep) -> None:
+    if type(run_id) is not int or run_id <= 0:
+        raise TrainError("expected child receipt run ID invalid")
     for attempt in range(6):
-        if receipt(sha, "production-" + kind, token):
+        if receipt(sha, "production-" + kind, token,
+                   expected_run_id=run_id):
             return
         if attempt < 5:
             sleep(5)
@@ -195,7 +198,7 @@ def run(token: str, pinned: str = "", *, select=select_sha,
     progress_stage(progress, "api-running", api_run=api_run)
     wait("api", api_run, token)
     progress_stage(progress, "api-green")
-    receipt(sha, "api", token)
+    receipt(sha, "api", token, api_run)
     progress_stage(progress, "api-receipt")
     # Absolutely no Pages dispatch if the new API isn't publicly ready.
     if not all(probe(p) for p in ("health", "ready", "cors")):
@@ -205,7 +208,7 @@ def run(token: str, pinned: str = "", *, select=select_sha,
     progress_stage(progress, "pages-running", pages_run=pages_run)
     wait("pages", pages_run, token)
     progress_stage(progress, "pages-green")
-    receipt(sha, "pages", token)
+    receipt(sha, "pages", token, pages_run)
     progress_stage(progress, "pages-receipt")
     if verify(token) != sha:
         raise TrainError("public production release does not match admitted SHA")
