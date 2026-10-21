@@ -1,0 +1,35 @@
+name: ShadowOps Universe portal · isolated CI
+on:
+  pull_request:
+    paths:
+      - 'portal/**'
+      - '.github/workflows/shadowops-portal-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'portal/**'
+      - '.github/workflows/shadowops-portal-ci.yml'
+permissions:
+  contents: read
+jobs:
+  portal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: portal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated portal dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Source syntax
+        run: npm run check
+      - name: Catalog and ownership contracts
+        run: npm test
+      - name: Production static build
+        run: npm run build
+      - name: Check actual Pages artifact
+        run: test -s dist/index.html && test -n "$(find dist/assets -type f -name '*.js' -print -quit)"
