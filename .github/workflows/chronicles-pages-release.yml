@@ -249,7 +249,9 @@ jobs:
           cache: 'npm'
           cache-dependency-path: chronicles-source/frontend/package-lock.json
       - name: Build the game against its own API
-        if: steps.live.outputs.already_published != 'true'
+        # The public browser compares live HTML entrypoint assets with the
+        # exact local dist/index.html. Even a smoke-only retry needs this
+        # build; skipping it makes verification fail with ENOENT.
         working-directory: chronicles-source/frontend
         env:
           # Iteración 2: API propia de Chronicles (cuentas y partidas propias).
