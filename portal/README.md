@@ -64,3 +64,7 @@ The observatory uses **three different procedural material studies**, not one re
 ## Architectural material pass
 
 Stone surfaces now use seeded, generated albedo, tangent-space normal and roughness maps; backdrop niches, instanced voussoirs, and a restrained lighting scheme give the three entrances actual depth. They are material studies, **not a substitute for licensed production GLB art**. Chrome CI checks WebGL shader errors, screenshots at 360/390/430/1440 px, and a conservative render-budget contract (under 86 draw calls and 260K triangles). No Cloudflare/OCI/Render mutation.
+
+## Power-conscious cinematic interaction
+
+The world-focus change now pans the camera only subtly and respects reduced-motion immediately. The renderer runs at **up to** 45fps desktop/30fps mobile and halts its rAF chain on a hidden tab; on visibility restoration it repaints and resumes. Frame scheduling does not confuse rAF timestamps with a force flag. The WebGL screen remains optional and root DNS ownership is unchanged.

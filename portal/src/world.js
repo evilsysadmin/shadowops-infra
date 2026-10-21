@@ -128,50 +128,79 @@ export function mountObservatory(container, onSelect) {
 
   let focus = 'chess', frame = 0, disposed = false;
   let pointerDown = null, pointerStart = null, yaw = 0, desiredYaw = 0;
+  let cameraShift = 0, targetShift = 0, firstFrameRendered = false;
+  let lastPaint = 0, sceneTime = 0;
+  const maxFps = narrow ? 30 : 45;
+  const framePeriod = 1000 / maxFps;
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
+  const clock = new THREE.Clock();
+
   function resize() {
     const {width, height} = container.getBoundingClientRect();
     camera.aspect = Math.max(1, width) / Math.max(1, height);
     camera.updateProjectionMatrix();
     renderer.setSize(Math.max(1, width), Math.max(1, height), false);
-    // ResizeObserver can clear the drawing buffer after the one-shot reduced-motion frame.
-    if (reduceMotion && firstFrameRendered) render(true);
+    // Resize clears a canvas; reduced-motion mode has no continuous redraw.
+    if (reduceMotion && firstFrameRendered) paint(true);
   }
-  let firstFrameRendered = false;
   const observer = new ResizeObserver(resize);
   observer.observe(container);
   resize();
-  const clock = new THREE.Clock();
-  function render(force = false) {
-    if (disposed) return;
-    // A first frame must exist even when Chromium considers this tab backgrounded.
-    if (force || document.visibilityState === 'visible') {
-      const time = reduceMotion ? 0 : clock.getElapsedTime();
-      yaw += (desiredYaw - yaw) * .04;
-      camera.position.x = Math.sin(yaw) * 2.0;
-      camera.lookAt(0, 1.46, 0);
-      portals.forEach(({world, material, rim, light}) => {
-        const active = focus === world.id ? 1 : 0;
-        material.uniforms.uTime.value = time;
-        material.uniforms.uFocus.value += (active - material.uniforms.uFocus.value) * .065;
-        rim.material.opacity = .28 + material.uniforms.uFocus.value * .5;
-        light.intensity = 4 + material.uniforms.uFocus.value * 9;
-      });
-      renderer.render(scene, camera);
-      if (import.meta.env.DEV) {
-        container.dataset.drawCalls = String(renderer.info.render.calls);
-        container.dataset.triangles = String(renderer.info.render.triangles);
-      }
-      firstFrameRendered = true;
+
+  // Painting and frame scheduling are intentionally separate: rAF passes a
+  // timestamp, NOT a Boolean "force". A hidden tab must never force a draw.
+  function paint(force = false) {
+    if (disposed || (!force && document.visibilityState !== 'visible')) return;
+    const time = reduceMotion ? 0 : (sceneTime += Math.min(.06, clock.getDelta()));
+    yaw = reduceMotion ? desiredYaw : yaw + (desiredYaw - yaw) * .055;
+    cameraShift = reduceMotion ? targetShift : cameraShift + (targetShift - cameraShift) * .055;
+    camera.position.x = Math.sin(yaw) * 2 + cameraShift;
+    camera.lookAt(cameraShift * .38,1.46,0);
+    portals.forEach(({world, material, rim, light}) => {
+      const active = focus === world.id ? 1 : 0;
+      material.uniforms.uTime.value = time;
+      const level = material.uniforms.uFocus.value;
+      material.uniforms.uFocus.value = reduceMotion ? active : level + (active - level) * .09;
+      rim.material.opacity = .28 + material.uniforms.uFocus.value * .5;
+      light.intensity = 4 + material.uniforms.uFocus.value * 9;
+    });
+    renderer.render(scene,camera);
+    if (import.meta.env.DEV) {
+      container.dataset.drawCalls = String(renderer.info.render.calls);
+      container.dataset.triangles = String(renderer.info.render.triangles);
+      container.dataset.renderBudget = String(maxFps);
+      container.dataset.focusWorld = focus;
+      container.dataset.focusBlend = String(portals.find(p=>p.world.id===focus)?.material.uniforms.uFocus.value ?? 0);
     }
-    if (!reduceMotion) frame = requestAnimationFrame(render);
+    firstFrameRendered = true;
   }
-  render(true);
+  function onFrame(now) {
+    frame = 0;
+    if (disposed || document.visibilityState !== 'visible') return;
+    if (now - lastPaint >= framePeriod) {
+      lastPaint = now;
+      paint();
+    }
+    frame = requestAnimationFrame(onFrame);
+  }
   function onVisibility() {
-    if (reduceMotion && document.visibilityState === 'visible') render();
+    if (disposed) return;
+    if (document.visibilityState !== 'visible') {
+      cancelAnimationFrame(frame);
+      frame = 0;
+      return;
+    }
+    // Visibility restore must repaint even with prefers-reduced-motion.
+    clock.getDelta();
+    lastPaint = 0;
+    paint(true);
+    if (!reduceMotion && !frame) frame = requestAnimationFrame(onFrame);
   }
+  paint(true);
+  if (!reduceMotion && document.visibilityState === 'visible') frame = requestAnimationFrame(onFrame);
   document.addEventListener('visibilitychange', onVisibility);
+
   function hit(event) {
     const bounds = renderer.domElement.getBoundingClientRect();
     pointer.set(((event.clientX - bounds.left) / bounds.width) * 2 - 1,
@@ -200,7 +229,14 @@ export function mountObservatory(container, onSelect) {
   renderer.domElement.addEventListener('pointerup', onPointerUp);
   renderer.domElement.addEventListener('pointerleave', () => { pointerDown = null; pointerStart = null; });
   return {
-    focusWorld(id) { focus = id; if (reduceMotion) render(true); },
+    focusWorld(id, moveCamera = true) {
+      const index = WORLDS.findIndex(world => world.id === id);
+      if (index < 0) return;
+      focus = id;
+      // Keep all three doors in frame: cinematography, not camera hijacking.
+      targetShift = moveCamera ? (index - 1) * .32 : 0;
+      if (reduceMotion) paint(true);
+    },
     destroy() {
       disposed = true;
       cancelAnimationFrame(frame);
