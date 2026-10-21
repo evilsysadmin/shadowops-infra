@@ -95,6 +95,13 @@ def read_live_api_build() -> str | None:
     return build if isinstance(build, str) and SHA.fullmatch(build) else None
 
 
+def verify_api_source(expected_sha: str, *, read=read_live_api_build) -> bool:
+    """Read-only pre-publish gate, used independently of release train."""
+    return (isinstance(expected_sha, str)
+            and SHA.fullmatch(expected_sha) is not None
+            and read() == expected_sha)
+
+
 def check_sso_jwks() -> bool:
     """Prove the production Chess Studio issuer publishes usable public Ed25519 keys.
 
@@ -162,6 +169,15 @@ def audit(token: str, *, manifest=read_release, page=probe_https,
 
 
 def main() -> int:
+    if len(sys.argv) == 3 and sys.argv[1] == "--verify-api-sha":
+        if (os.environ.get("CHRONICLES_PAGES_ENV") != "production"
+                or not verify_api_source(sys.argv[2])):
+            print("CHRONICLES_PRODUCTION_API_SOURCE_BLOCKED", file=sys.stderr)
+            return 1
+        print("CHRONICLES_PRODUCTION_API_SOURCE_OK sha=" + sys.argv[2])
+        return 0
+    if len(sys.argv) != 1:
+        return 64
     try:
         sha = audit(os.environ.get("GH_TOKEN", ""))
     except (AuditError, urllib.error.URLError, OSError, ValueError, TypeError, TimeoutError):
