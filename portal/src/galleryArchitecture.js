@@ -75,9 +75,9 @@ function archCurve(x,z) {
 export function addGalleryArchitecture(scene, coords, mobile=false) {
   const maps=materialMaps();
   const stone = new THREE.MeshStandardMaterial({
-    color:0x9ca2ab, metalness:.03, roughness:1,
+    color:0x4d5563, metalness:.035, roughness:1,
     map:maps.color, normalMap:maps.normal, roughnessMap:maps.rough,
-    normalScale:new THREE.Vector2(.65,.65),
+    normalScale:new THREE.Vector2(.42,.42),
   });
   const bronze = new THREE.MeshStandardMaterial({
     color:0xb6a17d,metalness:.73,roughness:.31,
@@ -92,12 +92,19 @@ export function addGalleryArchitecture(scene, coords, mobile=false) {
   floor.rotation.x=-Math.PI/2;
   floor.position.y=-.59;
   scene.add(floor);
-  // Recessed rear walls establish real relief around each destination.
-  // They remain behind the interactive shader plane and its raycast surface.
-  const recesses = new THREE.InstancedMesh(new THREE.BoxGeometry(2.35,3.25,.14),dark,coords.length);
+  // Arch-shaped dark alcoves: no rectangular panels peeking over the arch.
+  const recessShape = new THREE.Shape();
+  recessShape.moveTo(-1.025,0);
+  recessShape.lineTo(1.025,0);
+  recessShape.lineTo(1.025,1.47);
+  recessShape.bezierCurveTo(1.025,2.58,.64,3.18,0,3.24);
+  recessShape.bezierCurveTo(-.64,3.18,-1.025,2.58,-1.025,1.47);
+  recessShape.closePath();
+  const recessGeo = new THREE.ShapeGeometry(recessShape,32);
+  const recesses = new THREE.InstancedMesh(recessGeo,dark,coords.length);
   const object = new THREE.Object3D();
   coords.forEach((x,i)=>{
-    object.position.set(x,1.65,-1.60);
+    object.position.set(x,.12,-1.52);
     object.rotation.set(0,0,0);
     object.scale.set(1,1,1);
     object.updateMatrix();
@@ -109,11 +116,20 @@ export function addGalleryArchitecture(scene, coords, mobile=false) {
   // Hand-cut voussoir impression from one shared instanced mesh, rather
   // than one GPU draw call per decorative stone. No low-poly block walls.
   const voussoirCount = mobile ? 39 : 63;
-  const voussoirs = new THREE.InstancedMesh(
-    new THREE.BoxGeometry(.28,.21,.32),
-    stone,
-    voussoirCount,
-  );
+  // Bevelled stone key pieces catch highlights softly, without cuboid steps.
+  const voussoirShape = new THREE.Shape();
+  voussoirShape.moveTo(-.108,-.072);
+  voussoirShape.lineTo(.108,-.072);
+  voussoirShape.lineTo(.108,.072);
+  voussoirShape.lineTo(-.108,.072);
+  voussoirShape.closePath();
+  const voussoirGeo = new THREE.ExtrudeGeometry(voussoirShape,{
+    depth:.18, bevelEnabled:true, bevelThickness:.022, bevelSize:.022,
+    bevelSegments:3, steps:1, curveSegments:4
+  });
+  const voussoirMat = stone.clone();
+  voussoirMat.color.setHex(0x353d4c);
+  const voussoirs = new THREE.InstancedMesh(voussoirGeo,voussoirMat,voussoirCount);
   let k=0;
   const up=new THREE.Vector3(0,1,0);
   for (const x of coords) {
@@ -139,17 +155,23 @@ export function addGalleryArchitecture(scene, coords, mobile=false) {
   const stoneBeam = new THREE.Mesh(new THREE.BoxGeometry(12,.25,.45),stone);
   stoneBeam.position.set(0,4.04,-1.31);
   scene.add(stoneBeam);
-  const pilasters=new THREE.InstancedMesh(new THREE.BoxGeometry(.33,3.20,.49),stone,8);
-  const columnXs=[-4.9,-4.37,-1.93,-1.57,1.57,1.93,4.37,4.9];
+  // Fluted, restrained shafts in place of the former rectangular pillars.
+  const columnXs=[-4.45,-1.60,1.60,4.45];
+  const pilasters=new THREE.InstancedMesh(new THREE.CylinderGeometry(.115,.155,2.76,40),stone,columnXs.length);
+  const capitals=new THREE.InstancedMesh(new THREE.CylinderGeometry(.20,.20,.11,40),bronze,columnXs.length);
   columnXs.forEach((x,i)=>{
-    object.position.set(x,1.49,-1.52);
+    object.position.set(x,1.45,-1.40);
     object.rotation.set(0,0,0);
     object.scale.set(1,1,1);
     object.updateMatrix();
     pilasters.setMatrixAt(i,object.matrix);
+    object.position.set(x,2.90,-1.40);
+    object.updateMatrix();
+    capitals.setMatrixAt(i,object.matrix);
   });
   pilasters.instanceMatrix.needsUpdate = true;
-  scene.add(pilasters);
+  capitals.instanceMatrix.needsUpdate = true;
+  scene.add(pilasters,capitals);
 
   // Floor inlay follows perspective rather than a floating platform grid.
   const inlay=new THREE.LineBasicMaterial({color:0xb9a27e,transparent:true,opacity:.26});
@@ -188,10 +210,10 @@ export function addGalleryArchitecture(scene, coords, mobile=false) {
     scene.add(beam);
     groundLights.push(beam);
   });
-  const topLight=new THREE.PointLight(0xdfb889,15,13,2);
+  const topLight=new THREE.PointLight(0xdfb889,8,12,2);
   topLight.position.set(0,5,1.9);
   scene.add(topLight);
-  const blueFill=new THREE.DirectionalLight(0x7c9ec4,.8);
+  const blueFill=new THREE.DirectionalLight(0x7c9ec4,.55);
   blueFill.position.set(4,3,5);
   scene.add(blueFill);
   return {
