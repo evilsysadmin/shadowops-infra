@@ -83,7 +83,20 @@ class PublicBrowserWorkflow(unittest.TestCase):
         self.assertEqual(build["if"], "steps.live.outputs.already_published != 'true'")
         browser = next(step for step in steps
                        if step.get("name") == "Real public browser smoke (desktop, mobile, login, update deferral)")
-        self.assertIn("npm install --no-save", browser["run"])
+        harness = next(step for step in steps
+                       if step.get("name") == "Prepare Playwright browser harness")
+        cache = next(step for step in steps
+                     if step.get("name") == "Cache exact Chromium browser binaries")
+        self.assertLess(steps.index(harness), steps.index(cache))
+        self.assertLess(steps.index(cache), steps.index(browser))
+        self.assertEqual(harness["id"], "playwright")
+        self.assertIn("npm install --no-save --no-audit --no-fund playwright@1", harness["run"])
+        self.assertIn("node_modules/playwright/package.json", harness["run"])
+        self.assertEqual(cache["uses"], "actions/cache@v4")
+        self.assertEqual(cache["with"]["path"], "~/.cache/ms-playwright")
+        self.assertIn("steps.playwright.outputs.version", cache["with"]["key"])
+        self.assertIn("runner.os", cache["with"]["key"])
+        self.assertNotIn("npm install --no-save", browser["run"])
         self.assertIn("playwright install --with-deps chromium", browser["run"])
         production = workflow["jobs"]["production"]["steps"]
         prod_setup = next(step for step in production

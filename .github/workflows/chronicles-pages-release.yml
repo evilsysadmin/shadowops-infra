@@ -356,6 +356,20 @@ jobs:
               raise SystemExit("CHRONICLES_PUBLIC_RELEASE_MANIFEST_MISMATCH")
           print("CHRONICLES_PUBLIC_RELEASE_MANIFEST_OK")
           PY
+      - name: Prepare Playwright browser harness
+        id: playwright
+        working-directory: chronicles-source/frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-audit --no-fund playwright@1
+          # Cache key must track the actual resolved Playwright release.
+          echo "version=$(node -p \"require('./node_modules/playwright/package.json').version\")" >> "$GITHUB_OUTPUT"
+      - name: Cache exact Chromium browser binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: chronicles-chromium-${{ runner.os }}-${{ steps.playwright.outputs.version }}
       - name: Real public browser smoke (desktop, mobile, login, update deferral)
         working-directory: chronicles-source/frontend
         env:
@@ -364,7 +378,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm install --no-save --no-audit --no-fund playwright@1
           npx playwright install --with-deps chromium
           node smoke/public-staging.mjs
           # End-to-end first-hour flow with a real Chronicles API user and
