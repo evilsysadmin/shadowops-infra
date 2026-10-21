@@ -15,7 +15,7 @@ import time
 import urllib.error
 import urllib.request
 
-from chronicles_production_admission import INFRA, SHA, admit, verified_receipt
+from chronicles_production_admission import INFRA, SHA, PromotionError, admit, verified_receipt
 from chronicles_production_audit import audit as public_audit, check_api, read_release
 
 STAGING = "https://staging.chronicles.shadowops.dpdns.org/release.json"
@@ -149,7 +149,8 @@ def receipt_after(sha: str, kind: str, token: str, *,
 
 def run(token: str, pinned: str = "", *, select=select_sha,
         current=deployed_sha, start=dispatch, wait=wait_run,
-        receipt=receipt_after, verify=public_audit) -> dict:
+        receipt=receipt_after, verify=public_audit,
+        probe=check_api) -> dict:
     sha = select(token, pinned)
     if current(sha, token):
         print("CHRONICLES_TRAIN_NO_CHANGE sha=" + sha)
@@ -159,7 +160,7 @@ def run(token: str, pinned: str = "", *, select=select_sha,
     wait("api", api_run, token)
     receipt(sha, "api", token)
     # Absolutely no Pages dispatch if the new API isn't publicly ready.
-    if not all(check_api(p) for p in ("health", "ready", "cors")):
+    if not all(probe(p) for p in ("health", "ready", "cors")):
         raise TrainError("production API public smoke failed after API deployment")
     pages_run = start("pages", sha, token)
     wait("pages", pages_run, token)
@@ -182,8 +183,8 @@ def main() -> int:
         result = run(token, os.environ.get("CHRONICLES_TRAIN_SOURCE_SHA", "").strip())
         out = Path(os.environ["RUNNER_TEMP"]) / "chronicles-production-train.json"
         out.write_text(json.dumps({"schema": 1, **result}, indent=2) + "\n")
-    except (TrainError, urllib.error.URLError, ValueError, TypeError, OSError,
-            TimeoutError) as exc:
+    except (TrainError, PromotionError, urllib.error.URLError, ValueError,
+            TypeError, OSError, TimeoutError) as exc:
         # The error type/short message contains no API body, token or secret.
         if isinstance(exc, TrainError):
             print("CHRONICLES_TRAIN_BLOCKED " + str(exc), file=sys.stderr)
