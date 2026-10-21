@@ -88,6 +88,26 @@ Compare its `build` to the **actual current Chronicles source main SHA**
 and the SHA suffix of both trusted release artifacts. A manifest match alone
 does not prove that the API or browser smoke completed successfully.
 
+## Measured staging performance
+
+Baseline from successful Infra staging runs on 2026-10-20:
+[API run 39473792986](https://github.com/evilsysadmin/shadowops-infra/actions/runs/39473792986)
+spent about 241 seconds in the OCI deployer step, while
+[Pages run 39473797991](https://github.com/evilsysadmin/shadowops-infra/actions/runs/39473797991)
+spent 309 seconds waiting for the same-SHA API, 20 seconds publishing to
+Pages, 8 seconds building and 91 seconds running Chromium smoke.
+
+The API wait overlaps the OCI deployment; **do not add the 309 seconds to
+the API run as though it were independent work**. On the next actual API
+deployment, the safe `CHRONICLES_API_OCI_PHASE_SECONDS` marker splits the
+OCI step into preflight, command dispatch and remote execution seconds.
+The marker contains fixed labels and integer timings only, not OCI IDs or
+secret material. It is observational and never authorizes deployment.
+
+The staging Chromium download cache is keyed to the resolved Playwright
+version. Compare warm-cache browser smoke against the above cold baseline
+before claiming an improvement; both browser journeys remain mandatory.
+
 ## Manual versus automatic operation
 
 `workflow_dispatch` with manual force/redeploy retains the explicit

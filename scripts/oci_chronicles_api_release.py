@@ -53,16 +53,27 @@ def command_for(digest: str, vault_id: str, environment: str = "staging") -> str
     return command
 
 
+def phase_timing(start: float, prepared: float, submitted: float, completed: float) -> str:
+    """Safe fixed-label, whole-second timing; never output OCI IDs or secrets."""
+    duration = lambda a, b: max(0, int(b - a))
+    return ("CHRONICLES_API_OCI_PHASE_SECONDS "
+            + f"preflight={duration(start, prepared)} "
+            + f"dispatch={duration(prepared, submitted)} "
+            + f"execution={duration(submitted, completed)}")
+
+
 def execute(
     sdk: Any, config: dict[str, str], digest: str, environment: str = "staging", *,
     pause=time.sleep, clock=time.monotonic
 ) -> str:
     from chronicles_api_provision import resolve_vault
+    started = clock()
     inspect(sdk, config)
     compartment_id, instance_id = resolve_existing_host(sdk, config)
     vault_id, _key, _ = resolve_vault(sdk, config, compartment_id)
     fixed = command_for(digest, vault_id, environment)
     marker = marker_for(environment)
+    prepared = clock()
     models = sdk.compute_instance_agent.models
     content = models.InstanceAgentCommandContent(
         source=models.InstanceAgentCommandSourceViaTextDetails(text=fixed),
@@ -82,7 +93,8 @@ def execute(
     command_id = str(getattr(created, "id", "") or "")
     if not command_id:
         raise InventoryError("Chronicles API deploy did not return an OCI command ID")
-    deadline = clock() + 650
+    submitted = clock()
+    deadline = submitted + 650
     while clock() < deadline:
         execution = agent.get_instance_agent_command_execution(
             instance_agent_command_id=command_id, instance_id=instance_id,
@@ -99,6 +111,7 @@ def execute(
                 reason = next((line for line in stdout.splitlines() if BLOCKED.fullmatch(line)), "")
                 raise InventoryError("Chronicles API root-wrapper smoke did not succeed"
                                      + (" | " + reason if reason else f" | status={status}"))
+            print(phase_timing(started, prepared, submitted, clock()), flush=True)
             print(marker + digest)
             return last
         pause(3)
