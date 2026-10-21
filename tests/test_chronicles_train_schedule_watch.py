@@ -51,10 +51,48 @@ class TrainScheduleWatchTests(unittest.TestCase):
             [scheduled("2026-10-26T07:00:16Z")], winter), 12345)
         self.assertIsNone(watch.scheduled_today(
             [scheduled("2026-10-22T06:00:16Z")], winter))
-        # GitHub may delay or queue the workflow; only existence is tested,
-        # never success of an unfinished run.
+        # Backward-compatible existence helper sees queued jobs; the
+        # daily watchdog separately requires completed success.
         self.assertEqual(watch.scheduled_today(
             [scheduled("2026-10-22T07:00:16Z", status="queued")], summer), 12345)
+
+    def test_daily_job_requires_completed_green_train_not_only_a_run_id(self):
+        now = datetime(2026, 10, 22, 9, 15, tzinfo=MADRID)
+        base = scheduled("2026-10-22T06:00:16Z", status="completed",
+                         conclusion="success")
+        self.assertEqual(watch.completed_train_today([base], now), 12345)
+        for state, conclusion, marker in (
+            ("queued", None, "INCOMPLETE"),
+            ("in_progress", None, "INCOMPLETE"),
+            ("waiting", None, "INCOMPLETE"),
+            ("completed", "failure", "FAILED"),
+            ("completed", "cancelled", "FAILED"),
+            ("completed", "skipped", "FAILED"),
+            ("completed", None, "FAILED"),
+        ):
+            with self.subTest(state=state, conclusion=conclusion):
+                with self.assertRaisesRegex(watch.ScheduleError, marker):
+                    watch.completed_train_today(
+                        [scheduled("2026-10-22T06:00:16Z",
+                                   status=state, conclusion=conclusion)], now)
+        with self.assertRaisesRegex(watch.ScheduleError, "NOT_OBSERVED"):
+            watch.completed_train_today([], now)
+
+    def test_latest_scheduled_run_takes_precedence_over_earlier_success(self):
+        now = datetime(2026, 10, 22, 9, 15, tzinfo=MADRID)
+        earlier = scheduled("2026-10-22T06:00:00Z", id=23,
+                            status="completed", conclusion="success")
+        later = scheduled("2026-10-22T06:02:00Z", id=24,
+                          status="completed", conclusion="failure")
+        with self.assertRaisesRegex(watch.ScheduleError, "FAILED"):
+            watch.completed_train_today([earlier, later], now)
+        self.assertEqual(watch.scheduled_today([later, earlier], now), 24)
+        later["conclusion"] = "success"
+        self.assertEqual(watch.completed_train_today([earlier, later], now), 24)
+        # Source labels alone aren't enough: reject scheduled events from
+        # other repositories even when the claimed conclusion is success.
+        later["repository"] = {"full_name": "another/infra"}
+        self.assertEqual(watch.completed_train_today([earlier, later], now), 23)
 
     def test_missing_old_early_future_or_forged_schedule_fails_closed(self):
         now = datetime(2026, 10, 22, 9, 15, tzinfo=MADRID)
