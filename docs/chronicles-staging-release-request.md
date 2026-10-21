@@ -22,8 +22,9 @@ do not follow its historical instructions as if they describe today's pipeline.
 1. **Source CI ready:** all three required Chronicles source-main checks
    succeeded for one immutable, current SHA. An older or pending SHA must
    not be published merely because its CI was green in the past.
-2. **API verified:** the OCI deploy finishes public health and player-path
-   smoke, then writes `chronicles-api-staging-<SOURCE_SHA>`. Pages checks the
+2. **API verified:** the OCI deploy finishes public health, proves that
+   `/api/release.build` matches the admitted source SHA, and passes player-path
+   smoke before writing `chronicles-api-staging-<SOURCE_SHA>`. Pages checks the
    exact API artifact, its completed successful Infra API workflow run on
    `main`, the current public `/health` and `/ready` endpoints
    **and** `/api/release.build` matching that exact source SHA before Pages
