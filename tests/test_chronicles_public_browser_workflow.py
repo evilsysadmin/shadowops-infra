@@ -11,6 +11,22 @@ PATH = ROOT / ".github/workflows/chronicles-pages-release.yml"
 
 
 class PublicBrowserWorkflow(unittest.TestCase):
+    def test_every_infra_main_push_retries_staging_convergence(self):
+        workflow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
+        events = workflow["on"]
+        self.assertEqual(events["push"]["branches"], ["main"])
+        self.assertNotIn("paths", events["push"])
+        self.assertIn("paths", events["pull_request"])
+        candidate = next(s["run"] for s in workflow["jobs"]["staging-candidate"]["steps"]
+                         if s.get("id") == "check")
+        self.assertIn("chronicles_source_ci.py", candidate)
+        self.assertIn("chronicles_pages_verified_receipt.py", candidate)
+        self.assertIn("publish=false", candidate)
+        self.assertEqual(workflow["jobs"]["release"]["if"],
+                         "needs.api-ready.outputs.publish == 'true'")
+        self.assertIn("inputs.environment != 'production'",
+                      workflow["jobs"]["staging-candidate"]["if"])
+
     def test_api_ready_skips_obsolete_infra_owner_before_pages_release(self):
         workflow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
         jobs = workflow['jobs']
