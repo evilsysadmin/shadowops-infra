@@ -248,8 +248,10 @@ jobs:
           # Cache downloads (not node_modules); npm ci still validates the lock.
           cache: 'npm'
           cache-dependency-path: chronicles-source/frontend/package-lock.json
+      # Public browser acceptance compares the served HTML/assets against
+      # this exact SHA's local build even on a verified-live smoke-only retry.
+      # Only mutating Cloudflare steps may be skipped when already published.
       - name: Build the game against its own API
-        if: steps.live.outputs.already_published != 'true'
         working-directory: chronicles-source/frontend
         env:
           # Iteración 2: API propia de Chronicles (cuentas y partidas propias).
