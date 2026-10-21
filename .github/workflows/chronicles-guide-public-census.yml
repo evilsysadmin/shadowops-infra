@@ -1,0 +1,70 @@
+name: Chronicles public guide DOM census (one-off, read-only)
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/chronicles-guide-public-census.yml'
+permissions:
+  contents: read
+jobs:
+  guide-census:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - name: Checkout public-source smoke code (not deploy artifacts)
+        uses: actions/checkout@v4
+        with:
+          repository: evilsysadmin/chronicles-of-matthias
+          ref: main
+          path: chronicles-source
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare one-off public browser diagnostic
+        working-directory: chronicles-source/frontend
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm install --no-save --no-audit --no-fund playwright@1
+          npx playwright install --with-deps chromium
+      - name: Record actual public release for read-only sampling
+        working-directory: chronicles-source/frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          origin='https://staging.chronicles.shadowops.dpdns.org'
+          mkdir -p dist
+          curl -fsSL --retry 3 --max-time 20 --user-agent 'Mozilla/5.0 Chrome/154.0.0.0' \
+            "$origin/index.html" -o dist/index.html
+          curl -fsSL --retry 3 --max-time 20 --user-agent 'Mozilla/5.0 Chrome/154.0.0.0' \
+            "$origin/release.json" -o "$RUNNER_TEMP/chronicles-live.json"
+          python3 - <<'PY'
+          import json, os, pathlib, re
+          path = pathlib.Path(os.environ["RUNNER_TEMP"]) / "chronicles-live.json"
+          manifest = json.loads(path.read_text(encoding="utf-8"))
+          sha = manifest.get("build")
+          if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+              raise SystemExit("CHRONICLES_DIAGNOSTIC_NO_PUBLIC_BUILD_SHA")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as stream:
+              stream.write("CHRONICLES_SOURCE_SHA=" + sha + "\n")
+          print("CHRONICLES_DIAGNOSTIC_PUBLIC_SHA " + sha)
+          PY
+      - name: Sample guide DOM via real temporary account (never certify release)
+        working-directory: chronicles-source/frontend
+        env:
+          CHRONICLES_STAGING_INVITE_CODE: ${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}
+        run: |
+          set -euo pipefail
+          echo 'CHRONICLES_GUIDE_DIAGNOSTIC_ONLY_NO_RELEASE_RECEIPT'
+          node smoke/public-staging.mjs
+      - name: Preserve guide screenshot for diagnosis only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chronicles-guide-census-${{ github.run_id }}
+          path: |
+            chronicles-source/frontend/chronicles-public-first-steps-duplicate-*.png
+            chronicles-source/frontend/chronicles-public-world-*.png
+          if-no-files-found: ignore
+          retention-days: 3
