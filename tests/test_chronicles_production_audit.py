@@ -1,5 +1,7 @@
 """Read-only production smoke gates; every test runs without external traffic."""
+import base64
 import io
+import json
 import os
 from pathlib import Path
 import sys
@@ -32,7 +34,7 @@ class Response:
 
 class ProductionAuditTests(unittest.TestCase):
     def checked(self, *, manifest=None, page="ok", assets="ok", api=None,
-                receipt=None, token="read-token", env="production"):
+                receipt=None, sso=True, token="read-token", env="production"):
         calls = []
         def api_probe(name):
             calls.append(name)
@@ -50,6 +52,7 @@ class ProductionAuditTests(unittest.TestCase):
                 page=lambda: page,
                 assets=lambda **kwargs: assets,
                 api=api_probe, receipt=receipt_probe,
+                sso=lambda: calls.append("sso-jwks") or sso,
             )
         return result, calls
 
@@ -57,7 +60,8 @@ class ProductionAuditTests(unittest.TestCase):
         sha, calls = self.checked()
         self.assertEqual(sha, SHA)
         self.assertEqual(calls, [
-            "health", "ready", "cors", "production-api", "production-pages",
+            "health", "ready", "cors", "sso-jwks",
+            "production-api", "production-pages",
         ])
 
     def test_fail_closed_for_bad_manifest_or_public_resources(self):
@@ -68,6 +72,7 @@ class ProductionAuditTests(unittest.TestCase):
             {"page": "tls_error"},
             {"assets": "unexpected_content"},
             {"api": lambda path: path != "cors"},
+            {"sso": False},
             {"receipt": lambda kind: kind != "production-api"},
             {"receipt": lambda kind: kind != "production-pages"},
             {"token": ""},
@@ -88,6 +93,54 @@ class ProductionAuditTests(unittest.TestCase):
                           return_value=Response("https://example.com/release.json", data=payload)):
             with self.assertRaises(audit.AuditError):
                 audit.read_release()
+
+    def test_production_sso_issuer_jwks_public_ed25519_only(self):
+        url = audit.SSO_JWKS
+        self.assertEqual(
+            url, "https://api.chess-studio.shadowops.dpdns.org/api/identity/jwks")
+        x = base64.urlsafe_b64encode(bytes(range(32))).decode().rstrip("=")
+        good = {"keys": [{"kty": "OKP", "crv": "Ed25519",
+                          "kid": "prod-current", "alg": "EdDSA", "x": x}]}
+        def fake(payload, *, status=200, redirect=None):
+            return Response(redirect or url, status=status,
+                            data=json.dumps(payload).encode())
+
+        with patch.object(audit.urllib.request, "urlopen",
+                          return_value=fake(good)) as opener:
+            self.assertTrue(audit.check_sso_jwks())
+            req = opener.call_args.args[0]
+            self.assertEqual(req.full_url, url)
+            self.assertEqual(req.get_method(), "GET")
+            self.assertIsNone(req.get_header("Authorization"))
+            self.assertIsNone(req.get_header("Cookie"))
+
+        invalid = (
+            {"keys": []},
+            {"keys": [{"kty": "RSA", "kid": "rsa", "n": "xxx"}]},
+            {"keys": [{"kty": "OKP", "crv": "Ed25519", "kid": "bad", "x": "?"}]},
+            {"keys": [{"kty": "OKP", "crv": "Ed25519", "kid": "", "x": x}]},
+            {"keys": [{"kty": "OKP", "crv": "Ed25519", "kid": "secret",
+                        "x": x, "d": "private-leak"}]},
+            {"keys": [{"kty": "OKP", "crv": "Ed25519", "kid": "bad-alg",
+                        "x": x, "alg": "HS256"}]},
+            {"keys": [good["keys"][0], dict(good["keys"][0])]},
+            {"keys": "not-an-array"},
+            {"message": "not a JWKS"},
+        )
+        for payload in invalid:
+            with self.subTest(payload=str(payload)[:60]), patch.object(
+                audit.urllib.request, "urlopen", return_value=fake(payload)
+            ):
+                self.assertFalse(audit.check_sso_jwks())
+        with patch.object(audit.urllib.request, "urlopen",
+                          return_value=fake(good, redirect="https://other.example/jwks")):
+            self.assertFalse(audit.check_sso_jwks())
+        with patch.object(audit.urllib.request, "urlopen",
+                          return_value=fake(good, status=302)):
+            self.assertFalse(audit.check_sso_jwks())
+        with patch.object(audit.urllib.request, "urlopen",
+                          return_value=Response(url, data=b" " * 65537)):
+            self.assertFalse(audit.check_sso_jwks())
 
     def test_api_checks_are_get_only_except_cors_options(self):
         url = audit.API + "/api/health"

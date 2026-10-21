@@ -6,6 +6,7 @@ Exact-SHA receipts attest successful deployments, not live API image identity.
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -18,6 +19,7 @@ from chronicles_production_admission import verified_receipt
 
 ORIGIN = "https://chronicles.shadowops.dpdns.org"
 API = "https://chronicles-api.shadowops.dpdns.org"
+SSO_JWKS = "https://api.chess-studio.shadowops.dpdns.org/api/identity/jwks"
 SHA = re.compile(r"[0-9a-f]{40}")
 
 
@@ -61,8 +63,49 @@ def check_api(path: str) -> bool:
     return True
 
 
+def check_sso_jwks() -> bool:
+    """Prove the production Chess Studio issuer publishes usable public Ed25519 keys.
+
+    This does NOT authenticate a user or test token exchange. Never log keys,
+    tokens or response bodies; never fetch from staging or follow redirects.
+    """
+    req = urllib.request.Request(SSO_JWKS, headers={
+        "Accept": "application/json",
+        "Cache-Control": "no-cache",
+        "User-Agent": "ChroniclesProductionAudit/1",
+    })
+    with urllib.request.urlopen(req, timeout=15) as response:
+        if response.status != 200 or response.geturl() != SSO_JWKS:
+            return False
+        body = response.read(65537)
+    if len(body) > 65536:
+        return False
+    payload = json.loads(body)
+    keys = payload.get("keys") if isinstance(payload, dict) else None
+    if not isinstance(keys, list) or not 1 <= len(keys) <= 32:
+        return False
+    trusted_kids = set()
+    for key in keys:
+        if not isinstance(key, dict) or "d" in key:
+            return False
+        if key.get("kty") != "OKP" or key.get("crv") != "Ed25519":
+            continue
+        kid, x = key.get("kid"), key.get("x")
+        if (not isinstance(kid, str) or not 1 <= len(kid) <= 128
+            or kid in trusted_kids or not isinstance(x, str)
+            or not re.fullmatch(r"[A-Za-z0-9_-]{43}", x)
+            or key.get("alg", "EdDSA") != "EdDSA"):
+            return False
+        raw = base64.urlsafe_b64decode(x + "=")
+        if len(raw) != 32:
+            return False
+        trusted_kids.add(kid)
+    return bool(trusted_kids)
+
+
 def audit(token: str, *, manifest=read_release, page=probe_https,
-          assets=probe_react_preview, api=check_api, receipt=verified_receipt) -> str:
+          assets=probe_react_preview, api=check_api, receipt=verified_receipt,
+          sso=check_sso_jwks) -> str:
     if os.environ.get("CHRONICLES_PAGES_ENV") != "production" or not token:
         raise AuditError("production environment and read token required")
     data = manifest()
@@ -76,6 +119,8 @@ def audit(token: str, *, manifest=read_release, page=probe_https,
     for path in ("health", "ready", "cors"):
         if not api(path):
             raise AuditError("production API " + path + " failed")
+    if not sso():
+        raise AuditError("production SSO issuer public JWKS unavailable or invalid")
     for kind in ("production-api", "production-pages"):
         if not receipt(sha, kind, token):
             raise AuditError("no trusted " + kind + " receipt for public SHA")

@@ -89,6 +89,10 @@ El rollback sigue siendo **manual y explícito** mediante los workflows de API y
 4. Verificar por vía administrativa que el usuario Atlas producción solo tiene readWrite@chronicles_production; demostrar separación de staging y Chess Studio. No publicar datos personales ni tokens.
 5. Registrar fecha, SHA, navegador y resultados redactados en [issue #102](https://github.com/evilsysadmin/shadowops-infra/issues/102). **No** marcar estos checks completados sin haberlos ejecutado.
 
+### Verificación de disponibilidad de SSO (sin credenciales)
+
+El auditor de producción comprueba también el JWKS público de Chess Studio **producción** (`https://api.chess-studio.shadowops.dpdns.org/api/identity/jwks`): TLS/origen esperado, JSON bien formado, claves Ed25519 con `kid` único y clave pública de 32 bytes, sin material privado. No consulta Chess Studio staging ni crea cuentas o tokens. Su respuesta **no demuestra el login**, el intercambio real del JWT ni los permisos sobre una partida: esos pasos permanecen en el smoke manual de usuario y requieren evidencia separada.
+
 ### Smoke público sin acceso de usuario
 
 ~~~bash
