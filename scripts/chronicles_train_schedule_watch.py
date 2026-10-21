@@ -48,12 +48,13 @@ def fetch_runs(token: str, *, opener=urllib.request.urlopen) -> list:
     return runs
 
 
-def scheduled_today(runs: list, now: datetime) -> int | None:
-    """Return a genuine schedule run created at/after 07:45 Madrid today."""
+def latest_scheduled_run(runs: list, now: datetime) -> dict | None:
+    """Select today's latest authentic 08:00 Madrid schedule event."""
     if now.tzinfo is None or now.utcoffset() is None:
         raise ScheduleError("timezone-aware clock required")
     local = now.astimezone(ZONE)
     earliest = datetime.combine(local.date(), time(7, 45), tzinfo=ZONE)
+    latest = None
     for run in runs:
         if not isinstance(run, dict):
             continue
@@ -68,10 +69,31 @@ def scheduled_today(runs: list, now: datetime) -> int | None:
             created = datetime.fromisoformat(run["created_at"].replace("Z", "+00:00"))
         except (KeyError, AttributeError, TypeError, ValueError):
             continue
-        if (created.tzinfo is not None
-                and earliest <= created.astimezone(ZONE) <= local):
-            return run_id
-    return None
+        if created.tzinfo is None:
+            continue
+        timestamp = created.astimezone(ZONE)
+        if earliest <= timestamp <= local:
+            if latest is None or (timestamp, run_id) > (latest[0], latest[1]["id"]):
+                latest = (timestamp, run)
+    return latest[1] if latest else None
+
+
+def scheduled_today(runs: list, now: datetime) -> int | None:
+    """Backward-compatible existence check for contract consumers."""
+    run = latest_scheduled_run(runs, now)
+    return run["id"] if run is not None else None
+
+
+def completed_train_today(runs: list, now: datetime) -> int:
+    """A past healthy production build cannot mask a failed/stalled train."""
+    run = latest_scheduled_run(runs, now)
+    if run is None:
+        raise ScheduleError("NOT_OBSERVED")
+    if run.get("status") != "completed":
+        raise ScheduleError("INCOMPLETE")
+    if run.get("conclusion") != "success":
+        raise ScheduleError("FAILED")
+    return run["id"]
 
 
 def main() -> int:
@@ -81,15 +103,16 @@ def main() -> int:
                 or os.environ.get("GITHUB_REF") != "refs/heads/main"):
             raise ScheduleError("scheduled audit main only")
         token = os.environ.get("GH_TOKEN", "")
-        run_id = scheduled_today(fetch_runs(token), datetime.now(timezone.utc))
-        if run_id is None:
-            raise ScheduleError("no release train schedule run today")
+        run_id = completed_train_today(fetch_runs(token), datetime.now(timezone.utc))
     except (ScheduleError, urllib.error.URLError, ValueError, TypeError,
-            OSError, TimeoutError):
-        # No secrets or raw provider responses in logs.
-        print("CHRONICLES_TRAIN_SCHEDULE_NOT_OBSERVED", file=sys.stderr)
+            OSError, TimeoutError) as exc:
+        # Only emit known states, never raw provider errors or responses.
+        state = (str(exc) if isinstance(exc, ScheduleError)
+                 and str(exc) in {"NOT_OBSERVED", "INCOMPLETE", "FAILED"}
+                 else "EVIDENCE_UNAVAILABLE")
+        print("CHRONICLES_TRAIN_SCHEDULE_" + state, file=sys.stderr)
         return 1
-    print("CHRONICLES_TRAIN_SCHEDULE_OBSERVED run=" + str(run_id))
+    print("CHRONICLES_TRAIN_SCHEDULE_SUCCESS run=" + str(run_id))
     return 0
 
 
