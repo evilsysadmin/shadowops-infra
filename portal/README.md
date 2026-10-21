@@ -35,3 +35,24 @@ Before publishing on the root, add authored high-quality GLB scene assets with p
 4. **Separate future iteration:** Chess Studio OCI/Cloudflare/Render handoff to ShadowOps Infra, with a single reconciler, route-preservation tests and rollback. This portal PR does not transfer that ownership.
 
 No production secrets in PR CI. A green build is **not** evidence of a real root-domain deployment or visual-art acceptance.
+
+## Automated browser visual evidence
+
+```bash
+cd portal
+npm install
+npx playwright install chromium
+npm run test:browser
+```
+
+Portal CI runs headless Chromium at 360/390/430/1440 px with a fresh
+static 3D scene (when WebGL is supported), an explicit no-WebGL fallback,
+keyboard-only selection, a failing WebGL-module request, and an overflow gate.
+Screenshots of all sizes are uploaded as a temporary workflow artifact.
+These screenshots make art review possible; they **do not** certify the
+result as premium. Final visual acceptance requires a human comparison
+with approved art, and physical GPU verification remains a separate gate.
+
+To prevent heavy WebGL from gating navigation, the Three.js chunk is
+loaded only after the scene enters the viewport. The game catalog is
+always ready first; a missing 3D device only switches the presentation.

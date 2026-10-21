@@ -33,3 +33,31 @@ jobs:
         run: npm run build
       - name: Check actual Pages artifact
         run: test -s dist/index.html && test -n "$(find dist/assets -type f -name '*.js' -print -quit)"
+  browser-visual-qa:
+    name: Visual QA / 3D and fallback screenshots
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    defaults:
+      run:
+        working-directory: portal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated portal dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Install Chromium for deterministic browser smoke
+        run: npx playwright install --with-deps chromium
+      - name: Desktop, mobile, keyboard and WebGL fallback
+        run: npm run test:browser
+      - name: Always attach visual evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadowops-portal-visual-evidence
+          path: |
+            portal/playwright-report/
+            portal/test-results/
+          if-no-files-found: warn
+          retention-days: 14

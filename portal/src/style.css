@@ -13,7 +13,7 @@ a { color: inherit; }
 button { font: inherit; }
 button:focus-visible, a:focus-visible { outline: 2px solid #d8ae72; outline-offset: 5px; }
 ::selection { background: #b6915e; color: #0b0e14; }
-.shell { min-height: 100dvh; display: flex; flex-direction: column; background: radial-gradient(ellipse 70% 72% at 65% 48%, #172437 0%, #0a111e 60%, #070c16 100%); }
+.shell { overflow-x: clip; min-height: 100dvh; display: flex; flex-direction: column; background: radial-gradient(ellipse 70% 72% at 65% 48%, #172437 0%, #0a111e 60%, #070c16 100%); }
 .header, .footer { position: relative; z-index: 4; max-width: 1720px; width: 100%; margin: auto; padding: 32px clamp(26px, 5vw, 100px); display: flex; align-items: center; justify-content: space-between; gap: 24px; }
 .brand { font-family: Manrope, system-ui, sans-serif; font-weight: 800; letter-spacing: .26em; font-size: clamp(17px, 1.5vw, 23px); text-decoration: none; color: #f2efe9; }
 .brand::before { content: '✦'; color: #d4b17c; margin-right: 15px; font-weight: 400; }
@@ -36,7 +36,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid #d8ae72; outline-offs
 .world-chevron { font-size: 20px; color: #9aa4ad; }
 .footnote { color: #657383; font-size: 12px; line-height: 1.6; margin-top: 22px; }
 .stage-area { position: relative; align-self: stretch; min-height: 625px; isolation: isolate; display: flex; align-items: center; }
-.stage { position: absolute; inset: -10% -6% 12% -8%; overflow: hidden; border-radius: 10px; background: radial-gradient(ellipse at 50% 55%, #182838, #070c16 75%); }
+.stage { contain: paint; position: absolute; inset: -10% -6% 12% -8%; overflow: hidden; border-radius: 10px; background: radial-gradient(ellipse at 50% 55%, #182838, #070c16 75%); }
 .stage::after { content: ''; pointer-events: none; position: absolute; inset: 0; background: linear-gradient(90deg, #090e18 0%, transparent 13%, transparent 82%, #090e18bb 100%), linear-gradient(0deg, #070c16 0%, transparent 30%, transparent 78%, #070c1675 100%); }
 .stage canvas { width: 100%; height: 100%; display: block; }
 .stage-eyebrow, .stage-footer { position: absolute; z-index: 2; font-size: 10px; letter-spacing: .2em; color: #8a9cac; text-transform: uppercase; }
@@ -81,3 +81,6 @@ button:focus-visible, a:focus-visible { outline: 2px solid #d8ae72; outline-offs
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
+
+/* The fallback is an accessible, intentional visual state, not an error page. */
+.stage.no-webgl canvas { visibility: hidden; }

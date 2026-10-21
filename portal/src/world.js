@@ -169,14 +169,18 @@ export function mountObservatory(container, onSelect) {
     camera.aspect = Math.max(1, width) / Math.max(1, height);
     camera.updateProjectionMatrix();
     renderer.setSize(Math.max(1, width), Math.max(1, height), false);
+    // ResizeObserver can clear the drawing buffer after the one-shot reduced-motion frame.
+    if (reduceMotion && firstFrameRendered) render(true);
   }
+  let firstFrameRendered = false;
   const observer = new ResizeObserver(resize);
   observer.observe(container);
   resize();
   const clock = new THREE.Clock();
-  function render() {
+  function render(force = false) {
     if (disposed) return;
-    if (document.visibilityState === 'visible') {
+    // A first frame must exist even when Chromium considers this tab backgrounded.
+    if (force || document.visibilityState === 'visible') {
       const time = reduceMotion ? 0 : clock.getElapsedTime();
       yaw += (desiredYaw - yaw) * .04;
       camera.position.x = Math.sin(yaw) * 2.0;
@@ -189,10 +193,11 @@ export function mountObservatory(container, onSelect) {
         light.intensity = 4 + material.uniforms.uFocus.value * 9;
       });
       renderer.render(scene, camera);
+      firstFrameRendered = true;
     }
     if (!reduceMotion) frame = requestAnimationFrame(render);
   }
-  render();
+  render(true);
   function onVisibility() {
     if (reduceMotion && document.visibilityState === 'visible') render();
   }
@@ -225,7 +230,7 @@ export function mountObservatory(container, onSelect) {
   renderer.domElement.addEventListener('pointerup', onPointerUp);
   renderer.domElement.addEventListener('pointerleave', () => { pointerDown = null; pointerStart = null; });
   return {
-    focusWorld(id) { focus = id; if (reduceMotion) render(); },
+    focusWorld(id) { focus = id; if (reduceMotion) render(true); },
     destroy() {
       disposed = true;
       cancelAnimationFrame(frame);

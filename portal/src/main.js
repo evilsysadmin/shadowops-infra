@@ -1,6 +1,5 @@
 import './style.css';
 import { WORLDS, RESERVED_WORLDS, isLaunchable, worldById } from './catalog.mjs';
-import { mountObservatory } from './world.js';
 
 const app = document.getElementById('app');
 const el = (tag, className, text) => {
@@ -36,6 +35,7 @@ hero.appendChild(story);
 const stageArea = el('section', 'stage-area');
 stageArea.setAttribute('aria-label', 'Observatorio tridimensional ShadowOps');
 const stage = el('div', 'stage');
+stage.dataset.scene = 'loading';
 stageArea.appendChild(stage);
 const eyebrow = el('div', 'stage-eyebrow', 'THE OBSERVATORY / 001');
 stageArea.appendChild(eyebrow);
@@ -59,6 +59,8 @@ let selected = 'chess';
 let scene = null;
 const buttons = new Map();
 const detail = el('div', 'world-detail');
+detail.setAttribute('aria-live', 'polite');
+detail.setAttribute('aria-atomic', 'true');
 stageArea.appendChild(detail);
 
 function renderDetail() {
@@ -105,11 +107,58 @@ WORLDS.forEach((world, index) => {
 });
 renderDetail();
 
-try {
-  scene = mountObservatory(stage, selectWorld);
-  fallback.hidden = true;
-} catch (error) {
-  console.warn('ShadowOps: WebGL unavailable, using accessible catalog.', error);
+/**
+ * The catalog and launch links are interactive before the ~Three.js runtime
+ * downloads. WebGL is enhancement, never a dependency for navigation.
+ */
+let sceneLoadStarted = false;
+let sceneObserver = null;
+function showFallback(reason) {
+  stage.dataset.scene = reason;
   stage.classList.add('no-webgl');
-  tooltip.textContent = 'Los accesos a los juegos siguen disponibles';
+  fallback.hidden = false;
+  tooltip.textContent = 'El catálogo funciona también sin 3D';
+}
+async function loadScene() {
+  if (sceneLoadStarted) return;
+  sceneLoadStarted = true;
+  sceneObserver?.disconnect();
+  sceneObserver = null;
+  if (!window.WebGLRenderingContext) {
+    showFallback('unavailable');
+    return;
+  }
+  try {
+    const { mountObservatory } = await import('./world.js');
+    scene = mountObservatory(stage, selectWorld);
+    scene.focusWorld(selected);
+    fallback.hidden = true;
+    stage.dataset.scene = 'active';
+    const canvas = stage.querySelector('canvas');
+    canvas?.addEventListener('webglcontextlost', () => {
+      showFallback('lost');
+    });
+    canvas?.addEventListener('webglcontextrestored', () => {
+      if (scene) {
+        stage.classList.remove('no-webgl');
+        stage.dataset.scene = 'active';
+        fallback.hidden = true;
+        scene.focusWorld(selected);
+      }
+    });
+  } catch (error) {
+    console.warn('ShadowOps: WebGL unavailable, using accessible catalog.', error);
+    scene?.destroy();
+    scene = null;
+    showFallback('unavailable');
+  }
+}
+if ('IntersectionObserver' in window) {
+  sceneObserver = new IntersectionObserver(entries => {
+    if (entries.some(entry => entry.isIntersecting)) void loadScene();
+  }, { rootMargin: '160px 0px', threshold: 0 });
+  sceneObserver.observe(stageArea);
+} else {
+  // Old browsers still get the accessible catalog immediately.
+  void loadScene();
 }
