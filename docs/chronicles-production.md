@@ -91,7 +91,7 @@ El rollback sigue siendo **manual y explícito** mediante los workflows de API y
 
 ### Auditoría tras el tren y control diario
 
-Además del simulacro y del smoke incluido en el release train, el workflow independiente `chronicles-production-audit.yml` vuelve a comprobar producción **cuando termina cualquier train** (`workflow_run: completed`, incluido uno fallido, para detectar promociones parciales). Tiene además un chequeo diario de respaldo a las **09:15 Europe/Madrid** con cambio CET/CEST automático, y conserva el disparo manual. Nunca despliega ni escribe datos. Un resultado negativo requiere investigar el estado real, no relanzar a ciegas el tren o limpiar Mongo.
+Además del simulacro y del smoke incluido en el release train, el workflow independiente `chronicles-production-audit.yml` vuelve a comprobar producción **cuando termina cualquier train** (`workflow_run: completed`, incluido uno fallido, para detectar promociones parciales). Tiene además un chequeo diario de respaldo a las **09:15 Europe/Madrid** con cambio CET/CEST automático, y conserva el disparo manual. Nunca despliega ni escribe datos. El control de las 09:15 ejecuta dos jobs independientes: uno audita HTTPS/API/recibos y otro busca un verdadero evento `schedule` del tren creado **hoy a partir de las 07:45 Madrid**, mediante GitHub Actions con permisos de solo lectura. Si GitHub omitió el tren, el segundo job falla aunque la producción antigua continúe sana; si el tren arrancó pero falló, su run consta y el propio workflow conserva ese fallo. El monitor no relanza ni cancela nada. Un resultado negativo requiere investigar el estado real, no relanzar a ciegas el tren o limpiar Mongo.
 
 ### Identidad del binario API en producción
 
