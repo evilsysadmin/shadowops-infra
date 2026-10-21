@@ -133,11 +133,6 @@ class TrainScheduleWatchTests(unittest.TestCase):
             with patch.object(watch, "fetch_runs", return_value=[]) as fetch:
                 self.assertEqual(watch.main(), 1)
                 fetch.assert_called_once_with("test-private-token")
-            with patch.object(watch, "fetch_runs", return_value=[
-                    scheduled(datetime.now(timezone.utc).isoformat())]):
-                # Actual user clock at 13:00 is not the requested 08:00 run.
-                # Compare against the clock from a fixed test below instead.
-                pass
         with patch.dict(os.environ, {**context, "GITHUB_EVENT_NAME": "push"}, clear=True):
             with patch.object(watch, "fetch_runs") as fetch:
                 self.assertEqual(watch.main(), 1)
