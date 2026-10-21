@@ -48,6 +48,54 @@ def fetch_runs(token: str, *, opener=urllib.request.urlopen) -> list:
     return runs
 
 
+TRAIN_JOB = "Admit staging, promote API, promote Pages, verify public release"
+TRAIN_STEP = "Promote only admitted source, stop if API/Pages fail"
+
+
+def fetch_train_jobs(run_id: int, token: str, *, opener=urllib.request.urlopen) -> list:
+    """Read the actual jobs, not just the overall workflow conclusion."""
+    if not token or type(run_id) is not int or run_id <= 0:
+        raise ScheduleError("invalid run evidence request")
+    url = (f"https://api.github.com/repos/{REPO}/actions/runs/"
+           f"{run_id}/jobs?per_page=100")
+    request = urllib.request.Request(url, headers={
+        "Accept": "application/vnd.github+json",
+        "Authorization": "Bearer " + token,
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "ChroniclesTrainScheduleWatch/1",
+    })
+    with opener(request, timeout=15) as response:
+        if response.status != 200 or response.geturl() != url:
+            raise ScheduleError("unexpected child-job evidence origin")
+        raw = response.read(512001)
+    if len(raw) > 512000:
+        raise ScheduleError("child-job evidence too large")
+    payload = json.loads(raw)
+    jobs = payload.get("jobs") if isinstance(payload, dict) else None
+    if (not isinstance(jobs, list) or len(jobs) > 100
+            or payload.get("total_count", 0) > 100):
+        raise ScheduleError("incomplete child-job evidence")
+    return jobs
+
+
+def train_job_succeeded(jobs: list) -> bool:
+    """Only a successful *executed* promotion step proves the train ran."""
+    candidates = [job for job in jobs if isinstance(job, dict)
+                  and job.get("name") == TRAIN_JOB]
+    if len(candidates) != 1:
+        return False
+    job = candidates[0]
+    if job.get("status") != "completed" or job.get("conclusion") != "success":
+        return False
+    steps = job.get("steps")
+    return isinstance(steps, list) and any(
+        isinstance(step, dict)
+        and step.get("name") == TRAIN_STEP
+        and step.get("status") == "completed"
+        and step.get("conclusion") == "success" for step in steps
+    )
+
+
 def latest_scheduled_run(runs: list, now: datetime) -> dict | None:
     """Select today's latest authentic 08:00 Madrid schedule event."""
     if now.tzinfo is None or now.utcoffset() is None:
@@ -104,11 +152,13 @@ def main() -> int:
             raise ScheduleError("scheduled audit main only")
         token = os.environ.get("GH_TOKEN", "")
         run_id = completed_train_today(fetch_runs(token), datetime.now(timezone.utc))
+        if not train_job_succeeded(fetch_train_jobs(run_id, token)):
+            raise ScheduleError("JOB_NOT_SUCCESSFUL")
     except (ScheduleError, urllib.error.URLError, ValueError, TypeError,
             OSError, TimeoutError) as exc:
         # Only emit known states, never raw provider errors or responses.
         state = (str(exc) if isinstance(exc, ScheduleError)
-                 and str(exc) in {"NOT_OBSERVED", "INCOMPLETE", "FAILED"}
+                 and str(exc) in {"NOT_OBSERVED", "INCOMPLETE", "FAILED", "JOB_NOT_SUCCESSFUL"}
                  else "EVIDENCE_UNAVAILABLE")
         print("CHRONICLES_TRAIN_SCHEDULE_" + state, file=sys.stderr)
         return 1
