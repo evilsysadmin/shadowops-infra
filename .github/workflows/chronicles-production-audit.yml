@@ -4,6 +4,8 @@ on:
     paths:
       - '.github/workflows/chronicles-production-audit.yml'
       - 'scripts/chronicles_production_audit.py'
+      - 'scripts/chronicles_train_schedule_watch.py'
+      - 'tests/test_chronicles_train_schedule_watch.py'
       - 'scripts/chronicles_production_admission.py'
       - 'tests/test_chronicles_production_audit.py'
   workflow_dispatch:
@@ -34,9 +36,28 @@ jobs:
       - uses: actions/checkout@v4
       - name: Contract tests (no network)
         run: python3 -m unittest discover -s tests -p 'test_chronicles_production_audit.py' -v
+      - name: Schedule-observation contract tests (no network)
+        run: python3 -m unittest discover -s tests -p 'test_chronicles_train_schedule_watch.py' -v
       - name: Public HTTPS, API/CORS and exact-SHA production receipts
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
           CHRONICLES_PAGES_ENV: production
         run: python3 scripts/chronicles_production_audit.py
+
+  schedule_watch:
+    name: Verify the 08:00 Madrid release train was actually triggered
+    if: github.event_name == 'schedule' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify the scheduled train exists, independent of current production health
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/chronicles_train_schedule_watch.py
