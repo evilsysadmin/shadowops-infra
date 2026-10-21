@@ -97,7 +97,7 @@ class TargetPreflight(unittest.TestCase):
         owner = content.index("Require protected mains and single Pages owner")
         project = content.index("scripts/chronicles_pages.py project")
         publish = content.index("npx --yes wrangler@")
-        second = content.index(api_source_gate, first + 1)
+        second = content.index(api_source_gate, content.index(api_source_gate, first + 1) + 1)
         third = content.rindex(api_source_gate)
         cert = content.index("Record verified production Pages evidence")
         self.assertLess(api, first)
