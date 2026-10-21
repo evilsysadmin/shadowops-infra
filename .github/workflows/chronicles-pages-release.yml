@@ -491,6 +491,13 @@ jobs:
           for path in health ready; do
             curl -fsS --max-time 15 "https://chronicles-api.shadowops.dpdns.org/api/$path" >/dev/null
           done
+      - name: Require actual production API SHA before Pages mutations
+        env:
+          EXPECTED_SHA: ${{ steps.source.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/chronicles_production_audit.py --verify-api-sha "$EXPECTED_SHA"
       - name: Require protected mains and single Pages owner before any mutations
         env:
           CHRONICLES_SOURCE_SHA: ${{ steps.source.outputs.sha }}
@@ -548,6 +555,9 @@ jobs:
           CHRONICLES_SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: |
           set -euo pipefail
+          # Guard the last gap after Cloudflare project reconciliation.
+          # Manual dispatches must be as safe as daily train dispatches.
+          python3 scripts/chronicles_production_audit.py --verify-api-sha "$CHRONICLES_SOURCE_SHA"
           npx --yes wrangler@4.127.1 pages deploy "$RUNNER_TEMP/chronicles-pages" \
             --project-name chronicles-production \
             --branch main \
