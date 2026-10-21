@@ -172,6 +172,19 @@ jobs:
         run: |
           set -euo pipefail
           if python3 scripts/chronicles_api_before_pages.py "$ADMITTED_SHA"; then
+            # The API can become ready after a newer Infra main supersedes
+            # this workflow. Do not launch the Pages mutation job in that case.
+            owner_main="$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)"
+            [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ && "$owner_main" =~ ^[0-9a-f]{40}$ ]] || {
+              echo 'CHRONICLES_PAGES_INVALID_INFRA_SHA' >&2
+              exit 64
+            }
+            if [[ "$owner_main" != "$GITHUB_SHA" ]]; then
+              echo "CHRONICLES_PAGES_INFRA_SUPERSEDED_BEFORE_RELEASE current=$owner_main"
+              echo '::notice title=Chronicles Pages superseded::Infra main advanced; the old owner workflow will not publish.'
+              echo 'publish=false' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
             echo 'publish=true' >> "$GITHUB_OUTPUT"
             exit 0
           fi
