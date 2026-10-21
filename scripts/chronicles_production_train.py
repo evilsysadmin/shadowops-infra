@@ -147,6 +147,21 @@ def receipt_after(sha: str, kind: str, token: str, *,
     raise TrainError(kind + " has no trusted production receipt")
 
 
+def preflight(token: str, pinned: str = "", *, select=select_sha,
+              current=deployed_sha, verify=public_audit) -> dict:
+    """Inspect live staging admission and production, without any dispatch/write."""
+    sha = select(token, pinned)
+    if current(sha, token):
+        if verify(token) != sha:
+            raise TrainError("unchanged production failed public game audit")
+        action = "unchanged"
+    else:
+        action = "would-promote"
+    print("CHRONICLES_TRAIN_PREFLIGHT " + action + " sha=" + sha, flush=True)
+    return {"source_sha": sha, "result": action, "api_run": None,
+            "pages_run": None}
+
+
 def run(token: str, pinned: str = "", *, select=select_sha,
         current=deployed_sha, start=dispatch, wait=wait_run,
         receipt=receipt_after, verify=public_audit,
@@ -183,7 +198,10 @@ def main() -> int:
                ("schedule", "workflow_dispatch")):
             raise TrainError("release train must run on infra main")
         token = os.environ.get("GH_TOKEN", "")
-        result = run(token, os.environ.get("CHRONICLES_TRAIN_SOURCE_SHA", "").strip())
+        source_sha = os.environ.get("CHRONICLES_TRAIN_SOURCE_SHA", "").strip()
+        dry_run = os.environ.get("CHRONICLES_TRAIN_DRY_RUN", "").lower() == "true"
+        result = (preflight(token, source_sha) if dry_run
+                  else run(token, source_sha))
         out = Path(os.environ["RUNNER_TEMP"]) / "chronicles-production-train.json"
         out.write_text(json.dumps({"schema": 1, **result}, indent=2) + "\n")
     except (TrainError, PromotionError, urllib.error.URLError, ValueError,

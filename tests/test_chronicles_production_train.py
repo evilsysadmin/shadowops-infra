@@ -34,6 +34,48 @@ class ReleaseTrainTests(unittest.TestCase):
         self.assertIn("environment", data["jobs"]["train"])
         self.assertEqual(data["jobs"]["train"]["environment"]["name"], "production")
 
+    def test_readonly_preflight_cannot_enter_mutating_train_job(self):
+        path = ROOT / ".github/workflows/chronicles-production-train.yml"
+        workflow = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+        jobs = workflow["jobs"]
+        inputs = workflow["on"]["workflow_dispatch"]["inputs"]
+        self.assertEqual(inputs["dry_run"]["type"], "boolean")
+        self.assertEqual(inputs["dry_run"]["default"], "false")
+        self.assertEqual(jobs["preflight"]["permissions"],
+                         {"contents": "read", "actions": "read"})
+        self.assertIn("inputs.dry_run == true", jobs["preflight"]["if"])
+        self.assertIn("inputs.dry_run != true", jobs["train"]["if"])
+        self.assertEqual(jobs["preflight"]["needs"], "contracts")
+        self.assertNotIn("environment", jobs["preflight"])
+        self.assertEqual(jobs["preflight"]["env"]["CHRONICLES_TRAIN_DRY_RUN"], "true")
+        self.assertIn("chronicles_production_train.py", str(jobs["preflight"]["steps"]))
+
+    def test_preflight_is_read_only_and_never_dispatches(self):
+        observed = []
+        def select(token, sha):
+            observed.append(("admit", token, sha))
+            return SHA
+        def current(sha, token):
+            observed.append(("inspect", sha, token))
+            return False
+        with patch.object(train, "dispatch", side_effect=AssertionError("no dispatch")):
+            result = train.preflight(TOKEN, select=select, current=current,
+                                     verify=lambda _: self.fail("not live in prod"))
+        self.assertEqual(result["result"], "would-promote")
+        self.assertEqual(result["source_sha"], SHA)
+        self.assertIsNone(result["api_run"])
+        self.assertEqual(observed, [("admit", TOKEN, ""), ("inspect", SHA, TOKEN)])
+        result = train.preflight(TOKEN, select=select,
+                                 current=lambda *_: True, verify=lambda _: SHA)
+        self.assertEqual(result["result"], "unchanged")
+        with self.assertRaisesRegex(train.TrainError, "public game audit"):
+            train.preflight(TOKEN, select=select,
+                            current=lambda *_: True, verify=lambda _: OTHER)
+        with self.assertRaisesRegex(train.TrainError, "production degraded"):
+            train.preflight(TOKEN, select=select,
+                            current=lambda *_: (_ for _ in ()).throw(
+                                train.TrainError("production degraded")))
+
     def test_staging_selection_uses_live_manifest_not_current_main(self):
         called = []
         def admit(sha, token):
