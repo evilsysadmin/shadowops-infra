@@ -169,6 +169,19 @@ def wait_for_api(sha: str, token: str, *, attempts: int = 49, sleep=time.sleep,
 
 def main() -> int:
     token = os.environ.get("GH_TOKEN", "")
+    if len(sys.argv) == 3 and sys.argv[1] == "--public-sha-only":
+        try:
+            state = public_api_revision_state(sys.argv[2])
+            if state == "match":
+                print("CHRONICLES_API_PUBLIC_SOURCE_OK sha=" + sys.argv[2])
+                return 0
+            print("CHRONICLES_API_PUBLIC_SOURCE_" +
+                  ("MISMATCH" if state == "different" else "INCONCLUSIVE"),
+                  file=sys.stderr)
+            return 1 if state == "different" else 2
+        except GateError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
     if len(sys.argv) == 3 and sys.argv[1] == "--receipt-only":
         try:
             if not api_receipt_available(sys.argv[2], token):
