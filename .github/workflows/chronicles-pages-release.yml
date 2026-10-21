@@ -20,27 +20,12 @@ on:
       - 'tests/test_chronicles_pages_verified_receipt.py'
       - 'tests/test_chronicles_api_before_pages.py'
       - 'docs/chronicles-pages-handoff.md'
+  # Reconcile on EVERY protected Infra main merge. A concurrent unrelated
+  # merge can supersede an in-flight Pages owner run after source CI and API
+  # admission. Source-CI gates and live exact-SHA receipts avoid redundant
+  # deployments; push path filters would strand staging until hourly polling.
   push:
     branches: [main]
-    paths:
-      - '.github/workflows/chronicles-pages-release.yml'
-      - 'docs/chronicles-staging-release-request.md'
-      - 'scripts/chronicles_pages.py'
-      - 'scripts/pages_owner_admission.py'
-      - 'scripts/chronicles_source_ci.py'
-      - 'scripts/chronicles_production_admission.py'
-      - 'tests/test_chronicles_source_ci.py'
-      - 'tests/test_chronicles_production_admission.py'
-      - 'tests/test_pages_owner_admission.py'
-      - 'tests/test_chronicles_pages_target.py'
-      - 'tests/test_chronicles_pages_verify.py'
-      - 'tests/test_chronicles_react_pages.py'
-      - 'tests/test_chronicles_public_browser_workflow.py'
-      - 'scripts/chronicles_api_before_pages.py'
-      - 'scripts/chronicles_pages_verified_receipt.py'
-      - 'tests/test_chronicles_pages_verified_receipt.py'
-      - 'tests/test_chronicles_api_before_pages.py'
-      - 'docs/chronicles-pages-handoff.md'
   schedule:
     # Cross-repo main updates do not emit workflow_run events here.
     - cron: '47 * * * *'
