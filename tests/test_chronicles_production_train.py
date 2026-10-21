@@ -1,6 +1,9 @@
 """Daily release train: exact staging accreditation, ordered fail-closed deployment."""
+import json
+import os
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 import yaml
@@ -188,6 +191,78 @@ class ReleaseTrainTests(unittest.TestCase):
                                  "api-health", "api-ready", "api-cors",
                                  "dispatch-pages", "wait-pages", "receipt-pages",
                                  "final-audit"])
+
+    def test_partial_api_success_is_journaled_before_pages_failure(self):
+        stages = {"result": "blocked", "stage": "starting",
+                  "source_sha": None, "api_run": None, "pages_run": None}
+        actions = []
+        def start(kind, sha, token):
+            actions.append(kind)
+            return 101 if kind == "api" else 102
+        def wait(kind, run_id, token):
+            if kind == "pages":
+                raise train.TrainError("pages workflow failed")
+        with self.assertRaisesRegex(train.TrainError, "pages workflow failed"):
+            train.run(TOKEN, select=lambda *_: SHA, current=lambda *_: False,
+                      start=start, wait=wait, receipt=lambda *_: None,
+                      probe=lambda _: True, verify=lambda _: SHA,
+                      progress=stages)
+        self.assertEqual(actions, ["api", "pages"])
+        self.assertEqual(stages["source_sha"], SHA)
+        self.assertEqual(stages["api_run"], 101)
+        self.assertEqual(stages["pages_run"], 102)
+        self.assertEqual(stages["stage"], "pages-running")
+        self.assertEqual(stages["result"], "blocked")
+
+    def test_api_failure_records_api_id_without_dispatching_pages(self):
+        stages = {}
+        def failed_wait(kind, run_id, token):
+            raise train.TrainError("API failed")
+        with self.assertRaises(train.TrainError):
+            train.run(TOKEN, select=lambda *_: SHA, current=lambda *_: False,
+                      start=lambda kind, *_: 15, wait=failed_wait,
+                      progress=stages)
+        self.assertEqual(stages["stage"], "api-running")
+        self.assertEqual(stages["api_run"], 15)
+        self.assertNotIn("pages_run", stages)
+
+    def test_main_persists_failed_journal_without_any_secrets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            environ = {
+                "GITHUB_REPOSITORY": train.INFRA,
+                "GITHUB_REF": "refs/heads/main",
+                "GITHUB_EVENT_NAME": "workflow_dispatch",
+                "GH_TOKEN": "extremely-secret-token",
+                "RUNNER_TEMP": tmp,
+            }
+            def fail(token, pinned, *, progress):
+                self.assertEqual(token, environ["GH_TOKEN"])
+                train.progress_stage(progress, "pages-running",
+                                     source_sha=SHA, api_run=99, pages_run=100)
+                raise train.TrainError("pages check failed")
+            with patch.dict(os.environ, environ), patch.object(train, "run", side_effect=fail):
+                self.assertEqual(train.main(), 1)
+            artifact = json.loads((Path(tmp) / "chronicles-production-train.json").read_text())
+            self.assertEqual(artifact, {
+                "schema": 1, "result": "blocked", "stage": "pages-running",
+                "source_sha": SHA, "api_run": 99, "pages_run": 100,
+            })
+            self.assertNotIn(environ["GH_TOKEN"], json.dumps(artifact))
+
+    def test_preflight_failure_records_stage_and_uploads_artifact_always(self):
+        path = ROOT / ".github/workflows/chronicles-production-train.yml"
+        spec = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+        for job_name in ("train", "preflight"):
+            names = [step for step in spec["jobs"][job_name]["steps"]
+                     if step.get("uses") == "actions/upload-artifact@v4"]
+            self.assertEqual(len(names), 1)
+            self.assertEqual(names[0]["if"], "always()")
+            self.assertEqual(names[0]["with"]["if-no-files-found"], "error")
+        state = {}
+        with self.assertRaisesRegex(train.TrainError, "admission failed"):
+            train.preflight(TOKEN, select=lambda *_: (_ for _ in ()).throw(
+                train.TrainError("admission failed")), progress=state)
+        self.assertEqual(state["stage"], "candidate-admission")
 
     def test_failure_never_dispatches_pages(self):
         called = []
