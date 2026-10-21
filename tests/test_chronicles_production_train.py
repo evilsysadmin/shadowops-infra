@@ -227,6 +227,75 @@ class ReleaseTrainTests(unittest.TestCase):
                       start=lambda *a: self.fail("no rerun on unhealthy same SHA"),
                       verify=lambda _: OTHER)
 
+    def test_scheduled_release_blocks_degraded_existing_production_before_api(self):
+        for condition in (False, None):
+            with self.subTest(condition=condition):
+                progress = {}
+                dispatched = []
+                with self.assertRaisesRegex(train.TrainError, "before scheduled promotion"):
+                    train.run(
+                        TOKEN, select=lambda *_: SHA,
+                        current=lambda *_: False,
+                        scheduled=True, surface=lambda: condition,
+                        start=lambda *args: dispatched.append(args),
+                        progress=progress,
+                    )
+                self.assertEqual(dispatched, [])
+                self.assertEqual(progress["source_sha"], SHA)
+                self.assertEqual(progress["stage"], "existing-production-readiness")
+                self.assertNotIn("api_run", progress)
+
+    def test_scheduled_release_checks_current_production_before_dispatch(self):
+        order = []
+        def start(kind, sha, token):
+            order.append("start-" + kind)
+            return 51 if kind == "api" else 52
+        result = train.run(
+            TOKEN, select=lambda *_: SHA,
+            current=lambda *_: False,
+            scheduled=True,
+            surface=lambda: order.append("production-health") or True,
+            start=start,
+            wait=lambda *args: None,
+            receipt=lambda *args: None,
+            probe=lambda *_: True,
+            api_build=lambda: SHA,
+            verify=lambda _: SHA,
+        )
+        self.assertEqual(result["result"], "promoted")
+        self.assertEqual(order, ["production-health", "start-api", "start-pages"])
+
+    def test_manual_hotfix_may_repair_degraded_production_explicitly(self):
+        launches = []
+        train.run(
+            TOKEN, pinned=SHA, select=lambda *_: SHA,
+            current=lambda *_: False,
+            scheduled=False,
+            surface=lambda: self.fail("manual hotfix must not be gated on old health"),
+            start=lambda kind, *_: launches.append(kind) or len(launches),
+            wait=lambda *_: None,
+            receipt=lambda *_: None,
+            probe=lambda *_: True,
+            api_build=lambda: SHA,
+            verify=lambda _: SHA,
+        )
+        self.assertEqual(launches, ["api", "pages"])
+
+    def test_unchanged_scheduled_sha_uses_existing_complete_audit(self):
+        actions = []
+        state = {}
+        result = train.run(
+            TOKEN, select=lambda *_: SHA, current=lambda *_: True,
+            scheduled=True,
+            surface=lambda: self.fail("no secondary health check on unchanged SHA"),
+            start=lambda *_: self.fail("no deployment"),
+            verify=lambda *_: actions.append("full-audit") or SHA,
+            progress=state,
+        )
+        self.assertEqual(result["result"], "unchanged")
+        self.assertEqual(actions, ["full-audit"])
+        self.assertEqual(state["stage"], "completed")
+
     def test_new_sha_orders_api_then_pages_and_public_audit(self):
         steps = []
         def start(kind, sha, token):
@@ -336,8 +405,9 @@ class ReleaseTrainTests(unittest.TestCase):
                 "GH_TOKEN": "extremely-secret-token",
                 "RUNNER_TEMP": tmp,
             }
-            def fail(token, pinned, *, progress):
+            def fail(token, pinned, *, progress, scheduled):
                 self.assertEqual(token, environ["GH_TOKEN"])
+                self.assertFalse(scheduled)
                 train.progress_stage(progress, "pages-running",
                                      source_sha=SHA, api_run=99, pages_run=100)
                 raise train.TrainError("pages check failed")

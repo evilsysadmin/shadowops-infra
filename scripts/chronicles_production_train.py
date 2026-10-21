@@ -208,6 +208,7 @@ def run(token: str, pinned: str = "", *, select=select_sha,
         current=deployed_sha, start=dispatch, wait=wait_run,
         receipt=receipt_after, verify=public_audit,
         probe=check_api, api_build=read_live_api_build,
+        scheduled: bool = False, surface=production_surface_ready,
         progress: dict | None = None) -> dict:
     progress_stage(progress, "candidate-admission")
     sha = select(token, pinned)
@@ -221,6 +222,14 @@ def run(token: str, pinned: str = "", *, select=select_sha,
         print("CHRONICLES_TRAIN_NO_CHANGE sha=" + sha)
         return {"source_sha": sha, "result": "unchanged", "api_run": None,
                 "pages_run": None}
+    # Scheduled promotions are not automatic disaster recovery. If production
+    # was already degraded, preserve it and require an explicit human hotfix.
+    # Explicit manual promotions may deliberately repair an outage.
+    if scheduled:
+        progress_stage(progress, "existing-production-readiness")
+        if not surface():
+            raise TrainError("current production unhealthy before scheduled promotion")
+        progress_stage(progress, "existing-production-ready")
     progress_stage(progress, "api-dispatch")
     api_run = start("api", sha, token)
     progress_stage(progress, "api-running", api_run=api_run)
@@ -266,7 +275,9 @@ def main() -> int:
         source_sha = os.environ.get("CHRONICLES_TRAIN_SOURCE_SHA", "").strip()
         dry_run = os.environ.get("CHRONICLES_TRAIN_DRY_RUN", "").lower() == "true"
         result = (preflight(token, source_sha, progress=progress) if dry_run
-                  else run(token, source_sha, progress=progress))
+                  else run(token, source_sha,
+                           scheduled=os.environ["GITHUB_EVENT_NAME"] == "schedule",
+                           progress=progress))
         progress.update(result)
         return 0
     except (TrainError, PromotionError, urllib.error.URLError, ValueError,
