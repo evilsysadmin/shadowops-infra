@@ -11,6 +11,57 @@ PATH = ROOT / ".github/workflows/chronicles-pages-release.yml"
 
 
 class PublicBrowserWorkflow(unittest.TestCase):
+    def test_api_ready_skips_obsolete_infra_owner_before_pages_release(self):
+        workflow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
+        jobs = workflow['jobs']
+        gate = next(s for s in jobs['api-ready']['steps'] if s.get('id') == 'gate')
+        self.assertIn('chronicles_api_before_pages.py', gate['run'])
+        self.assertIn('repos/evilsysadmin/shadowops-infra/commits/main', gate['run'])
+        self.assertIn('CHRONICLES_PAGES_INFRA_SUPERSEDED_BEFORE_RELEASE', gate['run'])
+        self.assertIn('CHRONICLES_PAGES_INVALID_INFRA_SHA', gate['run'])
+        self.assertLess(gate['run'].index('owner_main='), gate['run'].index("echo 'publish=true'"))
+        self.assertEqual(jobs['release']['if'], "needs.api-ready.outputs.publish == 'true'")
+        # The independent owner admission is still required before any Pages mutation.
+        self.assertIn('pages_owner_admission.py',
+                      next(s['run'] for s in jobs['release']['steps']
+                           if s.get('name') == 'Require protected mains and single Pages owner before any mutations'))
+
+    def test_infra_owner_preflight_only_skips_a_proven_superseded_sha(self):
+        flow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
+        script = next(s['run'] for s in flow['jobs']['api-ready']['steps']
+                      if s.get('id') == 'gate')
+        owner_sha = 'a' * 40
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            gh = root / 'gh'
+            gh.write_text('#!/bin/sh\n'
+                          'if [ "$FAKE_GH_FAIL" = true ]; then exit 7; fi\n'
+                          'printf "%s\\n" "$FAKE_OWNER_MAIN"\n')
+            gh.chmod(0o755)
+            py = root / 'python3'
+            py.write_text('#!/bin/sh\nexit 0\n')
+            py.chmod(0o755)
+            for actual, lookup_error, code, publish in (
+                (owner_sha, 'false', 0, 'publish=true'),
+                ('b' * 40, 'false', 0, 'publish=false'),
+                ('bad-sha', 'false', 64, ''),
+                (owner_sha, 'true', 7, ''),
+            ):
+                with self.subTest(actual=actual, lookup_error=lookup_error):
+                    output = root / 'output'
+                    output.write_text('')
+                    env = dict(os.environ,
+                               PATH=f"{root}{os.pathsep}{os.environ.get('PATH', '')}",
+                               ADMITTED_SHA='c' * 40, GITHUB_SHA=owner_sha,
+                               FAKE_OWNER_MAIN=actual, FAKE_GH_FAIL=lookup_error,
+                               GITHUB_OUTPUT=str(output))
+                    run = subprocess.run(['bash', '-c', script], cwd=ROOT, env=env,
+                                         capture_output=True, text=True, check=False)
+                    self.assertEqual(run.returncode, code, run.stderr)
+                    self.assertEqual(output.read_text().strip(), publish)
+                    if publish == 'publish=false':
+                        self.assertIn('INFRA_SUPERSEDED_BEFORE_RELEASE', run.stdout)
+
     def test_browsers_are_live_public_and_after_http_smokes(self):
         workflow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
         jobs = workflow["jobs"]
