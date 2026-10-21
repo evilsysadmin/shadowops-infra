@@ -123,6 +123,40 @@ class PromotionGateTests(unittest.TestCase):
         self.assertFalse(any("chronicles-api-production-" in path for path in calls))
 
 
+    def test_old_receipt_cannot_approve_a_different_child_run(self):
+        def get(path, token):
+            self.assertEqual(token, TOKEN)
+            if "/actions/artifacts?" in path:
+                return {"total_count": 2, "artifacts": [
+                    {"name": "chronicles-api-production-" + SHA,
+                     "expired": False,
+                     "workflow_run": {"id": 91, "head_branch": "main"}},
+                    {"name": "chronicles-api-production-" + SHA,
+                     "expired": False,
+                     "workflow_run": {"id": 90, "head_branch": "main"}},
+                ]}
+            run_id = int(path.rsplit("/", 1)[-1])
+            return {"id": run_id, "path": promotion.RECEIPTS["production-api"][0],
+                    "status": "completed",
+                    "conclusion": "success" if run_id == 90 else "failure",
+                    "head_branch": "main", "event": "workflow_dispatch",
+                    "repository": {"full_name": promotion.INFRA}}
+
+        # Without a correlated run ID, historical healthy receipts remain
+        # useful for read-only audits and already deployed same-SHA checks.
+        self.assertTrue(promotion.verified_receipt(SHA, "production-api", TOKEN, get))
+        self.assertTrue(promotion.verified_receipt(
+            SHA, "production-api", TOKEN, get, expected_run_id=90))
+        self.assertFalse(promotion.verified_receipt(
+            SHA, "production-api", TOKEN, get, expected_run_id=91))
+        self.assertFalse(promotion.verified_receipt(
+            SHA, "production-api", TOKEN, get, expected_run_id=92))
+        for invalid in (True, "90", -2, 0):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(promotion.PromotionError, "expected receipt"):
+                    promotion.verified_receipt(
+                        SHA, "production-api", TOKEN, get, expected_run_id=invalid)
+
     def test_production_pages_receipt_requires_main_workflow_dispatch(self):
         def get(path, token):
             self.assertEqual(token, TOKEN)
