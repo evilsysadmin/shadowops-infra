@@ -92,17 +92,23 @@ class TargetPreflight(unittest.TestCase):
         self.assertLess(manifest, receipt)
         self.assertIn("VITE_API_URL: https://chronicles-api.shadowops.dpdns.org/api", content)
         api_source_gate = 'scripts/chronicles_production_audit.py --verify-api-sha'
-        self.assertEqual(content.count(api_source_gate), 2)
+        self.assertEqual(content.count(api_source_gate), 3)
         first = content.index("Require actual production API SHA before Pages mutations")
         owner = content.index("Require protected mains and single Pages owner")
         project = content.index("scripts/chronicles_pages.py project")
         publish = content.index("npx --yes wrangler@")
-        second = content.rindex(api_source_gate)
+        second = content.index(api_source_gate, first + 1)
+        third = content.rindex(api_source_gate)
+        cert = content.index("Record verified production Pages evidence")
         self.assertLess(api, first)
         self.assertLess(first, owner)
         self.assertLess(owner, project)
         self.assertLess(project, second)
         self.assertLess(second, publish)
+        self.assertLess(publish, web)
+        self.assertLess(web, manifest)
+        self.assertLess(manifest, third)
+        self.assertLess(third, cert)
 
 
 
