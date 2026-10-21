@@ -587,6 +587,15 @@ jobs:
               raise SystemExit("CHRONICLES_PRODUCTION_MANIFEST_MISMATCH")
           print("CHRONICLES_PAGES_PRODUCTION_SHA_OK")
           PY
+      - name: Recheck live API SHA before certifying production Pages
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          # A different API could have appeared during the Pages build/deploy.
+          # Never issue an exact-SHA production receipt in that condition.
+          python3 scripts/chronicles_production_audit.py --verify-api-sha "$EXPECTED_SHA"
       - name: Record verified production Pages evidence
         shell: bash
         env:
