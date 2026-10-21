@@ -28,7 +28,7 @@ Producción es igual que staging, con su propio estado. Nada se comparte salvo e
 - Si producción ya sirve ese SHA con recibos válidos y API sana, no despliega nada. Si ese mismo SHA está degradado, **falla cerrado** en lugar de declarar éxito o forzar un despliegue.
 - Para una versión nueva, despacha el workflow de API con SHA exacto, espera a su **run ID devuelto por GitHub**, exige resultado verde, recibo y health/ready/CORS. **Solo entonces** despacha Pages y vuelve a exigir run verde, recibo y auditoría pública exacta.
 - Los despliegues siguen siendo propiedad exclusiva de sus dos workflows protegidos. El tren solo dispone de `actions: write` y `contents: read`; no recibe secretos Atlas/OCI/Cloudflare. Se serializan los trenes entre sí, y cada workflow hijo mantiene sus locks propios.
-- Los runs y el SHA elegido se registran en un artefacto JSON del train (90 días). Si falla Pages después de API, **no** se toca Mongo ni se aplica un rollback ciego: requiere intervención y comprobación de compatibilidad de datos.
+- Los runs y el SHA elegido se registran en un artefacto JSON del train (90 días), **incluso si falla**: conserva etapa alcanzada y los IDs exactos de los workflows hijos, sin almacenar tokens ni respuestas privadas. Si falla Pages después de API, el registro indica el despliegue parcial; **no** se toca Mongo ni se aplica un rollback ciego: requiere intervención y comprobación de compatibilidad de datos.
 - Producción requiere el entorno de GitHub `production`; si se configuran aprobaciones, se respetarán antes de ejecutar el train.
 
 ### Simulacro de admisión (sin desplegar nada)
