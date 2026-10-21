@@ -99,7 +99,7 @@ Los recibos prueban qué imagen se desplegó, pero **no** qué contenedor respon
 
 Si el binario antiguo no incorpora todavía el SHA, o si Cloudflare sirve una revisión distinta, el control falla cerrado; no debe marcarse el estado como sano, ni inventar un SHA basándose en el artefacto histórico. No se revela ningún token ni se escribe nada.
 
-El workflow de **Pages producción manual** aplica el mismo guard de lectura dos veces: tras comprobar recibos y salud, antes de la primera mutación de Cloudflare y de nuevo inmediatamente antes de `wrangler pages deploy`. Así un operador que salte el release train no puede publicar un frontend incompatible con la API viva. La comprobación falla cerrado si `/api/release.build` no está disponible; hay que promocionar primero una API compatible y acreditada.
+El workflow de **Pages producción manual** aplica el mismo guard de lectura tres veces: tras comprobar recibos y salud, antes de la primera mutación de Cloudflare, inmediatamente antes de `wrangler pages deploy` y **después de verificar HTTPS y el manifest**, justo antes de emitir el recibo de producción. Así un operador que salte el release train no puede publicar un frontend incompatible con la API viva. La comprobación falla cerrado si `/api/release.build` no está disponible; hay que promocionar primero una API compatible y acreditada.
 
 ### Verificación de disponibilidad de SSO (sin credenciales)
 
