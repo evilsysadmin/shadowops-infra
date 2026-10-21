@@ -35,6 +35,14 @@ for (const width of [360, 390, 430, 1440]) {
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
     expect(shaderErrors, 'WebGL shader compiles cleanly').toEqual([]);
     if (await page.locator('.stage').getAttribute('data-scene') === 'active') {
+      const budgets = await page.locator('.stage').evaluate(stage => ({
+        calls: Number(stage.dataset.drawCalls), tris: Number(stage.dataset.triangles),
+      }));
+      expect(budgets.calls, '3D gallery bounded draw calls').toBeGreaterThan(0);
+      expect(budgets.calls, '3D gallery bounded draw calls').toBeLessThan(86);
+      expect(budgets.tris, '3D gallery bounded triangles').toBeLessThan(260000);
+    }
+    if (await page.locator('.stage').getAttribute('data-scene') === 'active') {
       const canvasScreenshot = await page.locator('.stage canvas').screenshot({animations:'disabled'});
       assertVisibleWebGLContent(canvasScreenshot);
     }

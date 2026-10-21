@@ -60,3 +60,7 @@ always ready first; a missing 3D device only switches the presentation.
 ## Vistas temáticas (estudio artístico)
 
 The observatory uses **three different procedural material studies**, not one recolored noise curtain: a silhouetted golden chess throne with perspective flooring, a torchlit receding dungeon, and a planetary starship observation pane. The shared gallery now has a stone backdrop, structural arch ribs, bronze detailing and a perspective floor. These assets remain technical studies: **do not declare the 3D visual quality premium until authored GLB art and physical GPU screenshots are reviewed**. The game routes, root DNS, and Cloudflare owners remain unaffected.
+
+## Architectural material pass
+
+Stone surfaces now use seeded, generated albedo, tangent-space normal and roughness maps; backdrop niches, instanced voussoirs, and a restrained lighting scheme give the three entrances actual depth. They are material studies, **not a substitute for licensed production GLB art**. Chrome CI checks WebGL shader errors, screenshots at 360/390/430/1440 px, and a conservative render-budget contract (under 86 draw calls and 260K triangles). No Cloudflare/OCI/Render mutation.

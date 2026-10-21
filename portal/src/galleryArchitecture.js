@@ -1,122 +1,200 @@
-
 import * as THREE from 'three';
 
-/**
- * A standalone, easy-to-remove material and architecture study.
- * The final gallery must use authored/verified GLB + compressed textures.
- * Architectural details are batched where possible; avoid cast shadows here.
- */
-function stoneTexture() {
+// Deterministic, locally created materials: no opaque external assets,
+// no blocking texture fetches, and no random output between CI screenshots.
+// These maps are an architectural study, not a replacement for final GLB art.
+function materialMaps() {
   const size = 256;
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  const image = ctx.createImageData(size, size);
-  let seed = 592112;
-  const rng=() => {
-    seed=(Math.imul(seed,1664525)+1013904223)>>>0;
-    return seed/4294967296;
+  const heights = new Float32Array(size * size);
+  const pixels = new Uint8Array(size * size * 4);
+  const normals = new Uint8Array(size * size * 4);
+  const roughness = new Uint8Array(size * size * 4);
+  const hash = (x, y) => {
+    let n = Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263);
+    n = Math.imul(n ^ (n >>> 13), 1274126177);
+    return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
   };
-  for(let y=0;y<size;y++){
-    for(let x=0;x<size;x++){
-      const band=8*Math.sin(y*.07)+4*Math.sin(x*.045+y*.1);
-      const grain=(rng()-.5)*24 + band;
-      const g=Math.max(0,Math.min(255,124+grain));
-      const index=4*(y*size+x);
-      image.data[index]=g;
-      image.data[index+1]=g+2;
-      image.data[index+2]=g+5;
-      image.data[index+3]=255;
+  // Relief across the edges tiles with the baseColor/normal textures.
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const jointY = Math.min(y % 64, 64 - y % 64);
+      const shiftedX = (x + (Math.floor(y / 64) % 2 ? 64 : 0)) % 128;
+      const jointX = Math.min(shiftedX, 128 - shiftedX);
+      const seam = jointY < 2 || jointX < 2 ? -.22 : 0;
+      const low = .07 * Math.sin(x * .086) * Math.sin(y * .073);
+      const mid = .032 * Math.sin(x * .32 + y * .17);
+      const grit = (hash(x,y) - .5) * .072;
+      heights[y * size + x] = .55 + low + mid + grit + seam;
     }
   }
-  ctx.putImageData(image,0,0);
-  const texture=new THREE.CanvasTexture(canvas);
-  texture.colorSpace=THREE.SRGBColorSpace;
-  texture.wrapS=texture.wrapT=THREE.RepeatWrapping;
-  texture.repeat.set(3,3);
-  texture.anisotropy=4;
-  return texture;
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const at = (a,b) => heights[((b + size) % size) * size + ((a + size) % size)];
+    const i = (y * size + x) * 4;
+    const h = at(x,y);
+    const speck = (hash(x+71,y+23) - .5) * 13;
+    const value = Math.max(22, Math.min(226, 164 + (h - .55) * 108 + speck));
+    pixels[i] = value;
+    pixels[i+1] = value + 1;
+    pixels[i+2] = value + 4;
+    pixels[i+3] = 255;
+    const dx = (at(x+1,y) - at(x-1,y)) * 1.85;
+    const dy = (at(x,y+1) - at(x,y-1)) * 1.85;
+    const nx = -dx, ny = -dy, nz = 1;
+    const len = Math.hypot(nx,ny,nz);
+    normals[i] = Math.round((nx/len*.5+.5)*255);
+    normals[i+1] = Math.round((ny/len*.5+.5)*255);
+    normals[i+2] = Math.round((nz/len*.5+.5)*255);
+    normals[i+3] = 255;
+    // Three.js reads GREEN for roughness.
+    roughness[i] = roughness[i+2] = 228;
+    roughness[i+1] = Math.max(165, Math.min(250, Math.round(216 + (hash(x+41,y+51)-.5)*32)));
+    roughness[i+3] = 255;
+  }
+  function tex(data, isColor=false) {
+    const result = new THREE.DataTexture(data,size,size,THREE.RGBAFormat,THREE.UnsignedByteType);
+    result.wrapS = result.wrapT = THREE.RepeatWrapping;
+    result.minFilter = THREE.LinearMipmapLinearFilter;
+    result.magFilter = THREE.LinearFilter;
+    result.generateMipmaps = true;
+    result.anisotropy = 4;
+    if (isColor) result.colorSpace = THREE.SRGBColorSpace;
+    result.needsUpdate = true;
+    return result;
+  }
+  const textures = [tex(pixels,true),tex(normals),tex(roughness)];
+  return {textures, color:textures[0], normal:textures[1], rough:textures[2]};
 }
-
-function archCurve(x,z,offset=0){
-  const w=1.09+offset;
-  const points=[
-    [-w,.12],[-w,1.45],[-w*.92,2.22],
-    [-w*.65,2.75],[-w*.31,3.14],[0,3.28+offset],
-    [w*.31,3.14],[w*.65,2.75],[w*.92,2.22],
-    [w,1.45],[w,.12],
-  ].map(([px,py])=>new THREE.Vector3(x+px,py,z));
-  return new THREE.CatmullRomCurve3(points,false,'centripetal');
+function archCurve(x,z) {
+  const w=1.085;
+  return new THREE.CatmullRomCurve3([
+    [-w,.14],[-w,1.43],[-w*.93,2.22],[-w*.65,2.76],
+    [-w*.31,3.12],[0,3.27],[w*.31,3.12],
+    [w*.65,2.76],[w*.93,2.22],[w,1.43],[w,.14],
+  ].map(([px,py])=>new THREE.Vector3(x+px,py,z)),false,'centripetal');
 }
-
-export function addGalleryArchitecture(scene, coords, mobile=false){
-  const sharedTexture=stoneTexture();
+export function addGalleryArchitecture(scene, coords, mobile=false) {
+  const maps=materialMaps();
   const stone = new THREE.MeshStandardMaterial({
-    color:0x4d5767,roughness:.86,metalness:.05,map:sharedTexture
+    color:0x9ca2ab, metalness:.03, roughness:1,
+    map:maps.color, normalMap:maps.normal, roughnessMap:maps.rough,
+    normalScale:new THREE.Vector2(.65,.65),
   });
   const bronze = new THREE.MeshStandardMaterial({
-    color:0xb4a17b, metalness:.77, roughness:.33
+    color:0xb6a17d,metalness:.73,roughness:.31,
   });
-  const wall=new THREE.Mesh(new THREE.PlaneGeometry(15,7),stone);
-  wall.position.set(0,2.9,-1.65);
-  scene.add(wall);
-  const floor=new THREE.Mesh(new THREE.PlaneGeometry(20,19),stone);
+  const dark = new THREE.MeshStandardMaterial({
+    color:0x121923,metalness:.20,roughness:.69,
+  });
+  const back = new THREE.Mesh(new THREE.PlaneGeometry(15,7),stone);
+  back.position.set(0,2.9,-1.85);
+  scene.add(back);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(20,19),stone);
   floor.rotation.x=-Math.PI/2;
-  floor.position.y=-.60;
+  floor.position.y=-.59;
   scene.add(floor);
+  // Recessed rear walls establish real relief around each destination.
+  // They remain behind the interactive shader plane and its raycast surface.
+  const recesses = new THREE.InstancedMesh(new THREE.BoxGeometry(2.35,3.25,.14),dark,coords.length);
+  const object = new THREE.Object3D();
+  coords.forEach((x,i)=>{
+    object.position.set(x,1.65,-1.60);
+    object.rotation.set(0,0,0);
+    object.scale.set(1,1,1);
+    object.updateMatrix();
+    recesses.setMatrixAt(i,object.matrix);
+  });
+  recesses.instanceMatrix.needsUpdate=true;
+  scene.add(recesses);
 
-  // Fine perspective inlay instead of dozens of independent tile meshes.
-  const inlay=new THREE.LineBasicMaterial({color:0xb79d75,transparent:true,opacity:.27});
+  // Hand-cut voussoir impression from one shared instanced mesh, rather
+  // than one GPU draw call per decorative stone. No low-poly block walls.
+  const voussoirCount = mobile ? 39 : 63;
+  const voussoirs = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(.28,.21,.32),
+    stone,
+    voussoirCount,
+  );
+  let k=0;
+  const up=new THREE.Vector3(0,1,0);
+  for (const x of coords) {
+    const curve=archCurve(x,-1.18);
+    const n=mobile?13:21;
+    for(let i=0;i<n;i++){
+      const u=(i+.5)/n;
+      const tangent=curve.getTangent(u).normalize();
+      object.position.copy(curve.getPoint(u));
+      object.quaternion.setFromUnitVectors(up,tangent);
+      object.scale.set(1,1,1);
+      object.updateMatrix();
+      voussoirs.setMatrixAt(k++,object.matrix);
+    }
+  }
+  voussoirs.instanceMatrix.needsUpdate = true;
+  scene.add(voussoirs);
+
+  // Bronze structural crowns make the three archways read as ONE hall.
+  const upperBeam = new THREE.Mesh(new THREE.BoxGeometry(11.5,.11,.25),bronze);
+  upperBeam.position.set(0,3.77,-1.18);
+  scene.add(upperBeam);
+  const stoneBeam = new THREE.Mesh(new THREE.BoxGeometry(12,.25,.45),stone);
+  stoneBeam.position.set(0,4.04,-1.31);
+  scene.add(stoneBeam);
+  const pilasters=new THREE.InstancedMesh(new THREE.BoxGeometry(.33,3.20,.49),stone,8);
+  const columnXs=[-4.9,-4.37,-1.93,-1.57,1.57,1.93,4.37,4.9];
+  columnXs.forEach((x,i)=>{
+    object.position.set(x,1.49,-1.52);
+    object.rotation.set(0,0,0);
+    object.scale.set(1,1,1);
+    object.updateMatrix();
+    pilasters.setMatrixAt(i,object.matrix);
+  });
+  pilasters.instanceMatrix.needsUpdate = true;
+  scene.add(pilasters);
+
+  // Floor inlay follows perspective rather than a floating platform grid.
+  const inlay=new THREE.LineBasicMaterial({color:0xb9a27e,transparent:true,opacity:.26});
   const lines=[];
-  for(let x=-9;x<=9;x+=2.25)lines.push(x,-.588,-9,x,-.588,8);
-  for(let z=-8;z<=8;z+=2.25)lines.push(-9,-.587,z,9,-.587,z);
-  const wire=new THREE.BufferGeometry();
-  wire.setAttribute('position',new THREE.Float32BufferAttribute(lines,3));
-  const grout=new THREE.LineSegments(wire,inlay);
-  scene.add(grout);
+  for(let x=-9;x<=9;x+=2.25)lines.push(x,-.577,-9,x,-.577,8);
+  for(let z=-8;z<=8;z+=2.25)lines.push(-9,-.576,z,9,-.576,z);
+  const grid=new THREE.BufferGeometry();
+  grid.setAttribute('position',new THREE.Float32BufferAttribute(lines,3));
+  scene.add(new THREE.LineSegments(grid,inlay));
 
-  // Stone vault ribs repeat via shared geometry, not primitive kitbash blocks.
-  for(const x of coords){
-    for(const [z,diameter,material] of [
-      [-.94,.19,stone],[-.82,.085,bronze],[-.63,.07,stone]
-    ]){
-      const arch=new THREE.Mesh(
-        new THREE.TubeGeometry(archCurve(x,z),100,diameter,10,false),
-        material
-      );
-      scene.add(arch);
-    }
-    for(const side of [-1,1]){
-      const pole=new THREE.Mesh(new THREE.CylinderGeometry(.19,.24,2.55,24),stone);
-      pole.position.set(x+side*1.08,1.28,-.90);
-      scene.add(pole);
-      const collar=new THREE.Mesh(new THREE.CylinderGeometry(.27,.26,.12,24),bronze);
-      collar.position.set(x+side*1.08,2.57,-.90);
-      scene.add(collar);
-    }
-  }
-  // A gallery lintel ties the separate worlds together as one observatory.
-  const lintel = new THREE.Mesh(new THREE.BoxGeometry(11.75,.16,.32),bronze);
-  lintel.position.set(0,3.67,-1.06);
-  scene.add(lintel);
-  const lintelStone = new THREE.Mesh(new THREE.BoxGeometry(12,.27,.53),stone);
-  lintelStone.position.set(0,3.94,-1.05);
-  scene.add(lintelStone);
-  // Repeating gold inlays: instantiate for a bounded draw-call footprint.
-  if(!mobile){
-    const geo=new THREE.BoxGeometry(.055,.12,.015);
-    const marks=new THREE.InstancedMesh(geo,bronze,88);
-    const pose=new THREE.Object3D();
-    for(let i=0;i<88;i++){
-      pose.position.set(-5.75+i*(11.5/87),3.83,-.76);
-      pose.updateMatrix();
-      marks.setMatrixAt(i,pose.matrix);
-    }
-    marks.instanceMatrix.needsUpdate=true;
-    scene.add(marks);
-  }
-  const galleryLight=new THREE.PointLight(0xdfc89f,7.5,14,2);
-  galleryLight.position.set(0,4.7,2.2);
-  scene.add(galleryLight);
-  return { dispose:()=>sharedTexture.dispose() };
+  // Sculpt a soft pool of light beneath each arch. Additive quads and a
+  // compact shader share one material, not shadow maps or postprocessing.
+  const GLOW_VERTEX = [
+    'varying vec2 vUv;',
+    'void main() { vUv = uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }',
+  ].join('\n');
+  const GLOW_FRAGMENT = [
+    'uniform vec3 uColor; varying vec2 vUv;',
+    'void main(){',
+    ' vec2 p=(vUv-.5)*vec2(1.5,1.);',
+    ' float a=pow(max(0.,1.-length(p)*1.8),2.7)*.23;',
+    ' gl_FragColor=vec4(uColor*a,a);',
+    '}',
+  ].join('\n');
+  const groundLights=[];
+  const palette=[0xc59b62,0xc9704a,0x54a5d4];
+  coords.forEach((x,i)=>{
+    const beamMat=new THREE.ShaderMaterial({
+      vertexShader:GLOW_VERTEX, fragmentShader:GLOW_FRAGMENT,
+      uniforms:{uColor:{value:new THREE.Color(palette[i])}},
+      depthWrite:false,transparent:true,blending:THREE.AdditiveBlending,
+      side:THREE.DoubleSide,
+    });
+    const beam = new THREE.Mesh(new THREE.PlaneGeometry(2.55,3.0),beamMat);
+    beam.position.set(x,2.34,-1.42);
+    scene.add(beam);
+    groundLights.push(beam);
+  });
+  const topLight=new THREE.PointLight(0xdfb889,15,13,2);
+  topLight.position.set(0,5,1.9);
+  scene.add(topLight);
+  const blueFill=new THREE.DirectionalLight(0x7c9ec4,.8);
+  blueFill.position.set(4,3,5);
+  scene.add(blueFill);
+  return {
+    dispose() { for(const texture of maps.textures) texture.dispose(); },
+  };
 }
