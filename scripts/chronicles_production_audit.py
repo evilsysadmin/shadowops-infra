@@ -11,6 +11,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -19,6 +20,7 @@ from chronicles_production_admission import verified_receipt
 
 ORIGIN = "https://chronicles.shadowops.dpdns.org"
 API = "https://chronicles-api.shadowops.dpdns.org"
+API_RELEASE = API + "/api/release"
 SSO_JWKS = "https://api.chess-studio.shadowops.dpdns.org/api/identity/jwks"
 SHA = re.compile(r"[0-9a-f]{40}")
 
@@ -63,6 +65,36 @@ def check_api(path: str) -> bool:
     return True
 
 
+def read_live_api_build() -> str | None:
+    """Read the API's runtime source SHA, not the historical image receipt.
+
+    Fixed public production URL; malformed/unavailable/redirected identity
+    fails closed. No secrets, user accounts or data writes.
+    """
+    req = urllib.request.Request(
+        API_RELEASE + "?production_sha_check=" + str(time.time_ns()),
+        headers={
+            "Accept": "application/json",
+            "Cache-Control": "no-cache",
+            "User-Agent": "ChroniclesProductionAudit/1",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as response:
+            if response.status != 200 or response.geturl().partition("?")[0] != API_RELEASE:
+                return None
+            raw = response.read(4097)
+        if len(raw) > 4096:
+            return None
+        payload = json.loads(raw)
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError, TypeError, UnicodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    build = payload.get("build")
+    return build if isinstance(build, str) and SHA.fullmatch(build) else None
+
+
 def check_sso_jwks() -> bool:
     """Prove the production Chess Studio issuer publishes usable public Ed25519 keys.
 
@@ -105,7 +137,7 @@ def check_sso_jwks() -> bool:
 
 def audit(token: str, *, manifest=read_release, page=probe_https,
           assets=probe_react_preview, api=check_api, receipt=verified_receipt,
-          sso=check_sso_jwks) -> str:
+          sso=check_sso_jwks, api_build=read_live_api_build) -> str:
     if os.environ.get("CHRONICLES_PAGES_ENV") != "production" or not token:
         raise AuditError("production environment and read token required")
     data = manifest()
@@ -119,6 +151,8 @@ def audit(token: str, *, manifest=read_release, page=probe_https,
     for path in ("health", "ready", "cors"):
         if not api(path):
             raise AuditError("production API " + path + " failed")
+    if api_build() != sha:
+        raise AuditError("production API public source SHA missing or mismatched")
     if not sso():
         raise AuditError("production SSO issuer public JWKS unavailable or invalid")
     for kind in ("production-api", "production-pages"):

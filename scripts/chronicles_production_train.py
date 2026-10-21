@@ -16,7 +16,7 @@ import urllib.error
 import urllib.request
 
 from chronicles_production_admission import INFRA, SHA, PromotionError, admit, verified_receipt
-from chronicles_production_audit import audit as public_audit, check_api, read_release
+from chronicles_production_audit import audit as public_audit, check_api, read_release, read_live_api_build
 
 STAGING = "https://staging.chronicles.shadowops.dpdns.org/release.json"
 API_WORKFLOW = "chronicles-api-staging.yml"
@@ -180,7 +180,8 @@ def preflight(token: str, pinned: str = "", *, select=select_sha,
 def run(token: str, pinned: str = "", *, select=select_sha,
         current=deployed_sha, start=dispatch, wait=wait_run,
         receipt=receipt_after, verify=public_audit,
-        probe=check_api, progress: dict | None = None) -> dict:
+        probe=check_api, api_build=read_live_api_build,
+        progress: dict | None = None) -> dict:
     progress_stage(progress, "candidate-admission")
     sha = select(token, pinned)
     progress_stage(progress, "production-inspection", source_sha=sha)
@@ -204,6 +205,9 @@ def run(token: str, pinned: str = "", *, select=select_sha,
     if not all(probe(p) for p in ("health", "ready", "cors")):
         raise TrainError("production API public smoke failed after API deployment")
     progress_stage(progress, "api-public-ready")
+    if api_build() != sha:
+        raise TrainError("production API public source SHA missing or mismatched")
+    progress_stage(progress, "api-source-matched")
     pages_run = start("pages", sha, token)
     progress_stage(progress, "pages-running", pages_run=pages_run)
     wait("pages", pages_run, token)

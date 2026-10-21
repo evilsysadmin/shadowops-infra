@@ -34,7 +34,8 @@ class Response:
 
 class ProductionAuditTests(unittest.TestCase):
     def checked(self, *, manifest=None, page="ok", assets="ok", api=None,
-                receipt=None, sso=True, token="read-token", env="production"):
+                receipt=None, sso=True, api_build=SHA,
+                token="read-token", env="production"):
         calls = []
         def api_probe(name):
             calls.append(name)
@@ -53,6 +54,7 @@ class ProductionAuditTests(unittest.TestCase):
                 assets=lambda **kwargs: assets,
                 api=api_probe, receipt=receipt_probe,
                 sso=lambda: calls.append("sso-jwks") or sso,
+                api_build=lambda: calls.append("api-build") or api_build,
             )
         return result, calls
 
@@ -60,7 +62,7 @@ class ProductionAuditTests(unittest.TestCase):
         sha, calls = self.checked()
         self.assertEqual(sha, SHA)
         self.assertEqual(calls, [
-            "health", "ready", "cors", "sso-jwks",
+            "health", "ready", "cors", "api-build", "sso-jwks",
             "production-api", "production-pages",
         ])
 
@@ -72,6 +74,8 @@ class ProductionAuditTests(unittest.TestCase):
             {"page": "tls_error"},
             {"assets": "unexpected_content"},
             {"api": lambda path: path != "cors"},
+            {"api_build": None},
+            {"api_build": "b" * 40},
             {"sso": False},
             {"receipt": lambda kind: kind != "production-api"},
             {"receipt": lambda kind: kind != "production-pages"},
@@ -93,6 +97,35 @@ class ProductionAuditTests(unittest.TestCase):
                           return_value=Response("https://example.com/release.json", data=payload)):
             with self.assertRaises(audit.AuditError):
                 audit.read_release()
+
+    def test_runtime_api_release_requires_exact_fixed_production_origin_and_sha(self):
+        url = audit.API_RELEASE
+        self.assertEqual(url, "https://chronicles-api.shadowops.dpdns.org/api/release")
+        payload = ('{"release":"v1","build":"' + SHA + '"}').encode()
+        with patch.object(audit.urllib.request, "urlopen",
+                          return_value=Response(url, data=payload)) as opener:
+            self.assertEqual(audit.read_live_api_build(), SHA)
+            request = opener.call_args.args[0]
+            self.assertTrue(request.full_url.startswith(url + "?production_sha_check="))
+            self.assertEqual(request.get_method(), "GET")
+            self.assertIsNone(request.get_header("Authorization"))
+            self.assertIsNone(request.get_header("Cookie"))
+        for response in (
+            Response("https://evil.example/release", data=payload),
+            Response(url, status=503, data=payload),
+            Response(url, data=b"{}"),
+            Response(url, data=b'{"build":"invalid"}'),
+            Response(url, data=b'{"build":42}'),
+            Response(url, data=b'[]'),
+            Response(url, data=b'not-json'),
+            Response(url, data=b" " * 4097),
+        ):
+            with self.subTest(url=response.url, size=len(response.data)):
+                with patch.object(audit.urllib.request, "urlopen", return_value=response):
+                    self.assertIsNone(audit.read_live_api_build())
+        with patch.object(audit.urllib.request, "urlopen",
+                          side_effect=TimeoutError):
+            self.assertIsNone(audit.read_live_api_build())
 
     def test_daily_audit_uses_madrid_wall_clock_and_follows_train(self):
         workflow = (Path(__file__).resolve().parents[1] /
