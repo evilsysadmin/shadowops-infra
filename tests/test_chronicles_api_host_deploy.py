@@ -223,6 +223,18 @@ class ProvisionAndReleaseContracts(unittest.TestCase):
         provision.retire_legacy(foreign, "zone", tunnel + ".cfargotunnel.com")
         self.assertFalse(any(m == "DELETE" for m, _ in foreign.calls))
 
+    def test_oci_phase_timing_is_bounded_and_contains_only_fixed_labels(self):
+        self.assertEqual(
+            release.phase_timing(100.0, 106.9, 111.2, 347.4),
+            "CHRONICLES_API_OCI_PHASE_SECONDS preflight=6 dispatch=4 execution=236",
+        )
+        self.assertEqual(
+            release.phase_timing(10.0, 9.0, 8.0, 7.0),
+            "CHRONICLES_API_OCI_PHASE_SECONDS preflight=0 dispatch=0 execution=0",
+        )
+        self.assertNotIn(DIGEST, release.phase_timing(0.0, 1.0, 2.0, 3.0))
+        self.assertNotIn(VAULT, release.phase_timing(0.0, 1.0, 2.0, 3.0))
+
     def test_release_command_carries_no_secret(self):
         command = release.command_for(DIGEST, VAULT)
         self.assertIn("/usr/local/sbin/shadowops-chronicles-api deploy " + DIGEST + " " + VAULT, command)
