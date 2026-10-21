@@ -131,7 +131,7 @@ async function loadScene() {
   try {
     const { mountObservatory } = await import('./world.js');
     scene = mountObservatory(stage, selectWorld);
-    scene.focusWorld(selected);
+    scene.focusWorld(selected, false);
     fallback.hidden = true;
     stage.dataset.scene = 'active';
     const canvas = stage.querySelector('canvas');
@@ -143,7 +143,7 @@ async function loadScene() {
         stage.classList.remove('no-webgl');
         stage.dataset.scene = 'active';
         fallback.hidden = true;
-        scene.focusWorld(selected);
+        scene.focusWorld(selected, false);
       }
     });
   } catch (error) {

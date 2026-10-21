@@ -41,6 +41,7 @@ for (const width of [360, 390, 430, 1440]) {
       expect(budgets.calls, '3D gallery bounded draw calls').toBeGreaterThan(0);
       expect(budgets.calls, '3D gallery bounded draw calls').toBeLessThan(86);
       expect(budgets.tris, '3D gallery bounded triangles').toBeLessThan(260000);
+      await expect(page.locator('.stage')).toHaveAttribute('data-render-budget', width < 500 ? '30' : '45');
     }
     if (await page.locator('.stage').getAttribute('data-scene') === 'active') {
       const canvasScreenshot = await page.locator('.stage canvas').screenshot({animations:'disabled'});
@@ -53,6 +54,14 @@ for (const width of [360, 390, 430, 1440]) {
     await page.getByRole('button', {name: /Star Adventures/}).click();
     await expect(page.locator('.detail-title')).toHaveText('Star Adventures');
     await expect(page.getByText('EN DESARROLLO')).toBeVisible();
+    if (await page.locator('.stage').getAttribute('data-scene') === 'active') {
+      const selected = await page.locator('.stage').evaluate(stage => ({
+        world: stage.dataset.focusWorld,
+        blend: Number(stage.dataset.focusBlend),
+      }));
+      expect(selected.world).toBe('star');
+      expect(selected.blend, 'Reduced motion focus applies immediately').toBeGreaterThan(.95);
+    }
     await expect(page.locator('a.enter-link')).toHaveCount(0);
     await page.getByRole('button', {name: /Chess Studio/}).click();
     await expect(page.locator('a.enter-link')).toHaveAttribute('href', 'https://chess-studio.shadowops.dpdns.org/');
