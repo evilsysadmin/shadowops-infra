@@ -89,16 +89,19 @@ def api_receipt_available(sha: str, token: str, *, get=fetch) -> bool:
 
 
 def probe_public(path: str) -> bool:
-    """Require real public 2xx responses, not merely a historical deploy receipt."""
+    """Require the exact HTTPS API origin, never a redirected healthy server."""
+    if path not in {"health", "ready"}:
+        return False
+    url = API_ORIGIN + "/" + path
     request = urllib.request.Request(
-        API_ORIGIN + "/" + path,
+        url,
         headers={"Accept": "application/json", "Cache-Control": "no-cache",
                  "User-Agent": "shadowops-chronicles-api-admission/1"},
     )
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
-            return 200 <= response.status < 300
-    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+            return response.status == 200 and response.geturl() == url
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError, AttributeError):
         return False
 
 
@@ -122,10 +125,17 @@ def read_public_build(*, opener=urllib.request.urlopen) -> str | None:
     )
     try:
         with opener(request, timeout=10) as response:
-            if response.status != 200:
+            # A 200 from another host (or another API path) is not evidence
+            # of the deployed staging binary, even with a plausible SHA.
+            if (response.status != 200
+                    or response.geturl().partition("?")[0] != API_ORIGIN + "/release"):
                 return None
-            data = json.loads(response.read(4096))
-    except (urllib.error.URLError, TimeoutError, OSError, ValueError, UnicodeError):
+            raw = response.read(4097)
+        if len(raw) > 4096:
+            return None
+        data = json.loads(raw)
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError,
+            UnicodeError, AttributeError):
         return None
     if not isinstance(data, dict):
         return None
