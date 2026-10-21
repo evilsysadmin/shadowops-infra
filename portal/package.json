@@ -9,7 +9,11 @@
     "preview": "vite preview --host 127.0.0.1",
     "check": "node --check src/main.js && node --check src/world.js && node --check src/portalVistas.js && node --check src/galleryArchitecture.js && node --check src/catalog.mjs",
     "test": "node --test tests/*.test.mjs",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "art:build": "node art/build-armillary.mjs",
+    "predev": "npm run art:build",
+    "prebuild": "npm run art:build",
+    "pretest": "npm run art:build"
   },
   "dependencies": {
     "three": "0.180.0"
