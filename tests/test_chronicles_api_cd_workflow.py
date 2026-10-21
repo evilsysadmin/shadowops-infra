@@ -1,5 +1,8 @@
 """Offline CD safety gates: staging only, immutable images and verified receipts."""
 from pathlib import Path
+import os
+import subprocess
+import tempfile
 import unittest
 import yaml
 
@@ -34,14 +37,86 @@ class StagingConvergenceContracts(unittest.TestCase):
     def test_staging_source_remains_current_immediately_before_mutation(self):
         steps = self.workflow["jobs"]["deploy"]["steps"]
         labels = [step.get("name", "") for step in steps]
-        guard = "Reject a superseded staging source before touching OCI"
+        guard = "Skip a superseded staging source before touching OCI"
+        self.assertLess(labels.index(guard), labels.index("Cache OCI SDK wheel downloads"))
         self.assertLess(labels.index(guard), labels.index("Execute only the restricted Chronicles API deployer"))
-        code = next(step["run"] for step in steps if step.get("name") == guard)
+        step = next(step for step in steps if step.get("name") == guard)
+        self.assertEqual(step["id"], "freshness")
+        code = step["run"]
         self.assertIn("commits/main", code)
         self.assertIn("ADMITTED_SHA", code)
-        self.assertIn("CHRONICLES_OCI_STALE_SOURCE_BLOCKED", code)
-        self.assertIn("inputs.environment != 'production'",
-                      next(step["if"] for step in steps if step.get("name") == guard))
+        self.assertIn("CHRONICLES_OCI_STALE_SOURCE_SKIPPED", code)
+        self.assertIn("deploy=false", code)
+        self.assertIn("deploy=true", code)
+        self.assertIn("GITHUB_STEP_SUMMARY", code)
+        self.assertEqual(step["if"], "inputs.environment != 'production'")
+
+    def test_superseded_staging_never_mutates_oci_or_creates_receipts(self):
+        steps = self.workflow["jobs"]["deploy"]["steps"]
+        by_name = {s.get("name"): s for s in steps if s.get("name")}
+        any_live = "inputs.environment == 'production' || steps.freshness.outputs.deploy == 'true'"
+        staging_only = "inputs.environment != 'production' && steps.freshness.outputs.deploy == 'true'"
+        for name in [
+            "Execute only the restricted Chronicles API deployer",
+            "Public smoke through the Chronicles tunnel",
+        ]:
+            self.assertEqual(by_name[name]["if"], any_live, name)
+        for name in [
+            "Prove public staging API serves the admitted source SHA",
+            "Player-path smoke (register, run, save, reload; account always deleted)",
+            "Record successfully verified staging generation",
+            "Publish verified generation receipt (idempotent future sync)",
+        ]:
+            self.assertEqual(by_name[name]["if"], staging_only, name)
+        # Production still requires its own admission and receipt path.
+        self.assertEqual(
+            by_name["Require verified staging API and Pages before production mutation"]["if"],
+            "inputs.environment == 'production'")
+        self.assertEqual(
+            by_name["Save verified production API receipt for Pages promotion"]["if"],
+            "inputs.environment == 'production'")
+
+    def test_freshness_probe_current_obsolete_or_unverifiable(self):
+        steps = self.workflow["jobs"]["deploy"]["steps"]
+        script = next(s["run"] for s in steps if s.get("id") == "freshness")
+        for current, admitted, gh_failed, expected_rc, expected_flag in [
+            ("a" * 40, "a" * 40, False, 0, "deploy=true"),
+            ("b" * 40, "a" * 40, False, 0, "deploy=false"),
+            ("not-a-sha", "a" * 40, False, 64, ""),
+            ("a" * 40, "bad-sha", False, 64, ""),
+            ("a" * 40, "a" * 40, True, 4, ""),
+        ]:
+            with self.subTest(current=current, admitted=admitted, gh_failed=gh_failed):
+                with tempfile.TemporaryDirectory(prefix="chronicles-stale-") as tmp:
+                    fake_gh = Path(tmp) / "gh"
+                    fake_gh.write_text(
+                        '#!/bin/sh\n'
+                        'if [ "$FAKE_GH_FAILURE" = "true" ]; then exit 4; fi\n'
+                        'printf "%s\\n" "$FAKE_MAIN_SHA"\n',
+                        encoding="utf-8")
+                    fake_gh.chmod(0o755)
+                    output = Path(tmp) / "output"
+                    summary = Path(tmp) / "summary"
+                    output.touch()
+                    summary.touch()
+                    env = {
+                        **os.environ,
+                        "PATH": tmp + os.pathsep + os.environ["PATH"],
+                        "FAKE_MAIN_SHA": current,
+                        "FAKE_GH_FAILURE": str(gh_failed).lower(),
+                        "ADMITTED_SHA": admitted,
+                        "GITHUB_OUTPUT": str(output),
+                        "GITHUB_STEP_SUMMARY": str(summary),
+                    }
+                    run = subprocess.run(["bash", "-c", script], env=env,
+                                         capture_output=True, text=True, timeout=6)
+                    self.assertEqual(run.returncode, expected_rc, run.stderr)
+                    self.assertEqual(output.read_text().strip(), expected_flag)
+                    if expected_flag == "deploy=false":
+                        self.assertIn("CHRONICLES_OCI_STALE_SOURCE_SKIPPED", run.stdout)
+                        self.assertIn("No OCI changes", summary.read_text())
+                    if expected_rc != 0:
+                        self.assertNotIn("deploy=true", output.read_text())
 
     def test_receipt_is_created_only_after_three_live_smokes(self):
         steps = self.workflow["jobs"]["deploy"]["steps"]
@@ -92,8 +167,9 @@ class StagingConvergenceContracts(unittest.TestCase):
         self.assertIn("runner.os", cache["with"]["key"])
         self.assertIn("py313-sdk-2.185.2", cache["with"]["key"])
         self.assertIn("oci==2.185.2", install["run"])
-        self.assertNotIn("if", install)
-        self.assertNotIn("if", cache)
+        gate = "inputs.environment == 'production' || steps.freshness.outputs.deploy == 'true'"
+        self.assertEqual(install["if"], gate)
+        self.assertEqual(cache["if"], gate)
         # Avoid cross-contaminating the separately provisioned OCI runtime.
         self.assertFalse(any(s.get("name") == "Cache OCI SDK wheel downloads"
                              for s in self.workflow["jobs"]["provision"]["steps"]))
