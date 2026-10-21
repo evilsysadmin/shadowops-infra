@@ -63,11 +63,13 @@ class ReleaseTrainTests(unittest.TestCase):
             return False
         with patch.object(train, "dispatch", side_effect=AssertionError("no dispatch")):
             result = train.preflight(TOKEN, select=select, current=current,
-                                     verify=lambda _: self.fail("not live in prod"))
+                                     verify=lambda _: self.fail("not live in prod"),
+                                     surface=lambda: observed.append(("public",)) or True)
         self.assertEqual(result["result"], "would-promote")
         self.assertEqual(result["source_sha"], SHA)
         self.assertIsNone(result["api_run"])
-        self.assertEqual(observed, [("admit", TOKEN, ""), ("inspect", SHA, TOKEN)])
+        self.assertEqual(observed, [("admit", TOKEN, ""), ("inspect", SHA, TOKEN),
+                                    ("public",)])
         result = train.preflight(TOKEN, select=select,
                                  current=lambda *_: True, verify=lambda _: SHA)
         self.assertEqual(result["result"], "unchanged")
@@ -78,6 +80,42 @@ class ReleaseTrainTests(unittest.TestCase):
             train.preflight(TOKEN, select=select,
                             current=lambda *_: (_ for _ in ()).throw(
                                 train.TrainError("production degraded")))
+
+    def test_preflight_verifies_existing_production_when_candidate_differs(self):
+        calls = []
+        def verify_assets(**kwargs):
+            self.assertEqual(kwargs, {"path": "/", "assets": b"/assets/",
+                                      "manifest_path": None})
+            calls.append("assets")
+            return "ok"
+        def api(name):
+            calls.append(name)
+            return True
+        self.assertTrue(train.production_surface_ready(
+            page=lambda: calls.append("page") or "ok",
+            assets=verify_assets, api=api,
+            sso=lambda: calls.append("sso") or True))
+        self.assertEqual(calls, ["page", "assets", "health", "ready", "cors", "sso"])
+        for condition in ("page", "assets", "api", "sso"):
+            with self.subTest(condition=condition):
+                self.assertFalse(train.production_surface_ready(
+                    page=lambda: "tls_error" if condition == "page" else "ok",
+                    assets=lambda **_: "broken" if condition == "assets" else "ok",
+                    api=lambda _: condition != "api",
+                    sso=lambda: condition != "sso"))
+        progress = {}
+        with patch.object(train, "dispatch", side_effect=AssertionError("no dispatch")):
+            with self.assertRaisesRegex(train.TrainError, "current production surface unhealthy"):
+                train.preflight(TOKEN, select=lambda *_: SHA,
+                                current=lambda *_: False, surface=lambda: False,
+                                progress=progress)
+        self.assertEqual(progress["stage"], "existing-production-readiness")
+        self.assertEqual(progress["source_sha"], SHA)
+        with patch.object(train, "dispatch", side_effect=AssertionError("no dispatch")):
+            result = train.preflight(
+                TOKEN, select=lambda *_: SHA, current=lambda *_: True,
+                verify=lambda _: SHA, surface=lambda: self.fail("no extra surface read"))
+        self.assertEqual(result["result"], "unchanged")
 
     def test_staging_selection_uses_live_manifest_not_current_main(self):
         called = []
