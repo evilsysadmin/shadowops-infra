@@ -17,7 +17,9 @@ import urllib.request
 
 from chronicles_api_before_pages import read_public_build as read_staging_api_build
 from chronicles_production_admission import INFRA, SHA, PromotionError, admit, verified_receipt
-from chronicles_production_audit import audit as public_audit, check_api, read_release, read_live_api_build
+from chronicles_production_audit import (audit as public_audit, check_api, check_sso_jwks,
+                                         probe_https, probe_react_preview, read_release,
+                                         read_live_api_build)
 
 STAGING = "https://staging.chronicles.shadowops.dpdns.org/release.json"
 API_WORKFLOW = "chronicles-api-staging.yml"
@@ -163,8 +165,22 @@ def progress_stage(progress: dict | None, stage: str, **changes: object) -> None
         progress["stage"] = stage
 
 
+def production_surface_ready(*, page=probe_https, assets=probe_react_preview,
+                             api=check_api, sso=check_sso_jwks) -> bool:
+    """Check current production accessibility even when candidate SHA differs.
+
+    Intentionally do not require the *old* production API to expose /release
+    or have a receipt for the *new* candidate. This never mutates anything.
+    """
+    return (page() == "ok"
+            and assets(path="/", assets=b"/assets/", manifest_path=None) == "ok"
+            and all(api(name) for name in ("health", "ready", "cors"))
+            and sso())
+
+
 def preflight(token: str, pinned: str = "", *, select=select_sha,
               current=deployed_sha, verify=public_audit,
+              surface=production_surface_ready,
               progress: dict | None = None) -> dict:
     """Inspect live staging admission and production, without any dispatch/write."""
     progress_stage(progress, "candidate-admission")
@@ -176,6 +192,11 @@ def preflight(token: str, pinned: str = "", *, select=select_sha,
             raise TrainError("unchanged production failed public game audit")
         action = "unchanged"
     else:
+        # A different SHA is not proof the live production service is healthy.
+        # Check its public surface before claiming the candidate is promotable.
+        progress_stage(progress, "existing-production-readiness")
+        if not surface():
+            raise TrainError("current production surface unhealthy before promotion")
         action = "would-promote"
     progress_stage(progress, "completed", result=action)
     print("CHRONICLES_TRAIN_PREFLIGHT " + action + " sha=" + sha, flush=True)
