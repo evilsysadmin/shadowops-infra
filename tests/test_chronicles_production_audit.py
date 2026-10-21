@@ -137,19 +137,19 @@ class ProductionAuditTests(unittest.TestCase):
         self.assertFalse(audit.verify_api_source(SHA, read=lambda: "b" * 40))
         # The CLI's sole network operation is reading a public endpoint, not
         # calling GitHub, OCI, Cloudflare or any player mutation endpoint.
-        with patch.object(audit.sys, "argv", ["audit", "--verify-api-sha", SHA]), \\
-             patch.dict(os.environ, {"CHRONICLES_PAGES_ENV": "production"}, clear=True), \\
-             patch.object(audit, "verify_api_source", return_value=True) as gate, \\
+        with patch.object(audit.sys, "argv", ["audit", "--verify-api-sha", SHA]), \
+             patch.dict(os.environ, {"CHRONICLES_PAGES_ENV": "production"}, clear=True), \
+             patch.object(audit, "verify_api_source", return_value=True) as gate, \
              patch.object(audit, "audit") as full:
             self.assertEqual(audit.main(), 0)
             gate.assert_called_once_with(SHA)
             full.assert_not_called()
-        with patch.object(audit.sys, "argv", ["audit", "--verify-api-sha", SHA]), \\
-             patch.dict(os.environ, {"CHRONICLES_PAGES_ENV": "production"}, clear=True), \\
+        with patch.object(audit.sys, "argv", ["audit", "--verify-api-sha", SHA]), \
+             patch.dict(os.environ, {"CHRONICLES_PAGES_ENV": "production"}, clear=True), \
              patch.object(audit, "verify_api_source", return_value=False):
             self.assertEqual(audit.main(), 1)
-        with patch.object(audit.sys, "argv", ["audit", "--verify-api-sha", SHA]), \\
-             patch.dict(os.environ, {"CHRONICLES_PAGES_ENV": "staging"}, clear=True), \\
+        with patch.object(audit.sys, "argv", ["audit", "--verify-api-sha", SHA]), \
+             patch.dict(os.environ, {"CHRONICLES_PAGES_ENV": "staging"}, clear=True), \
              patch.object(audit, "verify_api_source") as gate:
             self.assertEqual(audit.main(), 1)
             gate.assert_not_called()
