@@ -153,6 +153,9 @@ def run(token: str, pinned: str = "", *, select=select_sha,
         probe=check_api) -> dict:
     sha = select(token, pinned)
     if current(sha, token):
+        # Receipts and API health alone do not prove the JS/CSS still load.
+        if verify(token) != sha:
+            raise TrainError("unchanged production failed public game audit")
         print("CHRONICLES_TRAIN_NO_CHANGE sha=" + sha)
         return {"source_sha": sha, "result": "unchanged", "api_run": None,
                 "pages_run": None}
