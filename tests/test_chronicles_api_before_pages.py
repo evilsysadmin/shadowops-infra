@@ -96,8 +96,17 @@ class ApiBeforePages(unittest.TestCase):
                  patch.object(gate, "public_api_healthy", return_value=False):
                 self.assertEqual(gate.main(), 2)
             with patch.object(gate, "api_receipt_available", return_value=True), \
-                 patch.object(gate, "public_api_healthy", return_value=True):
+                 patch.object(gate, "public_api_healthy", return_value=True), \
+                 patch.object(gate, "public_api_revision_state", return_value="match"):
                 self.assertEqual(gate.main(), 0)
+            with patch.object(gate, "api_receipt_available", return_value=True), \
+                 patch.object(gate, "public_api_healthy", return_value=True), \
+                 patch.object(gate, "public_api_revision_state", return_value="different"):
+                self.assertEqual(gate.main(), 1)
+            with patch.object(gate, "api_receipt_available", return_value=True), \
+                 patch.object(gate, "public_api_healthy", return_value=True), \
+                 patch.object(gate, "public_api_revision_state", return_value="unknown"):
+                self.assertEqual(gate.main(), 2)
 
     def test_api_health_probe_uses_both_public_paths_and_https(self):
         with patch.object(gate.urllib.request, "urlopen") as opener:
@@ -123,7 +132,7 @@ class ApiBeforePages(unittest.TestCase):
                 return {"artifacts": [] if counter["n"] == 1 else [receipt()]}
             return run()
         gate.wait_for_api(SHA, TOKEN, attempts=3, sleep=lambda _: None,
-                          get=get, healthy=lambda: True)
+                          get=get, healthy=lambda: True, revision=lambda _: "match")
         self.assertEqual(counter["n"], 2)
         self.assertEqual(sum(p.endswith("/commits/main") for p in calls), 2)
 
@@ -141,6 +150,54 @@ class ApiBeforePages(unittest.TestCase):
                               get=get, healthy=lambda: False)
         self.assertEqual(sum("/artifacts?" in path for path in calls), 1)
         self.assertEqual(sum(path.endswith("/commits/main") for path in calls), 1)
+
+    def test_api_release_proves_exact_public_source_revision(self):
+        sha = SHA
+        def response(body, status=200):
+            class Fake:
+                def __enter__(self):
+                    return self
+                def __exit__(self, *_):
+                    return False
+                def read(self, limit):
+                    self_read_limit.append(limit)
+                    return body
+            result = Fake()
+            result.status = status
+            return result
+        self_read_limit = []
+        def open_ok(request, timeout):
+            self.assertEqual(timeout, 10)
+            self.assertTrue(request.full_url.startswith(gate.API_ORIGIN + "/release?sha_check="))
+            return response(('{"release":"v1","build":"' + sha + '"}').encode())
+        self.assertEqual(gate.read_public_build(opener=open_ok), sha)
+        self.assertEqual(self_read_limit, [4096])
+        self.assertEqual(gate.public_api_revision_state(sha, read=lambda: sha), "match")
+        self.assertEqual(gate.public_api_revision_state(sha, read=lambda: "b" * 40), "different")
+        self.assertEqual(gate.public_api_revision_state(sha, read=lambda: None), "unknown")
+        self.assertIsNone(gate.read_public_build(opener=lambda *_args, **_kwargs: response(b'{"release":"v1"}')))
+        self.assertIsNone(gate.read_public_build(opener=lambda *_args, **_kwargs: response(b'{"build":"bad"}')))
+        self.assertIsNone(gate.read_public_build(opener=lambda *_args, **_kwargs: response(b'not-json')))
+        self.assertIsNone(gate.read_public_build(opener=lambda *_args, **_kwargs: response(b'{}', 503)))
+        def outage(*_args, **_kwargs):
+            raise TimeoutError()
+        self.assertIsNone(gate.read_public_build(opener=outage))
+        with self.assertRaises(gate.GateError):
+            gate.public_api_revision_state("not-a-sha")
+
+    def test_pages_refuses_trusted_receipt_when_public_api_revision_differs(self):
+        def get(path, _token):
+            if path.endswith("/commits/main"):
+                return {"sha": SHA}
+            return {"artifacts": [receipt()]} if "/actions/artifacts?" in path else run()
+        with self.assertRaisesRegex(gate.GateError, "PUBLIC_SOURCE_MISMATCH"):
+            gate.wait_for_api(SHA, TOKEN, attempts=1, get=get,
+                              healthy=lambda: True, revision=lambda _: "different")
+        with self.assertRaisesRegex(gate.GateError, "PUBLIC_SOURCE_INCONCLUSIVE"):
+            gate.wait_for_api(SHA, TOKEN, attempts=1, get=get,
+                              healthy=lambda: True, revision=lambda _: "unknown")
+        gate.wait_for_api(SHA, TOKEN, attempts=1, get=get,
+                          healthy=lambda: True, revision=lambda _: "match")
 
     def test_cannot_publish_stale_source_or_missing_api(self):
         def stale(path, token):
