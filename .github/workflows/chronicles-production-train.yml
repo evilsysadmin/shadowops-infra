@@ -64,6 +64,7 @@ jobs:
       - name: Validate candidate and current production without writes
         run: python3 scripts/chronicles_production_train.py
       - name: Archive admitted source SHA and planned action
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: chronicles-production-train-preflight-${{ github.run_id }}
@@ -91,7 +92,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Promote only admitted source, stop if API/Pages fail
         run: python3 scripts/chronicles_production_train.py
-      - name: Archive source SHA and verified child workflow run IDs
+      - name: Archive source SHA and child run IDs even on partial failure
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: chronicles-production-train-${{ github.run_id }}
