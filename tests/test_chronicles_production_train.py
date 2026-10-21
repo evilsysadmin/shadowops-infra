@@ -111,11 +111,15 @@ class ReleaseTrainTests(unittest.TestCase):
                            sleep=lambda _: None, attempts=1)
 
     def test_same_sha_is_idempotent_no_dispatch(self):
-        with patch.object(train, "check_api", return_value=True):
-            data = train.run(TOKEN, select=lambda *_: SHA, current=lambda *_: True,
-                             start=lambda *a: self.fail("no rerun on unchanged prod"))
+        data = train.run(TOKEN, select=lambda *_: SHA, current=lambda *_: True,
+                         start=lambda *a: self.fail("no rerun on unchanged prod"),
+                         verify=lambda _: SHA)
         self.assertEqual(data["result"], "unchanged")
         self.assertIsNone(data["api_run"])
+        with self.assertRaisesRegex(train.TrainError, "public game audit"):
+            train.run(TOKEN, select=lambda *_: SHA, current=lambda *_: True,
+                      start=lambda *a: self.fail("no rerun on unhealthy same SHA"),
+                      verify=lambda _: OTHER)
 
     def test_new_sha_orders_api_then_pages_and_public_audit(self):
         steps = []
