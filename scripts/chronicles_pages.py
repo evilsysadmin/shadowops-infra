@@ -201,7 +201,9 @@ def probe_https() -> str:
             page = response.read(200000).decode("utf-8")
             if response.status != 200:
                 return "http_status"
-            if 'Chronicles of Matthias' not in page or '<div id="root"></div>' not in page:
+            # Vite's canonical root now contains the pre-React loading scene.
+            # Require the actual root opening tag, not an *empty* root.
+            if 'Chronicles of Matthias' not in page or '<div id="root">' not in page:
                 return "unexpected_content"
             return "ok"
     except urllib.error.HTTPError as exc:
@@ -297,7 +299,7 @@ def probe_react_preview(
     try:
         html_type, html = get_public(path, "text/html,application/xhtml+xml")
         if "text/html" not in html_type or not (
-            b'<div id="root"></div>' in html
+            b'<div id="root">' in html
             and b'Chronicles of Matthias' in html
         ):
             return "html_missing"
