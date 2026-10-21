@@ -21,7 +21,31 @@ Producción es igual que staging, con su propio estado. Nada se comparte salvo e
 3. Repetir el bootstrap one-shot sin argumentos (`host/bootstrap-chronicles-api-over-ssh.sh`)
    para instalar el wrapper que acepta entorno y el compose de producción.
 
-## Promoción (siempre manual, nunca en push)
+## Release train diario (08:00 Europe/Madrid)
+
+- El workflow [Chronicles production · release train](../.github/workflows/chronicles-production-train.yml) se programa con `cron: '0 8 * * *'` y zona IANA `Europe/Madrid`; GitHub gestiona CET/CEST. Es un **horario solicitado**, no una garantía de ejecución al segundo (la cola de Actions puede retrasarlo).
+- Cada mañana resuelve el **SHA real del manifiesto público de staging**, no el último commit de `main`. Exige checks de CI y ambos recibos staging exactos mediante `chronicles_production_admission.py` antes de promover.
+- Si producción ya sirve ese SHA con recibos válidos y API sana, no despliega nada. Si ese mismo SHA está degradado, **falla cerrado** en lugar de declarar éxito o forzar un despliegue.
+- Para una versión nueva, despacha el workflow de API con SHA exacto, espera a su **run ID devuelto por GitHub**, exige resultado verde, recibo y health/ready/CORS. **Solo entonces** despacha Pages y vuelve a exigir run verde, recibo y auditoría pública exacta.
+- Los despliegues siguen siendo propiedad exclusiva de sus dos workflows protegidos. El tren solo dispone de `actions: write` y `contents: read`; no recibe secretos Atlas/OCI/Cloudflare. Se serializan los trenes entre sí, y cada workflow hijo mantiene sus locks propios.
+- Los runs y el SHA elegido se registran en un artefacto JSON del train (90 días). Si falla Pages después de API, **no** se toca Mongo ni se aplica un rollback ciego: requiere intervención y comprobación de compatibilidad de datos.
+- Producción requiere el entorno de GitHub `production`; si se configuran aprobaciones, se respetarán antes de ejecutar el train.
+
+### Promoción fuera del horario (hotfix)
+
+Por defecto una ejecución manual del tren usa el SHA acreditado actualmente visible en staging. Para una revisión histórica ya acreditada puede indicarse su SHA completo:
+
+~~~bash
+gh workflow run chronicles-production-train.yml \
+  -R evilsysadmin/shadowops-infra --ref main
+gh workflow run chronicles-production-train.yml \
+  -R evilsysadmin/shadowops-infra --ref main \
+  -f source_sha='<SHA_COMPLETO_ACREDITADO>'
+~~~
+
+El rollback sigue siendo **manual y explícito** mediante los workflows de API y Pages descritos más abajo; no se confunde con una promoción normal del train. SSO real y restauración de backups siguen siendo pruebas independientes y pendientes.
+
+## Promoción (procedimiento manual de recuperación/hotfix, nunca en push)
 
 1. `Chronicles API` → `provision`, environment `production`.
 2. `Chronicles API` → `deploy`, environment `production`, `source_sha` = SHA validado en staging.
