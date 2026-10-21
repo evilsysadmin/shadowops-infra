@@ -49,7 +49,14 @@ class StagingConvergenceContracts(unittest.TestCase):
         self.assertLess(names.index("Execute only the restricted Chronicles API deployer"),
                         names.index("Public smoke through the Chronicles tunnel"))
         self.assertLess(names.index("Public smoke through the Chronicles tunnel"),
+                        names.index("Prove public staging API serves the admitted source SHA"))
+        self.assertLess(names.index("Prove public staging API serves the admitted source SHA"),
                         names.index("Player-path smoke (register, run, save, reload; account always deleted)"))
+        revision = next(step for step in steps if
+                        step.get("name") == "Prove public staging API serves the admitted source SHA")
+        self.assertEqual(revision["if"], "inputs.environment != 'production'")
+        self.assertIn("--public-sha-only", revision["run"])
+        self.assertEqual(revision["env"]["EXPECTED_SHA"], "${{ needs.admit.outputs.source_sha }}")
         self.assertLess(names.index("Player-path smoke (register, run, save, reload; account always deleted)"),
                         names.index("Record successfully verified staging generation"))
         receipt = next(step for step in steps
