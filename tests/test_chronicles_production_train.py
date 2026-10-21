@@ -22,7 +22,13 @@ class ReleaseTrainTests(unittest.TestCase):
                          [{"cron": "0 8 * * *", "timezone": "Europe/Madrid"}])
         self.assertNotIn("push", data["on"])
         self.assertIn("workflow_dispatch", data["on"])
-        self.assertEqual(data["permissions"], {"contents": "read", "actions": "write"})
+        self.assertEqual(data["permissions"], {"contents": "read"})
+        self.assertEqual(data["jobs"]["train"]["permissions"],
+                         {"contents": "read", "actions": "write"})
+        self.assertEqual(data["jobs"]["train"]["needs"], "contracts")
+        self.assertIn("pull_request", data["on"])
+        self.assertIn("test_chronicles_production_train.py",
+                      str(data["jobs"]["contracts"]["steps"]))
         steps = data["jobs"]["train"]["steps"]
         self.assertIn("chronicles_production_train.py", str(steps))
         self.assertIn("environment", data["jobs"]["train"])
