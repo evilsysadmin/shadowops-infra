@@ -74,6 +74,23 @@ class StagingConvergenceContracts(unittest.TestCase):
         self.assertIn("--source-digest", admission["run"])
 
 
+    def test_oci_sdk_cache_only_stores_downloads_not_installed_runtime(self):
+        steps = self.workflow["jobs"]["deploy"]["steps"]
+        cache = next(s for s in steps if s.get("name") == "Cache OCI SDK wheel downloads")
+        install = next(s for s in steps if
+                       "oci==2.185.2" in str(s.get("run", "")))
+        self.assertLess(steps.index(cache), steps.index(install))
+        self.assertEqual(cache["uses"], "actions/cache@v4")
+        self.assertEqual(cache["with"]["path"], "~/.cache/pip")
+        self.assertIn("runner.os", cache["with"]["key"])
+        self.assertIn("py313-sdk-2.185.2", cache["with"]["key"])
+        self.assertIn("oci==2.185.2", install["run"])
+        self.assertNotIn("if", install)
+        self.assertNotIn("if", cache)
+        # Avoid cross-contaminating the separately provisioned OCI runtime.
+        self.assertFalse(any(s.get("name") == "Cache OCI SDK wheel downloads"
+                             for s in self.workflow["jobs"]["provision"]["steps"]))
+
     def test_production_api_receipt_requires_real_public_smoke(self):
         steps = self.workflow["jobs"]["deploy"]["steps"]
         names = [step.get("name", "") for step in steps]
