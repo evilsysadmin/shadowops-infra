@@ -99,6 +99,8 @@ Los recibos prueban qué imagen se desplegó, pero **no** qué contenedor respon
 
 Si el binario antiguo no incorpora todavía el SHA, o si Cloudflare sirve una revisión distinta, el control falla cerrado; no debe marcarse el estado como sano, ni inventar un SHA basándose en el artefacto histórico. No se revela ningún token ni se escribe nada.
 
+El workflow de **Pages producción manual** aplica el mismo guard de lectura dos veces: tras comprobar recibos y salud, antes de la primera mutación de Cloudflare y de nuevo inmediatamente antes de `wrangler pages deploy`. Así un operador que salte el release train no puede publicar un frontend incompatible con la API viva. La comprobación falla cerrado si `/api/release.build` no está disponible; hay que promocionar primero una API compatible y acreditada.
+
 ### Verificación de disponibilidad de SSO (sin credenciales)
 
 El auditor de producción comprueba también el JWKS público de Chess Studio **producción** (`https://api.chess-studio.shadowops.dpdns.org/api/identity/jwks`): TLS/origen esperado, JSON bien formado, claves Ed25519 con `kid` único y clave pública de 32 bytes, sin material privado. No consulta Chess Studio staging ni crea cuentas o tokens. Su respuesta **no demuestra el login**, el intercambio real del JWT ni los permisos sobre una partida: esos pasos permanecen en el smoke manual de usuario y requieren evidencia separada.
