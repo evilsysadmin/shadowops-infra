@@ -38,7 +38,7 @@ export function mountObservatory(container, onSelect) {
   scene.background = new THREE.Color(0x070d18);
   scene.fog = new THREE.FogExp2(0x070d18, .035);
   const camera = new THREE.PerspectiveCamera(43, 1, .1, 95);
-  camera.position.set(0, 3.75, 11.3);
+  camera.position.set(0, narrow ? 4.15 : 3.75, narrow ? 13.0 : 11.3);
   camera.lookAt(0, 1.4, 0);
   scene.add(new THREE.HemisphereLight(0xb4c7e0, 0x261e1a, 3.1));
   const key = new THREE.DirectionalLight(0xd9e5ff, 2.0);
