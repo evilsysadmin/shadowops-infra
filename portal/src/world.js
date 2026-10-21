@@ -159,6 +159,10 @@ export function mountObservatory(container, onSelect) {
         light.intensity = 4 + material.uniforms.uFocus.value * 9;
       });
       renderer.render(scene, camera);
+      if (import.meta.env.DEV) {
+        container.dataset.drawCalls = String(renderer.info.render.calls);
+        container.dataset.triangles = String(renderer.info.render.triangles);
+      }
       firstFrameRendered = true;
     }
     if (!reduceMotion) frame = requestAnimationFrame(render);
