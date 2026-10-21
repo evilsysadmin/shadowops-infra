@@ -267,17 +267,48 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      # Avoid OCI SDK setup for a SHA that became obsolete while queued.
+      # The later staging_freshness guard still checks again before mutation.
+      - name: Check current staging source before installing OCI SDK
+        if: inputs.environment != 'production'
+        id: staging_preflight
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ADMITTED_SHA: ${{ needs.admit.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$ADMITTED_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo 'CHRONICLES_OCI_INVALID_SOURCE' >&2
+            exit 64
+          }
+          current="$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)"
+          [[ "$current" =~ ^[0-9a-f]{40}$ ]] || {
+            echo 'CHRONICLES_OCI_INVALID_MAIN_SHA' >&2
+            exit 65
+          }
+          if [[ "$ADMITTED_SHA" != "$current" ]]; then
+            echo "CHRONICLES_OCI_STALE_SOURCE_PRECHECK_SKIPPED sha=$ADMITTED_SHA"
+            echo '::notice title=Chronicles staging superseded::Skipping OCI SDK setup because the source is no longer main.'
+            echo 'fresh=false' >> "$GITHUB_OUTPUT"
+            echo '**Staging API skipped early:** obsolete source; OCI SDK and deploy not run.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'fresh=true' >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-python@v5
+        if: inputs.environment == 'production' || steps.staging_preflight.outputs.fresh == 'true'
         with:
           python-version: '3.13'
       - name: Cache OCI SDK wheel downloads
+        if: inputs.environment == 'production' || steps.staging_preflight.outputs.fresh == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: chronicles-oci-pip-${{ runner.os }}-py313-sdk-2.185.2-v1
-      - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - if: inputs.environment == 'production' || steps.staging_preflight.outputs.fresh == 'true'
+        run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
       - name: Reject a superseded staging source before touching OCI
-        if: inputs.environment != 'production'
+        if: inputs.environment != 'production' && steps.staging_preflight.outputs.fresh == 'true'
         id: staging_freshness
         env:
           GH_TOKEN: ${{ github.token }}
