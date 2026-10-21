@@ -26,7 +26,7 @@ Producción es igual que staging, con su propio estado. Nada se comparte salvo e
 - El workflow [Chronicles production · release train](../.github/workflows/chronicles-production-train.yml) se programa con `cron: '0 8 * * *'` y zona IANA `Europe/Madrid`; GitHub gestiona CET/CEST. Es un **horario solicitado**, no una garantía de ejecución al segundo (la cola de Actions puede retrasarlo).
 - Cada mañana resuelve el **SHA real del manifiesto público de staging**, no el último commit de `main`. Exige checks de CI y ambos recibos staging exactos mediante `chronicles_production_admission.py` antes de promover.
 - Si producción ya sirve ese SHA con recibos válidos y API sana, no despliega nada. Si ese mismo SHA está degradado, **falla cerrado** en lugar de declarar éxito o forzar un despliegue.
-- Para una versión nueva, despacha el workflow de API con SHA exacto, espera a su **run ID devuelto por GitHub**, exige resultado verde, recibo producido **por ese mismo run ID** (no vale uno antiguo con el mismo SHA) y health/ready/CORS. **Solo entonces** despacha Pages y vuelve a exigir resultado verde, recibo del **run ID exacto** y auditoría pública exacta.
+- Para una versión nueva, despacha el workflow de API con SHA exacto, espera a su **run ID devuelto por GitHub**, exige resultado verde, recibo producido **por ese mismo run ID** (no vale uno antiguo con el mismo SHA), health/ready/CORS **y `/api/release.build` público igual al SHA admitido**. Una API sana con una imagen vieja o sin identidad de build bloquea el tren; **solo entonces** despacha Pages y vuelve a exigir resultado verde, recibo del **run ID exacto** y auditoría pública exacta.
 - Los despliegues siguen siendo propiedad exclusiva de sus dos workflows protegidos. El tren solo dispone de `actions: write` y `contents: read`; no recibe secretos Atlas/OCI/Cloudflare. Se serializan los trenes entre sí, y cada workflow hijo mantiene sus locks propios.
 - Los runs y el SHA elegido se registran en un artefacto JSON del train (90 días), **incluso si falla**: conserva etapa alcanzada y los IDs exactos de los workflows hijos, sin almacenar tokens ni respuestas privadas. Si falla Pages después de API, el registro indica el despliegue parcial; **no** se toca Mongo ni se aplica un rollback ciego: requiere intervención y comprobación de compatibilidad de datos.
 - Producción requiere el entorno de GitHub `production`; si se configuran aprobaciones, se respetarán antes de ejecutar el train.
@@ -92,6 +92,12 @@ El rollback sigue siendo **manual y explícito** mediante los workflows de API y
 ### Auditoría tras el tren y control diario
 
 Además del simulacro y del smoke incluido en el release train, el workflow independiente `chronicles-production-audit.yml` vuelve a comprobar producción **cuando termina cualquier train** (`workflow_run: completed`, incluido uno fallido, para detectar promociones parciales). Tiene además un chequeo diario de respaldo a las **09:15 Europe/Madrid** con cambio CET/CEST automático, y conserva el disparo manual. Nunca despliega ni escribe datos. Un resultado negativo requiere investigar el estado real, no relanzar a ciegas el tren o limpiar Mongo.
+
+### Identidad del binario API en producción
+
+Los recibos prueban qué imagen se desplegó, pero **no** qué contenedor responde ahora por HTTPS. Por eso la auditoría de producción compara `https://chronicles-api.shadowops.dpdns.org/api/release.build` (campo `build` del JSON en `/api/release`) contra el `build` de `https://chronicles.shadowops.dpdns.org/release.json`. El release train exige esa misma identidad **después de desplegar API y antes de lanzar Pages**.
+
+Si el binario antiguo no incorpora todavía el SHA, o si Cloudflare sirve una revisión distinta, el control falla cerrado; no debe marcarse el estado como sano, ni inventar un SHA basándose en el artefacto histórico. No se revela ningún token ni se escribe nada.
 
 ### Verificación de disponibilidad de SSO (sin credenciales)
 
