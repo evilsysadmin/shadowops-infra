@@ -6,6 +6,25 @@ import yaml
 FILE = Path(__file__).resolve().parents[1] / ".github/workflows/chronicles-live-browser-journey.yml"
 
 class LiveJourneySafety(unittest.TestCase):
+    def test_live_browser_checks_out_exact_public_staging_sha(self):
+        spec = yaml.load(FILE.read_text(), Loader=yaml.BaseLoader)
+        steps = spec["jobs"]["live"]["steps"]
+        named = {step.get("name", ""): step for step in steps}
+        read = named["Read the actual published frontend SHA"]
+        checkout = named["Checkout browser tests from the exact published revision"]
+        assertion = named["Assert test checkout matches published SHA"]
+        browser = named["Real desktop/mobile creation and cross-device persistence"]
+        self.assertLess(steps.index(read), steps.index(checkout))
+        self.assertLess(steps.index(checkout), steps.index(assertion))
+        self.assertLess(steps.index(assertion), steps.index(browser))
+        self.assertEqual(checkout["with"]["ref"], "${{ steps.release.outputs.sha }}")
+        self.assertEqual(checkout["with"]["repository"],
+                         "evilsysadmin/chronicles-of-matthias")
+        self.assertEqual(checkout["with"]["persist-credentials"], "false")
+        self.assertEqual(assertion["env"]["PUBLIC_SHA"], "${{ steps.release.outputs.sha }}")
+        self.assertIn("rev-parse HEAD", assertion["run"])
+        self.assertNotIn("ref: main", FILE.read_text())
+
     def test_read_only_scope(self):
         spec = yaml.load(FILE.read_text(), Loader=yaml.BaseLoader)
         self.assertEqual(spec["permissions"]["contents"], "read")
