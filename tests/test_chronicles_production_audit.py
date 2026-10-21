@@ -127,6 +127,33 @@ class ProductionAuditTests(unittest.TestCase):
                           side_effect=TimeoutError):
             self.assertIsNone(audit.read_live_api_build())
 
+    def test_pages_production_guard_requires_exact_runtime_sha_without_secrets(self):
+        self.assertTrue(audit.verify_api_source(SHA, read=lambda: SHA))
+        for provided in ("bad", "A" * 40, "", "b" * 40):
+            with self.subTest(provided=provided):
+                self.assertFalse(audit.verify_api_source(
+                    provided, read=lambda: SHA))
+        self.assertFalse(audit.verify_api_source(SHA, read=lambda: None))
+        self.assertFalse(audit.verify_api_source(SHA, read=lambda: "b" * 40))
+        # The CLI's sole network operation is reading a public endpoint, not
+        # calling GitHub, OCI, Cloudflare or any player mutation endpoint.
+        with patch.object(audit.sys, "argv", ["audit", "--verify-api-sha", SHA]), \\
+             patch.dict(os.environ, {"CHRONICLES_PAGES_ENV": "production"}, clear=True), \\
+             patch.object(audit, "verify_api_source", return_value=True) as gate, \\
+             patch.object(audit, "audit") as full:
+            self.assertEqual(audit.main(), 0)
+            gate.assert_called_once_with(SHA)
+            full.assert_not_called()
+        with patch.object(audit.sys, "argv", ["audit", "--verify-api-sha", SHA]), \\
+             patch.dict(os.environ, {"CHRONICLES_PAGES_ENV": "production"}, clear=True), \\
+             patch.object(audit, "verify_api_source", return_value=False):
+            self.assertEqual(audit.main(), 1)
+        with patch.object(audit.sys, "argv", ["audit", "--verify-api-sha", SHA]), \\
+             patch.dict(os.environ, {"CHRONICLES_PAGES_ENV": "staging"}, clear=True), \\
+             patch.object(audit, "verify_api_source") as gate:
+            self.assertEqual(audit.main(), 1)
+            gate.assert_not_called()
+
     def test_daily_audit_uses_madrid_wall_clock_and_follows_train(self):
         workflow = (Path(__file__).resolve().parents[1] /
                     ".github/workflows/chronicles-production-audit.yml").read_text()
