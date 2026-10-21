@@ -120,9 +120,9 @@ class ProductionAuditTests(unittest.TestCase):
             Response(url, data=b'not-json'),
             Response(url, data=b" " * 4097),
         ):
-            with self.subTest(url=response.url, size=len(response.data)), \\
-                 patch.object(audit.urllib.request, "urlopen", return_value=response):
-                self.assertIsNone(audit.read_live_api_build())
+            with self.subTest(url=response.url, size=len(response.data)):
+                with patch.object(audit.urllib.request, "urlopen", return_value=response):
+                    self.assertIsNone(audit.read_live_api_build())
         with patch.object(audit.urllib.request, "urlopen",
                           side_effect=TimeoutError):
             self.assertIsNone(audit.read_live_api_build())
