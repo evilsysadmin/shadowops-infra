@@ -320,8 +320,13 @@ jobs:
             echo 'CHRONICLES_OCI_INVALID_SOURCE' >&2
             exit 64
           }
-          # A failed GitHub lookup is a real failure, never a skipped deploy.
+          # A failed GitHub lookup OR malformed returned SHA is a real
+          # admission error, never evidence that the source was superseded.
           current="$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)"
+          [[ "$current" =~ ^[0-9a-f]{40}$ ]] || {
+            echo 'CHRONICLES_OCI_INVALID_MAIN_SHA' >&2
+            exit 65
+          }
           if [[ "$ADMITTED_SHA" != "$current" ]]; then
             echo "CHRONICLES_OCI_STALE_SOURCE_SKIPPED sha=$ADMITTED_SHA"
             echo '::notice title=Chronicles API staging superseded::The admitted source is no longer main; no OCI mutation or verified receipt will run.'
