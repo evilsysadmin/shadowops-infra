@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { WORLDS } from './catalog.mjs';
 import { VISTA_VERTEX, VISTA_FRAGMENT } from './portalVistas.js';
 import { addGalleryArchitecture } from './galleryArchitecture.js';
+import { ARMILLARY_ASSET } from './armillaryAsset.generated.mjs';
 
 // A self-contained atmospheric observatory. No borrowed Chess Studio models.
 // Source-authored GLB/texture art can replace the gateways in a later art PR.
@@ -62,6 +63,7 @@ export function mountObservatory(container, onSelect) {
   }
   const coords = [-3.22, 0, 3.22];
   const gallery = addGalleryArchitecture(scene, coords, narrow);
+  container.dataset.artAsset = narrow ? 'skipped-mobile' : 'loading';
   const interactive = [];
   const portals = [];
   WORLDS.forEach((world, i) => {
@@ -223,6 +225,27 @@ export function mountObservatory(container, onSelect) {
     }
     pointerDown = null;
     pointerStart = null;
+  }
+  // First independent art asset. Loads after the interactive gallery mounts.
+  // Two copies share one GLB model and GPU geometry; no extra mobile cost.
+  if (!narrow) {
+    import('three/addons/loaders/GLTFLoader.js').then(async ({ GLTFLoader }) => {
+      const gltf = await new GLTFLoader().loadAsync(ARMILLARY_ASSET);
+      if (disposed) return;
+      for (const x of [-4.82,4.82]) {
+        const art = gltf.scene.clone(true);
+        art.scale.setScalar(.82);
+        art.position.set(x,-.40,.24);
+        art.rotation.y = x < 0 ? -.28 : .28;
+        scene.add(art);
+      }
+      container.dataset.artAsset = 'loaded';
+      paint(true);
+    }).catch(error => {
+      if (disposed) return;
+      console.warn('ShadowOps optional GLB unavailable; keeping playable portals.',error);
+      container.dataset.artAsset = 'failed';
+    });
   }
   renderer.domElement.addEventListener('pointerdown', onPointerDown);
   renderer.domElement.addEventListener('pointermove', onPointerMove);
