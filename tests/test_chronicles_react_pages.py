@@ -189,7 +189,7 @@ class ParallelReactPagesTest(unittest.TestCase):
     def test_smoke_only_retry_still_builds_its_exact_html_asset_reference(self):
         workflow = (pathlib.Path(__file__).resolve().parents[1]
                     / ".github/workflows/chronicles-pages-release.yml").read_text()
-        release = workflow.split("\\n  release:\\n", 1)[1].split("\\n  production:\\n", 1)[0]
+        release = workflow.split("\n  release:\n", 1)[1].split("\n  production:\n", 1)[0]
         build = release.split("      - name: Build the game against its own API", 1)[1]
         build = build.split("      - name: Assemble static root", 1)[0]
         self.assertIn("npm ci --ignore-scripts", build)
