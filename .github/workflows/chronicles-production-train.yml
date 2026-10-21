@@ -1,0 +1,67 @@
+name: Chronicles production · release train
+run-name: Chronicles train · 08:00 Madrid · ${{ github.event_name }}
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/chronicles-production-train.yml'
+      - 'scripts/chronicles_production_train.py'
+      - 'tests/test_chronicles_production_train.py'
+      - 'scripts/chronicles_production_admission.py'
+  schedule:
+    # Daily at local Madrid wall-clock time; GitHub handles CET/CEST changes.
+    - cron: '0 8 * * *'
+      timezone: Europe/Madrid
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Optional exact 40-hex previously validated Chronicles SHA; blank = live staging build
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+# Serializes automatic train runs and manual train hotfixes. The child
+# workflows retain their own production target locks and admission gates.
+concurrency:
+  group: shadowops-chronicles-production-train
+  cancel-in-progress: false
+
+jobs:
+  contracts:
+    name: Release train offline contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m pip install --disable-pip-version-check PyYAML
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_production_train.py' -v
+
+  train:
+    name: Admit staging, promote API, promote Pages, verify public release
+    needs: contracts
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.repository == 'evilsysadmin/shadowops-infra' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      actions: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    environment:
+      name: production
+      url: https://chronicles.shadowops.dpdns.org
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CHRONICLES_PAGES_ENV: production
+      CHRONICLES_TRAIN_SOURCE_SHA: ${{ inputs.source_sha || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Promote only admitted source, stop if API/Pages fail
+        run: python3 scripts/chronicles_production_train.py
+      - name: Archive source SHA and verified child workflow run IDs
+        uses: actions/upload-artifact@v4
+        with:
+          name: chronicles-production-train-${{ github.run_id }}
+          path: ${{ runner.temp }}/chronicles-production-train.json
+          if-no-files-found: error
+          retention-days: 90
