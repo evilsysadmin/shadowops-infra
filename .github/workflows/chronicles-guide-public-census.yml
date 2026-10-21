@@ -1,4 +1,4 @@
-name: Chronicles public guide DOM census (one-off, read-only)
+name: Chronicles public guide DOM census (one-off, no deploy)
 on:
   push:
     branches: [main]
@@ -8,6 +8,8 @@ permissions:
   contents: read
 jobs:
   guide-census:
+    environment:
+      name: staging
     runs-on: ubuntu-24.04
     timeout-minutes: 18
     steps:
@@ -28,7 +30,7 @@ jobs:
           npm ci --ignore-scripts --no-audit --no-fund
           npm install --no-save --no-audit --no-fund playwright@1
           npx playwright install --with-deps chromium
-      - name: Record actual public release for read-only sampling
+      - name: Record actual public release for non-deployment sampling
         working-directory: chronicles-source/frontend
         shell: bash
         run: |
@@ -50,7 +52,7 @@ jobs:
               stream.write("CHRONICLES_SOURCE_SHA=" + sha + "\n")
           print("CHRONICLES_DIAGNOSTIC_PUBLIC_SHA " + sha)
           PY
-      - name: Sample guide DOM via real temporary account (never certify release)
+      - name: Sample guide DOM via deleted-after-use account (never certify release)
         working-directory: chronicles-source/frontend
         env:
           CHRONICLES_STAGING_INVITE_CODE: ${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}
