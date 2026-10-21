@@ -117,6 +117,83 @@ class TrainScheduleWatchTests(unittest.TestCase):
         with self.assertRaises(watch.ScheduleError):
             watch.scheduled_today([], datetime(2026, 10, 22, 9, 15))
 
+    def test_completed_workflow_cannot_hide_skipped_or_failed_promotion_job(self):
+        def job(**overrides):
+            base = {
+                "name": watch.TRAIN_JOB,
+                "status": "completed",
+                "conclusion": "success",
+                "steps": [{"name": watch.TRAIN_STEP, "status": "completed",
+                           "conclusion": "success"}],
+            }
+            base.update(overrides)
+            return base
+        self.assertTrue(watch.train_job_succeeded([job()]))
+        for invalid in (
+            [], [job(status="queued")], [job(conclusion="skipped")],
+            [job(conclusion="failure")], [job(steps=[])],
+            [job(steps=[{"name": watch.TRAIN_STEP, "status": "completed",
+                          "conclusion": "skipped"}])],
+            [job(name="Release train offline contracts")],
+            [job(), job()],
+            [None, {"name": watch.TRAIN_JOB}],
+        ):
+            with self.subTest(jobs=invalid):
+                self.assertFalse(watch.train_job_succeeded(invalid))
+
+    def test_child_jobs_are_read_from_fixed_api_without_mutations(self):
+        run_id = 123456
+        url = (f"https://api.github.com/repos/{watch.REPO}/actions/runs/"
+               f"{run_id}/jobs?per_page=100")
+        jobs = [{"name": watch.TRAIN_JOB, "status": "completed",
+                 "conclusion": "success", "steps": []}]
+        payload = json.dumps({"total_count": 1, "jobs": jobs}).encode()
+        observed = []
+        def opener(req, timeout):
+            observed.append((req, timeout))
+            return Response(url, payload)
+        self.assertEqual(watch.fetch_train_jobs(run_id, "read-token", opener=opener), jobs)
+        request, timeout = observed[0]
+        self.assertEqual(timeout, 15)
+        self.assertEqual(request.get_method(), "GET")
+        self.assertEqual(request.full_url, url)
+        self.assertEqual(request.get_header("Authorization"), "Bearer read-token")
+        self.assertNotIn("Cookie", request.headers)
+        for invalid in (True, -1, 0, "123456"):
+            with self.subTest(run_id=invalid), self.assertRaises(watch.ScheduleError):
+                watch.fetch_train_jobs(invalid, "read-token", opener=opener)
+        for data, redirect in (
+            (payload, "https://other.example/jobs"),
+            (b"{}" , url),
+            (b"{bad", url),
+            (json.dumps({"total_count": 101, "jobs": jobs}).encode(), url),
+            (b" " * 512001, url),
+        ):
+            with self.subTest(data_len=len(data), redirect=redirect):
+                with self.assertRaises((watch.ScheduleError, ValueError)):
+                    watch.fetch_train_jobs(
+                        run_id, "read-token",
+                        opener=lambda *_args, **_kwargs: Response(redirect, data))
+
+    def test_main_rejects_green_workflow_with_skipped_train_job(self):
+        env = {"GITHUB_REPOSITORY": watch.REPO, "GITHUB_REF": "refs/heads/main",
+               "GITHUB_EVENT_NAME": "schedule", "GH_TOKEN": "private-test-token"}
+        with patch.dict(os.environ, env, clear=True):
+            with patch.object(watch, "fetch_runs", return_value=[{}]), \
+                 patch.object(watch, "completed_train_today", return_value=42), \
+                 patch.object(watch, "fetch_train_jobs", return_value=[
+                    {"name": watch.TRAIN_JOB, "status": "completed",
+                     "conclusion": "skipped", "steps": []}]):
+                self.assertEqual(watch.main(), 1)
+            with patch.object(watch, "fetch_runs", return_value=[{}]), \
+                 patch.object(watch, "completed_train_today", return_value=42), \
+                 patch.object(watch, "fetch_train_jobs", return_value=[
+                    {"name": watch.TRAIN_JOB, "status": "completed",
+                     "conclusion": "success",
+                     "steps": [{"name": watch.TRAIN_STEP, "status": "completed",
+                                "conclusion": "success"}]}]):
+                self.assertEqual(watch.main(), 0)
+
     def test_request_is_exact_origin_read_only_and_bounded(self):
         record = scheduled("2026-10-22T06:02:00Z")
         payload = json.dumps({"workflow_runs": [record]}).encode()
