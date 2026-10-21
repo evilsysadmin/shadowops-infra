@@ -63,6 +63,7 @@ class StagingConvergenceContracts(unittest.TestCase):
         self.assertIn('commits/main', preflight['run'])
         self.assertIn('CHRONICLES_OCI_STALE_SOURCE_PRECHECK_SKIPPED', preflight['run'])
         self.assertIn('CHRONICLES_OCI_INVALID_MAIN_SHA', preflight['run'])
+        self.assertIn('CHRONICLES_OCI_INVALID_MAIN_SHA', late['run'])
 
     def test_preflight_rejects_unverifiable_main_and_skips_stale(self):
         guard = next(s for s in self.workflow['jobs']['deploy']['steps']
@@ -140,6 +141,7 @@ class StagingConvergenceContracts(unittest.TestCase):
                 (sha, 'false', 0, 'fresh=true'),
                 ('b' * 40, 'false', 0, 'fresh=false'),
                 (sha, 'true', 7, None),
+                ('not-a-valid-sha', 'false', 65, None),
             ):
                 output, summary = path / 'output', path / 'summary'
                 output.write_text('')
