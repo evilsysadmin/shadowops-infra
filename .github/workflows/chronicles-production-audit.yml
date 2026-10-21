@@ -7,9 +7,15 @@ on:
       - 'scripts/chronicles_production_admission.py'
       - 'tests/test_chronicles_production_audit.py'
   workflow_dispatch:
+  workflow_run:
+    workflows: ['Chronicles production · release train']
+    types: [completed]
+    branches: [main]
   schedule:
-    # Once daily, UTC. This never deploys or mutates player data.
-    - cron: '23 6 * * *'
+    # Independent daily fallback at 09:15 Madrid; DST handled by GitHub.
+    # Also re-audit on *every* completed train, including failed promotions.
+    - cron: '15 9 * * *'
+      timezone: Europe/Madrid
 
 permissions:
   contents: read

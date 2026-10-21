@@ -94,6 +94,23 @@ class ProductionAuditTests(unittest.TestCase):
             with self.assertRaises(audit.AuditError):
                 audit.read_release()
 
+    def test_daily_audit_uses_madrid_wall_clock_and_follows_train(self):
+        workflow = (Path(__file__).resolve().parents[1] /
+                    ".github/workflows/chronicles-production-audit.yml").read_text()
+        self.assertIn("workflow_run:", workflow)
+        self.assertIn("workflows: ['Chronicles production · release train']", workflow)
+        self.assertIn("types: [completed]", workflow)
+        self.assertIn("branches: [main]", workflow)
+        self.assertIn("cron: '15 9 * * *'", workflow)
+        self.assertIn("timezone: Europe/Madrid", workflow)
+        self.assertNotIn("cron: '23 6 * * *'", workflow)
+        self.assertIn("contents: read", workflow)
+        self.assertIn("actions: read", workflow)
+        self.assertNotIn("actions: write", workflow)
+        self.assertNotIn("issues: write", workflow)
+        self.assertIn("github.event_name != 'pull_request'", workflow)
+        self.assertIn("scripts/chronicles_production_audit.py", workflow)
+
     def test_production_sso_issuer_jwks_public_ed25519_only(self):
         url = audit.SSO_JWKS
         self.assertEqual(
