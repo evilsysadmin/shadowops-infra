@@ -82,7 +82,7 @@ class PublicBrowserWorkflow(unittest.TestCase):
             root = Path(folder)
             for name, output in (("npm", ""), ("node", "1.62.0")):
                 fake = root / name
-                fake.write_text("#!/bin/sh\\nprintf '%s\\n' " + repr(output) + "\\n")
+                fake.write_text("#!/bin/sh\n" + ("exit 0\n" if name == "npm" else "echo 1.62.0\n"))
                 fake.chmod(0o755)
             output_file = root / "github_output"
             env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
@@ -92,7 +92,7 @@ class PublicBrowserWorkflow(unittest.TestCase):
                 cwd=root, env=env, capture_output=True, text=True, timeout=10,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(output_file.read_text(), "version=1.62.0\\n")
+            self.assertEqual(output_file.read_text().splitlines(), ["version=1.62.0"])
 
     def test_staging_uses_lockfile_keyed_npm_cache_without_skipping_ci(self):
         workflow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
