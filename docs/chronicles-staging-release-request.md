@@ -22,12 +22,14 @@ do not follow its historical instructions as if they describe today's pipeline.
 1. **Source CI ready:** all three required Chronicles source-main checks
    succeeded for one immutable, current SHA. An older or pending SHA must
    not be published merely because its CI was green in the past.
-2. **API verified:** the OCI deploy finishes public health and player-path
-   smoke, then writes `chronicles-api-staging-<SOURCE_SHA>`. Pages checks the
+2. **API verified:** the OCI deploy finishes public health, proves that
+   `/api/release.build` matches the admitted source SHA, and passes player-path
+   smoke before writing `chronicles-api-staging-<SOURCE_SHA>`. Pages checks the
    exact API artifact, its completed successful Infra API workflow run on
-   `main`, **and** the current public `/health` and `/ready` endpoints
-   before starting Pages work. A degraded API blocks Pages mutation even
-   when a valid historical API receipt exists.
+   `main`, the current public `/health` and `/ready` endpoints
+   **and** `/api/release.build` matching that exact source SHA before Pages
+   work begins. A healthy API running a different revision cannot authorize
+   Pages, even if a valid historical API receipt exists.
 3. **Pages verified:** Pages publishes the exact SHA (or, if the exact SHA is
    already live, retries public checks **without** rebuilding/redeploying).
    It checks custom-domain HTTPS, public `release.json.build`, desktop/mobile
@@ -52,6 +54,10 @@ artifact alone does **not** establish current public staging readiness.
   closed and leaves the deployed container untouched. The staging watchdog
   reports persistent public failures. Investigate before a deliberate manual
   redeploy; a single timeout is not grounds for automatic mutation.
+- **Trusted API receipt but wrong public API SHA:** an unambiguous different
+  40-hex `/api/release.build` allows the usual source-CI/attestation-guarded
+  staging redeploy. Missing, malformed or unreachable identity is inconclusive
+  and does **not** automatically mutate OCI. Pages never admits a mismatch.
 - **Pages artifact missing but correct SHA already live:** the next admitted
   Pages staging run skips build/Cloudflare mutation, repeats public smoke, and
   issues a verified receipt only on success.

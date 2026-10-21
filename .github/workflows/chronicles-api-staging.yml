@@ -319,6 +319,14 @@ jobs:
             "https://${API_HOST}/api/auth/login" | tr -d '\r' | awk -F': ' 'tolower($1)=="access-control-allow-origin"{print $2}')"
           [[ "$origin" == "$GAME_ORIGIN" ]]
           echo "CHRONICLES_API_PUBLIC_SMOKE_OK"
+      - name: Prove public staging API serves the admitted source SHA
+        if: inputs.environment != 'production'
+        env:
+          EXPECTED_SHA: ${{ needs.admit.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/chronicles_api_before_pages.py --public-sha-only "$EXPECTED_SHA"
       - name: Player-path smoke (register, run, save, reload; account always deleted)
         # Staging only: production never gets throwaway accounts.
         if: inputs.environment != 'production'

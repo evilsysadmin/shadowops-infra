@@ -113,8 +113,37 @@ def public_api_healthy(*, probe=probe_public, sleep=time.sleep) -> bool:
     return True
 
 
+def read_public_build(*, opener=urllib.request.urlopen) -> str | None:
+    """Read the revision actually served by the staging API; never trust the receipt alone."""
+    request = urllib.request.Request(
+        API_ORIGIN + "/release?sha_check=" + str(time.time_ns()),
+        headers={"Accept": "application/json", "Cache-Control": "no-cache",
+                 "User-Agent": "shadowops-chronicles-api-admission/1"},
+    )
+    try:
+        with opener(request, timeout=10) as response:
+            if response.status != 200:
+                return None
+            data = json.loads(response.read(4096))
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError, UnicodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    value = data.get("build")
+    return value if isinstance(value, str) and SHA.fullmatch(value) else None
+
+
+def public_api_revision_state(sha: str, *, read=read_public_build) -> str:
+    """match, different, unknown; unknown must not trigger automatic redeployment."""
+    if not SHA.fullmatch(sha):
+        raise GateError("Invalid source SHA")
+    live = read()
+    return "unknown" if live is None else ("match" if live == sha else "different")
+
+
 def wait_for_api(sha: str, token: str, *, attempts: int = 49, sleep=time.sleep,
-                 get=fetch, healthy=public_api_healthy) -> None:
+                 get=fetch, healthy=public_api_healthy,
+                 revision=public_api_revision_state) -> None:
     if not SHA.fullmatch(sha) or not token:
         raise GateError("Missing read token or invalid source SHA")
     for attempt in range(attempts):
@@ -126,6 +155,10 @@ def wait_for_api(sha: str, token: str, *, attempts: int = 49, sleep=time.sleep,
             # actual public API is degraded. Retry on the next admitted run.
             if not healthy():
                 raise GateError("CHRONICLES_API_PUBLIC_HEALTH_UNAVAILABLE")
+            state = revision(sha)
+            if state != "match":
+                raise GateError("CHRONICLES_API_PUBLIC_SOURCE_" +
+                                ("MISMATCH" if state == "different" else "INCONCLUSIVE"))
             print("CHRONICLES_API_VERIFIED_BEFORE_PAGES sha=" + sha)
             return
         if attempt + 1 < attempts:
@@ -136,6 +169,19 @@ def wait_for_api(sha: str, token: str, *, attempts: int = 49, sleep=time.sleep,
 
 def main() -> int:
     token = os.environ.get("GH_TOKEN", "")
+    if len(sys.argv) == 3 and sys.argv[1] == "--public-sha-only":
+        try:
+            state = public_api_revision_state(sys.argv[2])
+            if state == "match":
+                print("CHRONICLES_API_PUBLIC_SOURCE_OK sha=" + sys.argv[2])
+                return 0
+            print("CHRONICLES_API_PUBLIC_SOURCE_" +
+                  ("MISMATCH" if state == "different" else "INCONCLUSIVE"),
+                  file=sys.stderr)
+            return 1 if state == "different" else 2
+        except GateError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
     if len(sys.argv) == 3 and sys.argv[1] == "--receipt-only":
         try:
             if not api_receipt_available(sys.argv[2], token):
@@ -143,6 +189,13 @@ def main() -> int:
             if not public_api_healthy():
                 print("CHRONICLES_API_RECEIPT_LIVE_HEALTH_INCONCLUSIVE", file=sys.stderr)
                 return 2  # Do not redeploy automatically on a transient/outage.
+            state = public_api_revision_state(sys.argv[2])
+            if state == "unknown":
+                print("CHRONICLES_API_PUBLIC_SOURCE_INCONCLUSIVE", file=sys.stderr)
+                return 2
+            if state == "different":
+                print("CHRONICLES_API_PUBLIC_SOURCE_MISMATCH", file=sys.stderr)
+                return 1  # Confirmed drift: guarded admission may restore current SHA.
             print("CHRONICLES_API_STAGING_ALREADY_VERIFIED sha=" + sys.argv[2])
             return 0
         except GateError as exc:
