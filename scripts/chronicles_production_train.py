@@ -147,16 +147,28 @@ def receipt_after(sha: str, kind: str, token: str, *,
     raise TrainError(kind + " has no trusted production receipt")
 
 
+def progress_stage(progress: dict | None, stage: str, **changes: object) -> None:
+    """In-memory nonsecret evidence; caller persists it even when a gate fails."""
+    if progress is not None:
+        progress.update(changes)
+        progress["stage"] = stage
+
+
 def preflight(token: str, pinned: str = "", *, select=select_sha,
-              current=deployed_sha, verify=public_audit) -> dict:
+              current=deployed_sha, verify=public_audit,
+              progress: dict | None = None) -> dict:
     """Inspect live staging admission and production, without any dispatch/write."""
+    progress_stage(progress, "candidate-admission")
     sha = select(token, pinned)
+    progress_stage(progress, "production-inspection", source_sha=sha)
     if current(sha, token):
+        progress_stage(progress, "public-verification")
         if verify(token) != sha:
             raise TrainError("unchanged production failed public game audit")
         action = "unchanged"
     else:
         action = "would-promote"
+    progress_stage(progress, "completed", result=action)
     print("CHRONICLES_TRAIN_PREFLIGHT " + action + " sha=" + sha, flush=True)
     return {"source_sha": sha, "result": action, "api_run": None,
             "pages_run": None}
@@ -165,32 +177,51 @@ def preflight(token: str, pinned: str = "", *, select=select_sha,
 def run(token: str, pinned: str = "", *, select=select_sha,
         current=deployed_sha, start=dispatch, wait=wait_run,
         receipt=receipt_after, verify=public_audit,
-        probe=check_api) -> dict:
+        probe=check_api, progress: dict | None = None) -> dict:
+    progress_stage(progress, "candidate-admission")
     sha = select(token, pinned)
+    progress_stage(progress, "production-inspection", source_sha=sha)
     if current(sha, token):
         # Receipts and API health alone do not prove the JS/CSS still load.
+        progress_stage(progress, "public-verification")
         if verify(token) != sha:
             raise TrainError("unchanged production failed public game audit")
+        progress_stage(progress, "completed", result="unchanged")
         print("CHRONICLES_TRAIN_NO_CHANGE sha=" + sha)
         return {"source_sha": sha, "result": "unchanged", "api_run": None,
                 "pages_run": None}
+    progress_stage(progress, "api-dispatch")
     api_run = start("api", sha, token)
+    progress_stage(progress, "api-running", api_run=api_run)
     wait("api", api_run, token)
+    progress_stage(progress, "api-green")
     receipt(sha, "api", token)
+    progress_stage(progress, "api-receipt")
     # Absolutely no Pages dispatch if the new API isn't publicly ready.
     if not all(probe(p) for p in ("health", "ready", "cors")):
         raise TrainError("production API public smoke failed after API deployment")
+    progress_stage(progress, "api-public-ready")
     pages_run = start("pages", sha, token)
+    progress_stage(progress, "pages-running", pages_run=pages_run)
     wait("pages", pages_run, token)
+    progress_stage(progress, "pages-green")
     receipt(sha, "pages", token)
+    progress_stage(progress, "pages-receipt")
     if verify(token) != sha:
         raise TrainError("public production release does not match admitted SHA")
+    progress_stage(progress, "completed", result="promoted")
     print("CHRONICLES_TRAIN_PROMOTED sha=" + sha, flush=True)
     return {"source_sha": sha, "result": "promoted", "api_run": api_run,
             "pages_run": pages_run}
 
 
 def main() -> int:
+    # Keep the last known stage and child run IDs even if Pages fails after
+    # an API deployment. Never include API responses, credentials or tokens.
+    progress: dict = {
+        "schema": 1, "result": "blocked", "stage": "starting",
+        "source_sha": None, "api_run": None, "pages_run": None,
+    }
     try:
         if (os.environ.get("GITHUB_REPOSITORY") != INFRA
             or os.environ.get("GITHUB_REF") != "refs/heads/main"
@@ -200,19 +231,29 @@ def main() -> int:
         token = os.environ.get("GH_TOKEN", "")
         source_sha = os.environ.get("CHRONICLES_TRAIN_SOURCE_SHA", "").strip()
         dry_run = os.environ.get("CHRONICLES_TRAIN_DRY_RUN", "").lower() == "true"
-        result = (preflight(token, source_sha) if dry_run
-                  else run(token, source_sha))
-        out = Path(os.environ["RUNNER_TEMP"]) / "chronicles-production-train.json"
-        out.write_text(json.dumps({"schema": 1, **result}, indent=2) + "\n")
+        result = (preflight(token, source_sha, progress=progress) if dry_run
+                  else run(token, source_sha, progress=progress))
+        progress.update(result)
+        return 0
     except (TrainError, PromotionError, urllib.error.URLError, ValueError,
             TypeError, OSError, TimeoutError) as exc:
         # The error type/short message contains no API body, token or secret.
+        progress["result"] = "blocked"
         if isinstance(exc, TrainError):
             print("CHRONICLES_TRAIN_BLOCKED " + str(exc), file=sys.stderr)
         else:
             print("CHRONICLES_TRAIN_BLOCKED provider evidence unavailable", file=sys.stderr)
         return 1
-    return 0
+    finally:
+        # upload-artifact has if: always(). Do not replace the original gate
+        # failure with a journal-write error when the runner disk is full.
+        directory = os.environ.get("RUNNER_TEMP")
+        if directory:
+            try:
+                out = Path(directory) / "chronicles-production-train.json"
+                out.write_text(json.dumps(progress, indent=2) + "\n")
+            except (OSError, TypeError, ValueError):
+                print("CHRONICLES_TRAIN_JOURNAL_UNAVAILABLE", file=sys.stderr)
 
 
 if __name__ == "__main__":
