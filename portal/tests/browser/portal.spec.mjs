@@ -1,4 +1,20 @@
 import { test, expect } from '@playwright/test';
+import pngjs from 'pngjs';
+const { PNG } = pngjs;
+
+function assertVisibleWebGLContent(screenshot) {
+  const png = PNG.sync.read(screenshot);
+  let coloredSamples = 0;
+  for (let y = Math.floor(png.height * .13); y < Math.floor(png.height * .87); y += 6) {
+    for (let x = Math.floor(png.width * .08); x < Math.floor(png.width * .92); x += 6) {
+      const i = (y * png.width + x) * 4;
+      const rgb = [png.data[i], png.data[i + 1], png.data[i + 2]];
+      if (Math.max(...rgb) >= 31 && Math.max(...rgb) - Math.min(...rgb) >= 14) coloredSamples++;
+    }
+  }
+  // A clear WebGL canvas with the default dark background is NOT a 3D scene.
+  expect(coloredSamples, 'Visible portal geometry / material color').toBeGreaterThan(18);
+}
 
 for (const width of [360, 390, 430, 1440]) {
   test(`viewport ${width}: catalog, screenshot and zero horizontal overflow`, async ({page}, testInfo) => {
@@ -13,6 +29,10 @@ for (const width of [360, 390, 430, 1440]) {
       return state === 'active' || state === 'unavailable';
     }, null, {timeout: 15000});
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
+    if (await page.locator('.stage').getAttribute('data-scene') === 'active') {
+      const canvasScreenshot = await page.locator('.stage canvas').screenshot({animations:'disabled'});
+      assertVisibleWebGLContent(canvasScreenshot);
+    }
     await testInfo.attach(`shadowops-${width}-scene`, {
       body: await page.screenshot({fullPage: true, animations:'disabled'}),
       contentType: 'image/png',
