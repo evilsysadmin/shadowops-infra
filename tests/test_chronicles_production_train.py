@@ -185,13 +185,35 @@ class ReleaseTrainTests(unittest.TestCase):
             return SHA
         data = train.run(TOKEN, select=lambda *_: SHA, current=lambda *_: False,
                          start=start, wait=wait, receipt=receipt,
-                         probe=probe, verify=verify)
+                         probe=probe, verify=verify,
+                         api_build=lambda: steps.append("api-build") or SHA)
         self.assertEqual(data["result"], "promoted")
         self.assertEqual((data["api_run"], data["pages_run"]), (11, 12))
         self.assertEqual(steps, ["dispatch-api", "wait-api", "receipt-api",
                                  "api-health", "api-ready", "api-cors",
-                                 "dispatch-pages", "wait-pages", "receipt-pages",
+                                 "api-build", "dispatch-pages", "wait-pages", "receipt-pages",
                                  "final-audit"])
+
+    def test_api_drift_blocks_pages_even_after_green_api_and_receipt(self):
+        for live in (None, OTHER):
+            actions = []
+            state = {}
+            def start(kind, sha, token):
+                actions.append(kind)
+                self.assertEqual(sha, SHA)
+                return 42
+            with self.subTest(live=live):
+                with self.assertRaisesRegex(train.TrainError, "source SHA"):
+                    train.run(TOKEN, select=lambda *_: SHA,
+                              current=lambda *_: False,
+                              start=start, wait=lambda *_: None,
+                              receipt=lambda *_: None,
+                              probe=lambda _: True, api_build=lambda: live,
+                              verify=lambda _: SHA, progress=state)
+                self.assertEqual(actions, ["api"])
+                self.assertEqual(state["stage"], "api-public-ready")
+                self.assertEqual(state["api_run"], 42)
+                self.assertNotIn("pages_run", state)
 
     def test_new_child_receipt_requires_same_workflow_run(self):
         calls = []
@@ -224,7 +246,7 @@ class ReleaseTrainTests(unittest.TestCase):
             train.run(TOKEN, select=lambda *_: SHA, current=lambda *_: False,
                       start=start, wait=wait, receipt=lambda *_: None,
                       probe=lambda _: True, verify=lambda _: SHA,
-                      progress=stages)
+                      api_build=lambda: SHA, progress=stages)
         self.assertEqual(actions, ["api", "pages"])
         self.assertEqual(stages["source_sha"], SHA)
         self.assertEqual(stages["api_run"], 101)
