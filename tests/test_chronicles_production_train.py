@@ -405,8 +405,9 @@ class ReleaseTrainTests(unittest.TestCase):
                 "GH_TOKEN": "extremely-secret-token",
                 "RUNNER_TEMP": tmp,
             }
-            def fail(token, pinned, *, progress):
+            def fail(token, pinned, *, progress, scheduled):
                 self.assertEqual(token, environ["GH_TOKEN"])
+                self.assertFalse(scheduled)
                 train.progress_stage(progress, "pages-running",
                                      source_sha=SHA, api_run=99, pages_run=100)
                 raise train.TrainError("pages check failed")
