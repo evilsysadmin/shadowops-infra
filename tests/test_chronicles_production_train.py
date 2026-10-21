@@ -174,7 +174,8 @@ class ReleaseTrainTests(unittest.TestCase):
             return 11 if kind == "api" else 12
         def wait(kind, run_id, token):
             steps.append("wait-" + kind)
-        def receipt(sha, kind, token):
+        def receipt(sha, kind, token, run_id):
+            self.assertEqual(run_id, 11 if kind == "api" else 12)
             steps.append("receipt-" + kind)
         def probe(path):
             steps.append("api-" + path)
@@ -191,6 +192,23 @@ class ReleaseTrainTests(unittest.TestCase):
                                  "api-health", "api-ready", "api-cors",
                                  "dispatch-pages", "wait-pages", "receipt-pages",
                                  "final-audit"])
+
+    def test_new_child_receipt_requires_same_workflow_run(self):
+        calls = []
+        def receipt(sha, kind, token, *, expected_run_id=None):
+            calls.append((sha, kind, token, expected_run_id))
+            return expected_run_id == 123
+        train.receipt_after(SHA, "api", TOKEN, 123,
+                            receipt=receipt, sleep=lambda _: None)
+        self.assertEqual(calls, [(SHA, "production-api", TOKEN, 123)])
+        with self.assertRaisesRegex(train.TrainError, "no trusted"):
+            train.receipt_after(SHA, "api", TOKEN, 124,
+                                receipt=receipt, sleep=lambda _: None)
+        self.assertEqual(len(calls), 7)
+        for invalid in (None, -1, 0, True, "123"):
+            with self.subTest(invalid=invalid), self.assertRaises(train.TrainError):
+                train.receipt_after(SHA, "api", TOKEN, invalid,
+                                    receipt=receipt, sleep=lambda _: None)
 
     def test_partial_api_success_is_journaled_before_pages_failure(self):
         stages = {"result": "blocked", "stage": "starting",
