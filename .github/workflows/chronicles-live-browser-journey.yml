@@ -42,13 +42,6 @@ jobs:
       name: staging
       url: https://staging.chronicles.shadowops.dpdns.org
     steps:
-      - name: Checkout only the source-owned browser tests
-        uses: actions/checkout@v4
-        with:
-          repository: evilsysadmin/chronicles-of-matthias
-          ref: main
-          persist-credentials: false
-          path: chronicles-source
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -64,6 +57,20 @@ jobs:
           sha="$(node -p 'require(process.argv[1]).build' "$RUNNER_TEMP/chronicles-public-release.json")"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || exit 64
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: Checkout browser tests from the exact published revision
+        uses: actions/checkout@v4
+        with:
+          repository: evilsysadmin/chronicles-of-matthias
+          ref: ${{ steps.release.outputs.sha }}
+          persist-credentials: false
+          path: chronicles-source
+      - name: Assert test checkout matches published SHA
+        env:
+          PUBLIC_SHA: ${{ steps.release.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C chronicles-source rev-parse HEAD)" = "$PUBLIC_SHA"
       - name: Real desktop/mobile creation and cross-device persistence
         working-directory: chronicles-source/frontend
         env:
