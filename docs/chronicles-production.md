@@ -31,6 +31,17 @@ Producción es igual que staging, con su propio estado. Nada se comparte salvo e
 - Los runs y el SHA elegido se registran en un artefacto JSON del train (90 días). Si falla Pages después de API, **no** se toca Mongo ni se aplica un rollback ciego: requiere intervención y comprobación de compatibilidad de datos.
 - Producción requiere el entorno de GitHub `production`; si se configuran aprobaciones, se respetarán antes de ejecutar el train.
 
+### Simulacro de admisión (sin desplegar nada)
+
+Antes de la primera promoción automática, o para diagnosticar una versión candidata, ejecutar el modo de **solo lectura**. Usa el mismo gate de CI y recibos de staging y contrasta la versión actual de producción; no ejecuta workflows hijos, no accede a OCI/Cloudflare/Atlas y no crea usuarios. El job usa solo `contents: read` y `actions: read`.
+
+~~~bash
+gh workflow run chronicles-production-train.yml \
+  -R evilsysadmin/shadowops-infra --ref main -f dry_run=true
+~~~
+
+También admite `-f source_sha='<SHA_COMPLETO_ACREDITADO>'` para inspeccionar una versión anterior acreditada. La ejecución registra `unchanged` o `would-promote` con SHA en un artefacto JSON de 30 días; fallará si la versión que ya sirve producción está degradada, no tiene recibos fiables o su juego público falla la auditoría. **Un preflight verde no sustituye al primer tren real ni al SSO de usuario.**
+
 ### Promoción fuera del horario (hotfix)
 
 Por defecto una ejecución manual del tren usa el SHA acreditado actualmente visible en staging. Para una revisión histórica ya acreditada puede indicarse su SHA completo:
