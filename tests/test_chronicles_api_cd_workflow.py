@@ -48,8 +48,56 @@ class StagingConvergenceContracts(unittest.TestCase):
         self.assertIn("fresh=false' >> \"$GITHUB_OUTPUT\"", code)
         self.assertIn("fresh=true' >> \"$GITHUB_OUTPUT\"", code)
         self.assertIn('CHRONICLES_OCI_INVALID_SOURCE', code)
-        self.assertIn("inputs.environment != 'production'",
-                      next(step["if"] for step in steps if step.get("name") == guard))
+        self.assertEqual(
+            next(step["if"] for step in steps if step.get("name") == guard),
+            "inputs.environment != 'production' && steps.staging_preflight.outputs.fresh == 'true'")
+
+    def test_staging_preflight_saves_sdk_setup_and_keeps_second_guard(self):
+        steps = self.workflow['jobs']['deploy']['steps']
+        preflight = next(s for s in steps if s.get('id') == 'staging_preflight')
+        late = next(s for s in steps if s.get('id') == 'staging_freshness')
+        self.assertEqual(preflight['if'], "inputs.environment != 'production'")
+        self.assertLess(steps.index(preflight),
+                        next(i for i, s in enumerate(steps) if s.get('uses') == 'actions/setup-python@v5'))
+        self.assertLess(steps.index(preflight), steps.index(late))
+        self.assertIn('commits/main', preflight['run'])
+        self.assertIn('CHRONICLES_OCI_STALE_SOURCE_PRECHECK_SKIPPED', preflight['run'])
+        self.assertIn('CHRONICLES_OCI_INVALID_MAIN_SHA', preflight['run'])
+
+    def test_preflight_rejects_unverifiable_main_and_skips_stale(self):
+        guard = next(s for s in self.workflow['jobs']['deploy']['steps']
+                     if s.get('id') == 'staging_preflight')
+        sha = 'a' * 40
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            gh = root / 'gh'
+            gh.write_text('#!/bin/sh\n'
+                          'if [ "$FAKE_GH_FAIL" = true ]; then exit 7; fi\n'
+                          'printf "%s\\n" "$FAKE_MAIN_SHA"\n')
+            gh.chmod(0o755)
+            for admitted, main_sha, failure, code, flag in (
+                (sha, sha, 'false', 0, 'fresh=true'),
+                (sha, 'b' * 40, 'false', 0, 'fresh=false'),
+                (sha, 'invalid', 'false', 65, ''),
+                (sha, sha, 'true', 7, ''),
+                ('invalid', sha, 'false', 64, ''),
+            ):
+                with self.subTest(admitted=admitted, main=main_sha, failure=failure):
+                    output = root / 'output'
+                    summary = root / 'summary'
+                    output.write_text('')
+                    summary.write_text('')
+                    env = dict(os.environ, PATH=f"{root}{os.pathsep}{os.environ.get('PATH', '')}",
+                               ADMITTED_SHA=admitted, GH_TOKEN='test-only',
+                               FAKE_MAIN_SHA=main_sha, FAKE_GH_FAIL=failure,
+                               GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(summary))
+                    run = subprocess.run(['bash', '-c', guard['run']],
+                                         env=env, capture_output=True, text=True, check=False)
+                    self.assertEqual(run.returncode, code, run.stderr)
+                    self.assertEqual(output.read_text().strip(), flag)
+                    if flag == 'fresh=false':
+                        self.assertIn('PRECHECK_SKIPPED', run.stdout)
+                        self.assertIn('SDK', summary.read_text())
 
     def test_superseded_staging_gates_all_mutations_smokes_and_receipts(self):
         steps = self.workflow['jobs']['deploy']['steps']
@@ -166,8 +214,11 @@ class StagingConvergenceContracts(unittest.TestCase):
         self.assertIn("runner.os", cache["with"]["key"])
         self.assertIn("py313-sdk-2.185.2", cache["with"]["key"])
         self.assertIn("oci==2.185.2", install["run"])
-        self.assertNotIn("if", install)
-        self.assertNotIn("if", cache)
+        gate = "inputs.environment == 'production' || steps.staging_preflight.outputs.fresh == 'true'"
+        self.assertEqual(install["if"], gate)
+        self.assertEqual(cache["if"], gate)
+        setup = next(step for step in steps if step.get("uses") == "actions/setup-python@v5")
+        self.assertEqual(setup["if"], gate)
         # Avoid cross-contaminating the separately provisioned OCI runtime.
         self.assertFalse(any(s.get("name") == "Cache OCI SDK wheel downloads"
                              for s in self.workflow["jobs"]["provision"]["steps"]))
