@@ -108,6 +108,16 @@ class ApiBeforePages(unittest.TestCase):
                  patch.object(gate, "public_api_revision_state", return_value="unknown"):
                 self.assertEqual(gate.main(), 2)
 
+    def test_public_sha_only_cli_is_read_only_and_fail_closed(self):
+        with patch.object(gate.sys, "argv", ["gate", "--public-sha-only", SHA]), \
+             patch.dict(gate.os.environ, {}, clear=True):
+            for state, expected in (("match", 0), ("different", 1), ("unknown", 2)):
+                with self.subTest(state=state), \
+                     patch.object(gate, "public_api_revision_state", return_value=state), \
+                     patch.object(gate, "api_receipt_available") as artifacts:
+                    self.assertEqual(gate.main(), expected)
+                    artifacts.assert_not_called()
+
     def test_api_health_probe_uses_both_public_paths_and_https(self):
         with patch.object(gate.urllib.request, "urlopen") as opener:
             opener.return_value.__enter__.return_value.status = 200
