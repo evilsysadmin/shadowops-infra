@@ -34,9 +34,8 @@ class GuideCensusWorkflow(unittest.TestCase):
         self.assertIn("CHRONICLES_GUIDE_DIAGNOSTIC_ONLY_NO_RELEASE_RECEIPT", run_script)
         self.assertIn("node smoke/public-staging.mjs", run_script)
         self.assertIn("CHRONICLES_STAGING_INVITE_CODE", WORKFLOW.read_text())
-        self.assertIn("sha_check", (ROOT / "scripts/chronicles_api_before_pages.py").read_text()
-                      if "sha_check" in (ROOT / "scripts/chronicles_api_before_pages.py").read_text()
-                      else "sha_check")
+        self.assertIn("CHRONICLES_DIAGNOSTIC_PUBLIC_SHA", run_script)
+        self.assertIn("origin=\"https://staging.chronicles.shadowops.dpdns.org\"", run_script.replace("'", "\""))
         artifact = steps[-1]
         self.assertEqual(artifact["if"], "always()")
         self.assertEqual(artifact["with"]["retention-days"], "3")
