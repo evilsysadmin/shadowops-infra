@@ -89,6 +89,39 @@ class ParallelReactPagesTest(unittest.TestCase):
         self.assertEqual(requested[0], "https://" + pages.HOST + "/")
         self.assertTrue(any("/assets/" in value for value in requested))
 
+    def test_full_game_root_allows_cinematic_loader_but_still_requires_real_assets(self):
+        # Mirrors frontend/index.html: #root is populated before React hydrates.
+        html = HTML.replace(b"/react/assets/", b"/assets/").replace(
+            b'<div id="root"></div>',
+            b'<div id="root"><main class="chronicles-boot" role="status">'
+            b'<img src="/chronicles-loading-crest.svg" alt="">'
+            b'<h1>CHRONICLES</h1></main><noscript>JavaScript required</noscript></div>',
+        )
+        calls = []
+
+        def response(req, timeout):
+            calls.append(req.full_url)
+            if req.full_url.endswith("/"):
+                return FakeResponse(req.full_url, html, "text/html")
+            if req.full_url.endswith(".js"):
+                return FakeResponse(req.full_url, JS, "application/javascript")
+            if req.full_url.endswith(".css"):
+                return FakeResponse(req.full_url, CSS, "text/css")
+            raise AssertionError("Unexpected request " + req.full_url)
+
+        with patch.object(pages.urllib.request, "urlopen", side_effect=response):
+            self.assertEqual(
+                pages.probe_react_preview(path="/", assets=b"/assets/", manifest_path=None), "ok",
+            )
+        self.assertEqual(len(calls), 3)
+        wrong = html.replace(b'id="root"', b'id="rootish"')
+        with patch.object(pages.urllib.request, "urlopen",
+                          return_value=FakeResponse("https://" + pages.HOST + "/", wrong, "text/html")):
+            self.assertEqual(
+                pages.probe_react_preview(path="/", assets=b"/assets/", manifest_path=None),
+                "html_missing",
+            )
+
     def test_vite_modulepreload_links_do_not_hide_the_entry_script(self):
         # Real root HTML of the verbatim game build: one entry module, one
         # stylesheet and several vendor modulepreload links.
