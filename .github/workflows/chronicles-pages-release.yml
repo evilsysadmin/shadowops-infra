@@ -364,7 +364,8 @@ jobs:
           set -euo pipefail
           npm install --no-save --no-audit --no-fund playwright@1
           # Cache key must track the actual resolved Playwright release.
-          echo "version=$(node -p \"require('./node_modules/playwright/package.json').version\")" >> "$GITHUB_OUTPUT"
+          version="$(node -p 'require("./node_modules/playwright/package.json").version')"
+          printf 'version=%s\\n' "$version" >> "$GITHUB_OUTPUT"
       - name: Cache exact Chromium browser binaries
         uses: actions/cache@v4
         with:
