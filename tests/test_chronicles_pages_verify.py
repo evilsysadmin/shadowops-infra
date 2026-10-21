@@ -36,6 +36,16 @@ class HTTPSVerification(unittest.TestCase):
             self.assertEqual(pages.probe_https(), "ok")
         with patch.object(pages.urllib.request, "urlopen", return_value=Response("wrong project")):
             self.assertEqual(pages.probe_https(), "unexpected_content")
+        # The canonical game now embeds an accessible loading scene in #root.
+        loading = ('<title>Chronicles of Matthias</title>'
+                   '<div id="root"><main class="chronicles-boot" role="status">'
+                   '<h1>CHRONICLES</h1></main></div>')
+        with patch.object(pages.urllib.request, "urlopen", return_value=Response(loading)):
+            self.assertEqual(pages.probe_https(), "ok")
+        # An unrelated root ID must not satisfy the admission gate.
+        with patch.object(pages.urllib.request, "urlopen",
+                          return_value=Response(loading.replace('id="root"', 'id="rootish"'))):
+            self.assertEqual(pages.probe_https(), "unexpected_content")
 
     def test_https_probe_is_a_public_browser_request_without_auth(self):
         class Response:
