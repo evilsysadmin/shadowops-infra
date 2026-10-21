@@ -179,14 +179,14 @@ class TrainScheduleWatchTests(unittest.TestCase):
         env = {"GITHUB_REPOSITORY": watch.REPO, "GITHUB_REF": "refs/heads/main",
                "GITHUB_EVENT_NAME": "schedule", "GH_TOKEN": "private-test-token"}
         with patch.dict(os.environ, env, clear=True):
-            with patch.object(watch, "fetch_runs", return_value=[{}]), \\
-                 patch.object(watch, "completed_train_today", return_value=42), \\
+            with patch.object(watch, "fetch_runs", return_value=[{}]), \
+                 patch.object(watch, "completed_train_today", return_value=42), \
                  patch.object(watch, "fetch_train_jobs", return_value=[
                     {"name": watch.TRAIN_JOB, "status": "completed",
                      "conclusion": "skipped", "steps": []}]):
                 self.assertEqual(watch.main(), 1)
-            with patch.object(watch, "fetch_runs", return_value=[{}]), \\
-                 patch.object(watch, "completed_train_today", return_value=42), \\
+            with patch.object(watch, "fetch_runs", return_value=[{}]), \
+                 patch.object(watch, "completed_train_today", return_value=42), \
                  patch.object(watch, "fetch_train_jobs", return_value=[
                     {"name": watch.TRAIN_JOB, "status": "completed",
                      "conclusion": "success",
