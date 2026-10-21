@@ -48,8 +48,14 @@ class PublicBrowserWorkflow(unittest.TestCase):
         self.assertIn("only_if_new", live["env"]["FORCE_PUBLISH"])
         self.assertLess(steps.index(live),
                         steps.index(named["Build the game against its own API"]))
+        build = named["Build the game against its own API"]
+        # A smoke-only retry does not re-publish, but it MUST build the
+        # expected index.html used to catch stale public JS/CSS.
+        self.assertNotIn("if", build)
+        self.assertIn("dist/index.html", build["run"])
+        self.assertLess(steps.index(build), steps.index(named[
+            "Real public browser smoke (desktop, mobile, login, update deferral)"]))
         for name in (
-            "Build the game against its own API",
             "Assemble static root",
             "Reject foreign hostname ownership before any mutations",
             "Reject superseded source before Pages mutations",
@@ -105,7 +111,7 @@ class PublicBrowserWorkflow(unittest.TestCase):
         build = next(step for step in steps
                      if step.get("name") == "Build the game against its own API")
         self.assertIn("npm ci --ignore-scripts", build["run"])
-        self.assertEqual(build["if"], "steps.live.outputs.already_published != 'true'")
+        self.assertNotIn("if", build)
         browser = next(step for step in steps
                        if step.get("name") == "Real public browser smoke (desktop, mobile, login, update deferral)")
         harness = next(step for step in steps
