@@ -270,6 +270,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - name: Cache OCI SDK wheel downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: chronicles-oci-pip-${{ runner.os }}-py313-sdk-2.185.2-v1
       - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
       - name: Reject a superseded staging source before touching OCI
         if: inputs.environment != 'production'
