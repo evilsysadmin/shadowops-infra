@@ -18,6 +18,11 @@ on:
         description: Optional exact 40-hex previously validated Chronicles SHA; blank = live staging build
         type: string
         required: false
+      dry_run:
+        description: Verify staging candidate and production readiness without triggering any deploy
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -38,10 +43,38 @@ jobs:
       - run: python3 -m pip install --disable-pip-version-check PyYAML
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_production_train.py' -v
 
+  preflight:
+    name: Read-only staging admission and production inspection
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && inputs.dry_run == true && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CHRONICLES_PAGES_ENV: production
+      CHRONICLES_TRAIN_DRY_RUN: 'true'
+      CHRONICLES_TRAIN_SOURCE_SHA: ${{ inputs.source_sha || '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate candidate and current production without writes
+        run: python3 scripts/chronicles_production_train.py
+      - name: Archive admitted source SHA and planned action
+        uses: actions/upload-artifact@v4
+        with:
+          name: chronicles-production-train-preflight-${{ github.run_id }}
+          path: ${{ runner.temp }}/chronicles-production-train.json
+          if-no-files-found: error
+          retention-days: 30
+
   train:
     name: Admit staging, promote API, promote Pages, verify public release
     needs: contracts
-    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.repository == 'evilsysadmin/shadowops-infra' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.dry_run != true)) && github.repository == 'evilsysadmin/shadowops-infra' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
       actions: write
