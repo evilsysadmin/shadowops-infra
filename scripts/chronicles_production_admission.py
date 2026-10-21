@@ -53,9 +53,15 @@ def github_read(path: str, token: str) -> dict:
     return payload
 
 
-def verified_receipt(sha: str, kind: str, token: str, read: Callable = github_read) -> bool:
+def verified_receipt(sha: str, kind: str, token: str,
+                     read: Callable = github_read, *,
+                     expected_run_id: int | None = None) -> bool:
     if kind not in RECEIPTS or not SHA.fullmatch(sha):
         raise PromotionError("Invalid receipt selector or SHA")
+    if expected_run_id is not None and (
+        type(expected_run_id) is not int or expected_run_id <= 0
+    ):
+        raise PromotionError("Invalid expected receipt run ID")
     workflow, prefix = RECEIPTS[kind]
     name = prefix + sha
     path = f"repos/{INFRA}/actions/artifacts?" + urllib.parse.urlencode(
@@ -73,6 +79,9 @@ def verified_receipt(sha: str, kind: str, token: str, read: Callable = github_re
             continue
         run_id = origin.get("id")
         if type(run_id) is not int or run_id <= 0:
+            continue
+        if expected_run_id is not None and run_id != expected_run_id:
+            # A stale receipt for this SHA must never attest a *new* run.
             continue
         run = read(f"repos/{INFRA}/actions/runs/{run_id}", token)
         if (
