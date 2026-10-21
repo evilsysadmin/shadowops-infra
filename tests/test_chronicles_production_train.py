@@ -84,17 +84,40 @@ class ReleaseTrainTests(unittest.TestCase):
         def admit(sha, token):
             called.append((sha, token))
         self.assertEqual(
-            train.select_sha(TOKEN, live=lambda: SHA, gate=admit), SHA)
+            train.select_sha(TOKEN, live=lambda: SHA,
+                             gate=admit, api_build=lambda: SHA), SHA)
         self.assertEqual(called, [(SHA, TOKEN)])
         self.assertEqual(
             train.select_sha(TOKEN, pinned=OTHER, live=lambda: self.fail("live must not be read"),
-                             gate=admit), OTHER)
+                             gate=admit, api_build=lambda: self.fail("pinned source is historical")), OTHER)
         self.assertEqual(called[-1], (OTHER, TOKEN))
         for pinned in ("deadbeef", "x" * 40, "A" * 40):
             with self.subTest(pinned=pinned), self.assertRaises(train.TrainError):
                 train.select_sha(TOKEN, pinned=pinned, live=lambda: SHA, gate=admit)
         with self.assertRaises(train.TrainError):
             train.select_sha("")
+
+    def test_live_staging_api_drift_blocks_scheduled_candidate_before_admission(self):
+        called = []
+        for build in (None, OTHER):
+            with self.subTest(public_api_build=build):
+                with self.assertRaisesRegex(train.TrainError, "staging API live source"):
+                    train.select_sha(
+                        TOKEN, live=lambda: SHA, api_build=lambda: build,
+                        gate=lambda *args: called.append(args),
+                    )
+        self.assertEqual(called, [])
+        # A candidate that is not even a full SHA remains inadmissible.
+        with self.assertRaisesRegex(train.TrainError, "live staging SHA invalid"):
+            train.select_sha(TOKEN, live=lambda: "not-a-sha",
+                             api_build=lambda: self.fail("invalid manifest"))
+        # An explicit historical manual SHA uses the same trusted source CI
+        # and staging receipts, but must not depend on the current live API.
+        self.assertEqual(
+            train.select_sha(TOKEN, pinned=OTHER,
+                             api_build=lambda: self.fail("historical manual override"),
+                             gate=lambda sha, token: called.append((sha, token))), OTHER)
+        self.assertEqual(called, [(OTHER, TOKEN)])
 
     def test_unchanged_prod_only_skipped_if_receipts_and_api_are_healthy(self):
         self.assertFalse(train.deployed_sha(
