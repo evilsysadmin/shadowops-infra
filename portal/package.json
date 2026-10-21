@@ -7,7 +7,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "check": "node --check src/main.js && node --check src/world.js && node --check src/catalog.mjs",
+    "check": "node --check src/main.js && node --check src/world.js && node --check src/portalVistas.js && node --check src/galleryArchitecture.js && node --check src/catalog.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:browser": "playwright test"
   },
