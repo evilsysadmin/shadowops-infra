@@ -15,6 +15,7 @@ import time
 import urllib.error
 import urllib.request
 
+from chronicles_api_before_pages import read_public_build as read_staging_api_build
 from chronicles_production_admission import INFRA, SHA, PromotionError, admit, verified_receipt
 from chronicles_production_audit import audit as public_audit, check_api, read_release, read_live_api_build
 
@@ -45,7 +46,7 @@ def staging_sha() -> str:
 
 
 def select_sha(token: str, pinned: str = "", *, live=staging_sha,
-               gate=admit) -> str:
+               gate=admit, api_build=read_staging_api_build) -> str:
     if not token:
         raise TrainError("read token required")
     if pinned and not SHA.fullmatch(pinned):
@@ -53,8 +54,13 @@ def select_sha(token: str, pinned: str = "", *, live=staging_sha,
     sha = pinned or live()
     if not isinstance(sha, str) or not SHA.fullmatch(sha):
         raise TrainError("live staging SHA invalid")
-    # The pinned manual path may target an earlier validated revision.
-    # The scheduled path *always* selects what staging actually serves.
+    # Scheduled/default promotion requires the *current* public staging API
+    # and Pages to serve the same source revision at candidate selection time.
+    # Historical receipts by themselves cannot prove this live relationship.
+    # An explicitly pinned manual rollback/hotfix may target an older admitted
+    # SHA and must not depend on what staging currently serves.
+    if not pinned and api_build() != sha:
+        raise TrainError("staging API live source SHA missing or mismatched")
     gate(sha, token)
     return sha
 
