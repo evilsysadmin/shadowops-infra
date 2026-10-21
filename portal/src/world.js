@@ -31,7 +31,7 @@ const PORTAL_FRAGMENT = `
     float arcs = sin(radius * 24. - uTime * .35 + warp * 3.);
     float veil = noise(p * 8. + uTime * .024) * .45
        + noise(p * 17. - uTime * .018) * .22;
-    float interior = smoothstep(.88, .33, radius);
+    float interior = 1.0 - smoothstep(.33, .88, radius);
     float halo = pow(max(0., 1. - abs(radius - .75) * 5.), 2.);
     float shimmer = clamp(.13 + veil * .5 + arcs * .042 + uFocus * .12, 0., 1.);
     vec3 color = mix(vec3(.012, .024, .045), uTint * (.34 + veil * .55), shimmer);
@@ -161,7 +161,7 @@ export function mountObservatory(container, onSelect) {
   scene.add(starPoints);
 
   let focus = 'chess', frame = 0, disposed = false;
-  let pointerDown = null, yaw = 0, desiredYaw = 0;
+  let pointerDown = null, pointerStart = null, yaw = 0, desiredYaw = 0;
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
   function resize() {
@@ -204,7 +204,7 @@ export function mountObservatory(container, onSelect) {
     raycaster.setFromCamera(pointer, camera);
     return raycaster.intersectObjects(interactive, false)[0]?.object.userData.worldId ?? null;
   }
-  function onPointerDown(event) { pointerDown = {x:event.clientX,y:event.clientY}; }
+  function onPointerDown(event) { pointerStart = {x:event.clientX,y:event.clientY}; pointerDown = pointerStart; }
   function onPointerMove(event) {
     renderer.domElement.style.cursor = hit(event) ? 'pointer' : 'grab';
     if (pointerDown && event.buttons === 1 && !reduceMotion) {
@@ -213,16 +213,17 @@ export function mountObservatory(container, onSelect) {
     }
   }
   function onPointerUp(event) {
-    if (pointerDown && Math.abs(pointerDown.x - event.clientX) < 7 && Math.abs(pointerDown.y - event.clientY) < 7) {
+    if (pointerStart && Math.abs(pointerStart.x - event.clientX) < 7 && Math.abs(pointerStart.y - event.clientY) < 7) {
       const id = hit(event);
       if (id) onSelect(id);
     }
     pointerDown = null;
+    pointerStart = null;
   }
   renderer.domElement.addEventListener('pointerdown', onPointerDown);
   renderer.domElement.addEventListener('pointermove', onPointerMove);
   renderer.domElement.addEventListener('pointerup', onPointerUp);
-  renderer.domElement.addEventListener('pointerleave', () => { pointerDown = null; });
+  renderer.domElement.addEventListener('pointerleave', () => { pointerDown = null; pointerStart = null; });
   return {
     focusWorld(id) { focus = id; if (reduceMotion) render(); },
     destroy() {
