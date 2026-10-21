@@ -121,12 +121,20 @@ class ApiBeforePages(unittest.TestCase):
     def test_api_health_probe_uses_both_public_paths_and_https(self):
         with patch.object(gate.urllib.request, "urlopen") as opener:
             opener.return_value.__enter__.return_value.status = 200
+            opener.return_value.__enter__.return_value.geturl.return_value = gate.API_ORIGIN + "/health"
             self.assertTrue(gate.probe_public("health"))
             request = opener.call_args.args[0]
             self.assertEqual(request.full_url, gate.API_ORIGIN + "/health")
             self.assertTrue(request.full_url.startswith("https://"))
             opener.return_value.__enter__.return_value.status = 503
+            opener.return_value.__enter__.return_value.geturl.return_value = gate.API_ORIGIN + "/ready"
             self.assertFalse(gate.probe_public("ready"))
+            opener.return_value.__enter__.return_value.status = 200
+            opener.return_value.__enter__.return_value.geturl.return_value = "https://evil.example/ready"
+            self.assertFalse(gate.probe_public("ready"))
+            opener.return_value.__enter__.return_value.geturl.return_value = gate.API_ORIGIN + "/health"
+            self.assertFalse(gate.probe_public("ready"))
+            self.assertFalse(gate.probe_public("../users"))
         with patch.object(gate.urllib.request, "urlopen", side_effect=TimeoutError):
             self.assertFalse(gate.probe_public("ready"))
 
@@ -163,15 +171,17 @@ class ApiBeforePages(unittest.TestCase):
 
     def test_api_release_proves_exact_public_source_revision(self):
         sha = SHA
-        def response(body, status=200):
+        def response(body, status=200, final_url=None):
             class Fake:
                 def __enter__(self):
                     return self
                 def __exit__(self, *_):
                     return False
+                def geturl(self):
+                    return final_url or gate.API_ORIGIN + "/release"
                 def read(self, limit):
                     self_read_limit.append(limit)
-                    return body
+                    return body[:limit]
             result = Fake()
             result.status = status
             return result
@@ -181,7 +191,7 @@ class ApiBeforePages(unittest.TestCase):
             self.assertTrue(request.full_url.startswith(gate.API_ORIGIN + "/release?sha_check="))
             return response(('{"release":"v1","build":"' + sha + '"}').encode())
         self.assertEqual(gate.read_public_build(opener=open_ok), sha)
-        self.assertEqual(self_read_limit, [4096])
+        self.assertEqual(self_read_limit, [4097])
         self.assertEqual(gate.public_api_revision_state(sha, read=lambda: sha), "match")
         self.assertEqual(gate.public_api_revision_state(sha, read=lambda: "b" * 40), "different")
         self.assertEqual(gate.public_api_revision_state(sha, read=lambda: None), "unknown")
@@ -189,6 +199,18 @@ class ApiBeforePages(unittest.TestCase):
         self.assertIsNone(gate.read_public_build(opener=lambda *_args, **_kwargs: response(b'{"build":"bad"}')))
         self.assertIsNone(gate.read_public_build(opener=lambda *_args, **_kwargs: response(b'not-json')))
         self.assertIsNone(gate.read_public_build(opener=lambda *_args, **_kwargs: response(b'{}', 503)))
+        self.assertIsNone(gate.read_public_build(
+            opener=lambda *_args, **_kwargs: response(
+                ('{"build":"' + SHA + '"}').encode(), final_url="https://evil.example/release")))
+        self.assertIsNone(gate.read_public_build(
+            opener=lambda *_args, **_kwargs: response(
+                ('{"build":"' + SHA + '"}').encode(), final_url=gate.API_ORIGIN + "/health")))
+        self.assertIsNone(gate.read_public_build(
+            opener=lambda *_args, **_kwargs: response(b" " * 4097)))
+        self.assertIsNone(gate.read_public_build(
+            opener=lambda *_args, **_kwargs: response(
+                ('{"build":"' + SHA + '"}').encode(), final_url="http://chronicles-api-staging.shadowops.dpdns.org/api/release")))
+
         def outage(*_args, **_kwargs):
             raise TimeoutError()
         self.assertIsNone(gate.read_public_build(opener=outage))
