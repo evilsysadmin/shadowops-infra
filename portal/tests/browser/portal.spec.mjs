@@ -20,6 +20,10 @@ for (const width of [360, 390, 430, 1440]) {
   test(`viewport ${width}: catalog, screenshot and zero horizontal overflow`, async ({page}, testInfo) => {
     await page.setViewportSize({width, height: width < 500 ? 844 : 900});
     await page.emulateMedia({reducedMotion: 'reduce'});
+    const shaderErrors=[];
+    page.on('console', message => {
+      if (message.type()==='error' && /shader|WebGLProgram|VALIDATE_STATUS/i.test(message.text())) shaderErrors.push(message.text());
+    });
     await page.goto('/');
     await expect(page.getByRole('heading', {name: /Hay mundos que no deberían existir/})).toBeVisible();
     await expect(page.locator('.world-button')).toHaveCount(3);
@@ -29,6 +33,7 @@ for (const width of [360, 390, 430, 1440]) {
       return state === 'active' || state === 'unavailable';
     }, null, {timeout: 15000});
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
+    expect(shaderErrors, 'WebGL shader compiles cleanly').toEqual([]);
     if (await page.locator('.stage').getAttribute('data-scene') === 'active') {
       const canvasScreenshot = await page.locator('.stage canvas').screenshot({animations:'disabled'});
       assertVisibleWebGLContent(canvasScreenshot);

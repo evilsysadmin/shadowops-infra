@@ -69,7 +69,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid #d8ae72; outline-offs
   .hero { padding: 52px 22px 22px; }
   .headline { font-size: clamp(38px, 9vw, 58px); }
   .stage-area { min-height: 445px; }
-  .stage { inset: -4% -15% 17% -15%; }
+  .stage { inset: -4% -3% 17% -3%; }
   .stage-eyebrow { top: 0; }
   .stage-footer { display: none; }
   .world-detail { bottom: 0; left: 0; right: 0; }

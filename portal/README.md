@@ -56,3 +56,7 @@ with approved art, and physical GPU verification remains a separate gate.
 To prevent heavy WebGL from gating navigation, the Three.js chunk is
 loaded only after the scene enters the viewport. The game catalog is
 always ready first; a missing 3D device only switches the presentation.
+
+## Vistas temáticas (estudio artístico)
+
+The observatory uses **three different procedural material studies**, not one recolored noise curtain: a silhouetted golden chess throne with perspective flooring, a torchlit receding dungeon, and a planetary starship observation pane. The shared gallery now has a stone backdrop, structural arch ribs, bronze detailing and a perspective floor. These assets remain technical studies: **do not declare the 3D visual quality premium until authored GLB art and physical GPU screenshots are reviewed**. The game routes, root DNS, and Cloudflare owners remain unaffected.

@@ -1,45 +1,10 @@
 import * as THREE from 'three';
 import { WORLDS } from './catalog.mjs';
+import { VISTA_VERTEX, VISTA_FRAGMENT } from './portalVistas.js';
+import { addGalleryArchitecture } from './galleryArchitecture.js';
 
 // A self-contained atmospheric observatory. No borrowed Chess Studio models.
 // Source-authored GLB/texture art can replace the gateways in a later art PR.
-const PORTAL_VERTEX = `
-  varying vec2 vUv;
-  void main() {
-    vUv = uv;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-`;
-const PORTAL_FRAGMENT = `
-  uniform float uTime;
-  uniform float uFocus;
-  uniform vec3 uTint;
-  varying vec2 vUv;
-  float hash(vec2 p) {
-    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-  }
-  float noise(vec2 p) {
-    vec2 i = floor(p), f = fract(p);
-    f = f * f * (3.0 - 2.0 * f);
-    return mix(mix(hash(i), hash(i + vec2(1.,0.)), f.x),
-      mix(hash(i + vec2(0.,1.)), hash(i + vec2(1.,1.)), f.x), f.y);
-  }
-  void main() {
-    vec2 p = (vUv - .5) * vec2(1., 1.6);
-    float radius = length(p);
-    float warp = noise(p * 4.0 + vec2(uTime * .045, -uTime * .03));
-    float arcs = sin(radius * 24. - uTime * .35 + warp * 3.);
-    float veil = noise(p * 8. + uTime * .024) * .45
-       + noise(p * 17. - uTime * .018) * .22;
-    float interior = 1.0 - smoothstep(.33, .88, radius);
-    float halo = pow(max(0., 1. - abs(radius - .75) * 5.), 2.);
-    float shimmer = clamp(.13 + veil * .5 + arcs * .042 + uFocus * .12, 0., 1.);
-    vec3 color = mix(vec3(.012, .024, .045), uTint * (.34 + veil * .55), shimmer);
-    color += uTint * halo * (.10 + uFocus * .1);
-    float alpha = interior * (.83 + uFocus * .1) + halo * .05;
-    gl_FragColor = vec4(color, clamp(alpha, 0., .96));
-  }
-`;
 
 function archCurve(x, z, inset = 0) {
   const radius = 1.06 + inset;
@@ -73,11 +38,11 @@ export function mountObservatory(container, onSelect) {
   scene.background = new THREE.Color(0x070d18);
   scene.fog = new THREE.FogExp2(0x070d18, .035);
   const camera = new THREE.PerspectiveCamera(43, 1, .1, 95);
-  camera.position.set(0, 4.7, 12.7);
+  camera.position.set(0, narrow ? 4.15 : 3.75, narrow ? 13.0 : 11.3);
   camera.lookAt(0, 1.4, 0);
-  scene.add(new THREE.HemisphereLight(0x9bb7da, 0x15121b, 2.2));
+  scene.add(new THREE.HemisphereLight(0xb4c7e0, 0x261e1a, 3.1));
   const key = new THREE.DirectionalLight(0xd9e5ff, 2.0);
-  key.position.set(-5, 10, 8);
+  key.position.set(-5, 9, 7);
   scene.add(key);
 
   const darkMetal = new THREE.MeshStandardMaterial({color:0x19212f, metalness:.86, roughness:.27});
@@ -95,7 +60,8 @@ export function mountObservatory(container, onSelect) {
     ring.position.y = -.13;
     scene.add(ring);
   }
-  const coords = [-3.55, 0, 3.55];
+  const coords = [-3.22, 0, 3.22];
+  const gallery = addGalleryArchitecture(scene, coords, narrow);
   const interactive = [];
   const portals = [];
   WORLDS.forEach((world, i) => {
@@ -122,9 +88,9 @@ export function mountObservatory(container, onSelect) {
       group.add(arch);
     }
     const material = new THREE.ShaderMaterial({
-      vertexShader: PORTAL_VERTEX,
-      fragmentShader: PORTAL_FRAGMENT,
-      uniforms: { uTime:{value:0}, uFocus:{value: i === 0 ? 1 : 0}, uTint:{value:tint} },
+      vertexShader: VISTA_VERTEX,
+      fragmentShader: VISTA_FRAGMENT,
+      uniforms: { uTime:{value:0}, uFocus:{value: i === 0 ? 1 : 0}, uMode:{value:i}, uTint:{value:tint} },
       transparent: true, side: THREE.DoubleSide, depthWrite: false,
     });
     const glass = new THREE.Mesh(new THREE.PlaneGeometry(1.96, 2.83), material);
@@ -132,7 +98,7 @@ export function mountObservatory(container, onSelect) {
     glass.userData.worldId = world.id;
     group.add(glass);
     interactive.push(glass);
-    const light = new THREE.PointLight(tint, 10, 5.5, 2);
+    const light = new THREE.PointLight(tint, 20, 6.5, 2);
     light.position.set(x, 2.3, z + .8);
     group.add(light);
     portals.push({ world, glass, material, rim: pedestalRim, light, group });
@@ -241,6 +207,7 @@ export function mountObservatory(container, onSelect) {
         if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
         else obj.material?.dispose();
       });
+      gallery.dispose();
       renderer.dispose();
       renderer.domElement.remove();
     },
