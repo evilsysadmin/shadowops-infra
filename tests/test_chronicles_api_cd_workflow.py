@@ -24,6 +24,19 @@ class StagingConvergenceContracts(unittest.TestCase):
         self.assertIn("provision", events["workflow_dispatch"]["inputs"]["action"]["options"])
         self.assertIn("deploy", events["workflow_dispatch"]["inputs"]["action"]["options"])
 
+    def test_every_infra_main_push_reconciles_even_for_unrelated_changes(self):
+        events = self.workflow["on"]
+        self.assertEqual(events["push"]["branches"], ["main"])
+        self.assertNotIn("paths", events["push"])
+        # Keep PR contracts selective: the broad push must not explode PR CI.
+        self.assertIn("paths", events["pull_request"])
+        # The candidate gate is still fail-closed and receipt/idempotency aware.
+        selection = next(step["run"] for step in self.workflow["jobs"]["admit"]["steps"]
+                         if step.get("id") == "candidate")
+        self.assertIn("chronicles_source_ci.py", selection)
+        self.assertIn("--receipt-only", selection)
+        self.assertIn("deploy_needed=false", selection)
+
     def test_auto_deploy_is_limited_to_trusted_infra_main(self):
         admit = self.workflow["jobs"]["admit"]
         self.assertIn("refs/heads/main", admit["if"])

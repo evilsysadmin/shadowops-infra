@@ -21,27 +21,12 @@ on:
       - 'scripts/chronicles_production_admission.py'
       - 'tests/test_chronicles_source_ci.py'
       - 'tests/test_chronicles_production_admission.py'
+  # Reconcile on EVERY protected Infra main merge. A concurrent unrelated
+  # merge can supersede an in-flight Pages owner run after source CI and API
+  # admission. Source-CI gates and live exact-SHA receipts avoid redundant
+  # deployments; push path filters would strand staging until hourly polling.
   push:
     branches: [main]
-    paths:
-      - 'scripts/chronicles_source_ci.py'
-      - 'scripts/chronicles_production_admission.py'
-      - 'tests/test_chronicles_source_ci.py'
-      - 'tests/test_chronicles_production_admission.py'
-      - '.github/workflows/chronicles-api-staging.yml'
-      - 'docs/chronicles-staging-release-request.md'
-      - 'compose.api.staging.yaml'
-      - 'compose.api.production.yaml'
-      - 'host/chronicles-api*'
-      - 'host/install-chronicles-api.sh'
-      - 'scripts/chronicles_api_provision.py'
-      - 'scripts/oci_chronicles_api_release.py'
-      - 'scripts/chronicles_staging_smoke.py'
-      - 'scripts/chronicles_api_before_pages.py'
-      - 'tests/test_chronicles_api_before_pages.py'
-      - 'scripts/shared_a1_host_guard.py'
-      - 'tests/test_chronicles_api_host_deploy.py'
-      - 'tests/test_chronicles_api_cd_workflow.py'
   schedule:
     # The source repository owns builds. Infra discovers new signed images hourly.
     - cron: '17 * * * *'
