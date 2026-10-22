@@ -201,3 +201,23 @@ test('both deployed hosts link only to their own world environments, even withou
     await page.unrouteAll();
   }
 });
+
+test('WebGL sleeps offscreen and resumes without losing the selected world', async ({page}) => {
+  await page.setViewportSize({width: 390, height: 600});
+  await page.emulateMedia({reducedMotion: 'no-preference'});
+  await page.goto('/');
+  await page.getByRole('button', {name: /Chronicles/}).click();
+  const stage = page.locator('.stage');
+  await page.locator('.stage-area').scrollIntoViewIfNeeded();
+  await expect(stage).toHaveAttribute('data-scene', 'active', {timeout: 15000});
+  await expect(stage).toHaveAttribute('data-render-state', 'running', {timeout: 15000});
+  await expect(stage).toHaveAttribute('data-focus-world', 'chronicles');
+
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(stage).toHaveAttribute('data-render-state', 'offscreen', {timeout: 10000});
+
+  await page.locator('.stage-area').scrollIntoViewIfNeeded();
+  await expect(stage).toHaveAttribute('data-render-state', 'running', {timeout: 10000});
+  await expect(stage).toHaveAttribute('data-focus-world', 'chronicles');
+  await expect(page.locator('.detail-title')).toHaveText('Chronicles');
+});

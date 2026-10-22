@@ -67,7 +67,7 @@ Stone surfaces now use seeded, generated albedo, tangent-space normal and roughn
 
 ## Power-conscious cinematic interaction
 
-The world-focus change now pans the camera only subtly and respects reduced-motion immediately. The renderer runs at **up to** 45fps desktop/30fps mobile and halts its rAF chain on a hidden tab; on visibility restoration it repaints and resumes. Frame scheduling does not confuse rAF timestamps with a force flag. The WebGL screen remains optional and root DNS ownership is unchanged.
+The world-focus change now pans the camera only subtly and respects reduced-motion immediately. The renderer runs at **up to** 45fps desktop/30fps mobile and halts its rAF chain when the tab is hidden **or the 3D canvas scrolls fully offscreen**. On return to the viewport it repaints and resumes without losing the selected world, and reduced-motion mode continues to render only on demand. Frame scheduling does not confuse rAF timestamps with a force flag. The WebGL screen remains optional and root DNS ownership is unchanged.
 
 ## First authored GLB object / build-time pipeline
 
