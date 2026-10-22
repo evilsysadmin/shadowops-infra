@@ -170,6 +170,20 @@ jobs:
               echo 'publish=false' >> "$GITHUB_OUTPUT"
               exit 0
             fi
+            # The API receipt can arrive just as source main advances. A
+            # successful historical API deploy must never launch a now-stale
+            # Pages release and trip the owner gate as a false-red failure.
+            source_main="$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)"
+            [[ "$ADMITTED_SHA" =~ ^[0-9a-f]{40}$ && "$source_main" =~ ^[0-9a-f]{40}$ ]] || {
+              echo 'CHRONICLES_PAGES_INVALID_SOURCE_SHA' >&2
+              exit 64
+            }
+            if [[ "$source_main" != "$ADMITTED_SHA" ]]; then
+              echo "CHRONICLES_PAGES_SOURCE_SUPERSEDED_AFTER_API admitted=$ADMITTED_SHA current=$source_main"
+              echo '::notice title=Chronicles Pages superseded::Source main advanced after API verification; the obsolete client will not publish.'
+              echo 'publish=false' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
             echo 'publish=true' >> "$GITHUB_OUTPUT"
             exit 0
           fi
