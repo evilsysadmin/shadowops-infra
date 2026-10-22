@@ -110,7 +110,9 @@ function renderDetail() {
 // A gallery preview is only visual. It must never silently change the
 // selected game, launch destination or aria-pressed state.
 function refreshSceneFocus(moveCamera = true) {
-  scene?.focusWorld(focusPreview ?? pointerPreview ?? selected, moveCamera);
+  // The most recently hovered mouse/pen target takes temporary precedence
+  // over retained keyboard focus; leaving it restores the keyboard preview.
+  scene?.focusWorld(pointerPreview ?? focusPreview ?? selected, moveCamera);
 }
 function selectWorld(id) {
   if (!selectedWorld(id)) return;
