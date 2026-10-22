@@ -9,8 +9,13 @@ on:
     paths:
       - 'portal/**'
       - '.github/workflows/shadowops-portal-ci.yml'
+concurrency:
+  group: shadowops-portal-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
+env:
+  REQUIRE_BLENDER_ART: '1'
 jobs:
   portal:
     runs-on: ubuntu-24.04
@@ -23,6 +28,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Install Blender for authored vault export
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends blender python3-numpy
       - name: Install isolated portal dependencies
         run: npm install --ignore-scripts --no-audit --no-fund
       - name: Source syntax
@@ -45,6 +52,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Install Blender for authored vault export
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends blender python3-numpy
       - name: Install isolated portal dependencies
         run: npm install --ignore-scripts --no-audit --no-fund
       - name: Install Chromium for deterministic browser smoke
