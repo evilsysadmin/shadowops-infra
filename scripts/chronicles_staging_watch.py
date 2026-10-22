@@ -75,6 +75,11 @@ def get_url(url: str, token: str = "") -> dict:
         headers["Authorization"] = "Bearer " + token
     request = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(request, timeout=15) as response:
+        # urllib follows redirects silently by default. A valid JSON payload
+        # from a login page, foreign origin or another path must never count
+        # as the requested public health/release endpoint (nor a GitHub read).
+        if response.status != 200 or response.geturl() != request.full_url:
+            raise ValueError("Unexpected status or redirect in watchdog JSON read")
         data = json.load(response)
     if not isinstance(data, (dict, list)):
         raise ValueError("Expected JSON object or issue list")
