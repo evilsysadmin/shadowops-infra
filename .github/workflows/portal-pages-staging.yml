@@ -1,0 +1,122 @@
+name: ShadowOps Universe · staging Pages release
+on:
+  pull_request:
+    paths:
+      - 'scripts/portal_pages.py'
+      - 'scripts/portal_release.py'
+      - 'tests/test_portal_pages.py'
+      - 'tests/test_portal_release.py'
+      - '.github/workflows/portal-pages-staging.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'portal/**'
+      - 'scripts/portal_pages.py'
+      - 'scripts/portal_release.py'
+      - 'tests/test_portal_pages.py'
+      - 'tests/test_portal_release.py'
+      - '.github/workflows/portal-pages-staging.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: shadowops-universe-staging-pages
+  cancel-in-progress: false
+jobs:
+  contracts:
+    name: Pages staging identity and ownership safety
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s tests -p 'test_portal_pages.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_portal_release.py' -v
+      - run: python3 scripts/portal_pages.py self-test
+      - run: python3 -m py_compile scripts/portal_pages.py scripts/portal_release.py
+  release:
+    name: Build and publish isolated Universe staging
+    needs: contracts
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    environment:
+      name: staging
+      url: https://staging.shadowops.dpdns.org
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      GH_TOKEN: ${{ github.token }}
+      REQUIRE_BLENDER_ART: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Require exact protected Infra main before build
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+      - name: Install Blender and isolated portal dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends blender python3-numpy
+          npm install --prefix portal --ignore-scripts --no-audit --no-fund
+      - name: Build GLB-backed static portal and run its unit tests
+        working-directory: portal
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run check
+          npm test
+          npm run build
+          test -s dist/index.html
+          test -n "$(find dist/assets -maxdepth 1 -name '*.js' -print -quit)"
+      - name: Emit exact immutable public build identity and six GLB digests
+        run: python3 scripts/portal_release.py portal/dist "$GITHUB_SHA"
+      - name: Refuse superseded Infra SHA or absent Cloudflare secrets before any mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          python3 scripts/portal_pages.py preflight
+      - name: Create only dedicated Universe staging Pages project
+        run: python3 scripts/portal_pages.py project
+      - name: Recheck current Infra main immediately before publish
+        run: test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+      - name: Publish static build to dedicated staging project
+        run: npx --yes wrangler@4.127.1 pages deploy portal/dist --project-name shadowops-universe-staging --branch main --commit-hash "$GITHUB_SHA" --commit-dirty=false
+      - name: Associate only staging hostname with exact Pages target
+        run: python3 scripts/portal_pages.py domain
+      - name: Verify TLS, actual HTML, entry JS, release SHA and all six GLB assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 18); do
+            if python3 scripts/portal_pages.py verify --sha "$GITHUB_SHA"; then
+              echo "SHADOWOPS_UNIVERSE_STAGING_PUBLIC_READY https://staging.shadowops.dpdns.org sha=$GITHUB_SHA"
+              exit 0
+            fi
+            echo "Staging Pages TLS/asset propagation pending ($attempt/18)"
+            sleep 12
+          done
+          echo "Public staging HTTPS and artifact checks failed" >&2
+          exit 1
+      - name: Save verified immutable staging receipt
+        shell: bash
+        run: |
+          mkdir -p portal-receipt
+          printf '%s\n' "$GITHUB_SHA" > portal-receipt/sha.txt
+          printf 'https://staging.shadowops.dpdns.org\n' > portal-receipt/url.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadowops-universe-staging-verified-${{ github.sha }}
+          path: portal-receipt/
+          if-no-files-found: error
+          retention-days: 45
