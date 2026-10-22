@@ -31,6 +31,7 @@ API = "https://chronicles-api-staging.shadowops.dpdns.org/api"
 GRACE_SECONDS = 90 * 60
 RECHECK_SECONDS = 90
 MAX_PUBLIC_JSON_BYTES = 64 * 1024
+MAX_PUBLIC_GLB_FALLBACK_BYTES = 64 * 1024 * 1024
 ISSUES_PER_PAGE = 100
 MAX_ISSUE_PAGES = 20  # Fail closed instead of creating duplicates if enumeration is incomplete.
 VERSION_FAILURE_KEYS = frozenset({"frontend-lag", "backend-lag", "api-revision"})
@@ -143,10 +144,12 @@ def open_no_redirect(request: urllib.request.Request, *, timeout: int):
 def probe_public_glb() -> str:
     """Check the canonical 3D model's public GLB header, not just its URL.
 
-    Read only the 12-byte GLB header (even if the CDN ignores Range).
-    Validate any advertised HTTP object length against the embedded GLB size.
-    A 200 HTML SPA fallback must never count as a valid model. Use the fixed
-    staging domain and no cookies, credentials, redirects or external URLs.
+    Require exact 206/Content-Range size for a successful range response.
+    If the CDN ignores Range and returns 200, read the complete body in bounded
+    chunks and verify its actual length against the embedded GLB size, even
+    if Content-Length claims to be correct. This avoids accepting a 12-byte
+    fake/truncated object as a healthy model. No raw payload is logged.
+    Use the fixed staging domain, no credentials, redirects or external URLs.
     """
     url = ORIGIN + "/models/matthias-home-canonical.glb"
     request = urllib.request.Request(url, headers={
@@ -185,11 +188,23 @@ def probe_public_glb() -> str:
             magic, version, size = struct.unpack("<4sII", header)
             if magic != b"glTF" or version != 2 or size < 20:
                 return "invalid"
-            if response.status == 206 and total != size:
+            if response.status == 206:
+                return "ok" if total == size else "invalid"
+
+            # A 200 ignores Range. Merely accepting a plausible 12-byte
+            # header or Content-Length allows a truncated object to pass.
+            if content_length is not None and int(content_length) != size:
                 return "invalid"
-            if response.status == 200 and content_length is not None and int(content_length) != size:
-                return "invalid"
-            return "ok"
+            if size > MAX_PUBLIC_GLB_FALLBACK_BYTES:
+                return "unavailable"  # Too large to verify safely in a watch.
+            remaining = size - len(header)
+            while remaining:
+                block = response.read(min(64 * 1024, remaining))
+                if not block or len(block) > remaining:
+                    return "invalid"
+                remaining -= len(block)
+            # Reject a body that exceeds its declared GLB length as well.
+            return "invalid" if response.read(1) else "ok"
     except urllib.error.HTTPError as exc:
         return "http_" + str(exc.code) if isinstance(exc.code, int) and 400 <= exc.code <= 599 else "http_error"
     except (urllib.error.URLError, TimeoutError, OSError, ValueError, struct.error):
