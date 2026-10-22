@@ -1,0 +1,39 @@
+name: ShadowOps Universe · production apex DNS inventory
+on:
+  pull_request:
+    paths:
+      - 'scripts/portal_root_inventory.py'
+      - 'tests/test_portal_root_inventory.py'
+      - '.github/workflows/portal-root-inventory.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/portal_root_inventory.py'
+      - 'tests/test_portal_root_inventory.py'
+      - '.github/workflows/portal-root-inventory.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s tests -p 'test_portal_root_inventory.py' -v
+      - run: python3 scripts/portal_root_inventory.py self-test
+  observe-live-root:
+    needs: offline-contracts
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: staging
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read apex DNS and Pages project ownership (no writes)
+        run: python3 scripts/portal_root_inventory.py inventory
