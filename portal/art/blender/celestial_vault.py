@@ -178,25 +178,23 @@ def floor_rose(name, cx, cz, y, outer, inner, points, mat):
     bpy.context.collection.objects.link(obj)
     return register(obj,mat)
 
-# A few nearly flush stone inlays with simple faces. Do not subdivide
-# invisible edge bevels: the authored brass seams carry the detail.
-# Their upper face is at -0.103, just above the existing metal dais (-0.152).
+# Brass constellation paths are carefully engraved into the existing dais.
+# Deliberately avoid raised slab stripes: actual browser QA showed those read
+# as cheap staircase props instead of floor marquetry.
 for passage_x in [-3.22,0,3.22]:
-    for i in range(3):
-        z=-.77+i*.92
-        staggering=(.035 if (i+round(passage_x))%2==0 else -.035)
-        block("Honed basalt passage stone",
-              (passage_x+staggering,-.127,z),
-              (1.14+.055*i,.046,.425),STONE,0)
-        # Two hairline brass seams frame each approach as floor marquetry.
     for side in [-1,1]:
-        tube("Warm brass perspective floor inlay",
-             [(passage_x+side*(.59+.025*i),-.092,-.99+i*.52)
-              for i in range(7)],.007,BRASS,quality=3)
+        tube("Astronomer perspective hairline inlay",
+             [(passage_x+side*(.59+.025*i),-.109,-.99+i*.52)
+              for i in range(7)],.007,BRASS,quality=2)
+    for n in range(4):
+        floor_rose("Inlaid constellation marker",
+                   passage_x,-.70+n*.65,-.066,
+                   .062 if n%3==0 else .039,
+                   .020 if n%3==0 else .014,4,BRASS)
 
 # One inset, centered compass rose: a restrained celestial instrument that
 # ties the three worlds together, visible in the foreground from the camera.
-cx,cz=0,3.00
+cx,cz=0,2.25
 floor_ring("Forecourt circle, engraved brass",cx,cz,-.065,.79,.013,BRASS)
 floor_rose("Eight-point navigational mosaic",cx,cz,-.054,.50,.19,8,BRASS)
 floor_rose("Lapis compass core",cx,cz,-.045,.17,.070,8,ENAMEL)

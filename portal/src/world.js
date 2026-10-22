@@ -266,7 +266,7 @@ export function mountObservatory(container, onSelect) {
       const bounds=new THREE.Box3().setFromObject(data.scene);
       if(bounds.isEmpty() || bounds.min.y < -.3 || bounds.min.y > -.05 ||
          bounds.max.y > 6.6 || bounds.max.y < 5.0 ||
-         bounds.min.z < -1.8 || bounds.max.z < 4.9 || bounds.max.z > 5.8 ||
+         bounds.min.z < -1.8 || bounds.max.z < 4.0 || bounds.max.z > 5.5 ||
          bounds.min.x < -7 || bounds.max.x > 7) {
         throw new Error('Vault GLB has invalid gallery bounds: '+bounds.min.toArray()+' / '+bounds.max.toArray());
       }
