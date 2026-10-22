@@ -26,7 +26,7 @@ if(run.error||run.status!==0) {
   });
 } else {
   const glb=await readFile(draft);
-  if(glb.length>1500000)throw Error('Blender vault GLB exceeds 1.5 MB budget');
+  if(glb.length>1500000)throw Error('Blender vault GLB exceeds 1.5 MB budget: '+glb.length+' bytes');
   if(glb.readUInt32LE(0)!==0x46546c67||glb.readUInt32LE(4)!==2||
     glb.readUInt32LE(8)!==glb.length)throw Error('Invalid GLB 2.0 export');
   const len=glb.readUInt32LE(12);

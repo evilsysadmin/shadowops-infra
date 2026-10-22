@@ -182,8 +182,8 @@ def floor_rose(name, cx, cz, y, outer, inner, points, mat):
 # invisible edge bevels: the authored brass seams carry the detail.
 # Their upper face is at -0.103, just above the existing metal dais (-0.152).
 for passage_x in [-3.22,0,3.22]:
-    for i in range(6):
-        z=-.77+i*.52
+    for i in range(3):
+        z=-.77+i*.92
         staggering=(.035 if (i+round(passage_x))%2==0 else -.035)
         block("Honed basalt passage stone",
               (passage_x+staggering,-.127,z),
@@ -198,11 +198,10 @@ for passage_x in [-3.22,0,3.22]:
 # ties the three worlds together, visible in the foreground from the camera.
 cx,cz=0,3.00
 floor_ring("Forecourt circle, engraved brass",cx,cz,-.065,.79,.013,BRASS)
-floor_ring("Inner compass graduation",cx,cz,-.060,.62,.009,BRASS)
 floor_rose("Eight-point navigational mosaic",cx,cz,-.054,.50,.19,8,BRASS)
 floor_rose("Lapis compass core",cx,cz,-.045,.17,.070,8,ENAMEL)
-for i in range(16):
-    theta=2*math.pi*i/16
+for i in range(8):
+    theta=2*math.pi*i/8
     rx=cx+math.cos(theta)*.715
     rz=cz+math.sin(theta)*.715
     marker=block("Inset brass cardinal graduation",
