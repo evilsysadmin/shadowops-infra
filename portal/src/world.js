@@ -4,6 +4,7 @@ import { VISTA_VERTEX, VISTA_FRAGMENT } from './portalVistas.js';
 import { addGalleryArchitecture } from './galleryArchitecture.js';
 import { ARMILLARY_ASSET } from './armillaryAsset.generated.mjs';
 import { WORLD_RELICS } from './worldRelics.generated.mjs';
+import { GALLERY_FRAME_ASSET } from './galleryFrame.generated.mjs';
 
 // A self-contained atmospheric observatory. No borrowed Chess Studio models.
 // Source-authored GLB/texture art can replace the gateways in a later art PR.
@@ -64,6 +65,7 @@ export function mountObservatory(container, onSelect) {
   }
   const coords = [-3.22, 0, 3.22];
   const gallery = addGalleryArchitecture(scene, coords, narrow);
+  container.dataset.galleryFrame = 'loading';
   container.dataset.artAsset = narrow ? 'skipped-mobile' : 'loading';
   container.dataset.worldRelics = narrow ? 'skipped-mobile' : 'loading';
   const interactive = [];
@@ -228,6 +230,25 @@ export function mountObservatory(container, onSelect) {
     pointerDown = null;
     pointerStart = null;
   }
+  // Authored static gallery geometry: 3 batched PBR meshes replace dozens
+  // of procedural arches, columns and ornaments in the normal render path.
+  // A download or parse failure falls back to the previous faithful masonry.
+  import('three/addons/loaders/GLTFLoader.js')
+    .then(async ({GLTFLoader}) => {
+      const asset=await new GLTFLoader().loadAsync(GALLERY_FRAME_ASSET);
+      if(disposed)return;
+      scene.add(asset.scene);
+      container.dataset.galleryFrame='loaded';
+      paint(true);
+    })
+    .catch(error=>{
+      if(disposed)return;
+      console.warn('ShadowOps gallery frame unavailable; using fallback masonry.',error);
+      gallery.activateFallback();
+      container.dataset.galleryFrame='fallback';
+      paint(true);
+    });
+
   // First independent art asset. Loads after the interactive gallery mounts.
   // Two copies share one GLB model and GPU geometry; no extra mobile cost.
   if (!narrow) {

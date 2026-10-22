@@ -76,3 +76,7 @@ The world-focus change now pans the camera only subtly and respects reduced-moti
 ## Three world-specific authored GLB reliefs
 
 The art source in `art/build-relics.mjs` adds three different sculptural emblems (`relic-chess`, `relic-chronicles`, `relic-star`). Each has original geometry, its own three PBR primitives, an independently SHA-256 addressed GLB asset and a per-file size/triangle gate. The browser imports these only on desktop after the scene becomes interactive; mobile does not download them. The generated JS manifest is deliberately gitignored. These are restrained architectural details — **not** the final AAA-quality authored gallery, which remains gated on #153.
+
+## Authored architectural GLB pilot
+
+`art/build-gallery-frame.mjs` now authors one SHA-256-named GLB for the common three-bay façade (arches, dressed stone keys, shafts and cornice). The runtime no longer builds those procedural meshes on the successful path; instead it asynchronously loads a three-primitive PBR sculpture. If the GLB fails, the preceding procedural construction is retained as a fallback. Unit tests validate the binary and size, and Playwright exercises both real loading and the deliberate network-failure recovery. This remains a parametric source-authored intermediate—not a signed-off Blender environment or final CDN rollout; #153 still tracks those acceptance gates.

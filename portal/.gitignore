@@ -6,3 +6,5 @@ public/art/armillary-*.glb
 src/armillaryAsset.generated.mjs
 public/art/relic-*.glb
 src/worldRelics.generated.mjs
+public/art/gallery-frame-*.glb
+src/galleryFrame.generated.mjs
