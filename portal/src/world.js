@@ -138,6 +138,8 @@ export function mountObservatory(container, onSelect) {
   let pointerDown = null, pointerStart = null, yaw = 0, desiredYaw = 0;
   let cameraShift = 0, targetShift = 0, firstFrameRendered = false;
   let lastPaint = 0, sceneTime = 0;
+  // The catalog remains usable offscreen; the canvas should not burn GPU time.
+  let stageInViewport = true;
   const maxFps = narrow ? 30 : 45;
   const framePeriod = 1000 / maxFps;
   const raycaster = new THREE.Raycaster();
@@ -159,7 +161,7 @@ export function mountObservatory(container, onSelect) {
   // Painting and frame scheduling are intentionally separate: rAF passes a
   // timestamp, NOT a Boolean "force". A hidden tab must never force a draw.
   function paint(force = false) {
-    if (disposed || (!force && document.visibilityState !== 'visible')) return;
+    if (disposed || !stageInViewport || document.visibilityState !== 'visible') return;
     const time = reduceMotion ? 0 : (sceneTime += Math.min(.06, clock.getDelta()));
     yaw = reduceMotion ? desiredYaw : yaw + (desiredYaw - yaw) * .055;
     cameraShift = reduceMotion ? targetShift : cameraShift + (targetShift - cameraShift) * .055;
@@ -185,29 +187,38 @@ export function mountObservatory(container, onSelect) {
   }
   function onFrame(now) {
     frame = 0;
-    if (disposed || document.visibilityState !== 'visible') return;
+    if (disposed || !stageInViewport || document.visibilityState !== 'visible') return;
     if (now - lastPaint >= framePeriod) {
       lastPaint = now;
       paint();
     }
     frame = requestAnimationFrame(onFrame);
   }
-  function onVisibility() {
+  function syncRendering() {
     if (disposed) return;
-    if (document.visibilityState !== 'visible') {
+    if (!stageInViewport || document.visibilityState !== 'visible') {
       cancelAnimationFrame(frame);
       frame = 0;
+      container.dataset.renderState = stageInViewport ? 'background' : 'offscreen';
       return;
     }
-    // Visibility restore must repaint even with prefers-reduced-motion.
+    // Resume with one fresh frame, including when reduced-motion is enabled.
+    // Consume elapsed clock time so an offscreen interval never animates ahead.
     clock.getDelta();
     lastPaint = 0;
     paint(true);
+    container.dataset.renderState = reduceMotion ? 'still' : 'running';
     if (!reduceMotion && !frame) frame = requestAnimationFrame(onFrame);
   }
-  paint(true);
-  if (!reduceMotion && document.visibilityState === 'visible') frame = requestAnimationFrame(onFrame);
-  document.addEventListener('visibilitychange', onVisibility);
+  const viewportObserver = typeof IntersectionObserver === 'function'
+    ? new IntersectionObserver(entries => {
+      stageInViewport = entries.some(entry => entry.isIntersecting);
+      syncRendering();
+    }, { threshold: 0 })
+    : null;
+  viewportObserver?.observe(container);
+  syncRendering();
+  document.addEventListener('visibilitychange', syncRendering);
 
   function hit(event) {
     const bounds = renderer.domElement.getBoundingClientRect();
@@ -343,7 +354,8 @@ export function mountObservatory(container, onSelect) {
       disposed = true;
       cancelAnimationFrame(frame);
       observer.disconnect();
-      document.removeEventListener('visibilitychange', onVisibility);
+      viewportObserver?.disconnect();
+      document.removeEventListener('visibilitychange', syncRendering);
       scene.traverse(obj => {
         obj.geometry?.dispose();
         if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
