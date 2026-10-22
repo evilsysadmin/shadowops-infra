@@ -82,7 +82,7 @@ def source_ci_status(sha: str, token: str) -> tuple[str, dt.datetime | None]:
 
     latest = {}
     for run in payload["workflow_runs"]:
-        workflow = run["workflow_id"]
+        workflow = run.get("workflow_id")
         if workflow not in ci.REQUIRED:
             continue
         previous = latest.get(workflow)
