@@ -1,10 +1,10 @@
 name: Star Adventures staging Pages
 on:
   pull_request:
-    paths: ['.github/workflows/staradvs-pages-staging.yml', 'scripts/staradvs_source_admission.py']
+    paths: ['.github/workflows/staradvs-pages-staging.yml', 'scripts/staradvs_source_admission.py', 'scripts/staradvs_pages.py', 'tests/test_staradvs_pages.py']
   push:
     branches: [main]
-    paths: ['.github/workflows/staradvs-pages-staging.yml', 'scripts/staradvs_source_admission.py']
+    paths: ['.github/workflows/staradvs-pages-staging.yml', 'scripts/staradvs_source_admission.py', 'scripts/staradvs_pages.py', 'tests/test_staradvs_pages.py']
   schedule:
     - cron: '23 * * * *'
   workflow_dispatch:
