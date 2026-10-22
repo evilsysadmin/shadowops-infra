@@ -165,7 +165,7 @@ result_path=sys.argv[sys.argv.index("--")+1] if "--" in sys.argv else None
 if not result_path:
     raise ValueError("Required output.glb path after --")
 bpy.ops.export_scene.gltf(filepath=result_path,export_format="GLB",
-                          export_apply=True,export_yup=True,
+                          export_apply=True,export_yup=False,
                           use_selection=False,export_texcoords=False,
                           export_normals=True,export_materials="EXPORT")
 print("SHADOWOPS_VAULT_OUTPUT="+result_path)
