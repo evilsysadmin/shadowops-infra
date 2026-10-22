@@ -64,6 +64,54 @@ function materialMaps() {
   const textures = [tex(pixels,true),tex(normals),tex(roughness)];
   return {textures, color:textures[0], normal:textures[1], rough:textures[2]};
 }
+// Tiny, deterministic, baked-grazing illumination for the existing stone wall.
+// This is an emissive architectural *texture*, not a new light, WebGL pass,
+// procedural primitive or downloaded art. One wall mesh / one draw call.
+export function createStoneGrazingLightmap() {
+  const width = 256, height = 128;
+  const data = new Uint8Array(width * height * 4);
+  const bays = [
+    {x: -3.22, tint: [203, 145, 87]},
+    {x: 0, tint: [178, 113, 82]},
+    {x: 3.22, tint: [102, 161, 206]},
+  ];
+  for (let row = 0; row < height; row++) {
+    const y = (row / (height - 1)) * 7 - .6;
+    for (let col = 0; col < width; col++) {
+      const x = (col / (width - 1)) * 15 - 7.5;
+      const rgb = [0, 0, 0];
+      for (const bay of bays) {
+        // Light grazes stone at each outer jamb and near the carved crown,
+        // fading gently before the edges rather than painting solid bands.
+        const jambs = [-1.26, 1.26].reduce((sum,offset) => {
+          const horizontal = (x - (bay.x + offset)) / .66;
+          const vertical = (y - 2.15) / 1.54;
+          return sum + Math.exp(-.5 * (horizontal ** 2 + vertical ** 2));
+        }, 0);
+        const crown = Math.exp(-.5 * (((x - bay.x) / 1.35) ** 2 +
+          ((y - 3.65) / .72) ** 2));
+        const energy = Math.min(1, jambs * .57 + crown * .34);
+        for (let channel = 0; channel < 3; channel++) {
+          rgb[channel] += bay.tint[channel] * energy;
+        }
+      }
+      const index = (row * width + col) * 4;
+      for (let channel = 0; channel < 3; channel++) {
+        data[index + channel] = Math.min(205, Math.round(rgb[channel]));
+      }
+      data[index + 3] = 255;
+    }
+  }
+  const texture = new THREE.DataTexture(data, width, height, THREE.RGBAFormat);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = true;
+  texture.needsUpdate = true;
+  return texture;
+}
+
 function archCurve(x,z) {
   const w=1.085;
   return new THREE.CatmullRomCurve3([
@@ -85,7 +133,15 @@ export function addGalleryArchitecture(scene, coords, mobile=false) {
   const dark = new THREE.MeshStandardMaterial({
     color:0x121923,metalness:.20,roughness:.69,
   });
-  const back = new THREE.Mesh(new THREE.PlaneGeometry(15,7),stone);
+  // Low-intensity color bleeding is baked into one 128 KiB RGBA map.
+  // Only the shared wall receives it: the floor, portal panes and stone
+  // fallback keep their previous materials and navigation semantics.
+  const lightmap = createStoneGrazingLightmap();
+  const wallStone = stone.clone();
+  wallStone.emissive = new THREE.Color(0xffffff);
+  wallStone.emissiveMap = lightmap;
+  wallStone.emissiveIntensity = .44;
+  const back = new THREE.Mesh(new THREE.PlaneGeometry(15,7),wallStone);
   back.position.set(0,2.9,-1.85);
   scene.add(back);
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(20,19),stone);
@@ -163,7 +219,7 @@ export function addGalleryArchitecture(scene, coords, mobile=false) {
       fallbackBuilt = true;
       addFallbackMasonry(scene, coords, mobile, stone, bronze);
     },
-    dispose() { for(const texture of maps.textures) texture.dispose(); },
+    dispose() { for(const texture of maps.textures) texture.dispose(); lightmap.dispose(); },
   };
 }
 
