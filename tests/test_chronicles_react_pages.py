@@ -244,9 +244,16 @@ class ParallelReactPagesTest(unittest.TestCase):
             b'<link rel="modulepreload" href="/assets/vendor-' +
             str(n).encode("ascii") + b'.js">' for n in range(17)
         )
+        def serve_too_many(req, timeout):
+            if req.full_url.endswith("/"):
+                return FakeResponse(req.full_url, head + many + tail, "text/html")
+            if req.full_url.endswith(".js"):
+                return FakeResponse(req.full_url, JS, "application/javascript")
+            if req.full_url.endswith(".css"):
+                return FakeResponse(req.full_url, CSS, "text/css")
+            raise AssertionError("Unexpected preload request")
         with patch.object(pages.urllib.request, "urlopen",
-                          side_effect=lambda req, timeout: FakeResponse(
-                              req.full_url, head + many + tail, "text/html")) as opened:
+                          side_effect=serve_too_many) as opened:
             self.assertEqual(pages.probe_react_preview(
                 path="/", assets=b"/assets/", manifest_path=None),
                 "preload_reference")
