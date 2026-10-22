@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Low-noise Chronicles staging watch: two probes, one actionable GitHub issue.
 
-Checks public health unconditionally. Reports frontend or live API revision
-drift only after the source SHA has all three green push workflows and a
-90-minute deploy grace; receipts alone do not prove the live API version.
+Checks public API health and real Pages game HTML/JS/CSS unconditionally.
+Reports frontend or live API revision drift only after the source SHA has all
+three green push workflows and a 90-minute deploy grace; receipts alone do not
+prove the live API version.
 No secrets outside the GitHub token are needed.
 """
 from __future__ import annotations
@@ -19,6 +20,7 @@ from typing import Callable
 
 import chronicles_source_ci as ci
 import chronicles_api_before_pages as receipts
+import chronicles_pages as pages
 
 INFRA = "evilsysadmin/shadowops-infra"
 TITLE = "[staging-watch] Chronicles staging necesita atención"
@@ -72,6 +74,18 @@ def failures(token: str, *, get: Callable = get_url, gh: Callable = github,
     except (urllib.error.URLError, ValueError, TimeoutError, OSError):
         bad["pages-manifest"] = "El release.json público no es accesible"
         live_sha = None
+
+    # The manifest may still answer 200 while the actual game root or its
+    # Vite entry JS/CSS is broken. Reuse the same strict, same-origin HTTPS
+    # checks performed by the release owner, but keep this watch read-only.
+    # This is an asset availability probe, NOT a substitute for Playwright.
+    if pages.HOST != ORIGIN.removeprefix("https://"):
+        raise RuntimeError("Watchdog Pages host is not its pinned staging origin")
+    game_probe = pages.probe_react_preview(
+        path="/", assets=b"/assets/", manifest_path=None
+    )
+    if game_probe != "ok":
+        bad["pages-game"] = "La portada o los JS/CSS públicos de Chronicles no se sirven correctamente"
 
     source = gh("repos/" + ci.SOURCE + "/commits/main", token)
     source_sha = source.get("sha")
