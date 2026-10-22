@@ -39,6 +39,95 @@ class WatchTest(unittest.TestCase):
         self.game_probe = mocked.start()
         self.addCleanup(mocked.stop)
 
+    def test_ci_grace_starts_when_last_verified_workflow_finished(self):
+        source = {
+            "sha": SHA,
+            "commit": {"committer": {"date": OLD.isoformat()}},
+        }
+        # The commit is 2h old, but all three required jobs only finished 5m
+        # ago. It would be a false staging drift to alert immediately.
+        recently_green = NOW - dt.timedelta(minutes=5)
+        with patch.object(watch, "source_ci_status",
+                          return_value=("ready", recently_green)):
+            with patch.object(watch.receipts, "evidence_ok") as evidence:
+                with patch.object(watch.receipts, "public_api_revision_state") as live:
+                    def gh_recent(path, token, **kwargs):
+                        if path.endswith("/commits/main"):
+                            return source
+                        self.fail("Not admitted to older-than-grace deployment probes")
+                    self.assertEqual(watch.failures("t", get=url, gh=gh_recent, now=NOW), {})
+                    evidence.assert_not_called()
+                    live.assert_not_called()
+
+    def test_source_ci_status_trusts_existing_gate_and_latest_run_time(self):
+        workflow_ids = list(watch.ci.REQUIRED)
+        base = dt.datetime(2026, 10, 20, 10, 30, tzinfo=dt.timezone.utc)
+        def source_run(wid, stamp, **changes):
+            name, path = watch.ci.REQUIRED[wid]
+            row = {
+                "id": wid, "workflow_id": wid, "name": name,
+                "path": path, "head_sha": SHA, "event": "push",
+                "head_branch": "main",
+                "repository": {"full_name": watch.ci.SOURCE},
+                "status": "completed", "conclusion": "success",
+                "updated_at": stamp.isoformat(),
+            }
+            row.update(changes)
+            return row
+
+        rows = [
+            source_run(workflow_ids[0], base),
+            source_run(workflow_ids[1], base + dt.timedelta(minutes=2)),
+            source_run(workflow_ids[2], base + dt.timedelta(minutes=4)),
+        ]
+        def fake_payload(runs):
+            return {"total_count": len(runs), "workflow_runs": runs}
+        with patch.object(watch.ci, "github_runs", return_value=fake_payload(rows)) as fetch:
+            self.assertEqual(watch.source_ci_status(SHA, "test-token"),
+                             ("ready", base + dt.timedelta(minutes=4)))
+            fetch.assert_called_once_with(SHA, "test-token")
+
+        # A later successful rerun controls the next eligibility timestamp.
+        newer = source_run(workflow_ids[0], base + dt.timedelta(minutes=8),
+                           id=workflow_ids[0] + 1000000000)
+        with patch.object(watch.ci, "github_runs", return_value=fake_payload(rows + [newer])):
+            self.assertEqual(watch.source_ci_status(SHA, "test-token"),
+                             ("ready", base + dt.timedelta(minutes=8)))
+
+        # Missing workflow, unfinished workflow and untrusted workflow source
+        # must never masquerade as a completed ready release.
+        with patch.object(watch.ci, "github_runs", return_value=fake_payload(rows[:-1])):
+            self.assertEqual(watch.source_ci_status(SHA, "test-token"), ("pending", None))
+        pending = list(rows)
+        pending[1] = source_run(workflow_ids[1], base, status="in_progress", conclusion=None)
+        with patch.object(watch.ci, "github_runs", return_value=fake_payload(pending)):
+            self.assertEqual(watch.source_ci_status(SHA, "test-token"), ("pending", None))
+        foreign = list(rows)
+        foreign[1] = source_run(workflow_ids[1], base, head_branch="feature")
+        with patch.object(watch.ci, "github_runs", return_value=fake_payload(foreign)):
+            with self.assertRaises(watch.ci.AdmissionError):
+                watch.source_ci_status(SHA, "test-token")
+
+    def test_ready_workflows_require_trustworthy_timestamp(self):
+        workflow_ids = list(watch.ci.REQUIRED)
+        def rows_with(value):
+            rows = []
+            for wid in workflow_ids:
+                name, path = watch.ci.REQUIRED[wid]
+                rows.append({
+                    "id": wid, "workflow_id": wid, "name": name, "path": path,
+                    "head_sha": SHA, "head_branch": "main", "event": "push",
+                    "repository": {"full_name": watch.ci.SOURCE},
+                    "status": "completed", "conclusion": "success",
+                    "updated_at": value,
+                })
+            return {"total_count": 3, "workflow_runs": rows}
+        for stamp in (None, "", "nonsense", "2026-10-20T10:00:00"):
+            with self.subTest(stamp=stamp):
+                with patch.object(watch.ci, "github_runs", return_value=rows_with(stamp)):
+                    with self.assertRaises(RuntimeError):
+                        watch.source_ci_status(SHA, "test-token")
+
     def test_json_reader_requires_exact_final_https_url_and_status(self):
         url = watch.ORIGIN + "/release.json?watch=123"
 
@@ -107,7 +196,7 @@ class WatchTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "redirect"):
                 watch.get_url(api_url, "read-only-token")
 
-    @patch.object(watch.ci, "inspect", return_value="pending")
+    @patch.object(watch, "source_ci_status", return_value=("pending", None))
     def test_api_health_and_readiness_payload_contract_is_required(self, _):
         baseline = watch.failures("t", get=url, gh=gh, now=NOW)
         self.assertEqual(baseline, {})
@@ -134,7 +223,7 @@ class WatchTest(unittest.TestCase):
                     "t", get=response, gh=gh, now=NOW)), {"api-health"})
 
     @patch.object(watch.receipts, "evidence_ok", return_value=True)
-    @patch.object(watch.ci, "inspect", return_value="ready")
+    @patch.object(watch, "source_ci_status", return_value=("ready", OLD))
     def test_false_healthy_ready_payload_suppresses_revision_probe(self, _, __):
         def response(address, token=""):
             if address.endswith("/ready"):
@@ -145,7 +234,7 @@ class WatchTest(unittest.TestCase):
             self.assertEqual(set(bad), {"api-health"})
             live.assert_not_called()
 
-    @patch.object(watch.ci, "inspect", return_value="pending")
+    @patch.object(watch, "source_ci_status", return_value=("pending", None))
     def test_game_entry_is_checked_even_while_source_ci_is_pending(self, _):
         self.game_probe.return_value = "js_content"
         bad = watch.failures("t", get=url, gh=gh, now=NOW)
@@ -156,7 +245,7 @@ class WatchTest(unittest.TestCase):
 
     @patch.object(watch.receipts, "public_api_revision_state", return_value="match")
     @patch.object(watch.receipts, "evidence_ok", return_value=True)
-    @patch.object(watch.ci, "inspect", return_value="ready")
+    @patch.object(watch, "source_ci_status", return_value=("ready", OLD))
     def test_manifest_and_api_healthy_cannot_hide_broken_game_assets(self, _, __, ___):
         for state in ("html_missing", "js_reference", "js_mime",
                       "css_reference", "css_content", "http_404"):
@@ -173,7 +262,7 @@ class WatchTest(unittest.TestCase):
         self.game_probe.return_value = "ok"
         self.assertEqual(watch.failures("t", get=url, gh=gh, now=NOW), {})
 
-    @patch.object(watch.ci, "inspect", return_value="pending")
+    @patch.object(watch, "source_ci_status", return_value=("pending", None))
     def test_watchdog_cannot_probe_a_different_pages_environment(self, _):
         with patch.object(watch.pages, "HOST", "chronicles.shadowops.dpdns.org"):
             with self.assertRaisesRegex(RuntimeError, "pinned staging origin"):
@@ -181,22 +270,22 @@ class WatchTest(unittest.TestCase):
         self.game_probe.assert_not_called()
 
     @patch.object(watch.receipts, "public_api_revision_state", return_value="match")
-    @patch.object(watch.ci, "inspect", return_value="ready")
+    @patch.object(watch, "source_ci_status", return_value=("ready", OLD))
     def test_fully_green_but_missing_api_receipt_is_reported_after_grace(self, _, __):
         bad = watch.failures("t", get=url, gh=gh, now=NOW)
         self.assertEqual(set(bad), {"backend-lag"})
 
-    @patch.object(watch.ci, "inspect", return_value="pending")
+    @patch.object(watch, "source_ci_status", return_value=("pending", None))
     def test_new_unfinished_source_does_not_cause_version_drift_alert(self, _):
         self.assertEqual(watch.failures("t", get=url, gh=gh, now=NOW), {})
 
-    @patch.object(watch.ci, "inspect", return_value="ready")
+    @patch.object(watch, "source_ci_status", return_value=("ready", OLD))
     def test_recent_green_source_uses_grace_window(self, _):
         recent = OLD + dt.timedelta(minutes=20)
         self.assertEqual(watch.failures("t", get=url, gh=gh, now=recent), {})
 
     @patch.object(watch.receipts, "evidence_ok", return_value=True)
-    @patch.object(watch.ci, "inspect", return_value="ready")
+    @patch.object(watch, "source_ci_status", return_value=("ready", OLD))
     def test_live_api_sha_must_match_even_when_health_and_receipt_pass(self, _, __):
         with patch.object(watch.receipts, "public_api_revision_state", return_value="match") as live:
             self.assertEqual(watch.failures("t", get=url, gh=gh, now=NOW), {})
@@ -207,7 +296,7 @@ class WatchTest(unittest.TestCase):
             self.assertEqual(set(watch.failures("t", get=url, gh=gh, now=NOW)), {"api-revision"})
 
     @patch.object(watch.receipts, "evidence_ok", return_value=True)
-    @patch.object(watch.ci, "inspect", return_value="ready")
+    @patch.object(watch, "source_ci_status", return_value=("ready", OLD))
     def test_bad_api_health_does_not_duplicate_revision_alarm(self, _, __):
         def degraded(address, token=""):
             if address.endswith("/health"):
@@ -218,7 +307,7 @@ class WatchTest(unittest.TestCase):
                              {"api-health"})
             live.assert_not_called()
 
-    @patch.object(watch.ci, "inspect", return_value="ready")
+    @patch.object(watch, "source_ci_status", return_value=("ready", OLD))
     def test_live_revision_is_not_probed_before_green_source_grace(self, _):
         with patch.object(watch.receipts, "public_api_revision_state") as live:
             self.assertEqual(watch.failures("t", get=url, gh=gh,
@@ -226,7 +315,7 @@ class WatchTest(unittest.TestCase):
             live.assert_not_called()
 
     @patch.object(watch.receipts, "evidence_ok", return_value=True)
-    @patch.object(watch.ci, "inspect", return_value="ready")
+    @patch.object(watch, "source_ci_status", return_value=("ready", OLD))
     def test_unexpected_revision_state_fails_inconclusive_not_ok(self, _, __):
         with patch.object(watch.receipts, "public_api_revision_state", return_value="invalid"):
             with self.assertRaisesRegex(RuntimeError, "Unexpected public API revision state"):
@@ -311,7 +400,7 @@ class WatchTest(unittest.TestCase):
             pause=lambda _: self.fail("Should not pause on healthy first sample")), {})
         self.assertEqual(calls, ["probe"])
 
-    @patch.object(watch.ci, "inspect", return_value="pending")
+    @patch.object(watch, "source_ci_status", return_value=("pending", None))
     def test_manifest_5xx_and_network_failures_are_edge_not_broken_json(self, _):
         def sample(failure):
             def get(address, token=""):
@@ -335,7 +424,7 @@ class WatchTest(unittest.TestCase):
                 self.assertEqual(set(sample(err)), {"pages-manifest"})
         self.assertEqual(set(sample(ValueError("invalid JSON"))), {"pages-manifest"})
 
-    @patch.object(watch.ci, "inspect", return_value="pending")
+    @patch.object(watch, "source_ci_status", return_value=("pending", None))
     def test_invalid_or_wrong_shape_manifest_is_structural(self, _):
         for manifest in ([], None, {}, {"build": "not-a-sha"}, {"build": 12}):
             with self.subTest(manifest=manifest):
@@ -346,7 +435,7 @@ class WatchTest(unittest.TestCase):
 
     @patch.object(watch.receipts, "public_api_revision_state", return_value="match")
     @patch.object(watch.receipts, "evidence_ok", return_value=True)
-    @patch.object(watch.ci, "inspect", return_value="ready")
+    @patch.object(watch, "source_ci_status", return_value=("ready", OLD))
     def test_lost_manifest_does_not_invent_frontend_sha_lag(self, _, __, ___):
         for outcome, key in ((TimeoutError("edge"), "pages-manifest-edge"),
                              (ValueError("JSON corrupt"), "pages-manifest")):
