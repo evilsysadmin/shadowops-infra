@@ -108,3 +108,7 @@ The **same static built artifact** runs at both Pages origins; route selection i
 ## Visible environment identity on mobile
 
 At 360–430px the standard masthead tagline is intentionally hidden, but staging and preview now show a short, accessible **STAGING** / **PREVIEW** identity beside the brand. Production remains uncluttered. Staging world CTAs say `Entrar · staging ↗` and expose a destination-specific accessible name; production CTAs retain `Visitar mundo ↗`. The environment cannot be set via query string: it still comes solely from the exact browser hostname. Responsive Playwright coverage verifies both destinations, visible mobile identity and no overflow without WebGL.
+
+## Stratified slate material study
+
+The shared gallery stone now uses deterministic multiscale mineral layers, irregular quiet bedding, a restrained iron/mica tint and tangent-space normal/roughness variation. This **replaces**, rather than adds, the three existing 256×256 stone PBR textures. Crucially, the separately baked 256×128 warm/cool grazing lightmap remains in place, preserving local illumination under the portals. No additional meshes, draw calls, network downloads or light sources are introduced. Unit tests enforce exact texture byte budgets, repeatability, material ranges and the unchanged grazing illumination; Chromium screenshots remain the visual review gate. This is interim art pending physical GPU and final material acceptance in #153.
