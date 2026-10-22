@@ -316,29 +316,124 @@ class WatchTest(unittest.TestCase):
         self.assertEqual(bad, {"api-health": "down"})
         self.assertEqual(pauses, [90, 90])
 
-    def test_one_issue_for_persistent_failures_and_auto_close_on_recovery(self):
+    def test_issue_is_idempotent_and_diagnosis_updates_on_changed_causes(self):
         open_issues = []
         writes = []
+
         def api(path, token, *, method="GET", payload=None):
             if path.endswith("/issues?state=open&per_page=100"):
                 return open_issues
             writes.append((method, path, payload))
             if method == "POST":
-                open_issues.append({"number": 42, "title": watch.TITLE})
-            elif method == "PATCH":
+                open_issues.append({
+                    "number": 42, "title": watch.TITLE, "body": payload["body"]
+                })
+            elif method == "PATCH" and payload.get("state") == "closed":
                 open_issues.clear()
+            elif method == "PATCH":
+                open_issues[0]["body"] = payload["body"]
             return {"number": 42}
 
-        fault = {"api-health": "API unavailable"}
-        self.assertEqual(watch.manage_issue("t", fault, gh=api),
+        first = {"api-health": "API no disponible"}
+        self.assertEqual(watch.manage_issue("t", first, gh=api),
                          "CHRONICLES_STAGING_WATCH_ISSUE_OPENED")
-        self.assertEqual(watch.manage_issue("t", fault, gh=api),
-                         "CHRONICLES_STAGING_WATCH_ALREADY_OPEN")
         self.assertEqual(len([x for x in writes if x[0] == "POST"]), 1)
+        self.assertIn("api-health", open_issues[0]["body"])
+        self.assertEqual(watch.manage_issue("t", first, gh=api),
+                         "CHRONICLES_STAGING_WATCH_ALREADY_OPEN")
+        self.assertEqual(len(writes), 1, "identical watchdog run is not a write")
+
+        # Human notes outside the managed section belong to the operator.
+        open_issues[0]["body"] += "\n\nOperator note: ticket ABC"
+        replacement = {"pages-manifest-edge": "CDN 503"}
+        self.assertEqual(watch.manage_issue("t", replacement, gh=api),
+                         "CHRONICLES_STAGING_WATCH_UPDATED")
+        body = open_issues[0]["body"]
+        self.assertIn("pages-manifest-edge", body)
+        self.assertNotIn("**api-health**", body)
+        self.assertIn("Operator note: ticket ABC", body)
+        self.assertEqual(len([x for x in writes if x[0] == "PATCH"]), 1)
+        self.assertEqual(writes[-1][2].keys(), {"body"})
+        self.assertEqual(watch.manage_issue("t", replacement, gh=api),
+                         "CHRONICLES_STAGING_WATCH_ALREADY_OPEN")
+        self.assertEqual(len(writes), 2)
+
+        # Swapping multiple issue causes changes only the managed text.
+        self.assertEqual(watch.manage_issue("t", {
+            "pages-game": "JS inválido", "api-health": "API caída"
+        }, gh=api), "CHRONICLES_STAGING_WATCH_UPDATED")
+        self.assertIn("Operator note: ticket ABC", open_issues[0]["body"])
+        self.assertIn("**pages-game**", open_issues[0]["body"])
+        self.assertIn("**api-health**", open_issues[0]["body"])
+
         self.assertEqual(watch.manage_issue("t", {}, gh=api),
                          "CHRONICLES_STAGING_WATCH_RECOVERED")
+        self.assertEqual(writes[-1][2],
+                         {"state": "closed", "state_reason": "completed"})
         self.assertEqual(watch.manage_issue("t", {}, gh=api),
                          "CHRONICLES_STAGING_WATCH_OK")
+
+    def test_diagnosis_sorted_deterministically_does_not_spam_issue(self):
+        first = watch.diagnostic_body({
+            "pages-game": "JS incorrecto", "api-health": "API caída"
+        })
+        second = watch.diagnostic_body({
+            "api-health": "API caída", "pages-game": "JS incorrecto"
+        })
+        self.assertEqual(first, second)
+        self.assertLess(first.index("**api-health**"), first.index("**pages-game**"))
+        self.assertEqual(first.count(watch.ISSUE_DIAGNOSTIC_START), 1)
+        self.assertEqual(first.count(watch.ISSUE_DIAGNOSTIC_END), 1)
+        self.assertNotIn("2026-", first)
+
+    def test_old_automation_body_migrates_without_losing_operator_notes(self):
+        legacy = (
+            "Detectado en comprobaciones consecutivas. Estado público, sin datos de usuarios.\n\n"
+            "- **api-health**: caída anterior\n\n" + watch.ISSUE_LEGACY_FOOTER +
+            "\n\nNota manual: revisar túnel OCI"
+        )
+        upgraded = watch.updated_issue_body(
+            legacy, watch.diagnostic_body({"pages-game": "JS erróneo"})
+        )
+        self.assertIn("**pages-game**", upgraded)
+        self.assertNotIn("**api-health**", upgraded)
+        self.assertIn("Nota manual: revisar túnel OCI", upgraded)
+        self.assertEqual(upgraded.count(watch.ISSUE_DIAGNOSTIC_START), 1)
+        self.assertEqual(watch.updated_issue_body(upgraded, watch.diagnostic_body(
+            {"pages-game": "JS erróneo"})), upgraded)
+
+    def test_unknown_issue_body_is_preserved_as_operator_text(self):
+        old = "Investigación de SRE con información manual"
+        managed = watch.updated_issue_body(old,
+                          watch.diagnostic_body({"api-health": "API caída"}))
+        self.assertTrue(managed.startswith(watch.ISSUE_DIAGNOSTIC_START))
+        self.assertTrue(managed.endswith(old))
+        self.assertEqual(watch.updated_issue_body(
+            managed, watch.diagnostic_body({"api-health": "API caída"})), managed)
+
+    def test_malformed_markers_fail_closed_instead_of_overwriting_notes(self):
+        old = watch.ISSUE_DIAGNOSTIC_START + "\ntexto editado a mano"
+        for broken in (old, watch.ISSUE_DIAGNOSTIC_END,
+                       old + watch.ISSUE_DIAGNOSTIC_END +
+                       watch.ISSUE_DIAGNOSTIC_START + watch.ISSUE_DIAGNOSTIC_END):
+            with self.subTest(body=broken):
+                with self.assertRaisesRegex(RuntimeError, "diagnostic boundaries"):
+                    watch.updated_issue_body(
+                        broken, watch.diagnostic_body({"pages-game": "down"}))
+
+    def test_existing_issue_rejects_corrupt_metadata_and_ignores_pull_requests(self):
+        def gh(data):
+            return lambda path, token, **kwargs: data
+        self.assertIsNone(watch.existing_issue("t", gh=gh([{
+            "number": 1, "title": watch.TITLE, "pull_request": {"url": "pr"}
+        }])))
+        for data in ({"items": "not-list"},
+                     [{"number": "bad", "title": watch.TITLE, "body": ""}],
+                     [{"number": 1, "title": watch.TITLE, "body": 123}],
+                     ["invalid issue row"]):
+            with self.subTest(data=data):
+                with self.assertRaisesRegex(RuntimeError, "Malformed"):
+                    watch.existing_issue("t", gh=gh(data))
 
     def test_mixed_signal_intersection_filters_transient_failure(self):
         first = {"api-health": "down", "frontend-lag": "lag"}
