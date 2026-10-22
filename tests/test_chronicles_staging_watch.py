@@ -3,6 +3,7 @@ from pathlib import Path
 import datetime as dt
 import sys
 import unittest
+import urllib.error
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -198,6 +199,122 @@ class WatchTest(unittest.TestCase):
             "t", probe=probe,
             pause=lambda _: self.fail("Should not pause on healthy first sample")), {})
         self.assertEqual(calls, ["probe"])
+
+    @patch.object(watch.ci, "inspect", return_value="pending")
+    def test_manifest_5xx_and_network_failures_are_edge_not_broken_json(self, _):
+        def sample(failure):
+            def get(address, token=""):
+                if "/release.json?" in address:
+                    raise failure
+                return {"build": SHA}
+            return watch.failures("t", get=get, gh=gh, now=NOW)
+
+        for code in (429, 500, 503, 522, 599):
+            with self.subTest(status=code):
+                err = urllib.error.HTTPError("https://example.invalid", code, "fault", {}, None)
+                self.assertEqual(set(sample(err)), {"pages-manifest-edge"})
+        for err in (TimeoutError("timed out"), urllib.error.URLError("offline"),
+                    ConnectionError("reset")):
+            with self.subTest(error=type(err).__name__):
+                self.assertEqual(set(sample(err)), {"pages-manifest-edge"})
+
+        for code in (400, 403, 404):
+            with self.subTest(status=code):
+                err = urllib.error.HTTPError("https://example.invalid", code, "fault", {}, None)
+                self.assertEqual(set(sample(err)), {"pages-manifest"})
+        self.assertEqual(set(sample(ValueError("invalid JSON"))), {"pages-manifest"})
+
+    @patch.object(watch.ci, "inspect", return_value="pending")
+    def test_invalid_or_wrong_shape_manifest_is_structural(self, _):
+        for manifest in ([], None, {}, {"build": "not-a-sha"}, {"build": 12}):
+            with self.subTest(manifest=manifest):
+                def get(address, token=""):
+                    return manifest if "/release.json?" in address else {"build": SHA}
+                self.assertEqual(set(watch.failures("t", get=get, gh=gh, now=NOW)),
+                                 {"pages-manifest"})
+
+    @patch.object(watch.receipts, "public_api_revision_state", return_value="match")
+    @patch.object(watch.receipts, "evidence_ok", return_value=True)
+    @patch.object(watch.ci, "inspect", return_value="ready")
+    def test_lost_manifest_does_not_invent_frontend_sha_lag(self, _, __, ___):
+        for outcome, key in ((TimeoutError("edge"), "pages-manifest-edge"),
+                             (ValueError("JSON corrupt"), "pages-manifest")):
+            with self.subTest(key=key):
+                def get(address, token=""):
+                    if "/release.json?" in address:
+                        raise outcome
+                    return {"build": SHA}
+                bad = watch.failures("t", get=get, gh=gh, now=NOW)
+                self.assertEqual(set(bad), {key})
+                self.assertNotIn("frontend-lag", bad)
+        def older(address, token=""):
+            return {"build": "b" * 40} if "/release.json?" in address else {"build": SHA}
+        self.assertEqual(set(watch.failures("t", get=older, gh=gh, now=NOW)),
+                         {"frontend-lag"})
+
+    def test_manifest_invalid_json_needs_only_two_observations(self):
+        samples = [
+            {"pages-manifest": "invalid JSON"},
+            {"pages-manifest": "still invalid JSON"},
+        ]
+        pauses = []
+        bad = watch.confirmed_failures(
+            "t", probe=lambda _: samples.pop(0), pause=pauses.append)
+        self.assertEqual(bad, {"pages-manifest": "still invalid JSON"})
+        self.assertEqual(pauses, [90])
+        self.assertEqual(samples, [])
+
+    def test_manifest_cdn_503_recovers_without_issue_on_third_sample(self):
+        samples = [
+            {"pages-manifest-edge": "503"},
+            {"pages-manifest-edge": "503"},
+            {},
+        ]
+        pauses = []
+        self.assertEqual(watch.confirmed_failures(
+            "t", probe=lambda _: samples.pop(0), pause=pauses.append), {})
+        self.assertEqual(pauses, [90, 90])
+
+    def test_manifest_cdn_failure_persists_or_turns_into_corrupt_json(self):
+        for third, expected in (
+            ({"pages-manifest-edge": "522"}, {"pages-manifest-edge": "522"}),
+            ({"pages-manifest": "invalid JSON"}, {"pages-manifest": "invalid JSON"}),
+        ):
+            with self.subTest(third=third):
+                samples = [
+                    {"pages-manifest-edge": "503"},
+                    {"pages-manifest": "wrong JSON"},
+                    third,
+                ]
+                pauses = []
+                bad = watch.confirmed_failures(
+                    "t", probe=lambda _: samples.pop(0), pause=pauses.append)
+                self.assertEqual(bad, expected)
+                self.assertEqual(pauses, [90, 90])
+
+    def test_manifest_edge_third_probe_keeps_independent_structural_game_alarm(self):
+        samples = [
+            {"pages-game": "missing entry", "pages-manifest-edge": "timeout"},
+            {"pages-game": "still missing", "pages-manifest-edge": "503"},
+            {},
+        ]
+        pauses = []
+        bad = watch.confirmed_failures(
+            "t", probe=lambda _: samples.pop(0), pause=pauses.append)
+        self.assertEqual(bad, {"pages-game": "still missing"})
+        self.assertEqual(pauses, [90, 90])
+
+    def test_manifest_edge_recovery_preserves_persistent_api_health(self):
+        samples = [
+            {"pages-manifest-edge": "503", "api-health": "down"},
+            {"pages-manifest-edge": "503", "api-health": "down"},
+            {},
+        ]
+        pauses = []
+        bad = watch.confirmed_failures(
+            "t", probe=lambda _: samples.pop(0), pause=pauses.append)
+        self.assertEqual(bad, {"api-health": "down"})
+        self.assertEqual(pauses, [90, 90])
 
     def test_one_issue_for_persistent_failures_and_auto_close_on_recovery(self):
         open_issues = []
