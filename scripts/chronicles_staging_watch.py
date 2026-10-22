@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Low-noise Chronicles staging watch: two probes, one actionable GitHub issue.
+"""Low-noise Chronicles staging watch: confirmed probes, one actionable issue.
 
 Checks public API health and real Pages game HTML/JS/CSS unconditionally.
 Reports frontend or live API revision drift only after the source SHA has all
@@ -27,6 +27,24 @@ TITLE = "[staging-watch] Chronicles staging necesita atención"
 ORIGIN = "https://staging.chronicles.shadowops.dpdns.org"
 API = "https://chronicles-api-staging.shadowops.dpdns.org/api"
 GRACE_SECONDS = 90 * 60
+RECHECK_SECONDS = 90
+PAGES_KEYS = frozenset({"pages-game", "pages-edge"})
+
+
+def pages_failure_key(result: str) -> str | None:
+    """Distinguish edge/transport failures from broken HTML or assets.
+
+    Provider data is deliberately not included in issue text or logs.
+    """
+    if result == "ok":
+        return None
+    if result in {"unavailable", "http_error"}:
+        return "pages-edge"
+    if result.startswith("http_"):
+        status = result.removeprefix("http_")
+        if status.isdecimal() and (status == "429" or 500 <= int(status) <= 599):
+            return "pages-edge"
+    return "pages-game"
 
 
 def get_url(url: str, token: str = "") -> dict:
@@ -84,8 +102,11 @@ def failures(token: str, *, get: Callable = get_url, gh: Callable = github,
     game_probe = pages.probe_react_preview(
         path="/", assets=b"/assets/", manifest_path=None
     )
-    if game_probe != "ok":
-        bad["pages-game"] = "La portada o los JS/CSS públicos de Chronicles no se sirven correctamente"
+    pages_key = pages_failure_key(game_probe)
+    if pages_key == "pages-game":
+        bad[pages_key] = "La portada o los JS/CSS públicos de Chronicles no se sirven correctamente"
+    elif pages_key == "pages-edge":
+        bad[pages_key] = "El borde/CDN o la conexión HTTPS de Pages no sirve el juego"
 
     source = gh("repos/" + ci.SOURCE + "/commits/main", token)
     source_sha = source.get("sha")
@@ -158,21 +179,50 @@ def manage_issue(token: str, persistent: dict[str, str], *, gh: Callable = githu
     return "CHRONICLES_STAGING_WATCH_ISSUE_OPENED"
 
 
+def confirmed_failures(token: str, *, probe: Callable | None = None,
+                       pause: Callable | None = None) -> dict[str, str]:
+    """Confirm persistent failures; CDN/transport faults need three samples.
+
+    A 404, wrong MIME or invalid JS/CSS is a structural failure: two samples
+    suffice. For 429, 5xx and timeouts, a third probe avoids transient edge
+    noise. Mixed CDN/asset symptoms still count as continuous unavailability.
+    """
+    probe = probe or failures
+    pause = pause or time.sleep
+    first = probe(token)
+    if not first:
+        return {}
+    print("CHRONICLES_STAGING_WATCH_RECHECK " + ",".join(sorted(first)), flush=True)
+    pause(RECHECK_SECONDS)
+    second = probe(token)
+    persistent = {k: second[k] for k in first.keys() & second.keys()
+                  if k not in PAGES_KEYS}
+    first_pages = PAGES_KEYS & first.keys()
+    second_pages = PAGES_KEYS & second.keys()
+    if not first_pages or not second_pages:
+        return persistent
+    if "pages-game" in first_pages and "pages-game" in second_pages:
+        persistent["pages-game"] = second["pages-game"]
+        return persistent
+    # An edge fault (including a mixed edge+asset failure) needs a third
+    # observation before opening the incident. Do not mask other alerts.
+    print("CHRONICLES_STAGING_WATCH_EDGE_CONFIRM", flush=True)
+    pause(RECHECK_SECONDS)
+    third = probe(token)
+    if "pages-game" in third:
+        persistent["pages-game"] = third["pages-game"]
+    elif "pages-edge" in third:
+        persistent["pages-edge"] = third["pages-edge"]
+    return persistent
+
+
 def main() -> int:
     token = os.environ.get("GH_TOKEN", "")
     if not token:
         print("Missing GitHub token", file=sys.stderr)
         return 2
     try:
-        first = failures(token)
-        if first:
-            print("CHRONICLES_STAGING_WATCH_RECHECK " + ",".join(sorted(first)), flush=True)
-            time.sleep(90)
-            second = failures(token)
-            # Alert only issues present in both samples, not short-lived errors.
-            persistent = {k: second[k] for k in first.keys() & second.keys()}
-        else:
-            persistent = {}
+        persistent = confirmed_failures(token)
         print(manage_issue(token, persistent))
         return 0
     except Exception as exc:
