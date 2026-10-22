@@ -384,8 +384,9 @@ class WatchTest(unittest.TestCase):
             if method != "GET":
                 self.fail("Issue must not be mutated after failed recovery confirmation")
             return [issue]
+        samples = iter(({}, {"pages-edge": "continúa fallando"}))
         result = watch.manage_issue(
-            "t", {}, gh=api, probe=lambda _: {"pages-edge": "continúa fallando"},
+            "t", {}, gh=api, probe=lambda _: next(samples),
             pause=sleeps.append)
         self.assertEqual(result, "CHRONICLES_STAGING_WATCH_RECOVERY_UNCONFIRMED")
         self.assertEqual(sleeps, [90])
@@ -408,9 +409,26 @@ class WatchTest(unittest.TestCase):
         self.assertEqual(watch.manage_issue("t", {}, gh=api,
                 probe=probe, pause=sleeps.append),
                 "CHRONICLES_STAGING_WATCH_RECOVERED")
-        self.assertEqual(probes, ["t"])
+        self.assertEqual(probes, ["t", "t"])
         self.assertEqual(sleeps, [90])
         self.assertEqual([action for action, _, _ in calls], ["GET", "PATCH"])
+
+    def test_recovery_short_circuits_if_first_new_sample_is_unhealthy(self):
+        calls, probes, pauses = [], [], []
+        def api(path, token, *, method="GET", payload=None):
+            calls.append(method)
+            if method != "GET":
+                self.fail("Failed recovery must never close the incident")
+            return [{"number": 42, "title": watch.TITLE, "body": "on call"}]
+        def probe(token):
+            probes.append(token)
+            return {"pages-game": "broken"}
+        self.assertEqual(watch.manage_issue("t", {}, gh=api,
+                probe=probe, pause=pauses.append),
+                "CHRONICLES_STAGING_WATCH_RECOVERY_UNCONFIRMED")
+        self.assertEqual(probes, ["t"])
+        self.assertEqual(pauses, [])
+        self.assertEqual(calls, ["GET"])
 
     def test_no_open_incident_needs_no_recovery_delay_or_extra_probe(self):
         calls = []
