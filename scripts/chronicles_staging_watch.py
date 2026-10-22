@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import re
 import struct
 import sys
 import time
@@ -142,8 +143,9 @@ def open_no_redirect(request: urllib.request.Request, *, timeout: int):
 def probe_public_glb() -> str:
     """Check the canonical 3D model's public GLB header, not just its URL.
 
-    Read only the 12-byte GLB header (even if the CDN ignores Range). A 200
-    HTML SPA fallback must never count as a valid model. Use the fixed
+    Read only the 12-byte GLB header (even if the CDN ignores Range).
+    Validate any advertised HTTP object length against the embedded GLB size.
+    A 200 HTML SPA fallback must never count as a valid model. Use the fixed
     staging domain and no cookies, credentials, redirects or external URLs.
     """
     url = ORIGIN + "/models/matthias-home-canonical.glb"
@@ -157,9 +159,22 @@ def probe_public_glb() -> str:
         with open_no_redirect(request, timeout=10) as response:
             if response.status not in (200, 206) or response.geturl() != url:
                 return "invalid"
+            total = None
             if response.status == 206:
+                # HTTP 206 must identify the exact requested bytes and full
+                # object size. A plausible glTF header with an inconsistent
+                # CDN range response is not proof of a usable public model.
                 byte_range = str(response.headers.get("Content-Range", ""))
-                if not byte_range.startswith("bytes 0-11/"):
+                match = re.fullmatch(r"bytes 0-11/([1-9][0-9]*)", byte_range)
+                if match is None:
+                    return "invalid"
+                total = int(match.group(1))
+            content_length = response.headers.get("Content-Length")
+            if content_length is not None:
+                content_length = str(content_length)
+                if not content_length.isascii() or not content_length.isdecimal():
+                    return "invalid"
+                if response.status == 206 and int(content_length) != 12:
                     return "invalid"
             mime = str(response.headers.get("Content-Type", "")).lower()
             if "text/html" in mime or "json" in mime:
@@ -168,7 +183,13 @@ def probe_public_glb() -> str:
             if len(header) != 12:
                 return "invalid"
             magic, version, size = struct.unpack("<4sII", header)
-            return "ok" if magic == b"glTF" and version == 2 and size >= 20 else "invalid"
+            if magic != b"glTF" or version != 2 or size < 20:
+                return "invalid"
+            if response.status == 206 and total != size:
+                return "invalid"
+            if response.status == 200 and content_length is not None and int(content_length) != size:
+                return "invalid"
+            return "ok"
     except urllib.error.HTTPError as exc:
         return "http_" + str(exc.code) if isinstance(exc.code, int) and 400 <= exc.code <= 599 else "http_error"
     except (urllib.error.URLError, TimeoutError, OSError, ValueError, struct.error):

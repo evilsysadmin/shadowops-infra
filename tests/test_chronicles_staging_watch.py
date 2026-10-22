@@ -100,6 +100,53 @@ class WatchTest(unittest.TestCase):
                     with patch.object(watch, "open_no_redirect", side_effect=serve):
                         self.assertEqual(watch.probe_public_glb(), expected)
 
+    def test_public_glb_advertised_size_matches_exact_http_range(self):
+        class Response:
+            def __init__(self, req, *, status, range_header=None, content_length=None):
+                self.status = status
+                self.url = req.full_url
+                self.headers = {"Content-Type": "model/gltf-binary"}
+                if range_header is not None:
+                    self.headers["Content-Range"] = range_header
+                if content_length is not None:
+                    self.headers["Content-Length"] = content_length
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def geturl(self):
+                return self.url
+            def read(self, count):
+                self.assert_read_size = count
+                return struct.pack("<4sII", b"glTF", 2, 128)
+
+        cases = [
+            (206, "bytes 0-11/128", "12", "ok"),
+            (206, "bytes 0-11/128", None, "ok"),
+            (206, "bytes 0-11/129", "12", "invalid"),
+            (206, "bytes 0-11/127", "12", "invalid"),
+            (206, "bytes 0-11/*", "12", "invalid"),
+            (206, "bytes 0-11/not-a-size", "12", "invalid"),
+            (206, "bytes 0-11/128 junk", "12", "invalid"),
+            (206, "bytes 0-11/128", "13", "invalid"),
+            (206, "bytes 0-11/128", "not-a-length", "invalid"),
+            (200, None, "128", "ok"),
+            (200, None, None, "ok"),  # chunked response has no length claim
+            (200, None, "127", "invalid"),
+            (200, None, "129", "invalid"),
+            (200, None, "bad", "invalid"),
+        ]
+        for status, range_header, length, expected in cases:
+            with self.subTest(status=status, range_header=range_header,
+                              content_length=length):
+                def serve(req, timeout):
+                    self.assertEqual(timeout, 10)
+                    return Response(req, status=status, range_header=range_header,
+                                    content_length=length)
+                with patch.object(watch, "probe_public_glb", wraps=self.real_model_probe):
+                    with patch.object(watch, "open_no_redirect", side_effect=serve):
+                        self.assertEqual(watch.probe_public_glb(), expected)
+
     def test_canonical_model_edge_vs_structural_classification(self):
         for result in ("invalid", "http_404", "http_403"):
             with self.subTest(result=result):
