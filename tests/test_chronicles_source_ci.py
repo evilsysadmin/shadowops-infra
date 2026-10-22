@@ -1,7 +1,12 @@
 """Offline source CI workflow identity and verdict tests."""
+import io
+import json
 import pathlib
 import sys
 import unittest
+import urllib.error
+import urllib.request
+from unittest.mock import patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
 import chronicles_source_ci as ci
@@ -35,6 +40,99 @@ def read(rows):
 class VerifyExactSourceCI(unittest.TestCase):
     def setUp(self):
         self.rows = [run(i) for i in ci.REQUIRED]
+
+    def test_authenticated_source_read_is_exact_https_with_redirects_blocked(self):
+        payload = {"workflow_runs": self.rows, "total_count": len(self.rows)}
+        seen = []
+        class Response:
+            status = 200
+            def __init__(self, req, *, final=None, status=200):
+                self.status = status
+                self.final = req.full_url if final is None else final
+                self.body = io.BytesIO(json.dumps(payload).encode("utf-8"))
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def geturl(self):
+                return self.final
+            def read(self, amount=-1):
+                return self.body.read(amount)
+
+        class Opener:
+            def open(self, req, timeout):
+                seen.append((req, timeout))
+                return Response(req)
+        def new_opener(*handlers):
+            self.assertEqual(len(handlers), 1)
+            blocker = handlers[0]
+            self.assertIsInstance(blocker, ci.RejectGithubRedirects)
+            dummy = urllib.request.Request(
+                "https://api.github.com", headers={"Authorization": "Bearer TOKEN"})
+            for code in (301, 302, 303, 307, 308):
+                self.assertIsNone(blocker.redirect_request(
+                    dummy, None, code, "redirect",
+                    {"Location": "https://malicious.invalid/collect"},
+                    "https://malicious.invalid/collect"))
+            return Opener()
+
+        with patch.object(ci.urllib.request, "build_opener", side_effect=new_opener):
+            self.assertEqual(ci.github_runs(SHA, TOKEN), payload)
+        self.assertEqual(len(seen), 1)
+        request, timeout = seen[0]
+        self.assertEqual(timeout, 20)
+        self.assertEqual(request.get_header("Authorization"), "Bearer " + TOKEN)
+        self.assertEqual(request.get_method(), "GET")
+        self.assertEqual(
+            request.full_url,
+            "https://api.github.com/repos/" + ci.SOURCE +
+            "/actions/runs?head_sha=" + SHA + "&event=push&per_page=100"
+        )
+
+    def test_redirect_or_foreign_success_is_not_accepted_as_source_evidence(self):
+        body = json.dumps({"workflow_runs": self.rows, "total_count": 3}).encode()
+        class Response:
+            status = 200
+            def __init__(self, req, final):
+                self.final = final
+                self.body = io.BytesIO(body)
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def geturl(self):
+                return self.final
+            def read(self, amount=-1):
+                return self.body.read(amount)
+
+        for target in ("https://github.com/login",
+                       "https://attacker.invalid/not-the-api",
+                       "https://api.github.com/repos/another/repository/actions/runs"):
+            with self.subTest(target=target):
+                class Opener:
+                    def open(self, req, timeout):
+                        return Response(req, target)
+                with patch.object(ci.urllib.request, "build_opener",
+                                  return_value=Opener()):
+                    with self.assertRaisesRegex(ci.AdmissionError, "response URL"):
+                        ci.github_runs(SHA, TOKEN)
+
+        class RedirectOpener:
+            def open(self, req, timeout):
+                raise urllib.error.HTTPError(
+                    req.full_url, 302, "Moved", {"Location": "https://evil.invalid/"}, None)
+        with patch.object(ci.urllib.request, "build_opener",
+                          return_value=RedirectOpener()):
+            with self.assertRaisesRegex(ci.AdmissionError, "HTTP 302"):
+                ci.github_runs(SHA, TOKEN)
+
+    def test_source_ci_reader_rejects_missing_token_or_invalid_sha_before_http(self):
+        with patch.object(ci.urllib.request, "build_opener") as opener:
+            for sha, token in (("main", TOKEN), (SHA, ""), ("B" * 40, TOKEN)):
+                with self.subTest(sha=sha, token=bool(token)):
+                    with self.assertRaises(ci.AdmissionError):
+                        ci.github_runs(sha, token)
+            opener.assert_not_called()
 
     def test_three_successful_source_main_push_workflows_admit(self):
         self.assertEqual(ci.inspect(SHA, TOKEN, read(self.rows)), "ready")
