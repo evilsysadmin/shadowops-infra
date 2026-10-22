@@ -178,7 +178,8 @@ def floor_rose(name, cx, cz, y, outer, inner, points, mat):
     bpy.context.collection.objects.link(obj)
     return register(obj,mat)
 
-# A few large staggered flagstones, not hundreds of low-poly boxes.
+# A few nearly flush stone inlays with simple faces. Do not subdivide
+# invisible edge bevels: the authored brass seams carry the detail.
 # Their upper face is at -0.103, just above the existing metal dais (-0.152).
 for passage_x in [-3.22,0,3.22]:
     for i in range(6):
@@ -186,7 +187,7 @@ for passage_x in [-3.22,0,3.22]:
         staggering=(.035 if (i+round(passage_x))%2==0 else -.035)
         block("Honed basalt passage stone",
               (passage_x+staggering,-.127,z),
-              (1.14+.055*i,.048,.425),STONE,.022)
+              (1.14+.055*i,.046,.425),STONE,0)
         # Two hairline brass seams frame each approach as floor marquetry.
     for side in [-1,1]:
         tube("Warm brass perspective floor inlay",
@@ -206,7 +207,7 @@ for i in range(16):
     rz=cz+math.sin(theta)*.715
     marker=block("Inset brass cardinal graduation",
                  (rx,-.049,rz),
-                 (.018,.009,.082 if i%4==0 else .045),BRASS,.003)
+                 (.018,.009,.082 if i%4==0 else .045),BRASS,0)
     marker.rotation_euler[1]=-theta+math.pi/2
 
 # Collapse dozens of individually shaped DCC objects into exactly three meshes
