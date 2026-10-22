@@ -7,6 +7,8 @@ on:
       - 'tests/test_portal_pages.py'
       - 'tests/test_portal_release.py'
       - '.github/workflows/portal-pages-staging.yml'
+      - 'scripts/portal_main_admission.py'
+      - 'tests/test_portal_main_admission.py'
   push:
     branches: [main]
     paths:
@@ -16,13 +18,15 @@ on:
       - 'tests/test_portal_pages.py'
       - 'tests/test_portal_release.py'
       - '.github/workflows/portal-pages-staging.yml'
+      - 'scripts/portal_main_admission.py'
+      - 'tests/test_portal_main_admission.py'
       - 'scripts/portal_root_release.py'
       - '.github/workflows/portal-root-release.yml'
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: shadowops-universe-staging-pages
+  group: shadowops-universe-staging-pages-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'release' }}
   cancel-in-progress: false
 jobs:
   contracts:
@@ -33,6 +37,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: python3 -m unittest discover -s tests -p 'test_portal_pages.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_portal_release.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_portal_main_admission.py' -v
       - run: python3 scripts/portal_pages.py self-test
       - run: python3 -m py_compile scripts/portal_pages.py scripts/portal_release.py
   release:
@@ -56,11 +61,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Require exact protected Infra main before build
+      - name: Admit exact source despite unrelated Infra main changes
         shell: bash
         run: |
           set -euo pipefail
-          test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+          python3 scripts/portal_main_admission.py
       - name: Install Blender and isolated portal dependencies
         shell: bash
         run: |
@@ -80,18 +85,18 @@ jobs:
           test -n "$(find dist/assets -maxdepth 1 -name '*.js' -print -quit)"
       - name: Emit exact immutable public build identity and six GLB digests
         run: python3 scripts/portal_release.py portal/dist "$GITHUB_SHA"
-      - name: Refuse superseded Infra SHA or absent Cloudflare secrets before any mutation
+      - name: Refuse superseded portal source or absent Cloudflare secrets
         shell: bash
         run: |
           set -euo pipefail
-          test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+          python3 scripts/portal_main_admission.py
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
           python3 scripts/portal_pages.py preflight
       - name: Create only dedicated Universe staging Pages project
         run: python3 scripts/portal_pages.py project
       - name: Recheck current Infra main immediately before publish
-        run: test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+        run: python3 scripts/portal_main_admission.py
       - name: Publish static build to dedicated staging project
         run: npx --yes wrangler@4.127.1 pages deploy portal/dist --project-name shadowops-universe-staging --branch main --commit-hash "$GITHUB_SHA" --commit-dirty=false
       - name: Associate only staging hostname with exact Pages target
