@@ -44,11 +44,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsSL --retry 3 --max-time 20 \
+          # Do not follow a 3xx: only a direct HTTPS 200 from the pinned
+          # staging hostname may identify the code used for public testing.
+          http_code="$(curl --fail --silent --show-error --retry 3 --max-time 20 \
+            --max-redirs 0 --write-out '%{http_code}' \
             --user-agent 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/154.0.0.0 Safari/537.36' \
             -H 'Cache-Control: no-cache' \
             'https://staging.chronicles.shadowops.dpdns.org/release.json?smoke='${GITHUB_RUN_ID} \
-            -o "$RUNNER_TEMP/live-chronicles-release.json"
+            -o "$RUNNER_TEMP/live-chronicles-release.json")"
+          [[ "$http_code" == '200' ]] || { echo 'CHRONICLES_PUBLIC_SMOKE_RELEASE_NOT_200'; exit 1; }
+          # This is a tiny version manifest, never arbitrary public HTML or an
+          # unbounded CDN response. Its content is validated as a 40-hex SHA.
+          bytes="$(wc -c < "$RUNNER_TEMP/live-chronicles-release.json")"
+          (( bytes > 0 && bytes <= 65536 )) || { echo 'CHRONICLES_PUBLIC_SMOKE_RELEASE_OVERSIZED'; exit 1; }
           sha="$(node -p "JSON.parse(require('node:fs').readFileSync(process.env.RUNNER_TEMP + '/live-chronicles-release.json')).build")"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || exit 1
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
