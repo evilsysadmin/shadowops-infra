@@ -145,6 +145,7 @@ test('Blender vault GLB failure preserves functional world navigation',async({pa
 });
 
 test('both deployed hosts link only to their own world environments, even without WebGL', async ({page}) => {
+  await page.setViewportSize({width: 360, height: 780});
   // Serve the local Vite build under the two real portal origins without
   // contacting live Cloudflare. The browser sees the actual hostname.
   for (const [portalHost,expected,starLaunchable] of [
@@ -170,10 +171,25 @@ test('both deployed hosts link only to their own world environments, even withou
       });
     });
     await page.goto(`https://${portalHost}/`);
+    await expect.poll(() => page.evaluate(
+      () => document.documentElement.scrollWidth - window.innerWidth
+    )).toBeLessThanOrEqual(1);
+    if (starLaunchable) {
+      await expect(page.locator('.mobile-environment')).toBeVisible();
+      await expect(page.locator('.mobile-environment')).toHaveText('STAGING');
+      await expect(page.locator('.shell')).toHaveAttribute('data-environment','staging');
+    } else {
+      await expect(page.locator('.mobile-environment')).toHaveCount(0);
+      await expect(page.locator('.shell')).toHaveAttribute('data-environment','production');
+    }
     for (const [id,destination] of Object.entries(expected)) {
       await page.locator(`.world-button[data-world="${id}"]`).click();
       if (destination) {
         await expect(page.locator('a.enter-link')).toHaveAttribute('href', destination);
+        await expect(page.locator('a.enter-link')).toHaveAttribute('aria-label',
+          `Abrir ${id === 'chess' ? 'Chess Studio' : id === 'chronicles' ? 'Chronicles' : 'Star Adventures'} en ${starLaunchable ? 'staging' : 'producción'}`);
+        await expect(page.locator('a.enter-link')).toHaveText(starLaunchable
+          ? 'Entrar · staging ↗' : 'Visitar mundo ↗');
       } else {
         await expect(page.locator('a.enter-link')).toHaveCount(0);
         await expect(page.locator('.unavailable')).toHaveText('EN DESARROLLO');

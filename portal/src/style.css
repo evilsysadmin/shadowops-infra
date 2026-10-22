@@ -63,9 +63,29 @@ button:focus-visible, a:focus-visible { outline: 2px solid #d8ae72; outline-offs
   .stage { inset: -9% -4% 14% -4%; }
   .stage-footer { bottom: 25%; }
 }
+.mobile-environment { display: none; }
 @media (max-width: 720px) {
   .header, .footer { padding: 22px; }
   .header-aside { display: none; }
+  /* The staging identity must not disappear along with the long tagline. */
+  .mobile-environment {
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding: 7px 9px;
+    border: 1px solid #a78b616b;
+    border-radius: 3px;
+    color: #dcc9a6;
+    background: #b9945722;
+    font: 700 9px/1 'DM Sans', system-ui, sans-serif;
+    letter-spacing: .11em;
+  }
+  .shell[data-environment="preview"] .mobile-environment {
+    border-color: #61768b80;
+    color: #a9bbce;
+    background: #61768b22;
+  }
   .hero { padding: 52px 22px 22px; }
   .headline { font-size: clamp(38px, 9vw, 58px); }
   .stage-area { min-height: 445px; }

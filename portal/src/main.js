@@ -13,6 +13,7 @@ const el = (tag, className, text) => {
   return node;
 };
 const shell = el('div', 'shell');
+shell.dataset.environment = portalEnvironment;
 app.appendChild(shell);
 const header = el('header', 'header');
 const brand = el('a', 'brand', 'SHADOWOPS');
@@ -22,6 +23,16 @@ header.append(brand, el('span', 'header-aside',
   portalEnvironment === 'staging' ? 'STAGING · ENTORNO DE PRUEBAS' :
   portalEnvironment === 'production' ? 'INDEPENDENT WORLDS · ONE UNIVERSE' :
   'VISTA PREVIA · DESTINOS DESACTIVADOS'));
+// At narrow widths the editorial header tagline disappears. Keep an
+// unmistakable environment identity visible before the user enters a world.
+if (portalEnvironment !== 'production') {
+  const mobileEnvironment = el('span', 'mobile-environment',
+    portalEnvironment === 'staging' ? 'STAGING' : 'PREVIEW');
+  mobileEnvironment.setAttribute('aria-label', portalEnvironment === 'staging'
+    ? 'Estás en la versión de pruebas de ShadowOps'
+    : 'Vista previa: enlaces externos desactivados');
+  header.appendChild(mobileEnvironment);
+}
 shell.appendChild(header);
 
 const hero = el('main', 'hero');
@@ -77,7 +88,9 @@ function renderDetail() {
   copy.append(el('p', 'detail-kicker', world.kicker), el('h2', 'detail-title', world.title), el('p', 'detail-description', world.description));
   detail.appendChild(copy);
   if (isLaunchable(world)) {
-    const link = el('a', 'enter-link', 'Visitar mundo ↗');
+    const link = el('a', 'enter-link', portalEnvironment === 'staging'
+      ? 'Entrar · staging ↗' : 'Visitar mundo ↗');
+    link.setAttribute('aria-label', `Abrir ${world.title} en ${portalEnvironment === 'staging' ? 'staging' : 'producción'}`);
     link.href = world.destination;
     link.rel = 'noopener noreferrer';
     link.title = portalEnvironment === 'staging'
