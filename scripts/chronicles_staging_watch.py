@@ -256,10 +256,24 @@ def updated_issue_body(old_body: str, diagnostic: str) -> str:
     return diagnostic + ("\n\n---\n\n" + old_body if old_body else "")
 
 
-def manage_issue(token: str, persistent: dict[str, str], *, gh: Callable = github) -> str:
+def manage_issue(token: str, persistent: dict[str, str], *, gh: Callable = github,
+                 probe: Callable | None = None, pause: Callable | None = None) -> str:
     issue = existing_issue(token, gh=gh)
     if not persistent:
         if issue is not None:
+            # Opening an incident needs repeated evidence, so recovery should
+            # too. One good reading can be a momentary CDN/API recovery.
+            # Do not add a delay to healthy staging without an open incident.
+            print("CHRONICLES_STAGING_WATCH_RECOVERY_CONFIRM", flush=True)
+            read = probe or failures
+            if read(token):
+                # confirmed_failures() can yield no persistent intersection
+                # even when individual samples had different errors. Require
+                # two NEW completely healthy samples for safe auto-closure.
+                return "CHRONICLES_STAGING_WATCH_RECOVERY_UNCONFIRMED"
+            (pause or time.sleep)(RECHECK_SECONDS)
+            if read(token):
+                return "CHRONICLES_STAGING_WATCH_RECOVERY_UNCONFIRMED"
             gh(f"repos/{INFRA}/issues/{issue['number']}", token, method="PATCH",
                payload={"state": "closed", "state_reason": "completed"})
             return "CHRONICLES_STAGING_WATCH_RECOVERED"
