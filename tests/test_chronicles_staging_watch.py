@@ -66,7 +66,7 @@ class WatchTest(unittest.TestCase):
         requests = []
         def open_good(req, timeout):
             requests.append((req, timeout))
-            return Response(req, good)
+            return Response(req, good, status=206)
         # Real network disabled. Exercise the header verifier itself rather
         # than the per-test high-level health mock.
         with patch.object(watch, "probe_public_glb", wraps=self.real_model_probe):
@@ -130,8 +130,8 @@ class WatchTest(unittest.TestCase):
             (206, "bytes 0-11/128 junk", "12", "invalid"),
             (206, "bytes 0-11/128", "13", "invalid"),
             (206, "bytes 0-11/128", "not-a-length", "invalid"),
-            (200, None, "128", "ok"),
-            (200, None, None, "ok"),  # chunked response has no length claim
+            (200, None, "128", "invalid"),  # only the first 12 bytes actually arrived
+            (200, None, None, "invalid"),  # chunked 200 must also finish the body
             (200, None, "127", "invalid"),
             (200, None, "129", "invalid"),
             (200, None, "bad", "invalid"),
@@ -146,6 +146,71 @@ class WatchTest(unittest.TestCase):
                 with patch.object(watch, "probe_public_glb", wraps=self.real_model_probe):
                     with patch.object(watch, "open_no_redirect", side_effect=serve):
                         self.assertEqual(watch.probe_public_glb(), expected)
+
+    def test_public_glb_200_streaming_fallback_verifies_real_size_to_eof(self):
+        header = struct.pack("<4sII", b"glTF", 2, 128)
+        results = [
+            (header + b"\\x00" * 116, None, "ok"),
+            (header + b"\\x00" * 116, "128", "ok"),
+            (header + b"\\x00" * 115, None, "invalid"),
+            (header + b"\\x00" * 117, None, "invalid"),
+            (header + b"\\x00" * 115, "128", "invalid"),
+            (header + b"\\x00" * 117, "128", "invalid"),
+            (header + b"\\x00" * 116, "127", "invalid"),
+        ]
+        class Response:
+            status = 200
+            def __init__(self, req, payload, length):
+                self.url = req.full_url
+                self.headers = {"Content-Type": "model/gltf-binary"}
+                if length is not None:
+                    self.headers["Content-Length"] = length
+                self.body = io.BytesIO(payload)
+                self.read_sizes = []
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+            def geturl(self): return self.url
+            def read(self, n):
+                self.read_sizes.append(n)
+                return self.body.read(n)
+        for payload, length, expected in results:
+            with self.subTest(length=length, payload_size=len(payload)):
+                seen = []
+                def serve(req, timeout):
+                    response = Response(req, payload, length)
+                    seen.append(response)
+                    return response
+                with patch.object(watch, "probe_public_glb", wraps=self.real_model_probe):
+                    with patch.object(watch, "open_no_redirect", side_effect=serve):
+                        self.assertEqual(watch.probe_public_glb(), expected)
+                self.assertEqual(seen[0].read_sizes[0], 12)
+                self.assertTrue(all(n <= 64 * 1024 for n in seen[0].read_sizes))
+
+    def test_public_glb_unbounded_large_200_response_is_inconclusive_and_bounded(self):
+        header = struct.pack("<4sII", b"glTF", 2,
+                             watch.MAX_PUBLIC_GLB_FALLBACK_BYTES + 1)
+        class Response:
+            status = 200
+            headers = {"Content-Type": "model/gltf-binary"}
+            def __init__(self, req):
+                self.url = req.full_url
+                self.body = io.BytesIO(header)
+                self.calls = 0
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+            def geturl(self): return self.url
+            def read(self, count):
+                self.calls += 1
+                return self.body.read(count)
+        opened = []
+        def serve(req, timeout):
+            response = Response(req)
+            opened.append(response)
+            return response
+        with patch.object(watch, "probe_public_glb", wraps=self.real_model_probe):
+            with patch.object(watch, "open_no_redirect", side_effect=serve):
+                self.assertEqual(watch.probe_public_glb(), "unavailable")
+        self.assertEqual(opened[0].calls, 1, "Oversize body must never be fetched")
 
     def test_canonical_model_edge_vs_structural_classification(self):
         for result in ("invalid", "http_404", "http_403"):
