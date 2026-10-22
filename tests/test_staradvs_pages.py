@@ -4,6 +4,7 @@ import json
 import pathlib
 import unittest
 from unittest.mock import patch
+import urllib.error
 
 MODULE = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "staradvs_pages.py"
 spec = importlib.util.spec_from_file_location("staradvs_pages", MODULE)
@@ -118,6 +119,63 @@ class StagingPagesTests(unittest.TestCase):
     def test_future_or_wrong_sha_rejected_for_live_public_probe(self):
         for sha in ["", "main", "A"*40, "z"*40, "0"*39]:
             with self.assertRaisesRegex(s.AdmissionError, "source SHA"):
+                s.public_check(sha)
+
+    def test_live_probe_uses_browser_headers_for_html_js_and_release(self):
+        sha = "a" * 40
+        calls = []
+
+        class Response:
+            status = 200
+
+            def __init__(self, data, mime):
+                self.data = data
+                self.headers = {"Content-Type": mime}
+
+            def read(self, _limit):
+                return self.data
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+        def urlopen(req, **kwargs):
+            calls.append(req)
+            self.assertIsNotNone(kwargs.get("context"))  # TLS validation retained
+            if req.full_url == s.BASE + "/":
+                return Response(b'<title>Star Adventures</title><div id="root"></div><script type="module" src="/assets/index-abcdef.js"></script>', "text/html")
+            if req.full_url.endswith("/assets/index-abcdef.js"):
+                return Response(b"console.log('staradvs')", "application/javascript")
+            if req.full_url == s.BASE + "/release.json":
+                return Response(json.dumps({"build": sha, "environment": "staging"}).encode(), "application/json")
+            raise AssertionError("Unexpected external URL")
+
+        with patch.object(s.urllib.request, "urlopen", side_effect=urlopen):
+            s.public_check(sha)
+        self.assertEqual(len(calls), 3)
+        self.assertTrue(all("Mozilla/5.0" in req.get_header("User-agent", "") for req in calls))
+        self.assertIn("javascript", calls[1].get_header("Accept", ""))
+        self.assertEqual(calls[1].full_url, s.BASE + "/assets/index-abcdef.js")
+
+    def test_browser_blocked_asset_is_a_failure_not_an_accepted_game(self):
+        sha = "a" * 40
+        class Response:
+            status = 200
+            headers = {"Content-Type": "text/html"}
+            def read(self, _):
+                return b'<title>Star Adventures</title><div id="root"></div><script src="/assets/index.js"></script>'
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+        def urlopen(req, **_):
+            if req.full_url == s.BASE + "/":
+                return Response()
+            raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, None)
+        with patch.object(s.urllib.request, "urlopen", side_effect=urlopen):
+            with self.assertRaisesRegex(s.AdmissionError, "Public JavaScript unavailable \\(HTTP 403\\)"):
                 s.public_check(sha)
 
     def test_credentials_not_available_without_token(self):
