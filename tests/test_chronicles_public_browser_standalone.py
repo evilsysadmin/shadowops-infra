@@ -15,6 +15,21 @@ class BrowserOnlyReleaseTest(unittest.TestCase):
         code = next(s for s in steps if s.get("name") == "Read the public SHA actually served by Pages")["run"]
         self.assertIn("/release.json", code)
         self.assertIn('[[ "$sha" =~ ^[0-9a-f]{40}$ ]]', code)
+        read = names.index("Read the public SHA actually served by Pages")
+        checkout_name = "Check out test scripts from the exact published Chronicles revision"
+        assert_name = "Assert the source checkout matches the published SHA"
+        install_name = "Install Chromium for the public smoke"
+        self.assertLess(read, names.index(checkout_name))
+        self.assertLess(names.index(checkout_name), names.index(assert_name))
+        self.assertLess(names.index(assert_name), names.index(install_name))
+        checkout = next(s for s in steps if s.get("name") == checkout_name)
+        self.assertEqual(checkout["with"]["repository"], "evilsysadmin/chronicles-of-matthias")
+        self.assertEqual(checkout["with"]["ref"], "${{ steps.current.outputs.sha }}")
+        self.assertEqual(checkout["with"]["persist-credentials"], "false")
+        self.assertNotEqual(checkout["with"]["ref"], "main")
+        assertion = next(s for s in steps if s.get("name") == assert_name)
+        self.assertIn('test "$(git rev-parse HEAD)" = "$PUBLIC_SHA"', assertion["run"])
+        self.assertEqual(assertion["env"]["PUBLIC_SHA"], "${{ steps.current.outputs.sha }}")
         browser = next(s for s in steps if s.get("name") == "Validate the actual public Chronicles game in desktop and mobile")
         self.assertIn("smoke/public-staging.mjs", browser["run"])
         self.assertEqual(browser["env"]["CHRONICLES_SOURCE_SHA"], "${{ steps.current.outputs.sha }}")
