@@ -121,8 +121,9 @@ for x in [-5.2,-3.65,-1.85,1.85,3.65,5.2]:
 # Repeated high slate coffers with inset brass piping, behind celestial oculus.
 for x in [-4.6,-3.15,-1.65,1.65,3.15,4.6]:
     y=4.08+1.30*(1-(x/6.35)**2)**.72
-    block("Carved upper frieze", (x,y-.22,-2.95),(.82,.31,.13),STONE,.048)
-    block("Frieze inset", (x,y-.31,-2.868),(.64,.024,.025),BRASS,.008)
+    # Small incised stone rosettes avoid blocky plaques or visible low-poly kitbash.
+    star("Vault carved celestial rosette",x,y-.20,-2.18,.108,.044,8,BRASS)
+    disk("Rosette inset enamel",(x,y-.20,-2.146),.023,.013,ENAMEL)
 
 # Central astronomical rose/oculus. The elements are layered physically in Z.
 disk("Deep lapis moon dial",(0,4.87,-2.30),.73,.10,STONE)
