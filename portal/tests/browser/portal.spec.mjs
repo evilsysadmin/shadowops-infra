@@ -35,6 +35,7 @@ for (const width of [360, 390, 430, 1440]) {
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
     expect(shaderErrors, 'WebGL shader compiles cleanly').toEqual([]);
     if (await page.locator('.stage').getAttribute('data-scene') === 'active') {
+      await expect(page.locator('.stage')).toHaveAttribute('data-gallery-frame','loaded',{timeout:15000});
       const budgets = await page.locator('.stage').evaluate(stage => ({
         calls: Number(stage.dataset.drawCalls), tris: Number(stage.dataset.triangles),
       }));
@@ -114,4 +115,16 @@ test('catalog is usable before heavy 3D module loads', async ({page}) => {
   await expect(page.locator('a.enter-link')).toHaveAttribute('href', 'https://chronicles.shadowops.dpdns.org/');
   await page.locator('.stage-area').scrollIntoViewIfNeeded();
   await expect(page.locator('.stage')).toHaveAttribute('data-scene', 'unavailable');
+});
+
+
+test('gallery GLB fetch failure restores existing masonry without blocking navigation', async ({page})=>{
+  await page.route('**/art/gallery-frame-*.glb', route=>route.abort());
+  await page.goto('/');
+  await page.locator('.stage-area').scrollIntoViewIfNeeded();
+  await expect(page.locator('.stage')).toHaveAttribute('data-scene','active',{timeout:15000});
+  await expect(page.locator('.stage')).toHaveAttribute('data-gallery-frame','fallback',{timeout:15000});
+  await page.getByRole('button',{name:/Chronicles/}).click();
+  await expect(page.locator('.detail-title')).toHaveText('Chronicles');
+  await expect(page.locator('a.enter-link')).toHaveAttribute('href','https://chronicles.shadowops.dpdns.org/');
 });

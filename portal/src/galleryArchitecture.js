@@ -113,6 +113,63 @@ export function addGalleryArchitecture(scene, coords, mobile=false) {
   recesses.instanceMatrix.needsUpdate=true;
   scene.add(recesses);
 
+  // Floor inlay follows perspective rather than a floating platform grid.
+  const inlay=new THREE.LineBasicMaterial({color:0xb9a27e,transparent:true,opacity:.26});
+  const lines=[];
+  for(let x=-9;x<=9;x+=2.25)lines.push(x,-.577,-9,x,-.577,8);
+  for(let z=-8;z<=8;z+=2.25)lines.push(-9,-.576,z,9,-.576,z);
+  const grid=new THREE.BufferGeometry();
+  grid.setAttribute('position',new THREE.Float32BufferAttribute(lines,3));
+  scene.add(new THREE.LineSegments(grid,inlay));
+
+  // Sculpt a soft pool of light beneath each arch. Additive quads and a
+  // compact shader share one material, not shadow maps or postprocessing.
+  const GLOW_VERTEX = [
+    'varying vec2 vUv;',
+    'void main() { vUv = uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }',
+  ].join('\n');
+  const GLOW_FRAGMENT = [
+    'uniform vec3 uColor; varying vec2 vUv;',
+    'void main(){',
+    ' vec2 p=(vUv-.5)*vec2(1.5,1.);',
+    ' float a=pow(max(0.,1.-length(p)*1.8),2.7)*.23;',
+    ' gl_FragColor=vec4(uColor*a,a);',
+    '}',
+  ].join('\n');
+  const groundLights=[];
+  const palette=[0xc59b62,0xc9704a,0x54a5d4];
+  coords.forEach((x,i)=>{
+    const beamMat=new THREE.ShaderMaterial({
+      vertexShader:GLOW_VERTEX, fragmentShader:GLOW_FRAGMENT,
+      uniforms:{uColor:{value:new THREE.Color(palette[i])}},
+      depthWrite:false,transparent:true,blending:THREE.AdditiveBlending,
+      side:THREE.DoubleSide,
+    });
+    const beam = new THREE.Mesh(new THREE.PlaneGeometry(2.55,3.0),beamMat);
+    beam.position.set(x,2.34,-1.42);
+    scene.add(beam);
+    groundLights.push(beam);
+  });
+  const topLight=new THREE.PointLight(0xdfb889,8,12,2);
+  topLight.position.set(0,5,1.9);
+  scene.add(topLight);
+  const blueFill=new THREE.DirectionalLight(0x7c9ec4,.55);
+  blueFill.position.set(4,3,5);
+  scene.add(blueFill);
+  let fallbackBuilt = false;
+  return {
+    activateFallback() {
+      if (fallbackBuilt) return;
+      fallbackBuilt = true;
+      addFallbackMasonry(scene, coords, mobile, stone, bronze);
+    },
+    dispose() { for(const texture of maps.textures) texture.dispose(); },
+  };
+}
+
+// Only run procedural mesh creation when the optional GLB is unavailable.
+function addFallbackMasonry(scene, coords, mobile, stone, bronze) {
+  const object=new THREE.Object3D();
   // Hand-cut voussoir impression from one shared instanced mesh, rather
   // than one GPU draw call per decorative stone. No low-poly block walls.
   const voussoirCount = mobile ? 39 : 63;
@@ -173,50 +230,5 @@ export function addGalleryArchitecture(scene, coords, mobile=false) {
   capitals.instanceMatrix.needsUpdate = true;
   scene.add(pilasters,capitals);
 
-  // Floor inlay follows perspective rather than a floating platform grid.
-  const inlay=new THREE.LineBasicMaterial({color:0xb9a27e,transparent:true,opacity:.26});
-  const lines=[];
-  for(let x=-9;x<=9;x+=2.25)lines.push(x,-.577,-9,x,-.577,8);
-  for(let z=-8;z<=8;z+=2.25)lines.push(-9,-.576,z,9,-.576,z);
-  const grid=new THREE.BufferGeometry();
-  grid.setAttribute('position',new THREE.Float32BufferAttribute(lines,3));
-  scene.add(new THREE.LineSegments(grid,inlay));
-
-  // Sculpt a soft pool of light beneath each arch. Additive quads and a
-  // compact shader share one material, not shadow maps or postprocessing.
-  const GLOW_VERTEX = [
-    'varying vec2 vUv;',
-    'void main() { vUv = uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }',
-  ].join('\n');
-  const GLOW_FRAGMENT = [
-    'uniform vec3 uColor; varying vec2 vUv;',
-    'void main(){',
-    ' vec2 p=(vUv-.5)*vec2(1.5,1.);',
-    ' float a=pow(max(0.,1.-length(p)*1.8),2.7)*.23;',
-    ' gl_FragColor=vec4(uColor*a,a);',
-    '}',
-  ].join('\n');
-  const groundLights=[];
-  const palette=[0xc59b62,0xc9704a,0x54a5d4];
-  coords.forEach((x,i)=>{
-    const beamMat=new THREE.ShaderMaterial({
-      vertexShader:GLOW_VERTEX, fragmentShader:GLOW_FRAGMENT,
-      uniforms:{uColor:{value:new THREE.Color(palette[i])}},
-      depthWrite:false,transparent:true,blending:THREE.AdditiveBlending,
-      side:THREE.DoubleSide,
-    });
-    const beam = new THREE.Mesh(new THREE.PlaneGeometry(2.55,3.0),beamMat);
-    beam.position.set(x,2.34,-1.42);
-    scene.add(beam);
-    groundLights.push(beam);
-  });
-  const topLight=new THREE.PointLight(0xdfb889,8,12,2);
-  topLight.position.set(0,5,1.9);
-  scene.add(topLight);
-  const blueFill=new THREE.DirectionalLight(0x7c9ec4,.55);
-  blueFill.position.set(4,3,5);
-  scene.add(blueFill);
-  return {
-    dispose() { for(const texture of maps.textures) texture.dispose(); },
-  };
+  return true;
 }
