@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Low-noise Chronicles staging watch: two probes, one actionable GitHub issue.
 
-Checks public health unconditionally. Reports version drift only after the
-source SHA has all three green push workflows and a 90-minute deploy grace.
+Checks public health unconditionally. Reports frontend or live API revision
+drift only after the source SHA has all three green push workflows and a
+90-minute deploy grace; receipts alone do not prove the live API version.
 No secrets outside the GitHub token are needed.
 """
 from __future__ import annotations
@@ -98,6 +99,19 @@ def failures(token: str, *, get: Callable = get_url, gh: Callable = github,
             bad["backend-lag"] = "No hay recibo válido de OCI/E2E para el SHA verde"
     except (urllib.error.URLError, ValueError, TimeoutError, OSError):
         raise RuntimeError("Cannot verify staging deployment receipt")
+
+    # A historical successful OCI receipt is not proof that the API is STILL
+    # serving that build. Compare the public /api/release revision to the
+    # current green source, using the same strict HTTPS reader as Pages.
+    # Avoid duplicate alarms when /health or /ready already failed.
+    if "api-health" not in bad:
+        revision = receipts.public_api_revision_state(source_sha)
+        if revision == "different":
+            bad["api-revision"] = "La API pública sirve un SHA distinto del último main verde"
+        elif revision == "unknown":
+            bad["api-revision"] = "No se puede verificar el SHA servido por la API pública"
+        elif revision != "match":
+            raise RuntimeError("Unexpected public API revision state")
     return bad
 
 
