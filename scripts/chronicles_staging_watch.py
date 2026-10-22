@@ -68,6 +68,44 @@ def manifest_error_key(exc: Exception) -> str:
     return "pages-manifest"
 
 
+def source_ci_status(sha: str, token: str) -> tuple[str, dt.datetime | None]:
+    """Trust the existing exact-SHA source gate and get its last green timestamp.
+
+    CI may spend hours queued after the commit. The deploy grace starts when
+    all three required, verified push workflows actually finish, not at the
+    commit's earlier committer date. One GitHub query feeds both validations.
+    """
+    payload = ci.github_runs(sha, token)
+    verdict = ci.inspect(sha, token, read=lambda _sha, _token: payload)
+    if verdict != "ready":
+        return verdict, None
+
+    latest = {}
+    for run in payload["workflow_runs"]:
+        workflow = run.get("workflow_id")
+        if workflow not in ci.REQUIRED:
+            continue
+        previous = latest.get(workflow)
+        if previous is None or int(run["id"]) > int(previous["id"]):
+            latest[workflow] = run
+    if len(latest) != len(ci.REQUIRED):
+        raise RuntimeError("Source CI ready state lacks required workflow timestamps")
+
+    completed = []
+    for run in latest.values():
+        value = run.get("updated_at")
+        if not isinstance(value, str):
+            raise RuntimeError("Cannot determine source CI completion")
+        try:
+            instant = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            raise RuntimeError("Invalid source CI completion timestamp") from None
+        if instant.tzinfo is None:
+            raise RuntimeError("Unzoned source CI completion timestamp")
+        completed.append(instant)
+    return verdict, max(completed)
+
+
 def get_url(url: str, token: str = "") -> dict:
     headers = {"Accept": "application/vnd.github+json" if token else "application/json",
                "User-Agent": "shadowops-chronicles-watch/1"}
@@ -153,17 +191,16 @@ def failures(token: str, *, get: Callable = get_url, gh: Callable = github,
     source_sha = source.get("sha")
     if not isinstance(source_sha, str) or not ci.SHA.fullmatch(source_sha):
         raise RuntimeError("Cannot verify protected Chronicles source")
-    verdict = ci.inspect(source_sha, token)
+    verdict, ready_at = source_ci_status(source_sha, token)
     if verdict != "ready":
         # Do not complain about an unshipped or unfinished source commit.
         return bad
 
-    stamp = (source.get("commit") or {}).get("committer", {}).get("date", "")
-    try:
-        age = (now - dt.datetime.fromisoformat(stamp.replace("Z", "+00:00"))).total_seconds()
-    except (TypeError, ValueError):
-        raise RuntimeError("Cannot date the verified source main")
-    if age < GRACE_SECONDS:
+    if ready_at is None:
+        raise RuntimeError("Cannot date the verified source CI readiness")
+    # A source green only minutes ago deserves its full deploy grace, even if
+    # runner congestion delayed completion for hours after the Git commit.
+    if (now - ready_at).total_seconds() < GRACE_SECONDS:
         return bad
     # Missing/unreadable manifest is already an availability problem; it
     # cannot prove release drift. Report frontend-lag only with a valid live SHA.
