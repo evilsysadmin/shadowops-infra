@@ -92,3 +92,7 @@ The original `art/blender/celestial_vault.py` now models the approach paths (9 l
 ## Lateral wall bays in Blender
 
 Two original recessed lancet niches with double-depth stone and brass archivolts, a layered astrolabe and shallow horizon engraving replace visually empty lateral wall stretches. Everything remains merged into the existing three PBR material meshes and the existing vault GLB; it introduces zero extra HTTP requests, draw calls or interactive hit surfaces. Torus/cylinder segment counts for tiny decorative elements are reduced from 96 to 64 to preserve the strict 1.5MB source-art budget. The portal still functions when this optional GLB fails. This is an incremental art study, not final approved premium DCC architecture (#153).
+
+## Architectural grazing lightmap
+
+`galleryArchitecture.js` now uses an entirely deterministic, 256×128 RGBA emissive texture to **gently graze stone around the six side jambs and three upper arch crowns**, in restrained brass/ember/moon-blue tones. Only the existing rear-wall draw receives it: no new meshes, shadow maps, lights, GLBs, files fetched, or per-frame animation. It has a 128 KiB CPU/GPU texture budget and a Node test for color direction, falloff, bytes and bounded brightness. The foreground, floor, portals and no-WebGL/failure navigation are unchanged. This is a material study, not final approved Blender PBR/texturing (#153).
