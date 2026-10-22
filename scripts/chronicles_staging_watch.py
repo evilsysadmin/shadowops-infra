@@ -28,7 +28,11 @@ ORIGIN = "https://staging.chronicles.shadowops.dpdns.org"
 API = "https://chronicles-api-staging.shadowops.dpdns.org/api"
 GRACE_SECONDS = 90 * 60
 RECHECK_SECONDS = 90
-PAGES_KEYS = frozenset({"pages-game", "pages-edge"})
+PAGES_FAMILIES = {
+    "game": ("pages-game", "pages-edge"),
+    "manifest": ("pages-manifest", "pages-manifest-edge"),
+}
+PAGES_KEYS = frozenset(key for keys in PAGES_FAMILIES.values() for key in keys)
 
 
 def pages_failure_key(result: str) -> str | None:
@@ -45,6 +49,21 @@ def pages_failure_key(result: str) -> str | None:
         if status.isdecimal() and (status == "429" or 500 <= int(status) <= 599):
             return "pages-edge"
     return "pages-game"
+
+
+def manifest_error_key(exc: Exception) -> str:
+    """An invalid manifest is structural; 429/5xx and network faults are edge.
+
+    HTTPError inherits from URLError: classify it first, without reporting
+    any response body, URL, headers or exceptions to GitHub issues.
+    """
+    if isinstance(exc, urllib.error.HTTPError):
+        if exc.code == 429 or 500 <= exc.code <= 599:
+            return "pages-manifest-edge"
+        return "pages-manifest"
+    if isinstance(exc, (urllib.error.URLError, TimeoutError, OSError)):
+        return "pages-manifest-edge"
+    return "pages-manifest"
 
 
 def get_url(url: str, token: str = "") -> dict:
@@ -83,15 +102,23 @@ def failures(token: str, *, get: Callable = get_url, gh: Callable = github,
         get(API + "/ready")
     except (urllib.error.URLError, ValueError, TimeoutError, OSError):
         bad["api-health"] = "La API pública /health o /ready no responde correctamente"
+    live_sha = None
     try:
         manifest = get(ORIGIN + "/release.json?watch=" + str(int(now.timestamp())))
-        live_sha = manifest.get("build")
-        if not isinstance(live_sha, str) or not ci.SHA.fullmatch(live_sha):
-            bad["pages-manifest"] = "El release.json público no expone un SHA válido"
-            live_sha = None
-    except (urllib.error.URLError, ValueError, TimeoutError, OSError):
-        bad["pages-manifest"] = "El release.json público no es accesible"
-        live_sha = None
+        if not isinstance(manifest, dict):
+            bad["pages-manifest"] = "El release.json público no contiene un objeto JSON válido"
+        else:
+            sha = manifest.get("build")
+            if isinstance(sha, str) and ci.SHA.fullmatch(sha):
+                live_sha = sha
+            else:
+                bad["pages-manifest"] = "El release.json público no expone un SHA válido"
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError,
+            OSError, ValueError, UnicodeError) as exc:
+        key = manifest_error_key(exc)
+        bad[key] = ("El release.json público no es accesible por CDN/conexión HTTPS"
+                    if key == "pages-manifest-edge"
+                    else "El release.json público no devuelve un manifiesto válido")
 
     # The manifest may still answer 200 while the actual game root or its
     # Vite entry JS/CSS is broken. Reuse the same strict, same-origin HTTPS
@@ -124,7 +151,9 @@ def failures(token: str, *, get: Callable = get_url, gh: Callable = github,
         raise RuntimeError("Cannot date the verified source main")
     if age < GRACE_SECONDS:
         return bad
-    if live_sha != source_sha:
+    # Missing/unreadable manifest is already an availability problem; it
+    # cannot prove release drift. Report frontend-lag only with a valid live SHA.
+    if live_sha is not None and live_sha != source_sha:
         bad["frontend-lag"] = "Pages no publica el último SHA verde después del margen de 90 minutos"
 
     try:
@@ -171,7 +200,7 @@ def manage_issue(token: str, persistent: dict[str, str], *, gh: Callable = githu
     if issue is not None:
         return "CHRONICLES_STAGING_WATCH_ALREADY_OPEN"
     details = "\n".join("- **" + key + "**: " + reason for key, reason in persistent.items())
-    body = ("Detectado en dos comprobaciones separadas. Estado público, sin datos de usuarios.\n\n" +
+    body = ("Detectado en comprobaciones consecutivas. Estado público, sin datos de usuarios.\n\n" +
             details + "\n\nRevisar los workflows en https://github.com/" + INFRA +
             "/actions y los SHA publicados. Esta incidencia se cerrará automáticamente cuando el staging se recupere.")
     gh(f"repos/{INFRA}/issues", token, method="POST",
@@ -183,9 +212,9 @@ def confirmed_failures(token: str, *, probe: Callable | None = None,
                        pause: Callable | None = None) -> dict[str, str]:
     """Confirm persistent failures; CDN/transport faults need three samples.
 
-    A 404, wrong MIME or invalid JS/CSS is a structural failure: two samples
-    suffice. For 429, 5xx and timeouts, a third probe avoids transient edge
-    noise. Mixed CDN/asset symptoms still count as continuous unavailability.
+    Structural HTML, JS/CSS and invalid JSON manifest failures need two samples.
+    CDN 429/5xx and connection timeouts need three; a transition between edge
+    and structural errors still counts as continued unavailability per resource.
     """
     probe = probe or failures
     pause = pause or time.sleep
@@ -197,22 +226,29 @@ def confirmed_failures(token: str, *, probe: Callable | None = None,
     second = probe(token)
     persistent = {k: second[k] for k in first.keys() & second.keys()
                   if k not in PAGES_KEYS}
-    first_pages = PAGES_KEYS & first.keys()
-    second_pages = PAGES_KEYS & second.keys()
-    if not first_pages or not second_pages:
+    pending_third = []
+    for structural, edge in PAGES_FAMILIES.values():
+        # Stable invalid content is structural; two consecutive samples are
+        # enough even if a *different* Pages family also has an edge problem.
+        if structural in first and structural in second:
+            persistent[structural] = second[structural]
+        elif ({structural, edge} & first.keys() and
+              {structural, edge} & second.keys()):
+            pending_third.append((structural, edge))
+    if not pending_third:
         return persistent
-    if "pages-game" in first_pages and "pages-game" in second_pages:
-        persistent["pages-game"] = second["pages-game"]
-        return persistent
-    # An edge fault (including a mixed edge+asset failure) needs a third
-    # observation before opening the incident. Do not mask other alerts.
+
+    # A 429/5xx/timeout needs three samples, also across transitions between
+    # edge and structural errors. One third probe confirms all waiting families;
+    # unrelated persistent API/version failures retain their two-sample signal.
     print("CHRONICLES_STAGING_WATCH_EDGE_CONFIRM", flush=True)
     pause(RECHECK_SECONDS)
     third = probe(token)
-    if "pages-game" in third:
-        persistent["pages-game"] = third["pages-game"]
-    elif "pages-edge" in third:
-        persistent["pages-edge"] = third["pages-edge"]
+    for structural, edge in pending_third:
+        if structural in third:
+            persistent[structural] = third[structural]
+        elif edge in third:
+            persistent[edge] = third[edge]
     return persistent
 
 
