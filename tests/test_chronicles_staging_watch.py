@@ -150,13 +150,13 @@ class WatchTest(unittest.TestCase):
     def test_public_glb_200_streaming_fallback_verifies_real_size_to_eof(self):
         header = struct.pack("<4sII", b"glTF", 2, 128)
         results = [
-            (header + b"\\x00" * 116, None, "ok"),
-            (header + b"\\x00" * 116, "128", "ok"),
-            (header + b"\\x00" * 115, None, "invalid"),
-            (header + b"\\x00" * 117, None, "invalid"),
-            (header + b"\\x00" * 115, "128", "invalid"),
-            (header + b"\\x00" * 117, "128", "invalid"),
-            (header + b"\\x00" * 116, "127", "invalid"),
+            (header + b"\x00" * 116, None, "ok"),
+            (header + b"\x00" * 116, "128", "ok"),
+            (header + b"\x00" * 115, None, "invalid"),
+            (header + b"\x00" * 117, None, "invalid"),
+            (header + b"\x00" * 115, "128", "invalid"),
+            (header + b"\x00" * 117, "128", "invalid"),
+            (header + b"\x00" * 116, "127", "invalid"),
         ]
         class Response:
             status = 200
