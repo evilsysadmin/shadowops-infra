@@ -1,5 +1,9 @@
 import './style.css';
-import { WORLDS, RESERVED_WORLDS, isLaunchable, worldById } from './catalog.mjs';
+import { RESERVED_WORLDS, isLaunchable, worldById, worldsForHost, portalEnvironmentForHost } from './catalog.mjs';
+
+const portalEnvironment = portalEnvironmentForHost(window.location.hostname);
+const WORLDS = worldsForHost(window.location.hostname);
+const selectedWorld = id => worldById(id, WORLDS);
 
 const app = document.getElementById('app');
 const el = (tag, className, text) => {
@@ -14,7 +18,10 @@ const header = el('header', 'header');
 const brand = el('a', 'brand', 'SHADOWOPS');
 brand.href = '/';
 brand.setAttribute('aria-label', 'ShadowOps Universe — inicio');
-header.append(brand, el('span', 'header-aside', 'INDEPENDENT WORLDS · ONE UNIVERSE'));
+header.append(brand, el('span', 'header-aside',
+  portalEnvironment === 'staging' ? 'STAGING · ENTORNO DE PRUEBAS' :
+  portalEnvironment === 'production' ? 'INDEPENDENT WORLDS · ONE UNIVERSE' :
+  'VISTA PREVIA · DESTINOS DESACTIVADOS'));
 shell.appendChild(header);
 
 const hero = el('main', 'hero');
@@ -64,7 +71,7 @@ detail.setAttribute('aria-atomic', 'true');
 stageArea.appendChild(detail);
 
 function renderDetail() {
-  const world = worldById(selected);
+  const world = selectedWorld(selected);
   detail.replaceChildren();
   const copy = el('div', 'detail-copy');
   copy.append(el('p', 'detail-kicker', world.kicker), el('h2', 'detail-title', world.title), el('p', 'detail-description', world.description));
@@ -73,7 +80,8 @@ function renderDetail() {
     const link = el('a', 'enter-link', 'Visitar mundo ↗');
     link.href = world.destination;
     link.rel = 'noopener noreferrer';
-    link.title = 'Destino externo; disponibilidad no verificada';
+    link.title = portalEnvironment === 'staging'
+      ? 'Abrir el mundo en staging' : 'Abrir el mundo en producción';
     detail.appendChild(link);
   } else {
     detail.appendChild(el('span', 'unavailable', 'EN DESARROLLO'));
@@ -85,7 +93,7 @@ function renderDetail() {
   });
 }
 function selectWorld(id) {
-  if (!worldById(id)) return;
+  if (!selectedWorld(id)) return;
   selected = id;
   renderDetail();
   scene?.focusWorld(id);
