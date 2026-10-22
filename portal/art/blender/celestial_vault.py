@@ -153,6 +153,62 @@ for sign in [-1,1]:
     ring("Sconce retainer",x-sign*.52,4.46,-2.35,.13,.023,BRASS)
     star("Sconce enamel seal",x-sign*.52,4.46,-2.305,.065,.025,6,ENAMEL)
 
+
+# Forecourt: inset, honed-stone approach to all three destinations.
+# This completes the architectural composition without bright UI-like strips.
+# These are truly shaped DCC meshes, merged into the existing THREE PBR groups.
+# All coordinates are deliberately Y-up; GLB export_yup=False preserves them.
+def floor_ring(name, cx, cz, y, radius, gauge, mat):
+    obj=ring(name,cx,y,cz,radius,gauge,mat)
+    obj.rotation_euler[0]=math.pi/2
+    return obj
+
+def floor_rose(name, cx, cz, y, outer, inner, points, mat):
+    verts=[]
+    for i in range(points*2):
+        a=math.pi*i/points+math.pi/2
+        radius=outer if i%2==0 else inner
+        verts.append((cx+math.cos(a)*radius,y,cz+math.sin(a)*radius))
+    verts.append((cx,y,cz))
+    faces=[(points*2,(i+1)%(points*2),i) for i in range(points*2)]
+    mesh=bpy.data.meshes.new(name)
+    mesh.from_pydata(verts,[],faces)
+    mesh.update()
+    obj=bpy.data.objects.new(name,mesh)
+    bpy.context.collection.objects.link(obj)
+    return register(obj,mat)
+
+# A few large staggered flagstones, not hundreds of low-poly boxes.
+# Their upper face is at -0.103, just above the existing metal dais (-0.152).
+for passage_x in [-3.22,0,3.22]:
+    for i in range(6):
+        z=-.77+i*.52
+        staggering=(.035 if (i+round(passage_x))%2==0 else -.035)
+        block("Honed basalt passage stone",
+              (passage_x+staggering,-.127,z),
+              (1.14+.055*i,.048,.425),STONE,.022)
+        # Two hairline brass seams frame each approach as floor marquetry.
+    for side in [-1,1]:
+        tube("Warm brass perspective floor inlay",
+             [(passage_x+side*(.59+.025*i),-.092,-.99+i*.52)
+              for i in range(7)],.007,BRASS,quality=3)
+
+# One inset, centered compass rose: a restrained celestial instrument that
+# ties the three worlds together, visible in the foreground from the camera.
+cx,cz=0,3.00
+floor_ring("Forecourt circle, engraved brass",cx,cz,-.065,.79,.013,BRASS)
+floor_ring("Inner compass graduation",cx,cz,-.060,.62,.009,BRASS)
+floor_rose("Eight-point navigational mosaic",cx,cz,-.054,.50,.19,8,BRASS)
+floor_rose("Lapis compass core",cx,cz,-.045,.17,.070,8,ENAMEL)
+for i in range(16):
+    theta=2*math.pi*i/16
+    rx=cx+math.cos(theta)*.715
+    rz=cz+math.sin(theta)*.715
+    marker=block("Inset brass cardinal graduation",
+                 (rx,-.049,rz),
+                 (.018,.009,.082 if i%4==0 else .045),BRASS,.003)
+    marker.rotation_euler[1]=-theta+math.pi/2
+
 # Collapse dozens of individually shaped DCC objects into exactly three meshes
 # (one per PBR material) for a deliberately bounded GPU draw-call footprint.
 for mat_name,objects in GROUPS.items():
