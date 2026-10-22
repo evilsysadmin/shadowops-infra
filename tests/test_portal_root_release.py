@@ -69,6 +69,21 @@ class ProductionTests(unittest.TestCase):
       self.assertEqual(promoted["environment"],"production")
       self.assertEqual(promoted["glb_assets"],staged["glb_assets"])
       self.assertEqual({x.name:hashlib.sha256(x.read_bytes()).hexdigest() for x in (d/"art").glob("*.glb")},files)
+  def test_transient_cross_runner_staging_dns_retries_without_waiving_checks(self):
+    sha="a"*40
+    calls=[]
+    def unstable(candidate):
+      calls.append(candidate)
+      if len(calls)<3:raise r.Admit("Staging HTTPS/DNS/TLS unavailable (URLError)")
+    with patch.object(r.staging,"public_check",side_effect=unstable):
+      with patch("time.sleep") as delay:
+        r.verify_staging_with_retry(sha,attempts=4,pause=0)
+        self.assertEqual(len(calls),3)
+        self.assertEqual(delay.call_count,2)
+    with patch.object(r.staging,"public_check",side_effect=r.Admit("DNS not ready")):
+      with patch("time.sleep"):
+        with self.assertRaisesRegex(r.Admit,"bounded retries"):
+          r.verify_staging_with_retry(sha,attempts=2,pause=0)
   def test_root_https_sha_and_glb_checks(self):
     sha="a"*40
     from unittest.mock import patch

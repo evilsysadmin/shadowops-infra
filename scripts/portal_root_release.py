@@ -72,6 +72,29 @@ def ensure_domain(client):
     if state!={"apex_dns":"owned","pages_project":"owned","pages_domain":"owned"}:
         raise Admit("Root DNS/Pages identity not reconciled to exact owner")
 
+def verify_staging_with_retry(sha, attempts=18, pause=12):
+    """Require actual TLS + complete SHA/GLB checks across DNS propagation.
+
+    Cloudflare custom domains sometimes propagate asynchronously between
+    runner regions after the publisher has already passed its own HTTPS check.
+    Each attempt runs the original strict validator; no TLS bypass or fallback.
+    """
+    import time
+    if not SHA_RE.fullmatch(sha):
+        raise Admit("Invalid immutable staging SHA")
+    if attempts < 1 or attempts > 30 or pause < 0 or pause > 30:
+        raise Admit("Invalid bounded staging verification retry policy")
+    for attempt in range(1,attempts+1):
+        try:
+            staging.public_check(sha)
+            print("SHADOWOPS_UNIVERSE_STAGING_PROPAGATED sha="+sha)
+            return
+        except Admit:
+            if attempt == attempts:
+                raise Admit("Staging TLS/DNS or verified assets remain unavailable after bounded retries") from None
+            print(f"Staging HTTPS verification pending ({attempt}/{attempts})")
+            time.sleep(pause)
+
 def validate_verified_dist(path,sha):
     if not SHA_RE.fullmatch(sha):
         raise Admit("Invalid exact staging SHA")
@@ -125,7 +148,7 @@ def verify(sha):
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument("operation",choices=("self-test","preflight","project","domain","prepare","verify"))
+    parser.add_argument("operation",choices=("self-test","preflight","project","domain","prepare","verify","staging-check"))
     parser.add_argument("--sha",default="")
     parser.add_argument("--dist",default="")
     args=parser.parse_args()
@@ -133,6 +156,8 @@ def main():
         if args.operation=="self-test":
             assert root.ROOT=="shadowops.dpdns.org" and root.PROJECT=="shadowops-universe-production"
             print("SHADOWOPS_UNIVERSE_ROOT_RELEASE_OWNER_OK")
+        elif args.operation=="staging-check":
+            verify_staging_with_retry(args.sha)
         elif args.operation=="prepare":
             prepare_promotion(args.dist,args.sha)
         elif args.operation=="verify":

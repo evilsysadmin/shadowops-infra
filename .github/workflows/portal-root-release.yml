@@ -106,7 +106,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/portal_pages.py verify --sha "$SOURCE_SHA"
+          python3 scripts/portal_root_release.py staging-check --sha "$SOURCE_SHA"
           python3 scripts/portal_root_release.py prepare --dist production-dist --sha "$SOURCE_SHA"
       - name: Refuse foreign apex owner, missing Cloudflare credentials or superseded Infra main
         shell: bash
