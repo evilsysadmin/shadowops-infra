@@ -261,10 +261,12 @@ export function mountObservatory(container, onSelect) {
       // scene into the wrong Three.js axes, leaving invisible architecture.
       // The gallery's opaque rear wall is at z=-1.85. Bring the vaulted
       // stonework in front of it; otherwise a valid GLB is completely hidden.
+      // The same Blender asset now contains an inset forecourt at floor level.
       data.scene.position.z = 1.58;
       const bounds=new THREE.Box3().setFromObject(data.scene);
-      if(bounds.isEmpty() || bounds.min.y < 2.8 || bounds.max.y > 6.6 ||
-         bounds.min.z < -1.8 || bounds.max.z > .5 ||
+      if(bounds.isEmpty() || bounds.min.y < -.3 || bounds.min.y > -.05 ||
+         bounds.max.y > 6.6 || bounds.max.y < 5.0 ||
+         bounds.min.z < -1.8 || bounds.max.z < 4.0 || bounds.max.z > 5.5 ||
          bounds.min.x < -7 || bounds.max.x > 7) {
         throw new Error('Vault GLB has invalid gallery bounds: '+bounds.min.toArray()+' / '+bounds.max.toArray());
       }

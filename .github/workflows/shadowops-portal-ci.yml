@@ -40,8 +40,18 @@ jobs:
         run: npm run build
       - name: Check actual Pages artifact
         run: test -s dist/index.html && test -n "$(find dist/assets -type f -name '*.js' -print -quit)"
+      - name: Export compiled GLB art to browser QA
+        uses: actions/upload-artifact@v4
+        with:
+          name: portal-compiled-art
+          path: |
+            portal/public/art/
+            portal/src/*.generated.mjs
+          if-no-files-found: error
+          retention-days: 1
   browser-visual-qa:
     name: Visual QA / 3D and fallback screenshots
+    needs: portal
     runs-on: ubuntu-24.04
     timeout-minutes: 18
     defaults:
@@ -52,8 +62,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install Blender for authored vault export
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends blender python3-numpy
+      - name: Reuse exact GLB art built by portal job
+        uses: actions/download-artifact@v4
+        with:
+          name: portal-compiled-art
+          path: portal
+      - name: Verify reused model manifests
+        run: test -s src/vaultAsset.generated.mjs && test -s src/galleryFrame.generated.mjs && test -n "$(find public/art -type f -name 'celestial-vault-*.glb' -print -quit)"
       - name: Install isolated portal dependencies
         run: npm install --ignore-scripts --no-audit --no-fund
       - name: Install Chromium for deterministic browser smoke
