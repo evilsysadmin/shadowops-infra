@@ -74,7 +74,7 @@ for (const width of [360, 390, 430, 1440]) {
     }
     await expect(page.locator('a.enter-link')).toHaveCount(0);
     await page.getByRole('button', {name: /Chess Studio/}).click();
-    await expect(page.locator('a.enter-link')).toHaveAttribute('href', 'https://chess-studio.shadowops.dpdns.org/');
+    await expect(page.locator('a.enter-link')).toHaveCount(0);
     await expect(page.locator('.world-button.active')).toHaveCount(1);
     await expect(page.locator('.world-button.active')).toHaveAttribute('aria-pressed', 'true');
   });
@@ -98,7 +98,7 @@ test('no WebGL: links and keyboard selection still work, scene stays optional', 
   await chronicles.focus();
   await page.keyboard.press('Space');
   await expect(page.locator('.detail-title')).toHaveText('Chronicles');
-  await expect(page.locator('a.enter-link')).toHaveAttribute('href', 'https://chronicles.shadowops.dpdns.org/');
+  await expect(page.locator('a.enter-link')).toHaveCount(0);
   await testInfo.attach('shadowops-without-webgl', {
     body: await page.screenshot({fullPage:true, animations:'disabled'}),
     contentType: 'image/png',
@@ -113,7 +113,7 @@ test('catalog is usable before heavy 3D module loads', async ({page}) => {
   await page.goto('/');
   await page.getByRole('button', {name: /Chronicles/}).click();
   await expect(page.locator('.detail-title')).toHaveText('Chronicles');
-  await expect(page.locator('a.enter-link')).toHaveAttribute('href', 'https://chronicles.shadowops.dpdns.org/');
+  await expect(page.locator('a.enter-link')).toHaveCount(0);
   await page.locator('.stage-area').scrollIntoViewIfNeeded();
   await expect(page.locator('.stage')).toHaveAttribute('data-scene', 'unavailable');
 });
@@ -142,4 +142,46 @@ test('Blender vault GLB failure preserves functional world navigation',async({pa
   await page.getByRole('button',{name:/Chronicles/}).click();
   await expect(page.locator('.detail-title')).toHaveText('Chronicles');
   await expect(page.locator('a.enter-link')).toHaveAttribute('href','https://chronicles.shadowops.dpdns.org/');
+});
+
+test('both deployed hosts link only to their own world environments, even without WebGL', async ({page}) => {
+  // Serve the local Vite build under the two real portal origins without
+  // contacting live Cloudflare. The browser sees the actual hostname.
+  for (const [portalHost,expected,starLaunchable] of [
+    ['staging.shadowops.dpdns.org', {
+      chess: 'https://staging.chess-studio.shadowops.dpdns.org/',
+      chronicles: 'https://staging.chronicles.shadowops.dpdns.org/',
+      star: 'https://staging.staradvs.shadowops.dpdns.org/',
+    }, true],
+    ['shadowops.dpdns.org', {
+      chess: 'https://chess-studio.shadowops.dpdns.org/',
+      chronicles: 'https://chronicles.shadowops.dpdns.org/',
+      star: null,
+    }, false],
+  ]) {
+    await page.route(`https://${portalHost}/**`, async route => {
+      const original = new URL(route.request().url());
+      const local = 'http://127.0.0.1:4173' + original.pathname + original.search;
+      await route.fulfill({response:await route.fetch({url:local})});
+    });
+    await page.addInitScript(() => {
+      Object.defineProperty(window, 'WebGLRenderingContext', {
+        value: undefined, configurable: true,
+      });
+    });
+    await page.goto(`https://${portalHost}/`);
+    for (const [id,destination] of Object.entries(expected)) {
+      await page.locator(`.world-button[data-world="${id}"]`).click();
+      if (destination) {
+        await expect(page.locator('a.enter-link')).toHaveAttribute('href', destination);
+      } else {
+        await expect(page.locator('a.enter-link')).toHaveCount(0);
+        await expect(page.locator('.unavailable')).toHaveText('EN DESARROLLO');
+      }
+    }
+    if (starLaunchable) {
+      await expect(page.locator('.header-aside')).toHaveText('STAGING · ENTORNO DE PRUEBAS');
+    }
+    await page.unrouteAll();
+  }
 });
