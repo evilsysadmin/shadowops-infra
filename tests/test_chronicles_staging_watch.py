@@ -1,6 +1,7 @@
 """Offline Chronicle watch: transient failure suppression and issue lifecycle."""
 from pathlib import Path
 import datetime as dt
+import io
 import sys
 import unittest
 import urllib.error
@@ -37,6 +38,74 @@ class WatchTest(unittest.TestCase):
         mocked = patch.object(watch.pages, "probe_react_preview", return_value="ok")
         self.game_probe = mocked.start()
         self.addCleanup(mocked.stop)
+
+    def test_json_reader_requires_exact_final_https_url_and_status(self):
+        url = watch.ORIGIN + "/release.json?watch=123"
+
+        class Response:
+            def __init__(self, request, *, final=None, status=200):
+                self.body = io.BytesIO(b'{"build": "' + SHA.encode() + b'"}')
+                self.final = request.full_url if final is None else final
+                self.status = status
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def geturl(self):
+                return self.final
+
+            def read(self, amount=-1):
+                return self.body.read(amount)
+
+        requested = []
+        def mock_open(req, timeout):
+            requested.append(req)
+            self.assertEqual(timeout, 15)
+            return Response(req)
+
+        with patch.object(watch.urllib.request, "urlopen", side_effect=mock_open):
+            self.assertEqual(watch.get_url(url), {"build": SHA})
+        self.assertEqual(requested[0].full_url, url)
+        self.assertIsNone(requested[0].get_header("Authorization"))
+
+        for destination in (
+            "https://unrelated.invalid/release.json?watch=123",
+            watch.ORIGIN + "/login",
+            watch.ORIGIN + "/release.json?watch=elsewhere",
+            "http://staging.chronicles.shadowops.dpdns.org/release.json?watch=123",
+        ):
+            with self.subTest(destination=destination):
+                def redirect(req, timeout):
+                    return Response(req, final=destination)
+                with patch.object(watch.urllib.request, "urlopen", side_effect=redirect):
+                    with self.assertRaisesRegex(ValueError, "redirect"):
+                        watch.get_url(url)
+
+        for status in (204, 302, 418, 503):
+            with self.subTest(status=status):
+                with patch.object(watch.urllib.request, "urlopen",
+                                  side_effect=lambda req, timeout: Response(req, status=status)):
+                    with self.assertRaisesRegex(ValueError, "status"):
+                        watch.get_url(url)
+
+    def test_redirected_github_json_cannot_substitute_issue_listing(self):
+        api_url = "https://api.github.com/repos/" + watch.INFRA + "/issues?state=open"
+        class Redirected:
+            status = 200
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def geturl(self):
+                return "https://github.com/login"
+            def read(self, size=-1):
+                return b"[]"
+        with patch.object(watch.urllib.request, "urlopen", return_value=Redirected()):
+            with self.assertRaisesRegex(ValueError, "redirect"):
+                watch.get_url(api_url, "read-only-token")
 
     @patch.object(watch.ci, "inspect", return_value="pending")
     def test_api_health_and_readiness_payload_contract_is_required(self, _):
