@@ -128,7 +128,7 @@ test('gallery GLB fetch failure restores existing masonry without blocking navig
   await expect(page.locator('.stage')).toHaveAttribute('data-gallery-frame','fallback',{timeout:15000});
   await page.getByRole('button',{name:/Chronicles/}).click();
   await expect(page.locator('.detail-title')).toHaveText('Chronicles');
-  await expect(page.locator('a.enter-link')).toHaveAttribute('href','https://chronicles.shadowops.dpdns.org/');
+  await expect(page.locator('a.enter-link')).toHaveCount(0);
 });
 
 
@@ -141,7 +141,7 @@ test('Blender vault GLB failure preserves functional world navigation',async({pa
   await expect(page.locator('.stage')).toHaveAttribute('data-celestial-vault','fallback',{timeout:15000});
   await page.getByRole('button',{name:/Chronicles/}).click();
   await expect(page.locator('.detail-title')).toHaveText('Chronicles');
-  await expect(page.locator('a.enter-link')).toHaveAttribute('href','https://chronicles.shadowops.dpdns.org/');
+  await expect(page.locator('a.enter-link')).toHaveCount(0);
 });
 
 test('both deployed hosts link only to their own world environments, even without WebGL', async ({page}) => {
