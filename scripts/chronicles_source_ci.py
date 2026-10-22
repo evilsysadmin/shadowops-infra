@@ -29,7 +29,16 @@ class AdmissionError(Exception):
     pass
 
 
+class RejectGithubRedirects(urllib.request.HTTPRedirectHandler):
+    """Never resend an admission token after an HTTP redirect."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def github_runs(sha: str, token: str) -> Mapping:
+    if not isinstance(sha, str) or not SHA.fullmatch(sha) or not token:
+        raise AdmissionError("Invalid source SHA or missing read token")
     params = urllib.parse.urlencode({"head_sha": sha, "event": "push", "per_page": 100})
     req = urllib.request.Request(
         "https://api.github.com/repos/" + SOURCE + "/actions/runs?" + params,
@@ -38,9 +47,13 @@ def github_runs(sha: str, token: str) -> Mapping:
                  "X-GitHub-Api-Version": "2022-11-28"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=20) as response:
-            if response.status != 200:
-                raise AdmissionError("Cannot verify source workflow runs")
+        # urllib follows 301/302/307/308 by default. This is an authenticated
+        # admission read: neither a foreign origin nor an unrelated GitHub
+        # endpoint may receive the Authorization header or supply CI evidence.
+        with urllib.request.build_opener(RejectGithubRedirects()).open(
+                req, timeout=20) as response:
+            if response.status != 200 or response.geturl() != req.full_url:
+                raise AdmissionError("Unexpected source CI response URL or status")
             data = json.load(response)
     except urllib.error.HTTPError as exc:
         raise AdmissionError("Source CI query HTTP " + str(exc.code)) from None
