@@ -47,7 +47,7 @@ class WatchTest(unittest.TestCase):
     def test_canonical_model_glb_header_is_checked_from_exact_public_origin(self):
         class Response:
             def __init__(self, req, header, *, status=200, destination=None,
-                         mime="model/gltf-binary", content_range="bytes 0-11/128"):
+                         mime="model/gltf-binary", content_range="bytes 0-19/128"):
                 self.status = status
                 self.destination = req.full_url if destination is None else destination
                 self.headers = {"Content-Type": mime, "Content-Range": content_range}
@@ -62,7 +62,7 @@ class WatchTest(unittest.TestCase):
                 self.assert_count = count
                 return self.body.read(count)
 
-        good = struct.pack("<4sII", b"glTF", 2, 128)
+        good = struct.pack("<4sIII4s", b"glTF", 2, 128, 100, b"JSON")
         requests = []
         def open_good(req, timeout):
             requests.append((req, timeout))
@@ -75,18 +75,18 @@ class WatchTest(unittest.TestCase):
         req, timeout = requests[0]
         self.assertEqual(req.full_url, watch.ORIGIN + "/models/matthias-home-canonical.glb")
         self.assertEqual(timeout, 10)
-        self.assertEqual(req.get_header("Range"), "bytes=0-11")
+        self.assertEqual(req.get_header("Range"), "bytes=0-19")
         self.assertIsNone(req.get_header("Authorization"))
         self.assertIsNone(req.get_header("Cookie"))
 
         cases = [
-            (good, 206, None, "model/gltf-binary", "bytes 0-11/128", "ok"),
-            (good, 206, None, "model/gltf-binary", "bytes 20-31/128", "invalid"),
+            (good, 206, None, "model/gltf-binary", "bytes 0-19/128", "ok"),
+            (good, 206, None, "model/gltf-binary", "bytes 12-31/128", "invalid"),
             (b"<html>oops!!", 200, None, "text/html", "", "invalid"),
             (b'{"error":2}', 200, None, "application/json", "", "invalid"),
-            (struct.pack("<4sII", b"glTF", 1, 128), 200, None, "application/octet-stream", "", "invalid"),
-            (struct.pack("<4sII", b"glTF", 2, 8), 200, None, "application/octet-stream", "", "invalid"),
-            (struct.pack("<4sII", b"WRNG", 2, 128), 200, None, "application/octet-stream", "", "invalid"),
+            (struct.pack("<4sIII4s", b"glTF", 1, 128, 100, b"JSON"), 200, None, "application/octet-stream", "", "invalid"),
+            (struct.pack("<4sIII4s", b"glTF", 2, 8, 100, b"JSON"), 200, None, "application/octet-stream", "", "invalid"),
+            (struct.pack("<4sIII4s", b"WRNG", 2, 128, 100, b"JSON"), 200, None, "application/octet-stream", "", "invalid"),
             (good[:7], 200, None, "application/octet-stream", "", "invalid"),
             (good, 200, "https://foreign.invalid/model.glb", "model/gltf-binary", "", "invalid"),
             (good, 301, None, "model/gltf-binary", "", "invalid"),
@@ -96,6 +96,41 @@ class WatchTest(unittest.TestCase):
                 def serve(req, timeout):
                     return Response(req, header, status=status,
                                     destination=dest, mime=mime, content_range=byte_range)
+                with patch.object(watch, "probe_public_glb", wraps=self.real_model_probe):
+                    with patch.object(watch, "open_no_redirect", side_effect=serve):
+                        self.assertEqual(watch.probe_public_glb(), expected)
+
+    def test_public_glb_rejects_missing_or_malformed_first_json_chunk(self):
+        class Response:
+            status = 206
+            headers = {
+                "Content-Type": "model/gltf-binary",
+                "Content-Range": "bytes 0-19/128",
+                "Content-Length": "20",
+            }
+            def __init__(self, req, payload):
+                self.url, self.body = req.full_url, io.BytesIO(payload)
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+            def geturl(self): return self.url
+            def read(self, n): return self.body.read(n)
+
+        for json_length, chunk_type, expected in (
+            (100, b"JSON", "ok"),
+            (0, b"JSON", "invalid"),
+            (2, b"JSON", "invalid"),
+            (5, b"JSON", "invalid"),
+            (112, b"JSON", "invalid"),  # Exceeds total GLB length.
+            (100, b"BIN\\x00", "invalid"),
+            (100, b"JUNK", "invalid"),
+        ):
+            with self.subTest(json_length=json_length, chunk_type=chunk_type):
+                payload = struct.pack(
+                    "<4sIII4s", b"glTF", 2, 128, json_length, chunk_type
+                )
+                def serve(req, timeout):
+                    self.assertEqual(req.get_header("Range"), "bytes=0-19")
+                    return Response(req, payload)
                 with patch.object(watch, "probe_public_glb", wraps=self.real_model_probe):
                     with patch.object(watch, "open_no_redirect", side_effect=serve):
                         self.assertEqual(watch.probe_public_glb(), expected)
@@ -118,19 +153,19 @@ class WatchTest(unittest.TestCase):
                 return self.url
             def read(self, count):
                 self.assert_read_size = count
-                return struct.pack("<4sII", b"glTF", 2, 128)
+                return struct.pack("<4sIII4s", b"glTF", 2, 128, 100, b"JSON")
 
         cases = [
-            (206, "bytes 0-11/128", "12", "ok"),
-            (206, "bytes 0-11/128", None, "ok"),
-            (206, "bytes 0-11/129", "12", "invalid"),
-            (206, "bytes 0-11/127", "12", "invalid"),
-            (206, "bytes 0-11/*", "12", "invalid"),
-            (206, "bytes 0-11/not-a-size", "12", "invalid"),
-            (206, "bytes 0-11/128 junk", "12", "invalid"),
-            (206, "bytes 0-11/128", "13", "invalid"),
-            (206, "bytes 0-11/128", "not-a-length", "invalid"),
-            (200, None, "128", "invalid"),  # only the first 12 bytes actually arrived
+            (206, "bytes 0-19/128", "20", "ok"),
+            (206, "bytes 0-19/128", None, "ok"),
+            (206, "bytes 0-19/129", "12", "invalid"),
+            (206, "bytes 0-19/127", "12", "invalid"),
+            (206, "bytes 0-19/*", "12", "invalid"),
+            (206, "bytes 0-19/not-a-size", "12", "invalid"),
+            (206, "bytes 0-19/128 junk", "12", "invalid"),
+            (206, "bytes 0-19/128", "21", "invalid"),
+            (206, "bytes 0-19/128", "not-a-length", "invalid"),
+            (200, None, "128", "invalid"),  # only the first 20 bytes actually arrived
             (200, None, None, "invalid"),  # chunked 200 must also finish the body
             (200, None, "127", "invalid"),
             (200, None, "129", "invalid"),
@@ -148,15 +183,15 @@ class WatchTest(unittest.TestCase):
                         self.assertEqual(watch.probe_public_glb(), expected)
 
     def test_public_glb_200_streaming_fallback_verifies_real_size_to_eof(self):
-        header = struct.pack("<4sII", b"glTF", 2, 128)
+        header = struct.pack("<4sIII4s", b"glTF", 2, 128, 100, b"JSON")
         results = [
-            (header + b"\x00" * 116, None, "ok"),
-            (header + b"\x00" * 116, "128", "ok"),
-            (header + b"\x00" * 115, None, "invalid"),
-            (header + b"\x00" * 117, None, "invalid"),
-            (header + b"\x00" * 115, "128", "invalid"),
-            (header + b"\x00" * 117, "128", "invalid"),
-            (header + b"\x00" * 116, "127", "invalid"),
+            (header + b"\x00" * 108, None, "ok"),
+            (header + b"\x00" * 108, "128", "ok"),
+            (header + b"\x00" * 107, None, "invalid"),
+            (header + b"\x00" * 109, None, "invalid"),
+            (header + b"\x00" * 107, "128", "invalid"),
+            (header + b"\x00" * 109, "128", "invalid"),
+            (header + b"\x00" * 108, "127", "invalid"),
         ]
         class Response:
             status = 200
@@ -183,12 +218,12 @@ class WatchTest(unittest.TestCase):
                 with patch.object(watch, "probe_public_glb", wraps=self.real_model_probe):
                     with patch.object(watch, "open_no_redirect", side_effect=serve):
                         self.assertEqual(watch.probe_public_glb(), expected)
-                self.assertEqual(seen[0].read_sizes[0], 12)
+                self.assertEqual(seen[0].read_sizes[0], 20)
                 self.assertTrue(all(n <= 64 * 1024 for n in seen[0].read_sizes))
 
     def test_public_glb_unbounded_large_200_response_is_inconclusive_and_bounded(self):
-        header = struct.pack("<4sII", b"glTF", 2,
-                             watch.MAX_PUBLIC_GLB_FALLBACK_BYTES + 1)
+        header = struct.pack("<4sIII4s", b"glTF", 2,
+                             watch.MAX_PUBLIC_GLB_FALLBACK_BYTES + 1, 100, b"JSON")
         class Response:
             status = 200
             headers = {"Content-Type": "model/gltf-binary"}
