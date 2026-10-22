@@ -249,6 +249,15 @@ test('pointer and keyboard gateway previews animate only the 3D focus, not selec
   await expect(page.locator('.detail-title')).toHaveText('Chess Studio');
   await expect(star).toHaveAttribute('aria-pressed', 'false');
 
+  // Mouse is the latest intentional preview, even if keyboard focus remains
+  // on another world. Leaving restores that still-focused keyboard gateway.
+  await chronicles.hover();
+  await expect(stage).toHaveAttribute('data-focus-world', 'chronicles');
+  await expect(page.locator('.detail-title')).toHaveText('Chess Studio');
+  await expect(star).toHaveAttribute('aria-pressed', 'false');
+  await page.locator('.headline').hover();
+  await expect(stage).toHaveAttribute('data-focus-world', 'star');
+
   // A direct scene action can activate a new door while keyboard focus
   // remains on a different catalog button. Committing selection must win.
   await chronicles.evaluate(button => button.click());
