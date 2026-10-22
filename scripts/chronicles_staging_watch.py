@@ -28,6 +28,8 @@ ORIGIN = "https://staging.chronicles.shadowops.dpdns.org"
 API = "https://chronicles-api-staging.shadowops.dpdns.org/api"
 GRACE_SECONDS = 90 * 60
 RECHECK_SECONDS = 90
+ISSUES_PER_PAGE = 100
+MAX_ISSUE_PAGES = 20  # Fail closed instead of creating duplicates if enumeration is incomplete.
 PAGES_FAMILIES = {
     "game": ("pages-game", "pages-edge"),
     "manifest": ("pages-manifest", "pages-manifest-edge"),
@@ -188,20 +190,36 @@ ISSUE_LEGACY_FOOTER = (
 
 
 def existing_issue(token: str, gh: Callable = github) -> dict | None:
-    data = gh("repos/" + INFRA + "/issues?state=open&per_page=100", token)
-    # GitHub's REST issues endpoint returns an array; wrapper normalizes it.
-    rows = data if isinstance(data, list) else data.get("items", [])
-    if not isinstance(rows, list):
-        raise RuntimeError("Malformed staging watchdog issue listing")
-    for entry in rows:
-        if not isinstance(entry, dict):
-            raise RuntimeError("Malformed staging watchdog issue entry")
-        if entry.get("title") == TITLE and not entry.get("pull_request"):
-            if (not isinstance(entry.get("number"), int) or
-                    entry["number"] <= 0 or not isinstance(entry.get("body"), (str, type(None)))):
+    """Find the unique open watchdog issue across paginated GitHub issues + PRs.
+
+    GitHub's /issues API returns both issues and pull requests. Never assume
+    the first 100 rows contain our incident: otherwise a watchdog can open a
+    duplicate or fail to close/reconcile the original. Enumeration is bounded
+    and fails closed when completeness cannot be proved.
+    """
+    found = None
+    for page in range(1, MAX_ISSUE_PAGES + 1):
+        path = (f"repos/{INFRA}/issues?state=open&per_page={ISSUES_PER_PAGE}"
+                f"&page={page}")
+        rows = gh(path, token)
+        if not isinstance(rows, list) or len(rows) > ISSUES_PER_PAGE:
+            raise RuntimeError("Malformed staging watchdog issue listing")
+        for entry in rows:
+            if not isinstance(entry, dict):
+                raise RuntimeError("Malformed staging watchdog issue entry")
+            if entry.get("title") != TITLE or entry.get("pull_request"):
+                continue
+            if (type(entry.get("number")) is not int or
+                    entry["number"] <= 0 or
+                    not isinstance(entry.get("body"), (str, type(None)))):
                 raise RuntimeError("Malformed staging watchdog issue metadata")
-            return entry
-    return None
+            if found is not None:
+                raise RuntimeError("Multiple open staging watchdog incidents")
+            found = entry
+        # Only a short page proves this enumeration has reached its end.
+        if len(rows) < ISSUES_PER_PAGE:
+            return found
+    raise RuntimeError("Staging watchdog issue pagination limit reached")
 
 
 def diagnostic_body(persistent: dict[str, str]) -> str:
