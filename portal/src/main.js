@@ -114,6 +114,10 @@ function refreshSceneFocus(moveCamera = true) {
 }
 function selectWorld(id) {
   if (!selectedWorld(id)) return;
+  // Explicit selection always wins, even after a keyboard preview when the
+  // player selects a different door directly in the 3D scene.
+  pointerPreview = null;
+  focusPreview = null;
   selected = id;
   renderDetail();
   refreshSceneFocus();
