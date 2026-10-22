@@ -3,6 +3,7 @@ import { WORLDS } from './catalog.mjs';
 import { VISTA_VERTEX, VISTA_FRAGMENT } from './portalVistas.js';
 import { addGalleryArchitecture } from './galleryArchitecture.js';
 import { ARMILLARY_ASSET } from './armillaryAsset.generated.mjs';
+import { WORLD_RELICS } from './worldRelics.generated.mjs';
 
 // A self-contained atmospheric observatory. No borrowed Chess Studio models.
 // Source-authored GLB/texture art can replace the gateways in a later art PR.
@@ -64,6 +65,7 @@ export function mountObservatory(container, onSelect) {
   const coords = [-3.22, 0, 3.22];
   const gallery = addGalleryArchitecture(scene, coords, narrow);
   container.dataset.artAsset = narrow ? 'skipped-mobile' : 'loading';
+  container.dataset.worldRelics = narrow ? 'skipped-mobile' : 'loading';
   const interactive = [];
   const portals = [];
   WORLDS.forEach((world, i) => {
@@ -245,6 +247,31 @@ export function mountObservatory(container, onSelect) {
       if (disposed) return;
       console.warn('ShadowOps optional GLB unavailable; keeping playable portals.',error);
       container.dataset.artAsset = 'failed';
+    });
+  }
+  // Independent art relics mount over each arch, never over the actual
+  // clickable portal panes. Mobile avoids the extra GLB payload and draw calls.
+  if (!narrow) {
+    import('three/addons/loaders/GLTFLoader.js').then(async ({GLTFLoader}) => {
+      const loader=new GLTFLoader();
+      const entries=['chess','chronicles','star'];
+      const results=await Promise.allSettled(entries.map(id=>loader.loadAsync(WORLD_RELICS[id].url)));
+      if (disposed) return;
+      const mounts=[];
+      results.forEach((result,i)=>{
+        if(result.status!=='fulfilled')return;
+        const crest=result.value.scene;
+        crest.position.set(coords[i],3.59,.16);
+        crest.scale.setScalar(.47);
+        scene.add(crest);
+        mounts.push(entries[i]);
+      });
+      container.dataset.worldRelics = mounts.length === 3 ? 'loaded' : 'partial';
+      paint(true);
+    }).catch(error => {
+      if(disposed)return;
+      console.warn('ShadowOps optional relics unavailable',error);
+      container.dataset.worldRelics='failed';
     });
   }
   renderer.domElement.addEventListener('pointerdown', onPointerDown);

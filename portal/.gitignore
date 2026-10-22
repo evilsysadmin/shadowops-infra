@@ -4,3 +4,5 @@ playwright-report/
 test-results/
 public/art/armillary-*.glb
 src/armillaryAsset.generated.mjs
+public/art/relic-*.glb
+src/worldRelics.generated.mjs
