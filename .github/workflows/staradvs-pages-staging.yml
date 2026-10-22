@@ -1,0 +1,154 @@
+name: Star Adventures staging Pages
+on:
+  pull_request:
+    paths: ['.github/workflows/staradvs-pages-staging.yml', 'scripts/staradvs_source_admission.py']
+  push:
+    branches: [main]
+    paths: ['.github/workflows/staradvs-pages-staging.yml', 'scripts/staradvs_source_admission.py']
+  schedule:
+    - cron: '23 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: shadowops-staradvs-staging-pages
+  cancel-in-progress: false
+jobs:
+  contracts:
+    name: Verify source admission and Pages isolation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s tests -p 'test_staradvs_pages.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_staradvs_source_admission.py' -v
+  candidate:
+    name: Admit current source main and check public HTTPS
+    needs: contracts
+    if: github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    outputs:
+      source_sha: ${{ steps.admit.outputs.source_sha }}
+      publish: ${{ steps.admit.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - id: admit
+        name: Require current Star Adventures SHA with green source CI
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(gh api repos/evilsysadmin/star-adventures/commits/main --jq .sha)"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || exit 64
+          python3 scripts/staradvs_source_admission.py "$sha"
+          echo "source_sha=$sha" >> "$GITHUB_OUTPUT"
+          if python3 scripts/staradvs_pages.py verify --sha "$sha" >/dev/null 2>&1; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "STARADVS_STAGING_ALREADY_LIVE sha=$sha"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+  release:
+    name: Publish exact source to isolated Cloudflare Pages staging
+    needs: [contracts, candidate]
+    if: needs.candidate.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 27
+    permissions:
+      contents: read
+      actions: read
+    environment:
+      name: staging
+      url: https://staging.staradvs.shadowops.dpdns.org
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      SOURCE_SHA: ${{ needs.candidate.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: evilsysadmin/star-adventures
+          ref: ${{ needs.candidate.outputs.source_sha }}
+          path: staradvs-source
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: staradvs-source/frontend/package-lock.json
+      - name: Build exact admitted frontend and immutable release.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git -C staradvs-source rev-parse HEAD)" == "$SOURCE_SHA" ]]
+          npm ci --prefix staradvs-source/frontend --ignore-scripts --no-audit --no-fund
+          npm run build --prefix staradvs-source/frontend
+          test -s staradvs-source/frontend/dist/index.html
+          test -n "$(find staradvs-source/frontend/dist/assets -maxdepth 1 -name '*.js' -print -quit)"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          dist=Path('staradvs-source/frontend/dist')
+          (dist/'release.json').write_text(json.dumps({'build':os.environ['SOURCE_SHA'],'environment':'staging'})+'\n',encoding='utf8')
+          (dist/'_headers').write_text('/release.json\n  Cache-Control: no-store, max-age=0\n',encoding='utf8')
+          PY
+      - name: Refuse superseded Infra and game source SHAs
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" == "$GITHUB_SHA" ]] || exit 1
+          [[ "$(gh api repos/evilsysadmin/star-adventures/commits/main --jq .sha)" == "$SOURCE_SHA" ]] || exit 1
+          python3 scripts/staradvs_source_admission.py "$SOURCE_SHA"
+      - name: Fail closed on missing secrets or foreign Cloudflare DNS
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          python3 scripts/staradvs_pages.py preflight
+      - name: Establish only isolated Star Adventures Pages project
+        run: python3 scripts/staradvs_pages.py project
+      - name: Publish exact built frontend to staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(gh api repos/evilsysadmin/star-adventures/commits/main --jq .sha)" == "$SOURCE_SHA" ]] || exit 1
+          npx --yes wrangler@4.127.1 pages deploy staradvs-source/frontend/dist --project-name staradvs-staging --branch main --commit-hash "$SOURCE_SHA" --commit-dirty=false
+      - name: Associate only owned custom-domain and DNS
+        run: python3 scripts/staradvs_pages.py domain
+      - name: Verify actual TLS, game HTML/JS and SHA on staging FQDN
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 20); do
+            if python3 scripts/staradvs_pages.py verify --sha "$SOURCE_SHA"; then
+              echo "STARADVS_STAGING_PUBLIC_READY https://staging.staradvs.shadowops.dpdns.org sha=$SOURCE_SHA"
+              exit 0
+            fi
+            echo "Star Adventures HTTPS pending ($attempt/20)"
+            sleep 12
+          done
+          echo 'Public FQDN unverified: no live receipt' >&2
+          exit 1
+      - name: Record exact successful public source SHA
+        run: |
+          mkdir -p verified-staradvs
+          printf '%s\n' "$SOURCE_SHA" > verified-staradvs/source-sha.txt
+          printf 'https://staging.staradvs.shadowops.dpdns.org\n' > verified-staradvs/url.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: staradvs-staging-verified-${{ needs.candidate.outputs.source_sha }}
+          path: verified-staradvs/
+          if-no-files-found: error
+          retention-days: 30
