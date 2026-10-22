@@ -31,11 +31,12 @@ RECHECK_SECONDS = 90
 MAX_PUBLIC_JSON_BYTES = 64 * 1024
 ISSUES_PER_PAGE = 100
 MAX_ISSUE_PAGES = 20  # Fail closed instead of creating duplicates if enumeration is incomplete.
-PAGES_FAMILIES = {
+CONFIRM_FAMILIES = {
+    "api": ("api-health", "api-health-edge"),
     "game": ("pages-game", "pages-edge"),
     "manifest": ("pages-manifest", "pages-manifest-edge"),
 }
-PAGES_KEYS = frozenset(key for keys in PAGES_FAMILIES.values() for key in keys)
+CONFIRM_KEYS = frozenset(key for keys in CONFIRM_FAMILIES.values() for key in keys)
 
 
 def pages_failure_key(result: str) -> str | None:
@@ -67,6 +68,17 @@ def manifest_error_key(exc: Exception) -> str:
     if isinstance(exc, (urllib.error.URLError, TimeoutError, OSError)):
         return "pages-manifest-edge"
     return "pages-manifest"
+
+
+def api_health_error_key(exc: Exception) -> str:
+    """Retry a transient transport failure, not a malformed health contract."""
+    if isinstance(exc, urllib.error.HTTPError):
+        if exc.code == 429 or 500 <= exc.code <= 599:
+            return "api-health-edge"
+        return "api-health"
+    if isinstance(exc, (urllib.error.URLError, TimeoutError, OSError)):
+        return "api-health-edge"
+    return "api-health"
 
 
 def source_ci_status(sha: str, token: str) -> tuple[str, dt.datetime | None]:
@@ -168,8 +180,12 @@ def failures(token: str, *, get: Callable = get_url, gh: Callable = github,
                 not isinstance(ready, dict) or ready.get("ok") is not True or
                 ready.get("storage") != "mongo"):
             raise ValueError("Invalid Chronicles API health/readiness contract")
-    except (urllib.error.URLError, ValueError, TimeoutError, OSError):
-        bad["api-health"] = "La API pública /health o /ready no responde correctamente"
+    except (urllib.error.HTTPError, urllib.error.URLError, ValueError,
+            TimeoutError, OSError) as exc:
+        key = api_health_error_key(exc)
+        bad[key] = ("La API pública /health o /ready no es accesible por la conexión HTTPS"
+                    if key == "api-health-edge"
+                    else "La API pública /health o /ready no cumple el contrato de salud")
     live_sha = None
     try:
         manifest = get(ORIGIN + "/release.json?watch=" + str(int(now.timestamp())))
@@ -235,7 +251,7 @@ def failures(token: str, *, get: Callable = get_url, gh: Callable = github,
     # serving that build. Compare the public /api/release revision to the
     # current green source, using the same strict HTTPS reader as Pages.
     # Avoid duplicate alarms when /health or /ready already failed.
-    if "api-health" not in bad:
+    if not {"api-health", "api-health-edge"} & bad.keys():
         revision = receipts.public_api_revision_state(source_sha)
         if revision == "different":
             bad["api-revision"] = "La API pública sirve un SHA distinto del último main verde"
@@ -363,9 +379,9 @@ def confirmed_failures(token: str, *, probe: Callable | None = None,
                        pause: Callable | None = None) -> dict[str, str]:
     """Confirm persistent failures; CDN/transport faults need three samples.
 
-    Structural HTML, JS/CSS and invalid JSON manifest failures need two samples.
-    CDN 429/5xx and connection timeouts need three; a transition between edge
-    and structural errors still counts as continued unavailability per resource.
+    Structural API-health JSON, HTML, JS/CSS and invalid release JSON failures
+    need two samples. Public HTTPS 429/5xx and timeouts need three; a transition
+    between edge and structural errors counts as continued unavailability per resource.
     """
     probe = probe or failures
     pause = pause or time.sleep
@@ -376,9 +392,9 @@ def confirmed_failures(token: str, *, probe: Callable | None = None,
     pause(RECHECK_SECONDS)
     second = probe(token)
     persistent = {k: second[k] for k in first.keys() & second.keys()
-                  if k not in PAGES_KEYS}
+                  if k not in CONFIRM_KEYS}
     pending_third = []
-    for structural, edge in PAGES_FAMILIES.values():
+    for structural, edge in CONFIRM_FAMILIES.values():
         # Stable invalid content is structural; two consecutive samples are
         # enough even if a *different* Pages family also has an edge problem.
         if structural in first and structural in second:
@@ -391,7 +407,7 @@ def confirmed_failures(token: str, *, probe: Callable | None = None,
 
     # A 429/5xx/timeout needs three samples, also across transitions between
     # edge and structural errors. One third probe confirms all waiting families;
-    # unrelated persistent API/version failures retain their two-sample signal.
+    # unrelated persistent failures retain their two-sample signal.
     print("CHRONICLES_STAGING_WATCH_EDGE_CONFIRM", flush=True)
     pause(RECHECK_SECONDS)
     third = probe(token)
