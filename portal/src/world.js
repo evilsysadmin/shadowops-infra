@@ -257,6 +257,14 @@ export function mountObservatory(container, onSelect) {
     import('three/addons/loaders/GLTFLoader.js').then(async ({GLTFLoader})=>{
       const data=await new GLTFLoader().loadAsync(VAULT_ASSET);
       if(disposed)return;
+      // Spatial contract: an exporter may succeed but rotate Blender's Z-up
+      // scene into the wrong Three.js axes, leaving invisible architecture.
+      const bounds=new THREE.Box3().setFromObject(data.scene);
+      if(bounds.isEmpty() || bounds.min.y < 2.8 || bounds.max.y > 6.6 ||
+         bounds.min.z < -3.9 || bounds.max.z > -.8 ||
+         bounds.min.x < -7 || bounds.max.x > 7) {
+        throw new Error('Vault GLB has invalid gallery bounds: '+bounds.min.toArray()+' / '+bounds.max.toArray());
+      }
       scene.add(data.scene);
       container.dataset.celestialVault='loaded';
       paint(true);
