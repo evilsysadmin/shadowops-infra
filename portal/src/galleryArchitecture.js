@@ -3,66 +3,95 @@ import * as THREE from 'three';
 // Deterministic, locally created materials: no opaque external assets,
 // no blocking texture fetches, and no random output between CI screenshots.
 // These maps are an architectural study, not a replacement for final GLB art.
-function materialMaps() {
-  const size = 256;
+// Original seamless slate material authored deterministically from multiscale
+// mineral strata. Bounded textures, no network, runtime shaders or DCC assets.
+// The three existing GPU textures are reused: albedo, normal and roughness.
+export function buildStratifiedStoneTexels(size = 256) {
+  if (!Number.isInteger(size) || size < 64 || size > 512 || size % 64 !== 0)
+    throw new RangeError('Stone texture must be a 64px-aligned square between 64 and 512');
   const heights = new Float32Array(size * size);
   const pixels = new Uint8Array(size * size * 4);
   const normals = new Uint8Array(size * size * 4);
   const roughness = new Uint8Array(size * size * 4);
-  const hash = (x, y) => {
+  const hash = (x,y) => {
     let n = Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263);
     n = Math.imul(n ^ (n >>> 13), 1274126177);
     return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
   };
-  // Relief across the edges tiles with the baseColor/normal textures.
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const jointY = Math.min(y % 64, 64 - y % 64);
-      const shiftedX = (x + (Math.floor(y / 64) % 2 ? 64 : 0)) % 128;
-      const jointX = Math.min(shiftedX, 128 - shiftedX);
-      const seam = jointY < 2 || jointX < 2 ? -.22 : 0;
-      const low = .07 * Math.sin(x * .086) * Math.sin(y * .073);
-      const mid = .032 * Math.sin(x * .32 + y * .17);
-      const grit = (hash(x,y) - .5) * .072;
-      heights[y * size + x] = .55 + low + mid + grit + seam;
-    }
+  const smooth = t => t * t * (3 - 2 * t);
+  // Periodic interpolation: the entire material tiles with no hard edge.
+  function strata(x,y,frequency) {
+    const u=x*frequency/size, v=y*frequency/size;
+    const xi=Math.floor(u), yi=Math.floor(v), fx=smooth(u-xi),fy=smooth(v-yi);
+    const a=hash(xi%frequency,yi%frequency);
+    const b=hash((xi+1)%frequency,yi%frequency);
+    const c=hash(xi%frequency,(yi+1)%frequency);
+    const d=hash((xi+1)%frequency,(yi+1)%frequency);
+    return (a+(b-a)*fx)*(1-fy)+(c+(d-c)*fx)*fy;
   }
-  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
-    const at = (a,b) => heights[((b + size) % size) * size + ((a + size) % size)];
-    const i = (y * size + x) * 4;
-    const h = at(x,y);
-    const speck = (hash(x+71,y+23) - .5) * 13;
-    const value = Math.max(22, Math.min(226, 164 + (h - .55) * 108 + speck));
-    pixels[i] = value;
-    pixels[i+1] = value + 1;
-    pixels[i+2] = value + 4;
-    pixels[i+3] = 255;
-    const dx = (at(x+1,y) - at(x-1,y)) * 1.85;
-    const dy = (at(x,y+1) - at(x,y-1)) * 1.85;
-    const nx = -dx, ny = -dy, nz = 1;
-    const len = Math.hypot(nx,ny,nz);
-    normals[i] = Math.round((nx/len*.5+.5)*255);
-    normals[i+1] = Math.round((ny/len*.5+.5)*255);
-    normals[i+2] = Math.round((nz/len*.5+.5)*255);
-    normals[i+3] = 255;
-    // Three.js reads GREEN for roughness.
-    roughness[i] = roughness[i+2] = 228;
-    roughness[i+1] = Math.max(165, Math.min(250, Math.round(216 + (hash(x+41,y+51)-.5)*32)));
-    roughness[i+3] = 255;
+  const clamp=v=>Math.max(0,Math.min(255,Math.round(v)));
+  for(let y=0;y<size;y++)for(let x=0;x<size;x++){
+    const fx=x*256/size, fy=y*256/size;
+    const large=strata(x,y,4)-.5;
+    const medium=strata(x,y,12)-.5;
+    const small=strata(x,y,32)-.5;
+    const grit=hash(x,y)-.5;
+    // Tiny horizontal bedding and warped joints; no chessboard-like grid.
+    const warp=large*5+medium*2.2;
+    const row=Math.floor((fy+warp+256)%256/64);
+    const jointY=Math.min((fy+warp+256)%64,64-(fy+warp+256)%64);
+    const stagger= row%2===0 ? 0 : 51;
+    const jointX=Math.min((fx+stagger+medium*5+512)%128,128-(fx+stagger+medium*5+512)%128);
+    const mortar=jointY<1.15||jointX<1.0 ? 1 : 0;
+    const band=Math.sin((fy+warp*3)*.091+large*3)*.038;
+    const mineral=large*.54+medium*.31+small*.15;
+    const vein=Math.max(0,small+.1)*.045;
+    const h=.55+mineral*.24+band+vein+grit*.035-mortar*.12;
+    heights[y*size+x]=h;
+    // Nearly neutral mineral grey; subtle iron/copper pockets warm the slate
+    // while blue mica picks up cold moonlight, not sprayed-on portal colors.
+    const oxide=Math.max(0,medium+.11);
+    const base=170+mineral*38+band*58+grit*13-mortar*16;
+    const i=(y*size+x)*4;
+    pixels[i]=clamp(base+oxide*17-3);
+    pixels[i+1]=clamp(base+2-oxide*4);
+    pixels[i+2]=clamp(base+7-oxide*11);
+    pixels[i+3]=255;
+    // Physically inspired roughness variation: mortar matte, polished
+    // mineral grains slightly smoother. GREEN channel is Three.js roughness.
+    const rough=218+grit*22-mineral*26+mortar*20;
+    roughness[i]=roughness[i+2]=228;
+    roughness[i+1]=Math.max(175, Math.min(250, clamp(rough)));
+    roughness[i+3]=255;
   }
-  function tex(data, isColor=false) {
-    const result = new THREE.DataTexture(data,size,size,THREE.RGBAFormat,THREE.UnsignedByteType);
-    result.wrapS = result.wrapT = THREE.RepeatWrapping;
-    result.minFilter = THREE.LinearMipmapLinearFilter;
-    result.magFilter = THREE.LinearFilter;
-    result.generateMipmaps = true;
-    result.anisotropy = 4;
-    if (isColor) result.colorSpace = THREE.SRGBColorSpace;
-    result.needsUpdate = true;
-    return result;
+  const heightAt=(x,y)=>heights[((y+size)%size)*size+(x+size)%size];
+  for(let y=0;y<size;y++)for(let x=0;x<size;x++){
+    const i=(y*size+x)*4;
+    const dx=(heightAt(x+1,y)-heightAt(x-1,y))*1.45;
+    const dy=(heightAt(x,y+1)-heightAt(x,y-1))*1.45;
+    const length=Math.hypot(dx,dy,1);
+    normals[i]=clamp(-dx/length*127.5+127.5);
+    normals[i+1]=clamp(-dy/length*127.5+127.5);
+    normals[i+2]=clamp(1/length*127.5+127.5);
+    normals[i+3]=255;
   }
-  const textures = [tex(pixels,true),tex(normals),tex(roughness)];
-  return {textures, color:textures[0], normal:textures[1], rough:textures[2]};
+  return {size,pixels,normals,roughness};
+}
+function materialMaps() {
+  const {size,pixels,normals,roughness}=buildStratifiedStoneTexels();
+  function tex(data,isColor=false) {
+    const t=new THREE.DataTexture(data,size,size,THREE.RGBAFormat,THREE.UnsignedByteType);
+    t.wrapS=t.wrapT=THREE.RepeatWrapping;
+    t.minFilter=THREE.LinearMipmapLinearFilter;
+    t.magFilter=THREE.LinearFilter;
+    t.generateMipmaps=true;
+    t.anisotropy=4;
+    if(isColor)t.colorSpace=THREE.SRGBColorSpace;
+    t.needsUpdate=true;
+    return t;
+  }
+  const textures=[tex(pixels,true),tex(normals),tex(roughness)];
+  return {textures,color:textures[0],normal:textures[1],rough:textures[2]};
 }
 // Tiny, deterministic, baked-grazing illumination for the existing stone wall.
 // This is an emissive architectural *texture*, not a new light, WebGL pass,
