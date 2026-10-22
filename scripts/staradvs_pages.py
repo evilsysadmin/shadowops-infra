@@ -183,9 +183,23 @@ def public_check(expected_sha: str) -> None:
             if not match:
                 raise AdmissionError("Published index lacks Vite JS entrypoint")
             asset = match.group(1).decode("ascii")
-            with urllib.request.urlopen(BASE + asset, timeout=15, context=ssl.create_default_context()) as response:
-                if response.status != 200 or "javascript" not in response.headers.get("Content-Type", "").lower() or not response.read(64):
-                    raise AdmissionError("Published JS is missing or an HTML SPA fallback")
+            # Keep the same browser identity for static assets as for HTML.
+            # urllib's default Python-urllib UA was rejected with HTTP 403 by
+            # Cloudflare despite the root returning the real game. This is
+            # a real HTTPS asset check, never a TLS or access-policy bypass.
+            asset_req = urllib.request.Request(BASE + asset, headers={
+                "User-Agent": "Mozilla/5.0 Chrome/154.0.0.0 Safari/537.36",
+                "Accept": "text/javascript,application/javascript,*/*",
+                "Cache-Control": "no-cache",
+            })
+            try:
+                with urllib.request.urlopen(asset_req, timeout=15, context=ssl.create_default_context()) as response:
+                    if response.status != 200 or "javascript" not in response.headers.get("Content-Type", "").lower() or not response.read(64):
+                        raise AdmissionError("Published JS is missing or an HTML SPA fallback")
+            except urllib.error.HTTPError as exc:
+                raise AdmissionError("Public JavaScript unavailable (HTTP " + str(exc.code) + ")") from None
+            except (urllib.error.URLError, TimeoutError) as exc:
+                raise AdmissionError("Public JavaScript TLS/network unavailable (" + type(exc).__name__ + ")") from None
         else:
             if "json" not in content_type:
                 raise AdmissionError("Public release manifest has wrong MIME type")
