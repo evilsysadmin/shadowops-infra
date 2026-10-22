@@ -5,6 +5,10 @@ on:
       - 'scripts/portal_root_release.py'
       - 'tests/test_portal_root_release.py'
       - '.github/workflows/portal-root-release.yml'
+      - 'portal/**'
+      - 'scripts/portal_ci_artifact.py'
+      - 'tests/test_portal_ci_artifact.py'
+      - '.github/workflows/portal-pages-staging.yml'
       - 'scripts/portal_main_admission.py'
       - 'tests/test_portal_main_admission.py'
   push:
@@ -13,6 +17,10 @@ on:
       - 'scripts/portal_root_release.py'
       - 'tests/test_portal_root_release.py'
       - '.github/workflows/portal-root-release.yml'
+      - 'portal/**'
+      - 'scripts/portal_ci_artifact.py'
+      - 'tests/test_portal_ci_artifact.py'
+      - '.github/workflows/portal-pages-staging.yml'
       - 'scripts/portal_main_admission.py'
       - 'tests/test_portal_main_admission.py'
   workflow_dispatch:

@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
-"""Select a previously validated Blender asset artifact for identical portal tree.
+"""Reuse verified GLB art only when every art authoring source and dependency match.
 
-Fail over to headless Blender when the art source has changed or the artifact
-is unavailable. Never reuse a successful CI artifact against different source.
+Routing, prose and CSS changes must not rerender identical assets. Art-source or
+dependency changes, stale CI evidence, or missing artifacts fail over to Blender.
 """
 import json
 import pathlib
 import subprocess
 import sys
 
-PORTAL_TREE="51381d6246b05ba90bed256e94001b15ff0a46a7"
+ART_TREE="bc1b350d156122071575ab47438a5081afe9037b"
+PACKAGE_BLOB="7c2ae589560f0b8f30b35909e5bb1f9d420d42ee"
 CI_HEAD="d5f890f38b9be1d479f52e472e5dee1f58213353"
 CI_RUN=39793813918
 
-def eligible(tree,run,artifacts):
-    if tree!=PORTAL_TREE or not isinstance(run,dict):return False
+def eligible(art_tree,package_blob,run,artifacts):
+    if art_tree!=ART_TREE or package_blob!=PACKAGE_BLOB or not isinstance(run,dict):return False
     if run.get("id")!=CI_RUN or run.get("head_sha")!=CI_HEAD or run.get("event")!="pull_request":
         return False
     if run.get("status")!="completed" or run.get("conclusion")!="success":
@@ -28,14 +29,15 @@ def cmd(*args):
     return subprocess.check_output(args,stderr=subprocess.DEVNULL,timeout=25).decode().strip()
 
 def choose():
-    tree=cmd("git","rev-parse","HEAD:portal")
-    if tree!=PORTAL_TREE:return "blender"
+    art_tree=cmd("git","rev-parse","HEAD:portal/art")
+    package_blob=cmd("git","rev-parse","HEAD:portal/package.json")
+    if art_tree!=ART_TREE or package_blob!=PACKAGE_BLOB:return "blender"
     try:
         run=json.loads(cmd("gh","api",f"repos/evilsysadmin/shadowops-infra/actions/runs/{CI_RUN}"))
         data=json.loads(cmd("gh","api",f"repos/evilsysadmin/shadowops-infra/actions/runs/{CI_RUN}/artifacts"))
     except (OSError,ValueError,subprocess.SubprocessError):
         return "blender"
-    return "ci" if eligible(tree,run,data.get("artifacts")) else "blender"
+    return "ci" if eligible(art_tree,package_blob,run,data.get("artifacts")) else "blender"
 
 if __name__=="__main__":
     mode=choose()
