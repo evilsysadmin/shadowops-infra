@@ -19,7 +19,9 @@ env:
 jobs:
   portal:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # Cold apt mirrors can spend >10 min fetching Blender and numpy; do not
+    # cancel the entire visual gate before any portal checks have started.
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: portal
