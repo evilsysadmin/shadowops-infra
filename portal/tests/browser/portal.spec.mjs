@@ -44,8 +44,14 @@ for (const width of [360, 390, 430, 1440]) {
       await expect(page.locator('.stage')).toHaveAttribute('data-render-budget', width < 500 ? '30' : '45');
     }
     if (await page.locator('.stage').getAttribute('data-scene') === 'active') {
-      if (width === 1440) await expect(page.locator('.stage')).toHaveAttribute('data-art-asset','loaded',{timeout:15000});
-      else await expect(page.locator('.stage')).toHaveAttribute('data-art-asset','skipped-mobile');
+      if (width === 1440) {
+        await expect(page.locator('.stage')).toHaveAttribute('data-art-asset','loaded',{timeout:15000});
+        await expect(page.locator('.stage')).toHaveAttribute('data-world-relics','loaded',{timeout:15000});
+      }
+      else {
+        await expect(page.locator('.stage')).toHaveAttribute('data-art-asset','skipped-mobile');
+        await expect(page.locator('.stage')).toHaveAttribute('data-world-relics','skipped-mobile');
+      }
       const canvasScreenshot = await page.locator('.stage canvas').screenshot({animations:'disabled'});
       assertVisibleWebGLContent(canvasScreenshot);
     }
