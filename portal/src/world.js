@@ -259,9 +259,12 @@ export function mountObservatory(container, onSelect) {
       if(disposed)return;
       // Spatial contract: an exporter may succeed but rotate Blender's Z-up
       // scene into the wrong Three.js axes, leaving invisible architecture.
+      // The gallery's opaque rear wall is at z=-1.85. Bring the vaulted
+      // stonework in front of it; otherwise a valid GLB is completely hidden.
+      data.scene.position.z = 1.58;
       const bounds=new THREE.Box3().setFromObject(data.scene);
       if(bounds.isEmpty() || bounds.min.y < 2.8 || bounds.max.y > 6.6 ||
-         bounds.min.z < -3.9 || bounds.max.z > -.8 ||
+         bounds.min.z < -1.8 || bounds.max.z > .5 ||
          bounds.min.x < -7 || bounds.max.x > 7) {
         throw new Error('Vault GLB has invalid gallery bounds: '+bounds.min.toArray()+' / '+bounds.max.toArray());
       }
