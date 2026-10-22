@@ -5,6 +5,7 @@ import { addGalleryArchitecture } from './galleryArchitecture.js';
 import { ARMILLARY_ASSET } from './armillaryAsset.generated.mjs';
 import { WORLD_RELICS } from './worldRelics.generated.mjs';
 import { GALLERY_FRAME_ASSET } from './galleryFrame.generated.mjs';
+import { VAULT_ASSET } from './vaultAsset.generated.mjs';
 
 // A self-contained atmospheric observatory. No borrowed Chess Studio models.
 // Source-authored GLB/texture art can replace the gateways in a later art PR.
@@ -66,6 +67,7 @@ export function mountObservatory(container, onSelect) {
   const coords = [-3.22, 0, 3.22];
   const gallery = addGalleryArchitecture(scene, coords, narrow);
   container.dataset.galleryFrame = 'loading';
+  container.dataset.celestialVault = VAULT_ASSET ? 'loading' : 'skipped';
   container.dataset.artAsset = narrow ? 'skipped-mobile' : 'loading';
   container.dataset.worldRelics = narrow ? 'skipped-mobile' : 'loading';
   const interactive = [];
@@ -248,6 +250,22 @@ export function mountObservatory(container, onSelect) {
       container.dataset.galleryFrame='fallback';
       paint(true);
     });
+
+  // Blender-authored environment asset. The game catalog and portal hit
+  // targets never depend on a DCC model fetching or parsing successfully.
+  if(VAULT_ASSET) {
+    import('three/addons/loaders/GLTFLoader.js').then(async ({GLTFLoader})=>{
+      const data=await new GLTFLoader().loadAsync(VAULT_ASSET);
+      if(disposed)return;
+      scene.add(data.scene);
+      container.dataset.celestialVault='loaded';
+      paint(true);
+    }).catch(error=>{
+      if(disposed)return;
+      console.warn('Optional observatory vault unavailable; gallery remains usable.',error);
+      container.dataset.celestialVault='fallback';
+    });
+  }
 
   // First independent art asset. Loads after the interactive gallery mounts.
   // Two copies share one GLB model and GPU geometry; no extra mobile cost.

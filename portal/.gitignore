@@ -8,3 +8,6 @@ public/art/relic-*.glb
 src/worldRelics.generated.mjs
 public/art/gallery-frame-*.glb
 src/galleryFrame.generated.mjs
+public/art/celestial-vault-*.glb
+public/art/celestial-vault-draft.glb
+src/vaultAsset.generated.mjs

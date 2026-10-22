@@ -36,6 +36,7 @@ for (const width of [360, 390, 430, 1440]) {
     expect(shaderErrors, 'WebGL shader compiles cleanly').toEqual([]);
     if (await page.locator('.stage').getAttribute('data-scene') === 'active') {
       await expect(page.locator('.stage')).toHaveAttribute('data-gallery-frame','loaded',{timeout:15000});
+      await expect(page.locator('.stage')).toHaveAttribute('data-celestial-vault','loaded',{timeout:15000});
       const budgets = await page.locator('.stage').evaluate(stage => ({
         calls: Number(stage.dataset.drawCalls), tris: Number(stage.dataset.triangles),
       }));
@@ -124,6 +125,18 @@ test('gallery GLB fetch failure restores existing masonry without blocking navig
   await page.locator('.stage-area').scrollIntoViewIfNeeded();
   await expect(page.locator('.stage')).toHaveAttribute('data-scene','active',{timeout:15000});
   await expect(page.locator('.stage')).toHaveAttribute('data-gallery-frame','fallback',{timeout:15000});
+  await page.getByRole('button',{name:/Chronicles/}).click();
+  await expect(page.locator('.detail-title')).toHaveText('Chronicles');
+  await expect(page.locator('a.enter-link')).toHaveAttribute('href','https://chronicles.shadowops.dpdns.org/');
+});
+
+
+test('Blender vault GLB failure preserves functional world navigation',async({page})=>{
+  await page.route('**/art/celestial-vault-*.glb',route=>route.abort());
+  await page.goto('/');
+  await page.locator('.stage-area').scrollIntoViewIfNeeded();
+  await expect(page.locator('.stage')).toHaveAttribute('data-scene','active',{timeout:15000});
+  await expect(page.locator('.stage')).toHaveAttribute('data-celestial-vault','fallback',{timeout:15000});
   await page.getByRole('button',{name:/Chronicles/}).click();
   await expect(page.locator('.detail-title')).toHaveText('Chronicles');
   await expect(page.locator('a.enter-link')).toHaveAttribute('href','https://chronicles.shadowops.dpdns.org/');
