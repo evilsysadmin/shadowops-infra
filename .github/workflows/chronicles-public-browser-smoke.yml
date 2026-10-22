@@ -36,12 +36,6 @@ jobs:
       name: staging
       url: https://staging.chronicles.shadowops.dpdns.org
     steps:
-      - name: Check out source-owned test script (not a deploy)
-        uses: actions/checkout@v4
-        with:
-          repository: evilsysadmin/chronicles-of-matthias
-          ref: main
-          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -58,6 +52,19 @@ jobs:
           sha="$(node -p "JSON.parse(require('node:fs').readFileSync(process.env.RUNNER_TEMP + '/live-chronicles-release.json')).build")"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || exit 1
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: Check out test scripts from the exact published Chronicles revision
+        uses: actions/checkout@v4
+        with:
+          repository: evilsysadmin/chronicles-of-matthias
+          ref: ${{ steps.current.outputs.sha }}
+          persist-credentials: false
+      - name: Assert the source checkout matches the published SHA
+        env:
+          PUBLIC_SHA: ${{ steps.current.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PUBLIC_SHA"
       - name: Install Chromium for the public smoke
         working-directory: frontend
         run: |
