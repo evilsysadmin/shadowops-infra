@@ -11,10 +11,12 @@ const draft=path.join(outDir,'celestial-vault-draft.glb');
 await mkdir(outDir,{recursive:true});
 const isRequired=process.env.REQUIRE_BLENDER_ART==='1';
 const exe=process.env.BLENDER_BINARY||'blender';
-const args=['--background','--factory-startup','--python',
+const args=['--background','--factory-startup','--python-exit-code','7','--python',
   path.join(root,'art','blender','celestial_vault.py'),'--',draft];
 const run=spawnSync(exe,args,{encoding:'utf8',timeout:210000,
   maxBuffer:8*1024*1024});
+if(run.stdout)console.log('Blender stdout:\n'+run.stdout.slice(-4500));
+if(run.stderr)console.warn('Blender stderr:\n'+run.stderr.slice(-4500));
 if(run.error||run.status!==0) {
   const reason=run.error?.message||run.stderr||run.stdout||('exit '+run.status);
   if(isRequired)throw new Error('Mandatory Blender celestial-vault export failed: '+reason.slice(-2500));
