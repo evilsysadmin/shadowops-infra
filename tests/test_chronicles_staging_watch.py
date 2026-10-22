@@ -2,6 +2,7 @@
 from pathlib import Path
 import datetime as dt
 import io
+import struct
 import sys
 import unittest
 import urllib.error
@@ -38,6 +39,109 @@ class WatchTest(unittest.TestCase):
         mocked = patch.object(watch.pages, "probe_react_preview", return_value="ok")
         self.game_probe = mocked.start()
         self.addCleanup(mocked.stop)
+        model = patch.object(watch, "probe_public_glb", return_value="ok")
+        self.model_probe = model.start()
+        self.addCleanup(model.stop)
+
+    def test_canonical_model_glb_header_is_checked_from_exact_public_origin(self):
+        class Response:
+            def __init__(self, req, header, *, status=200, destination=None,
+                         mime="model/gltf-binary", content_range="bytes 0-11/128"):
+                self.status = status
+                self.destination = req.full_url if destination is None else destination
+                self.headers = {"Content-Type": mime, "Content-Range": content_range}
+                self.body = io.BytesIO(header)
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def geturl(self):
+                return self.destination
+            def read(self, count):
+                self.assert_count = count
+                return self.body.read(count)
+
+        good = struct.pack("<4sII", b"glTF", 2, 128)
+        requests = []
+        def open_good(req, timeout):
+            requests.append((req, timeout))
+            return Response(req, good)
+        # Real network disabled. Exercise the header verifier itself rather
+        # than the per-test high-level health mock.
+        with patch.object(watch, "probe_public_glb", wraps=watch.probe_public_glb):
+            with patch.object(watch, "open_no_redirect", side_effect=open_good):
+                self.assertEqual(watch.probe_public_glb(), "ok")
+        req, timeout = requests[0]
+        self.assertEqual(req.full_url, watch.ORIGIN + "/models/matthias-home-canonical.glb")
+        self.assertEqual(timeout, 10)
+        self.assertEqual(req.get_header("Range"), "bytes=0-11")
+        self.assertIsNone(req.get_header("Authorization"))
+        self.assertIsNone(req.get_header("Cookie"))
+
+        cases = [
+            (good, 206, None, "model/gltf-binary", "bytes 0-11/128", "ok"),
+            (good, 206, None, "model/gltf-binary", "bytes 20-31/128", "invalid"),
+            (b"<html>oops!!", 200, None, "text/html", "", "invalid"),
+            (b'{"error":2}', 200, None, "application/json", "", "invalid"),
+            (struct.pack("<4sII", b"glTF", 1, 128), 200, None, "application/octet-stream", "", "invalid"),
+            (struct.pack("<4sII", b"glTF", 2, 8), 200, None, "application/octet-stream", "", "invalid"),
+            (struct.pack("<4sII", b"WRNG", 2, 128), 200, None, "application/octet-stream", "", "invalid"),
+            (good[:7], 200, None, "application/octet-stream", "", "invalid"),
+            (good, 200, "https://foreign.invalid/model.glb", "model/gltf-binary", "", "invalid"),
+            (good, 301, None, "model/gltf-binary", "", "invalid"),
+        ]
+        for header, status, dest, mime, byte_range, expected in cases:
+            with self.subTest(status=status,expected=expected,header=header[:4],mime=mime):
+                def serve(req, timeout):
+                    return Response(req, header, status=status,
+                                    destination=dest, mime=mime, content_range=byte_range)
+                with patch.object(watch, "probe_public_glb", wraps=watch.probe_public_glb):
+                    with patch.object(watch, "open_no_redirect", side_effect=serve):
+                        self.assertEqual(watch.probe_public_glb(), expected)
+
+    def test_canonical_model_edge_vs_structural_classification(self):
+        for result in ("invalid", "http_404", "http_403"):
+            with self.subTest(result=result):
+                self.assertEqual(watch.pages_failure_key(result), "pages-game")
+        for result in ("http_429", "http_503", "http_522", "unavailable"):
+            with self.subTest(result=result):
+                self.assertEqual(watch.pages_failure_key(result), "pages-edge")
+        with patch.object(watch, "probe_public_glb", wraps=watch.probe_public_glb):
+            for exc, expected in (
+                (urllib.error.HTTPError("https://example.invalid", 404, "not found", {}, None), "http_404"),
+                (urllib.error.HTTPError("https://example.invalid", 503, "unavailable", {}, None), "http_503"),
+                (urllib.error.URLError("timeout"), "unavailable"),
+            ):
+                with self.subTest(expected=expected):
+                    with patch.object(watch, "open_no_redirect", side_effect=exc):
+                        self.assertEqual(watch.probe_public_glb(), expected)
+
+    @patch.object(watch, "source_ci_status", return_value=("pending", None))
+    def test_missing_public_glb_is_detected_before_source_ci_ready(self, _):
+        self.model_probe.return_value = "invalid"
+        self.assertEqual(set(watch.failures("t", get=url, gh=gh, now=NOW)), {"pages-model"})
+        self.model_probe.return_value = "http_503"
+        self.assertEqual(set(watch.failures("t", get=url, gh=gh, now=NOW)), {"pages-model-edge"})
+        self.model_probe.return_value = "ok"
+        self.assertEqual(watch.failures("t", get=url, gh=gh, now=NOW), {})
+
+    def test_glb_edge_requires_three_samples_but_corruption_only_two(self):
+        for samples, expected, pauses in (
+            ([{"pages-model": "corrupt"}, {"pages-model": "corrupt"}],
+             {"pages-model": "corrupt"}, [90]),
+            ([{"pages-model-edge": "503"}, {"pages-model-edge": "503"}, {}],
+             {}, [90, 90]),
+            ([{"pages-model-edge": "503"}, {"pages-model": "corrupt"},
+              {"pages-model": "corrupt"}], {"pages-model": "corrupt"}, [90, 90]),
+        ):
+            with self.subTest(expected=expected):
+                items = iter(samples)
+                elapsed = []
+                observed = watch.confirmed_failures(
+                    "t", probe=lambda _: next(items), pause=elapsed.append
+                )
+                self.assertEqual(observed, expected)
+                self.assertEqual(elapsed, pauses)
 
     def test_ci_grace_starts_when_last_verified_workflow_finished(self):
         source = {
