@@ -179,32 +179,86 @@ def failures(token: str, *, get: Callable = get_url, gh: Callable = github,
     return bad
 
 
-def existing_issue(token: str, gh: Callable = github) -> int | None:
+ISSUE_DIAGNOSTIC_START = "<!-- chronicles-staging-watch:diagnostic:start -->"
+ISSUE_DIAGNOSTIC_END = "<!-- chronicles-staging-watch:diagnostic:end -->"
+ISSUE_LEGACY_FOOTER = (
+    "Revisar los workflows en https://github.com/" + INFRA +
+    "/actions y los SHA publicados. Esta incidencia se cerrará automáticamente cuando el staging se recupere."
+)
+
+
+def existing_issue(token: str, gh: Callable = github) -> dict | None:
     data = gh("repos/" + INFRA + "/issues?state=open&per_page=100", token)
     # GitHub's REST issues endpoint returns an array; wrapper normalizes it.
     rows = data if isinstance(data, list) else data.get("items", [])
+    if not isinstance(rows, list):
+        raise RuntimeError("Malformed staging watchdog issue listing")
     for entry in rows:
+        if not isinstance(entry, dict):
+            raise RuntimeError("Malformed staging watchdog issue entry")
         if entry.get("title") == TITLE and not entry.get("pull_request"):
-            return entry["number"]
+            if (not isinstance(entry.get("number"), int) or
+                    entry["number"] <= 0 or not isinstance(entry.get("body"), (str, type(None)))):
+                raise RuntimeError("Malformed staging watchdog issue metadata")
+            return entry
     return None
+
+
+def diagnostic_body(persistent: dict[str, str]) -> str:
+    # Stable ordering, no timestamp: unchanged diagnostics never cause an
+    # unnecessary PATCH, issue notification or rewrite of human annotations.
+    details = "\n".join("- **" + key + "**: " + persistent[key]
+                        for key in sorted(persistent))
+    return (ISSUE_DIAGNOSTIC_START + "\n" +
+            "Detectado en comprobaciones consecutivas. Estado público, sin datos de usuarios.\n\n" +
+            details + "\n\n" + ISSUE_LEGACY_FOOTER + "\n" +
+            ISSUE_DIAGNOSTIC_END)
+
+
+def updated_issue_body(old_body: str, diagnostic: str) -> str:
+    """Replace only our managed diagnosis while preserving manual issue notes."""
+    begin = ISSUE_DIAGNOSTIC_START
+    end = ISSUE_DIAGNOSTIC_END
+    if old_body.count(begin) != old_body.count(end) or old_body.count(begin) > 1:
+        raise RuntimeError("Malformed staging watchdog diagnostic boundaries")
+    if begin in old_body:
+        prefix, rest = old_body.split(begin, 1)
+        _, suffix = rest.split(end, 1)
+        return prefix + diagnostic + suffix
+
+    # One-time migration from the previous, unmarked automation-owned body.
+    # Preserve any notes appended after the original generated footer.
+    if (old_body.startswith(("Detectado en comprobaciones consecutivas.",
+                              "Detectado en dos comprobaciones separadas.")) and
+            ISSUE_LEGACY_FOOTER in old_body):
+        _, suffix = old_body.split(ISSUE_LEGACY_FOOTER, 1)
+        return diagnostic + suffix
+
+    # Unknown or manually replaced bodies: never discard user-authored text.
+    return diagnostic + ("\n\n---\n\n" + old_body if old_body else "")
 
 
 def manage_issue(token: str, persistent: dict[str, str], *, gh: Callable = github) -> str:
     issue = existing_issue(token, gh=gh)
     if not persistent:
         if issue is not None:
-            gh(f"repos/{INFRA}/issues/{issue}", token, method="PATCH",
+            gh(f"repos/{INFRA}/issues/{issue['number']}", token, method="PATCH",
                payload={"state": "closed", "state_reason": "completed"})
             return "CHRONICLES_STAGING_WATCH_RECOVERED"
         return "CHRONICLES_STAGING_WATCH_OK"
+
+    diagnostic = diagnostic_body(persistent)
     if issue is not None:
-        return "CHRONICLES_STAGING_WATCH_ALREADY_OPEN"
-    details = "\n".join("- **" + key + "**: " + reason for key, reason in persistent.items())
-    body = ("Detectado en comprobaciones consecutivas. Estado público, sin datos de usuarios.\n\n" +
-            details + "\n\nRevisar los workflows en https://github.com/" + INFRA +
-            "/actions y los SHA publicados. Esta incidencia se cerrará automáticamente cuando el staging se recupere.")
+        body = issue.get("body") or ""
+        replacement = updated_issue_body(body, diagnostic)
+        if replacement == body:
+            return "CHRONICLES_STAGING_WATCH_ALREADY_OPEN"
+        gh(f"repos/{INFRA}/issues/{issue['number']}", token, method="PATCH",
+           payload={"body": replacement})
+        return "CHRONICLES_STAGING_WATCH_UPDATED"
+
     gh(f"repos/{INFRA}/issues", token, method="POST",
-       payload={"title": TITLE, "body": body})
+       payload={"title": TITLE, "body": diagnostic})
     return "CHRONICLES_STAGING_WATCH_ISSUE_OPENED"
 
 
