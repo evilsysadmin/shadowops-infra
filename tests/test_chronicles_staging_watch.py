@@ -145,6 +145,9 @@ class WatchTest(unittest.TestCase):
                     self.headers["Content-Range"] = range_header
                 if content_length is not None:
                     self.headers["Content-Length"] = content_length
+                self.body = io.BytesIO(
+                    struct.pack("<4sIII4s", b"glTF", 2, 128, 100, b"JSON")
+                )
             def __enter__(self):
                 return self
             def __exit__(self, *args):
@@ -152,8 +155,7 @@ class WatchTest(unittest.TestCase):
             def geturl(self):
                 return self.url
             def read(self, count):
-                self.assert_read_size = count
-                return struct.pack("<4sIII4s", b"glTF", 2, 128, 100, b"JSON")
+                return self.body.read(count)
 
         cases = [
             (206, "bytes 0-19/128", "20", "ok"),
@@ -181,6 +183,47 @@ class WatchTest(unittest.TestCase):
                 with patch.object(watch, "probe_public_glb", wraps=self.real_model_probe):
                     with patch.object(watch, "open_no_redirect", side_effect=serve):
                         self.assertEqual(watch.probe_public_glb(), expected)
+
+    def test_public_glb_206_rejects_overlong_actual_body_even_with_plausible_headers(self):
+        header = struct.pack("<4sIII4s", b"glTF", 2, 128, 100, b"JSON")
+        for extra, length, expected in (
+            (b"", "20", "ok"),
+            (b"", None, "ok"),
+            (b"x", "20", "invalid"),
+            (b"extra body", "20", "invalid"),
+            (b"x", None, "invalid"),
+        ):
+            with self.subTest(extra=len(extra), content_length=length):
+                seen = []
+                class Response:
+                    status = 206
+                    def __init__(self, req):
+                        self.url = req.full_url
+                        self.headers = {
+                            "Content-Type": "model/gltf-binary",
+                            "Content-Range": "bytes 0-19/128",
+                        }
+                        if length is not None:
+                            self.headers["Content-Length"] = length
+                        self.body = io.BytesIO(header + extra)
+                        self.read_sizes = []
+                    def __enter__(self): return self
+                    def __exit__(self, *args): return False
+                    def geturl(self): return self.url
+                    def read(self, n):
+                        self.read_sizes.append(n)
+                        return self.body.read(n)
+                def serve(req, timeout):
+                    self.assertEqual(timeout, 10)
+                    self.assertEqual(req.get_header("Range"), "bytes=0-19")
+                    response = Response(req)
+                    seen.append(response)
+                    return response
+                with patch.object(watch, "probe_public_glb", wraps=self.real_model_probe):
+                    with patch.object(watch, "open_no_redirect", side_effect=serve):
+                        self.assertEqual(watch.probe_public_glb(), expected)
+                self.assertEqual(seen[0].read_sizes, [20, 1],
+                                 "206 probe must not download beyond a one-byte EOF check")
 
     def test_public_glb_200_streaming_fallback_verifies_real_size_to_eof(self):
         header = struct.pack("<4sIII4s", b"glTF", 2, 128, 100, b"JSON")
