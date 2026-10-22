@@ -16,6 +16,8 @@ on:
       - 'tests/test_portal_pages.py'
       - 'tests/test_portal_release.py'
       - '.github/workflows/portal-pages-staging.yml'
+      - 'scripts/portal_root_release.py'
+      - '.github/workflows/portal-root-release.yml'
   workflow_dispatch:
 permissions:
   contents: read

@@ -1,0 +1,157 @@
+name: ShadowOps Universe · root Pages production promotion
+on:
+  pull_request:
+    paths:
+      - 'scripts/portal_root_release.py'
+      - 'tests/test_portal_root_release.py'
+      - '.github/workflows/portal-root-release.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/portal_root_release.py'
+      - 'tests/test_portal_root_release.py'
+      - '.github/workflows/portal-root-release.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: shadowops-universe-production-pages
+  cancel-in-progress: false
+jobs:
+  admission:
+    name: Root ownership and promotion integrity contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s tests -p 'test_portal_root_inventory.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_portal_root_release.py' -v
+      - run: python3 scripts/portal_root_release.py self-test
+  promote:
+    name: Promote verified staging bytes to the DNS apex
+    needs: admission
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    environment:
+      name: production
+      url: https://shadowops.dpdns.org
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require this release logic is current on Infra main
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" == "$GITHUB_SHA" ]]
+      - name: Require completed verified staging run for this exact Infra commit
+        id: stage
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The production release is triggered by this same protected main
+          # commit as staging. Never select some unrelated "latest successful"
+          # build, which could silently promote different code.
+          [[ "$GITHUB_SHA" =~ ^[a-f0-9]{40}$ ]]
+          for attempt in $(seq 1 42); do
+            verdict="$(gh api "repos/evilsysadmin/shadowops-infra/actions/runs?head_sha=$GITHUB_SHA&event=push&per_page=100" --jq \
+              '[.workflow_runs[] | select(.name == "ShadowOps Universe · staging Pages release")] | sort_by(.created_at) | reverse | .[0] | [.id, .status, (.conclusion // "pending")] | @tsv')"
+            read -r run state result <<< "$verdict"
+            if [[ "$run" =~ ^[0-9]+$ && "$state" == "completed" && "$result" == "success" ]]; then
+              echo "run_id=$run" >> "$GITHUB_OUTPUT"
+              echo "source_sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+              echo "SHADOWOPS_UNIVERSE_STAGING_SELECTED sha=$GITHUB_SHA"
+              exit 0
+            fi
+            if [[ "$state" == "completed" && "$result" != "success" ]]; then
+              echo "Same-commit staging verification did not succeed ($result)" >&2
+              exit 1
+            fi
+            [[ "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" == "$GITHUB_SHA" ]] || {
+              echo "Infra main superseded while staging was pending" >&2
+              exit 1
+            }
+            echo "Waiting for exactly matching staged SHA ($attempt/42)"
+            sleep 15
+          done
+          echo 'Timed out waiting for same-commit verified staging release' >&2
+          exit 1
+      - name: Download only previously published and verified staging dist
+        env:
+          RUN_ID: ${{ steps.stage.outputs.run_id }}
+          SOURCE_SHA: ${{ steps.stage.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run download "$RUN_ID" -R "$GITHUB_REPOSITORY" \
+            -n "shadowops-universe-staging-build-$SOURCE_SHA" -D production-dist
+          test -s production-dist/release.json
+          test -s production-dist/index.html
+      - name: Verify staging public HTTPS still serves exactly these assets
+        env:
+          SOURCE_SHA: ${{ steps.stage.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/portal_pages.py verify --sha "$SOURCE_SHA"
+          python3 scripts/portal_root_release.py prepare --dist production-dist --sha "$SOURCE_SHA"
+      - name: Refuse foreign apex owner, missing Cloudflare credentials or superseded Infra main
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" == "$GITHUB_SHA" ]]
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          python3 scripts/portal_root_release.py preflight
+      - name: Create only independent root production Pages project
+        run: python3 scripts/portal_root_release.py project
+      - name: Recheck protected main before publishing
+        run: test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+      - name: Publish verified static build unchanged except environment manifest
+        env:
+          SOURCE_SHA: ${{ steps.stage.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.127.1 pages deploy production-dist \
+            --project-name shadowops-universe-production \
+            --branch main --commit-hash "$SOURCE_SHA" --commit-dirty=false
+      - name: Bind only the previously unowned or already-owned root DNS
+        run: python3 scripts/portal_root_release.py domain
+      - name: Verify actual root TLS, entry JavaScript, exact source and all six GLB hashes
+        env:
+          SOURCE_SHA: ${{ steps.stage.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 20); do
+            if python3 scripts/portal_root_release.py verify --sha "$SOURCE_SHA"; then
+              exit 0
+            fi
+            echo "Universe root HTTPS/DNS TLS propagation pending ($attempt/20)"
+            sleep 12
+          done
+          echo 'Root production did not validate over public HTTPS' >&2
+          exit 1
+      - name: Save production release receipt after verified public access
+        env:
+          SOURCE_SHA: ${{ steps.stage.outputs.source_sha }}
+        shell: bash
+        run: |
+          mkdir -p root-receipt
+          printf '%s\n' "$SOURCE_SHA" > root-receipt/source-sha.txt
+          printf 'https://shadowops.dpdns.org\n' > root-receipt/url.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadowops-universe-production-verified-${{ steps.stage.outputs.source_sha }}
+          path: root-receipt/
+          if-no-files-found: error
+          retention-days: 90

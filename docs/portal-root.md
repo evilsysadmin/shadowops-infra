@@ -1,12 +1,13 @@
-# ShadowOps Universe — root-domain release safety
+# ShadowOps Universe · root production promotion
 
-Staging is published first at **https://staging.shadowops.dpdns.org**. The owner of `shadowops.dpdns.org` must be established **before** any root Pages domain or CNAME mutation.
+The root `https://shadowops.dpdns.org` is separate from each game's DNS and Cloudflare Pages project. Only the portal project `shadowops-universe-production` may serve it.
 
-The read-only workflow `portal-root-inventory.yml` uses trusted Infra staging secrets on **main only**. It prints three non-sensitive classifications for the apex record and the *dedicated future* `shadowops-universe-production` Pages project:
-- `absent`: safe to consider creating the missing resource.
-- `owned`: exact project/target, safe to reconcile idempotently.
-- `foreign` or `ambiguous`: **do not overwrite or delete**. Examine whether a preexisting application/owner would be displaced.
+**Admission:** Staging must already be live and verified at `https://staging.shadowops.dpdns.org`, with a successful trusted-main staging workflow and an exact `shadowops-universe-staging-build-<SHA>` artifact. The root release does **not** compile new JS or 3D art: it downloads that same six-GLB/static build, verifies local artifact hashes against `release.json`, checks public staging still serves the same SHA, and only changes the release manifest's `environment` value to `production`. The six GLB digests remain unchanged.
 
-The workflow makes **zero POST/PATCH/PUT/DELETE calls**. It must never inventory/change Chess Studio, Chronicles, Star Adventures or the existing Cloudflare Tunnel as a side effect. A separate production PR must consume only an **immutable verified staging build artifact**, not rebuild an unverified later version or blindly point a DNS record.
+**DNS ownership:** Cloudflare zone apex was classified as `{"apex_dns":"absent","pages_domain":"absent","pages_project":"absent"}` in [the read-only inventory run](https://github.com/evilsysadmin/shadowops-infra/actions/runs/39804908438) on 2026-10-22. The mutator rechecks those facts before changing anything. If anyone adds an A/AAAA/foreign CNAME, or creates a different Pages project/domain in the meantime, publication **fails closed**: no overwriting, deletions or silent cutover.
 
-Only a completed verified artifact + public HTTPS + source SHA can be called a deployed release. This document does not authorize automated deletion of any root record.
+**Workflow:** `.github/workflows/portal-root-release.yml` has offline mocked tests on PRs, runs once after the dedicated release PR merges into protected main, and supports a later manual dispatch. Promotion is serialized under a dedicated production lock and uses the production Actions environment. A release is considered live only if root HTTPS/TLS, HTML, real JavaScript, immutable SHA and six GLB digests all match; then it emits `SHADOWOPS_UNIVERSE_PRODUCTION_PUBLIC_READY` and uploads a 90-day receipt.
+
+**Rollback:** Cloudflare Pages preserves deployment history. To revert a faulty publication, promote a previously staging-verified artifact after staging has been restored to that exact source; the root CNAME remains under the same Pages project. Do not point the apex at a different service and never touch any game subdomain or Tunnel. Production ownership of Chess Studio is a **different** future infrastructure task.
+
+**Atomic same-commit staging promotion:** On the first production workflow merge, the staging workflow is triggered by that same PR's production workflow/script paths. Promotion polls for a completed successful staging workflow with precisely its own `GITHUB_SHA` and downloads `shadowops-universe-staging-build-<SHA>` from that run. If staging fails or main advances, root mutation is refused rather than selecting an unrelated older staging build.
