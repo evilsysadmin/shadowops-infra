@@ -35,48 +35,69 @@ class PublicBrowserWorkflow(unittest.TestCase):
         self.assertIn('repos/evilsysadmin/shadowops-infra/commits/main', gate['run'])
         self.assertIn('CHRONICLES_PAGES_INFRA_SUPERSEDED_BEFORE_RELEASE', gate['run'])
         self.assertIn('CHRONICLES_PAGES_INVALID_INFRA_SHA', gate['run'])
-        self.assertLess(gate['run'].index('owner_main='), gate['run'].index("echo 'publish=true'"))
+        self.assertIn('CHRONICLES_PAGES_SOURCE_SUPERSEDED_AFTER_API', gate['run'])
+        self.assertIn('CHRONICLES_PAGES_INVALID_SOURCE_SHA', gate['run'])
+        self.assertLess(gate['run'].index('owner_main='), gate['run'].index('source_main='))
+        self.assertLess(gate['run'].index('source_main='), gate['run'].index("echo 'publish=true'"))
         self.assertEqual(jobs['release']['if'], "needs.api-ready.outputs.publish == 'true'")
         # The independent owner admission is still required before any Pages mutation.
         self.assertIn('pages_owner_admission.py',
                       next(s['run'] for s in jobs['release']['steps']
                            if s.get('name') == 'Require protected mains and single Pages owner before any mutations'))
 
-    def test_infra_owner_preflight_only_skips_a_proven_superseded_sha(self):
+    def test_post_api_gate_only_skips_proven_stale_source_or_infra_main(self):
+        # Run the *real* workflow Bash with a fake API gate and a GitHub CLI
+        # stub. An outage, malformed SHA or failed admission must fail closed.
         flow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
         script = next(s['run'] for s in flow['jobs']['api-ready']['steps']
                       if s.get('id') == 'gate')
-        owner_sha = 'a' * 40
+        owner_sha, admitted = 'a' * 40, 'c' * 40
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             gh = root / 'gh'
-            gh.write_text('#!/bin/sh\n'
-                          'if [ "$FAKE_GH_FAIL" = true ]; then exit 7; fi\n'
-                          'printf "%s\\n" "$FAKE_OWNER_MAIN"\n')
+            gh.write_text(
+                '#!/bin/sh\n'
+                'case "$*" in\n'
+                '  *shadowops-infra/commits/main*)\n'
+                '    if [ "$FAKE_GH_FAIL" = owner ]; then exit 7; fi\n'
+                '    printf "%s\\n" "$FAKE_OWNER_MAIN";;\n'
+                '  *chronicles-of-matthias/commits/main*)\n'
+                '    if [ "$FAKE_GH_FAIL" = source ]; then exit 7; fi\n'
+                '    printf "%s\\n" "$FAKE_SOURCE_MAIN";;\n'
+                '  *) exit 80;;\n'
+                'esac\n'
+            )
             gh.chmod(0o755)
             py = root / 'python3'
             py.write_text('#!/bin/sh\nexit 0\n')
             py.chmod(0o755)
-            for actual, lookup_error, code, publish in (
-                (owner_sha, 'false', 0, 'publish=true'),
-                ('b' * 40, 'false', 0, 'publish=false'),
-                ('bad-sha', 'false', 64, ''),
-                (owner_sha, 'true', 7, ''),
-            ):
-                with self.subTest(actual=actual, lookup_error=lookup_error):
+            scenarios = (
+                # owner, source, failure, expected exit, output, log marker
+                (owner_sha, admitted, '', 0, 'publish=true', ''),
+                ('b' * 40, admitted, '', 0, 'publish=false',
+                 'INFRA_SUPERSEDED_BEFORE_RELEASE'),
+                (owner_sha, 'd' * 40, '', 0, 'publish=false',
+                 'SOURCE_SUPERSEDED_AFTER_API'),
+                ('bad-owner', admitted, '', 64, '', 'INVALID_INFRA_SHA'),
+                (owner_sha, 'bad-source', '', 64, '', 'INVALID_SOURCE_SHA'),
+                (owner_sha, admitted, 'owner', 7, '', ''),
+                (owner_sha, admitted, 'source', 7, '', ''),
+            )
+            for owner, source, failure, code, publish, marker in scenarios:
+                with self.subTest(owner=owner, source=source, failure=failure):
                     output = root / 'output'
                     output.write_text('')
                     env = dict(os.environ,
                                PATH=f"{root}{os.pathsep}{os.environ.get('PATH', '')}",
-                               ADMITTED_SHA='c' * 40, GITHUB_SHA=owner_sha,
-                               FAKE_OWNER_MAIN=actual, FAKE_GH_FAIL=lookup_error,
-                               GITHUB_OUTPUT=str(output))
+                               ADMITTED_SHA=admitted, GITHUB_SHA=owner_sha,
+                               FAKE_OWNER_MAIN=owner, FAKE_SOURCE_MAIN=source,
+                               FAKE_GH_FAIL=failure, GITHUB_OUTPUT=str(output))
                     run = subprocess.run(['bash', '-c', script], cwd=ROOT, env=env,
                                          capture_output=True, text=True, check=False)
                     self.assertEqual(run.returncode, code, run.stderr)
                     self.assertEqual(output.read_text().strip(), publish)
-                    if publish == 'publish=false':
-                        self.assertIn('INFRA_SUPERSEDED_BEFORE_RELEASE', run.stdout)
+                    if marker:
+                        self.assertIn(marker, run.stdout + run.stderr)
 
     def test_browsers_are_live_public_and_after_http_smokes(self):
         workflow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
