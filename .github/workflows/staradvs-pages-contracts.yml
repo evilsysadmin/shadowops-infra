@@ -1,0 +1,40 @@
+name: Star Adventures Pages ownership contracts
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/staradvs-pages-contracts.yml'
+      - '.github/workflows/staradvs-pages-staging.yml'
+      - 'scripts/staradvs_pages.py'
+      - 'scripts/staradvs_source_admission.py'
+      - 'tests/test_staradvs_pages.py'
+      - 'tests/test_staradvs_source_admission.py'
+      - 'docs/staradvs-staging.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/staradvs-pages-contracts.yml'
+      - '.github/workflows/staradvs-pages-staging.yml'
+      - 'scripts/staradvs_pages.py'
+      - 'scripts/staradvs_source_admission.py'
+      - 'tests/test_staradvs_pages.py'
+      - 'tests/test_staradvs_source_admission.py'
+      - 'docs/staradvs-staging.md'
+permissions:
+  contents: read
+jobs:
+  boundaries:
+    name: Star Adventures isolated DNS/Pages contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s tests -p 'test_staradvs_pages.py' -v
+      - run: python3 scripts/staradvs_pages.py self-test
+      - run: python3 -m py_compile scripts/staradvs_pages.py
+      - name: Check admission tests once added
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f tests/test_staradvs_source_admission.py; then
+            python3 -m unittest discover -s tests -p 'test_staradvs_source_admission.py' -v
+          fi
