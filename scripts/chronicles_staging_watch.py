@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Low-noise Chronicles staging watch: confirmed probes, one actionable issue.
 
-Checks public API health and real Pages game HTML/JS/CSS unconditionally.
+Checks public API health and real Pages game HTML/JS/CSS and canonical GLB unconditionally.
 Reports frontend or live API revision drift only after the source SHA has all
 three green push workflows and a 90-minute deploy grace; receipts alone do not
 prove the live API version.
@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import struct
 import sys
 import time
 import urllib.error
@@ -35,6 +36,7 @@ VERSION_FAILURE_KEYS = frozenset({"frontend-lag", "backend-lag", "api-revision"}
 CONFIRM_FAMILIES = {
     "api": ("api-health", "api-health-edge"),
     "game": ("pages-game", "pages-edge"),
+    "model": ("pages-model", "pages-model-edge"),
     "manifest": ("pages-manifest", "pages-manifest-edge"),
 }
 CONFIRM_KEYS = frozenset(key for keys in CONFIRM_FAMILIES.values() for key in keys)
@@ -135,6 +137,42 @@ def open_no_redirect(request: urllib.request.Request, *, timeout: int):
     return urllib.request.build_opener(RejectHttpRedirects()).open(
         request, timeout=timeout
     )
+
+
+def probe_public_glb() -> str:
+    """Check the canonical 3D model's public GLB header, not just its URL.
+
+    Read only the 12-byte GLB header (even if the CDN ignores Range). A 200
+    HTML SPA fallback must never count as a valid model. Use the fixed
+    staging domain and no cookies, credentials, redirects or external URLs.
+    """
+    url = ORIGIN + "/models/matthias-home-canonical.glb"
+    request = urllib.request.Request(url, headers={
+        "User-Agent": "shadowops-chronicles-watch/1",
+        "Accept": "model/gltf-binary,application/octet-stream,*/*",
+        "Range": "bytes=0-11",
+        "Cache-Control": "no-cache",
+    })
+    try:
+        with open_no_redirect(request, timeout=10) as response:
+            if response.status not in (200, 206) or response.geturl() != url:
+                return "invalid"
+            if response.status == 206:
+                byte_range = str(response.headers.get("Content-Range", ""))
+                if not byte_range.startswith("bytes 0-11/"):
+                    return "invalid"
+            mime = str(response.headers.get("Content-Type", "")).lower()
+            if "text/html" in mime or "json" in mime:
+                return "invalid"
+            header = response.read(12)
+            if len(header) != 12:
+                return "invalid"
+            magic, version, size = struct.unpack("<4sII", header)
+            return "ok" if magic == b"glTF" and version == 2 and size >= 20 else "invalid"
+    except urllib.error.HTTPError as exc:
+        return "http_" + str(exc.code) if isinstance(exc.code, int) and 400 <= exc.code <= 599 else "http_error"
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError, struct.error):
+        return "unavailable"
 
 
 def get_url(url: str, token: str = "") -> dict:
@@ -238,6 +276,15 @@ def failures(token: str, *, get: Callable = get_url, gh: Callable = github,
         bad[pages_key] = "La portada o los JS/CSS públicos de Chronicles no se sirven correctamente"
     elif pages_key == "pages-edge":
         bad[pages_key] = "El borde/CDN o la conexión HTTPS de Pages no sirve el juego"
+
+    # The release build requires this canonical GLB at deploy time, but a
+    # subsequent missing/corrupt public model would otherwise escape HTML,
+    # entry JS/CSS and manifest health checks.
+    model_result = pages_failure_key(probe_public_glb())
+    if model_result == "pages-game":
+        bad["pages-model"] = "El modelo 3D canónico público no es un GLB válido"
+    elif model_result == "pages-edge":
+        bad["pages-model-edge"] = "El modelo 3D público no responde por CDN/conexión HTTPS"
 
     source = gh("repos/" + ci.SOURCE + "/commits/main", token)
     source_sha = source.get("sha")
@@ -414,7 +461,7 @@ def confirmed_failures(token: str, *, probe: Callable | None = None,
                        pause: Callable | None = None) -> dict[str, str]:
     """Confirm persistent failures; CDN/transport faults need three samples.
 
-    Structural API-health JSON, HTML, JS/CSS and invalid release JSON failures
+    Structural API-health JSON, HTML, JS/CSS, GLB and invalid release JSON failures
     need two samples. Public HTTPS 429/5xx and timeouts need three; a transition
     between edge and structural errors counts as continued unavailability per resource.
     """
