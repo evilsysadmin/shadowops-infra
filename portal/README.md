@@ -104,3 +104,7 @@ The original Blender vault source now adds four genuinely three-dimensional ston
 ## Runtime routing by portal domain (staging vs production)
 
 The **same static built artifact** runs at both Pages origins; route selection is based only on the exact browser hostname, never a query flag or a build-time environment. `staging.shadowops.dpdns.org` links to Chess Studio, Chronicles and Star Adventures **staging**; `shadowops.dpdns.org` links to the corresponding production games. Star Adventures remains disabled in production until a separately verified production deployment exists. Any other hostname (including localhost or a Pages preview) disables external launch links rather than unexpectedly sending users to production. Both the semantic game links and the WebGL-enhanced catalog share this resolver; tests cover destinations and browser behavior under both virtual deployed origins. DNS and the games' deployment ownership are unchanged.
+
+## Visible environment identity on mobile
+
+At 360–430px the standard masthead tagline is intentionally hidden, but staging and preview now show a short, accessible **STAGING** / **PREVIEW** identity beside the brand. Production remains uncluttered. Staging world CTAs say `Entrar · staging ↗` and expose a destination-specific accessible name; production CTAs retain `Visitar mundo ↗`. The environment cannot be set via query string: it still comes solely from the exact browser hostname. Responsive Playwright coverage verifies both destinations, visible mobile identity and no overflow without WebGL.
