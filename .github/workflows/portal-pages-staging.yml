@@ -108,6 +108,13 @@ jobs:
           done
           echo "Public staging HTTPS and artifact checks failed" >&2
           exit 1
+      - name: Preserve exact publicly verified build for future root promotion
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadowops-universe-staging-build-${{ github.sha }}
+          path: portal/dist/
+          if-no-files-found: error
+          retention-days: 45
       - name: Save verified immutable staging receipt
         shell: bash
         run: |
