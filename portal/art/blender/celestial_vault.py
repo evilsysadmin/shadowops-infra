@@ -202,6 +202,51 @@ for sign in [-1,1]:
          (cx+.16,1.84,-2.205),(cx+.31,1.88,-2.205)],
          .011,BRASS,quality=2)
 
+# Sculptural stone infill between the usable gateways.
+# The former entire rear wall was a textured plane: these shaped, irregular
+# limestone/slate surfaces catch real parallax and rim light. They stay BEHIND
+# the already authored gallery-frame pilasters and never cover portal glass.
+# Deliberately broad, quiet relief rather than block courses/low-poly props.
+def sculpted_stone_infill(name, center_x, half_width):
+    x_steps=10
+    y_steps=20
+    verts=[]
+    for iy in range(y_steps+1):
+        t=iy/y_steps
+        y=.38+2.73*t
+        # Recess the perimeter; taper head & foot as in real dressed stone.
+        edge_y=min(1.0, min(t,1-t)*12.0)
+        width=half_width * (0.94+0.04*math.sin(2.0*math.pi*t+.4))
+        for ix in range(x_steps+1):
+            s=ix/x_steps*2.0-1.0
+            x=center_x+s*width
+            edge_x=min(1.0, (1.0-abs(s))*6.0)
+            relief=(.016*math.sin(s*8.1+t*12.7)+
+                    .009*math.cos(s*15.3-t*7.4)+
+                    .014*math.sin(t*17.1+s*5.2))
+            # Fluted geology: irregular vertical mineral grooves.
+            relief-=.014*(math.cos(s*13.0+t*.9)**12)
+            z=-3.15+relief-(1.0-edge_x*edge_y)*.030
+            verts.append((x,y,z))
+    faces=[]
+    cols=x_steps+1
+    for iy in range(y_steps):
+        for ix in range(x_steps):
+            a=iy*cols+ix
+            # Front-facing (+Z) winding: allow GLB normals to catch cool key.
+            faces.append((a,a+1,a+cols+1,a+cols))
+    mesh=bpy.data.meshes.new(name)
+    mesh.from_pydata(verts,[],faces)
+    mesh.update()
+    obj=bpy.data.objects.new(name,mesh)
+    bpy.context.collection.objects.link(obj)
+    for polygon in obj.data.polygons:
+        polygon.use_smooth=True
+    return register(obj,STONE)
+
+for position, half_width in [(-4.53,.25),(-1.61,.39),(1.61,.39),(4.53,.25)]:
+    sculpted_stone_infill("Hand-finished geological wall infill",position,half_width)
+
 # Forecourt: inset, honed-stone approach to all three destinations.
 # This completes the architectural composition without bright UI-like strips.
 # These are truly shaped DCC meshes, merged into the existing THREE PBR groups.

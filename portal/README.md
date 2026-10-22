@@ -96,3 +96,7 @@ Two original recessed lancet niches with double-depth stone and brass archivolts
 ## Architectural grazing lightmap
 
 `galleryArchitecture.js` now uses an entirely deterministic, 256×128 RGBA emissive texture to **gently graze stone around the six side jambs and three upper arch crowns**, in restrained brass/ember/moon-blue tones. Only the existing rear-wall draw receives it: no new meshes, shadow maps, lights, GLBs, files fetched, or per-frame animation. It has a 128 KiB CPU/GPU texture budget and a Node test for color direction, falloff, bytes and bounded brightness. The foreground, floor, portals and no-WebGL/failure navigation are unchanged. This is a material study, not final approved Blender PBR/texturing (#153).
+
+## Carved inter-arch masonry
+
+The original Blender vault source now adds four genuinely three-dimensional stone infill panels behind the structural pilasters and between arch openings. Each uses a smooth 10×20 hand-shaped mesh with tapered edges, shallow mineral grooves and bounded subcentimetre relief, sharing the existing stone PBR material and the same three-material GLB. Unlike a planar decal, these surfaces respond to camera parallax and grazing light. No new material, mesh draw call, CDN request, interaction plane or dynamic light is added. The 1.5 MB GLB budget, responsive Playwright screenshots, geometry limits and deliberate fallback tests remain required. Full premium texture authoring and GPU-hardware certification remain deferred to #153.
