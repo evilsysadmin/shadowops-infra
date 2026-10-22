@@ -1,0 +1,38 @@
+# Star Adventures staging · isolated Cloudflare Pages
+
+**Current status:** contracts only. No DNS, Pages project, TLS certificate, origin or public URL is confirmed live by this document.
+
+## Ownership and endpoint
+
+- Source/build owner: `evilsysadmin/star-adventures` (React/TypeScript/Vite at `frontend/`; no mandatory backend).
+- Infrastructure/release owner: **this repo** (`evilsysadmin/shadowops-infra`).
+- Dedicated Cloudflare Pages project: `staradvs-staging`.
+- Proposed HTTPS hostname: `staging.staradvs.shadowops.dpdns.org`.
+- Immutable source SHA is required for every release; never build from a mutable branch after admission.
+- Separate production hostname `staradvs.shadowops.dpdns.org` remains **out of scope** until staging has a verified live HTTPS build and rollback.
+
+Cloudflare Pages avoids touching the **Chess Studio** tunnel, Render, OCI A1, Chronicle deployments, host ports, SSH credentials or MongoDB. The repository may use the existing infra-only `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets under the staging Actions environment, but these must be verified rather than assumed.
+
+## Safe operations
+
+- `python3 scripts/staradvs_pages.py self-test`: offline contract.
+- `python3 scripts/staradvs_pages.py preflight`: GET-only, verify exact zone, hostname and dedicated project without exposing Cloudflare identifiers or token.
+- `python3 scripts/staradvs_pages.py project`: create the dedicated Pages project only when absent. Reject any existing project that isn't exactly our name/main branch, and any foreign DNS.
+- `python3 scripts/staradvs_pages.py domain`: assign this exact hostname only to this dedicated Pages project; create proxied CNAME to `staradvs-staging.pages.dev` **only if absent**; refuse an existing foreign or ambiguous record.
+- `python3 scripts/staradvs_pages.py verify --sha <40 hex>`: real HTTPS/TLS root + non-fallback JS asset + immutable SHA from `/release.json`. HTTP status from DNS mutation is never enough. No insecure TLS bypass.
+- DNS may need certificate validation/activation by Cloudflare Pages; do not advertise a live URL until HTTPS verification succeeds.
+
+## Release-gating plan
+
+A separately reviewed, trusted-`main` workflow will:
+1. Require the exact source `main` SHA and completed **successful source-main CI** (core, React, browser).
+2. Verify infra `main` is still current and run no Cloudflare mutator on PRs.
+3. Build using a pinned source SHA and `npm ci`; attach exact source SHA as `release.json`.
+4. Ensure isolated Pages project; publish `frontend/dist` using a pinned Wrangler version.
+5. Recheck hostname ownership, associate custom domain, verify HTTPS root/JS/manifest, and record an auditable receipt.
+6. Keep the earlier staging build if admission fails. Serial release lock and no concurrent DNS writers.
+7. Later promote the **same verified source SHA/artifact** to production via independent approval and PR; no production changes in staging onboarding.
+
+A Pages deployment is public. Star Adventures is currently a public source repository; do not include extracted proprietary Trek assets, models, scripts or secret API keys in the build.
+
+See issue [#174](https://github.com/evilsysadmin/shadowops-infra/issues/174).
