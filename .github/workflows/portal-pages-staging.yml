@@ -26,7 +26,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: shadowops-universe-staging-pages
+  group: shadowops-universe-staging-pages-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'release' }}
   cancel-in-progress: false
 jobs:
   contracts:
