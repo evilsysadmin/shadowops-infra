@@ -144,7 +144,8 @@ def open_no_redirect(request: urllib.request.Request, *, timeout: int):
 def probe_public_glb() -> str:
     """Check the canonical 3D model's public GLB header, not just its URL.
 
-    Require exact 206/Content-Range size for a successful range response.
+    Require exact 206/Content-Range size and the mandatory JSON chunk header
+    for a successful range response.
     If the CDN ignores Range and returns 200, read the complete body in bounded
     chunks and verify its actual length against the embedded GLB size, even
     if Content-Length claims to be correct. This avoids accepting a 12-byte
@@ -155,7 +156,7 @@ def probe_public_glb() -> str:
     request = urllib.request.Request(url, headers={
         "User-Agent": "shadowops-chronicles-watch/1",
         "Accept": "model/gltf-binary,application/octet-stream,*/*",
-        "Range": "bytes=0-11",
+        "Range": "bytes=0-19",
         "Cache-Control": "no-cache",
     })
     try:
@@ -168,7 +169,7 @@ def probe_public_glb() -> str:
                 # object size. A plausible glTF header with an inconsistent
                 # CDN range response is not proof of a usable public model.
                 byte_range = str(response.headers.get("Content-Range", ""))
-                match = re.fullmatch(r"bytes 0-11/([1-9][0-9]*)", byte_range)
+                match = re.fullmatch(r"bytes 0-19/([1-9][0-9]*)", byte_range)
                 if match is None:
                     return "invalid"
                 total = int(match.group(1))
@@ -177,16 +178,20 @@ def probe_public_glb() -> str:
                 content_length = str(content_length)
                 if not content_length.isascii() or not content_length.isdecimal():
                     return "invalid"
-                if response.status == 206 and int(content_length) != 12:
+                if response.status == 206 and int(content_length) != 20:
                     return "invalid"
             mime = str(response.headers.get("Content-Type", "")).lower()
             if "text/html" in mime or "json" in mime:
                 return "invalid"
-            header = response.read(12)
-            if len(header) != 12:
+            header = response.read(20)
+            if len(header) != 20:
                 return "invalid"
-            magic, version, size = struct.unpack("<4sII", header)
-            if magic != b"glTF" or version != 2 or size < 20:
+            magic, version, size, json_length, chunk_type = struct.unpack("<4sIII4s", header)
+            # GLB 2.0 requires a first JSON chunk. A valid 12-byte file
+            # header alone is not proof the model is even structurally usable.
+            if (magic != b"glTF" or version != 2 or size < 24 or
+                    chunk_type != b"JSON" or json_length < 4 or
+                    json_length % 4 != 0 or json_length > size - 20):
                 return "invalid"
             if response.status == 206:
                 return "ok" if total == size else "invalid"
