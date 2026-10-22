@@ -1,0 +1,7 @@
+# Trusted CI art reuse for Universe staging
+
+When the portal's **Git tree SHA** exactly equals `51381d6246b05ba90bed256e94001b15ff0a46a7`, the staging release may reuse the fully tested and completed [portal CI #39793813918](https://github.com/evilsysadmin/shadowops-infra/actions/runs/39793813918) artifact `portal-compiled-art`. The head of that run was `d5f890f38b9be1d479f52e472e5dee1f58213353`, whose portal tree hash matches production's unchanged portal tree. These assets were **exported with Blender and verified in Chromium**.
+
+The selector requires an exact head SHA, run ID, completed success, nonexpired artifact and minimum reasonable size. Missing/expired evidence or changed portal source falls back to the original mandatory Blender export; it never skips art generation. For reuse, the workflow runs existing unit tests against generated GLB files and Vite directly (avoids lifecycle hooks that would regenerate models). The normal release manifest still hashes **all six** GLBs and public staging HTTPS checks every GLB digest.
+
+The release concurrency generation was advanced because an older run was hanging **before** its mutation steps. Its existing portal-sensitive SHA admission will fail before publishing if the new workflow changes; the replacement staging and root release use their own serialized generation. This is a controlled pipeline repair, not a waiver of DNS/TLS checks.

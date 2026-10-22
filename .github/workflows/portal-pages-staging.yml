@@ -8,6 +8,8 @@ on:
       - 'tests/test_portal_release.py'
       - '.github/workflows/portal-pages-staging.yml'
       - 'scripts/portal_main_admission.py'
+      - 'scripts/portal_ci_artifact.py'
+      - 'tests/test_portal_ci_artifact.py'
       - 'tests/test_portal_main_admission.py'
   push:
     branches: [main]
@@ -19,6 +21,8 @@ on:
       - 'tests/test_portal_release.py'
       - '.github/workflows/portal-pages-staging.yml'
       - 'scripts/portal_main_admission.py'
+      - 'scripts/portal_ci_artifact.py'
+      - 'tests/test_portal_ci_artifact.py'
       - 'tests/test_portal_main_admission.py'
       - 'scripts/portal_root_release.py'
       - '.github/workflows/portal-root-release.yml'
@@ -26,7 +30,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: shadowops-universe-staging-pages-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'release' }}
+  group: shadowops-universe-staging-pages-reuse2-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'release' }}
   cancel-in-progress: false
 jobs:
   contracts:
@@ -38,6 +42,7 @@ jobs:
       - run: python3 -m unittest discover -s tests -p 'test_portal_pages.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_portal_release.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_portal_main_admission.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_portal_ci_artifact.py' -v
       - run: python3 scripts/portal_pages.py self-test
       - run: python3 -m py_compile scripts/portal_pages.py scripts/portal_release.py
   release:
@@ -66,21 +71,45 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/portal_main_admission.py
-      - name: Install Blender and isolated portal dependencies
+      - name: Use proven CI GLBs only for identical portal source tree
+        id: art
+        shell: bash
+        run: |
+          set -euo pipefail
+          mode="$(python3 scripts/portal_ci_artifact.py)"
+          [[ "$mode" == "ci" || "$mode" == "blender" ]]
+          echo "source=$mode" >> "$GITHUB_OUTPUT"
+          echo "SHADOWOPS_UNIVERSE_ART_SOURCE=$mode"
+      - name: Reuse previously tested content-addressed Blender art
+        if: steps.art.outputs.source == 'ci'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run download 39793813918 -R "$GITHUB_REPOSITORY"             -n portal-compiled-art -D portal
+          test -n "$(find portal/public/art -name 'celestial-vault-*.glb' -print -quit)"
+          test -s portal/src/vaultAsset.generated.mjs
+      - name: Install Blender only when source changed or CI art expired
+        if: steps.art.outputs.source == 'blender'
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends blender python3-numpy
-          npm install --prefix portal --ignore-scripts --no-audit --no-fund
-      - name: Build GLB-backed static portal and run its unit tests
+      - name: Install isolated portal dependencies
+        run: npm install --prefix portal --ignore-scripts --no-audit --no-fund
+      - name: Build identical source with preverified GLBs or fresh Blender export
         working-directory: portal
         shell: bash
         run: |
           set -euo pipefail
           npm run check
-          npm test
-          npm run build
+          if [[ "${{ steps.art.outputs.source }}" == "ci" ]]; then
+            node --test tests/*.test.mjs
+            npx vite build
+          else
+            npm test
+            npm run build
+          fi
           test -s dist/index.html
           test -n "$(find dist/assets -maxdepth 1 -name '*.js' -print -quit)"
       - name: Emit exact immutable public build identity and six GLB digests
