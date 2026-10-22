@@ -321,7 +321,7 @@ class WatchTest(unittest.TestCase):
         writes = []
 
         def api(path, token, *, method="GET", payload=None):
-            if path.endswith("/issues?state=open&per_page=100"):
+            if path.endswith("/issues?state=open&per_page=100&page=1"):
                 return open_issues
             writes.append((method, path, payload))
             if method == "POST":
@@ -434,6 +434,102 @@ class WatchTest(unittest.TestCase):
             with self.subTest(data=data):
                 with self.assertRaisesRegex(RuntimeError, "Malformed"):
                     watch.existing_issue("t", gh=gh(data))
+
+    def test_existing_issue_is_found_past_first_100_issues_and_prs(self):
+        calls = []
+        first_page = [
+            {"number": i, "title": f"unrelated-{i}", "body": ""}
+            for i in range(1, 96)
+        ] + [
+            {"number": i, "title": watch.TITLE, "body": "PR only",
+             "pull_request": {"url": "https://example.invalid/pr"}}
+            for i in range(96, 101)
+        ]
+        original = {"number": 194, "title": watch.TITLE,
+                    "body": watch.diagnostic_body({"api-health": "down"})}
+        def api(path, token, *, method="GET", payload=None):
+            calls.append((method, path, payload))
+            if path.endswith("&page=1"):
+                return first_page
+            if path.endswith("&page=2"):
+                return [original]
+            self.fail("Pagination must stop after short second page")
+        self.assertEqual(watch.existing_issue("t", gh=api), original)
+        self.assertEqual([x[1].split("&page=")[-1] for x in calls], ["1", "2"])
+        self.assertEqual(watch.manage_issue("t", {"api-health": "down"}, gh=api),
+                         "CHRONICLES_STAGING_WATCH_ALREADY_OPEN")
+        self.assertEqual(len([x for x in calls if x[0] != "GET"]), 0)
+
+    def test_unrelated_full_page_followed_by_empty_page_proves_absence(self):
+        calls = []
+        first_page = [
+            {"number": i, "title": "not-a-watchdog-incident", "body": ""}
+            for i in range(1, 101)
+        ]
+        def api(path, token, *, method="GET", payload=None):
+            calls.append((method, path))
+            if path.endswith("&page=1"):
+                return first_page
+            if path.endswith("&page=2"):
+                return []
+            if method == "POST":
+                self.fail("POST must only occur after complete enumeration")
+            self.fail("Unexpected page")
+        self.assertIsNone(watch.existing_issue("t", gh=api))
+        self.assertEqual(len(calls), 2)
+
+    def test_duplicate_open_watchdog_incidents_fail_closed(self):
+        one = {"number": 20, "title": watch.TITLE, "body": "A"}
+        two = {"number": 300, "title": watch.TITLE, "body": "B"}
+        def api(path, token, *, method="GET", payload=None):
+            if path.endswith("&page=1"):
+                return [one] + [
+                    {"number": i, "title": "other", "body": ""}
+                    for i in range(101, 200)
+                ]
+            if path.endswith("&page=2"):
+                return [two]
+            self.fail("Unexpected page")
+        with self.assertRaisesRegex(RuntimeError, "Multiple open"):
+            watch.existing_issue("t", gh=api)
+        with self.assertRaisesRegex(RuntimeError, "Multiple open"):
+            watch.manage_issue("t", {"pages-game": "down"}, gh=api)
+
+    def test_unproven_pagination_completeness_fails_closed(self):
+        calls = []
+        full_page = [
+            {"number": i, "title": "other", "body": ""}
+            for i in range(100)
+        ]
+        def api(path, token, *, method="GET", payload=None):
+            self.assertEqual(method, "GET", "No mutation when listing is incomplete")
+            calls.append(path)
+            return full_page
+        with self.assertRaisesRegex(RuntimeError, "pagination limit"):
+            watch.manage_issue("t", {"api-health": "down"}, gh=api)
+        self.assertEqual(len(calls), watch.MAX_ISSUE_PAGES)
+        self.assertTrue(calls[-1].endswith("&page=" + str(watch.MAX_ISSUE_PAGES)))
+
+    def test_malformed_later_issue_page_or_transport_error_never_creates_issue(self):
+        first_page = [
+            {"number": i, "title": "other", "body": ""}
+            for i in range(100)
+        ]
+        for last in ({"items": []}, first_page + [{"number": 999}],
+                     RuntimeError("GitHub API unavailable")):
+            with self.subTest(last=str(type(last))):
+                calls = []
+                def api(path, token, *, method="GET", payload=None):
+                    self.assertEqual(method, "GET")
+                    calls.append(path)
+                    if path.endswith("&page=1"):
+                        return first_page
+                    if isinstance(last, Exception):
+                        raise last
+                    return last
+                with self.assertRaises(RuntimeError):
+                    watch.manage_issue("t", {"api-health": "down"}, gh=api)
+                self.assertEqual(len(calls), 2)
 
     def test_mixed_signal_intersection_filters_transient_failure(self):
         first = {"api-health": "down", "frontend-lag": "lag"}
