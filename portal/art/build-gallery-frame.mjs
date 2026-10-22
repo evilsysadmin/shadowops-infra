@@ -5,9 +5,9 @@ import { GlbSculpture, writeManifest } from './glbWriter.mjs';
 // Geometry/materials are independent from UI/lighting/raycast. No Blender
 // runtime, CDN request, external models or binary checked into Git.
 const pbr=[
-  {name:'Midnight honed stone',pbrMetallicRoughness:{baseColorFactor:[.14,.175,.225,1],metallicFactor:.035,roughnessFactor:.86},doubleSided:true},
-  {name:'Aged satin brass',pbrMetallicRoughness:{baseColorFactor:[.51,.38,.235,1],metallicFactor:.76,roughnessFactor:.36},doubleSided:true},
-  {name:'Carved slate shadow',pbrMetallicRoughness:{baseColorFactor:[.072,.089,.115,1],metallicFactor:.035,roughnessFactor:.94},doubleSided:true},
+  {name:'Midnight honed stone',pbrMetallicRoughness:{baseColorFactor:[.038,.049,.068,1],metallicFactor:.035,roughnessFactor:.86},doubleSided:true},
+  {name:'Aged satin brass',pbrMetallicRoughness:{baseColorFactor:[.29,.205,.11,1],metallicFactor:.76,roughnessFactor:.36},doubleSided:true},
+  {name:'Carved slate shadow',pbrMetallicRoughness:{baseColorFactor:[.013,.019,.029,1],metallicFactor:.035,roughnessFactor:.94},doubleSided:true},
 ];
 const model=new GlbSculpture(pbr);
 const part=(geo,mat=0,pos=[0,0,0],rot=[0,0,0])=>model.part(geo,mat,pos,rot);
@@ -56,9 +56,9 @@ for(const x of [-4.45,-1.60,1.60,4.45]) {
  part(new THREE.CylinderGeometry(.13,.15,.105,32),1,[x,2.78,-1.40]);
 }
 // Continuous cornice above all three worlds; subtle lattice engraved in.
-part(new THREE.BoxGeometry(12,.26,.44),0,[0,4.04,-1.31]);
+part(new THREE.BoxGeometry(12,.15,.40),0,[0,3.98,-1.31]);
 part(new THREE.BoxGeometry(11.5,.09,.25),1,[0,3.78,-1.18]);
-part(new THREE.BoxGeometry(11.7,.045,.25),2,[0,4.19,-1.19]);
+part(new THREE.BoxGeometry(11.7,.028,.24),2,[0,4.08,-1.19]);
 for(let i=0;i<48;i++) {
  const x=-5.64+i*(11.28/47);
  part(new THREE.BoxGeometry(i%6===0?.031:.016,.055,.019),1,[x,3.877,-1.075]);
