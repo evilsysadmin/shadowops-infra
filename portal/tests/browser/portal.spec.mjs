@@ -221,3 +221,39 @@ test('WebGL sleeps offscreen and resumes without losing the selected world', asy
   await expect(stage).toHaveAttribute('data-focus-world', 'chronicles');
   await expect(page.locator('.detail-title')).toHaveText('Chronicles');
 });
+
+test('pointer and keyboard gateway previews animate only the 3D focus, not selection', async ({page}) => {
+  await page.setViewportSize({width: 1440, height: 900});
+  await page.emulateMedia({reducedMotion: 'reduce'});
+  await page.goto('/');
+  const stage = page.locator('.stage');
+  await page.locator('.stage-area').scrollIntoViewIfNeeded();
+  await expect(stage).toHaveAttribute('data-scene', 'active', {timeout: 15000});
+  await expect(stage).toHaveAttribute('data-focus-world', 'chess');
+
+  const chess = page.getByRole('button', {name: /Chess Studio/});
+  const chronicles = page.getByRole('button', {name: /Chronicles/});
+  const star = page.getByRole('button', {name: /Star Adventures/});
+
+  await chronicles.hover();
+  await expect(stage).toHaveAttribute('data-focus-world', 'chronicles');
+  await expect(page.locator('.detail-title')).toHaveText('Chess Studio');
+  await expect(chess).toHaveAttribute('aria-pressed', 'true');
+  await expect(chronicles).toHaveAttribute('aria-pressed', 'false');
+
+  await page.locator('.headline').hover();
+  await expect(stage).toHaveAttribute('data-focus-world', 'chess');
+
+  await star.focus();
+  await expect(stage).toHaveAttribute('data-focus-world', 'star');
+  await expect(page.locator('.detail-title')).toHaveText('Chess Studio');
+  await expect(star).toHaveAttribute('aria-pressed', 'false');
+
+  await page.locator('.brand').focus();
+  await expect(stage).toHaveAttribute('data-focus-world', 'chess');
+
+  await chronicles.click();
+  await expect(stage).toHaveAttribute('data-focus-world', 'chronicles');
+  await expect(page.locator('.detail-title')).toHaveText('Chronicles');
+  await expect(chronicles).toHaveAttribute('aria-pressed', 'true');
+});
