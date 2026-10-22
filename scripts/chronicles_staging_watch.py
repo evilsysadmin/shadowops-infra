@@ -265,10 +265,14 @@ def manage_issue(token: str, persistent: dict[str, str], *, gh: Callable = githu
             # too. One good reading can be a momentary CDN/API recovery.
             # Do not add a delay to healthy staging without an open incident.
             print("CHRONICLES_STAGING_WATCH_RECOVERY_CONFIRM", flush=True)
+            read = probe or failures
+            if read(token):
+                # confirmed_failures() can yield no persistent intersection
+                # even when individual samples had different errors. Require
+                # two NEW completely healthy samples for safe auto-closure.
+                return "CHRONICLES_STAGING_WATCH_RECOVERY_UNCONFIRMED"
             (pause or time.sleep)(RECHECK_SECONDS)
-            if (probe or failures)(token):
-                # Never close or replace a confirmed incident using a single
-                # new failure sample. The next scheduled watch re-evaluates it.
+            if read(token):
                 return "CHRONICLES_STAGING_WATCH_RECOVERY_UNCONFIRMED"
             gh(f"repos/{INFRA}/issues/{issue['number']}", token, method="PATCH",
                payload={"state": "closed", "state_reason": "completed"})
