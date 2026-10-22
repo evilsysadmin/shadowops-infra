@@ -152,7 +152,7 @@ export function mountObservatory(container, onSelect) {
     camera.updateProjectionMatrix();
     renderer.setSize(Math.max(1, width), Math.max(1, height), false);
     // Resize clears a canvas; reduced-motion mode has no continuous redraw.
-    if (reduceMotion && firstFrameRendered) paint(true);
+    if (reduceMotion && firstFrameRendered) paint();
   }
   const observer = new ResizeObserver(resize);
   observer.observe(container);
@@ -160,7 +160,7 @@ export function mountObservatory(container, onSelect) {
 
   // Painting and frame scheduling are intentionally separate: rAF passes a
   // timestamp, NOT a Boolean "force". A hidden tab must never force a draw.
-  function paint(force = false) {
+  function paint() {
     if (disposed || !stageInViewport || document.visibilityState !== 'visible') return;
     const time = reduceMotion ? 0 : (sceneTime += Math.min(.06, clock.getDelta()));
     yaw = reduceMotion ? desiredYaw : yaw + (desiredYaw - yaw) * .055;
@@ -206,7 +206,7 @@ export function mountObservatory(container, onSelect) {
     // Consume elapsed clock time so an offscreen interval never animates ahead.
     clock.getDelta();
     lastPaint = 0;
-    paint(true);
+    paint();
     container.dataset.renderState = reduceMotion ? 'still' : 'running';
     if (!reduceMotion && !frame) frame = requestAnimationFrame(onFrame);
   }
@@ -252,14 +252,14 @@ export function mountObservatory(container, onSelect) {
       if(disposed)return;
       scene.add(asset.scene);
       container.dataset.galleryFrame='loaded';
-      paint(true);
+      paint();
     })
     .catch(error=>{
       if(disposed)return;
       console.warn('ShadowOps gallery frame unavailable; using fallback masonry.',error);
       gallery.activateFallback();
       container.dataset.galleryFrame='fallback';
-      paint(true);
+      paint();
     });
 
   // Blender-authored environment asset. The game catalog and portal hit
@@ -283,7 +283,7 @@ export function mountObservatory(container, onSelect) {
       }
       scene.add(data.scene);
       container.dataset.celestialVault='loaded';
-      paint(true);
+      paint();
     }).catch(error=>{
       if(disposed)return;
       console.warn('Optional observatory vault unavailable; gallery remains usable.',error);
@@ -305,7 +305,7 @@ export function mountObservatory(container, onSelect) {
         scene.add(art);
       }
       container.dataset.artAsset = 'loaded';
-      paint(true);
+      paint();
     }).catch(error => {
       if (disposed) return;
       console.warn('ShadowOps optional GLB unavailable; keeping playable portals.',error);
@@ -330,7 +330,7 @@ export function mountObservatory(container, onSelect) {
         mounts.push(entries[i]);
       });
       container.dataset.worldRelics = mounts.length === 3 ? 'loaded' : 'partial';
-      paint(true);
+      paint();
     }).catch(error => {
       if(disposed)return;
       console.warn('ShadowOps optional relics unavailable',error);
@@ -348,7 +348,7 @@ export function mountObservatory(container, onSelect) {
       focus = id;
       // Keep all three doors in frame: cinematography, not camera hijacking.
       targetShift = moveCamera ? (index - 1) * .32 : 0;
-      if (reduceMotion) paint(true);
+      if (reduceMotion) paint();
     },
     destroy() {
       disposed = true;
