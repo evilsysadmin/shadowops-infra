@@ -39,6 +39,82 @@ class WatchTest(unittest.TestCase):
         self.game_probe = mocked.start()
         self.addCleanup(mocked.stop)
 
+    def test_advanced_source_main_suppresses_only_obsolete_sha_drift(self):
+        newer = "b" * 40
+        seen = []
+        def advancing_gh(path, token, **kwargs):
+            if path.endswith("/commits/main"):
+                seen.append("main")
+                return {"sha": SHA if len(seen) == 1 else newer}
+            return gh(path, token, **kwargs)
+        def older_pages(address, token=""):
+            if "/release.json?" in address:
+                return {"build": newer}
+            return url(address, token)
+        with patch.object(watch, "source_ci_status", return_value=("ready", OLD)):
+            with patch.object(watch.receipts, "evidence_ok", return_value=False):
+                with patch.object(watch.receipts, "public_api_revision_state",
+                                  return_value="different"):
+                    self.game_probe.return_value = "js_mime"
+                    bad = watch.failures(
+                        "t", get=older_pages, gh=advancing_gh, now=NOW)
+        # Pages JS truly is broken, but the release-lag evidence was collected
+        # against an old source SHA, which is no longer the protected main.
+        self.assertEqual(set(bad), {"pages-game"})
+        self.assertEqual(seen, ["main", "main"])
+
+    def test_stable_source_main_keeps_valid_deployment_drift_alerts(self):
+        calls = []
+        def stable_gh(path, token, **kwargs):
+            if path.endswith("/commits/main"):
+                calls.append(path)
+            return gh(path, token, **kwargs)
+        def older_pages(address, token=""):
+            if "/release.json?" in address:
+                return {"build": "b" * 40}
+            return url(address, token)
+        with patch.object(watch, "source_ci_status", return_value=("ready", OLD)):
+            with patch.object(watch.receipts, "evidence_ok", return_value=False):
+                with patch.object(watch.receipts, "public_api_revision_state",
+                                  return_value="different"):
+                    bad = watch.failures(
+                        "t", get=older_pages, gh=stable_gh, now=NOW)
+        self.assertEqual(set(bad),
+                         {"frontend-lag", "backend-lag", "api-revision"})
+        self.assertEqual(len(calls), 2)
+
+    def test_no_extra_source_main_read_during_green_ci_grace_or_pending(self):
+        for ci_status in (("pending", None),
+                          ("ready", NOW - dt.timedelta(minutes=5))):
+            with self.subTest(ci_status=ci_status):
+                seen = []
+                def tracked_gh(path, token, **kwargs):
+                    if path.endswith("/commits/main"):
+                        seen.append(path)
+                    return gh(path, token, **kwargs)
+                with patch.object(watch, "source_ci_status", return_value=ci_status):
+                    self.assertEqual(watch.failures(
+                        "t", get=url, gh=tracked_gh, now=NOW), {})
+                self.assertEqual(len(seen), 1)
+
+    def test_unverifiable_latest_source_sha_fails_closed_before_drift_alert(self):
+        for value in (None, "not-a-sha", {"sha": "short"}):
+            with self.subTest(value=value):
+                reads = []
+                def malformed_gh(path, token, **kwargs):
+                    if path.endswith("/commits/main"):
+                        reads.append(path)
+                        return {"sha": SHA} if len(reads) == 1 else value
+                    return gh(path, token, **kwargs)
+                with patch.object(watch, "source_ci_status",
+                                  return_value=("ready", OLD)):
+                    with patch.object(watch.receipts, "evidence_ok",
+                                      return_value=False):
+                        with self.assertRaisesRegex(RuntimeError,
+                                                   "Cannot revalidate protected"):
+                            watch.failures("t", get=url, gh=malformed_gh, now=NOW)
+                self.assertEqual(len(reads), 2)
+
     def test_ci_grace_starts_when_last_verified_workflow_finished(self):
         source = {
             "sha": SHA,

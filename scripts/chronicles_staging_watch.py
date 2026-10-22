@@ -31,6 +31,7 @@ RECHECK_SECONDS = 90
 MAX_PUBLIC_JSON_BYTES = 64 * 1024
 ISSUES_PER_PAGE = 100
 MAX_ISSUE_PAGES = 20  # Fail closed instead of creating duplicates if enumeration is incomplete.
+VERSION_FAILURE_KEYS = frozenset({"frontend-lag", "backend-lag", "api-revision"})
 CONFIRM_FAMILIES = {
     "api": ("api-health", "api-health-edge"),
     "game": ("pages-game", "pages-edge"),
@@ -278,6 +279,21 @@ def failures(token: str, *, get: Callable = get_url, gh: Callable = github,
             bad["api-revision"] = "No se puede verificar el SHA servido por la API pública"
         elif revision != "match":
             raise RuntimeError("Unexpected public API revision state")
+
+    # CI checks and public HTTPS reads take time. Other PRs can merge into
+    # source/main while this probe is running; an older admitted SHA must not
+    # produce a false release-drift issue about the NEW protected main.
+    # Recheck only when there is a version-specific complaint, preserving
+    # independent live health/Pages availability incidents.
+    if VERSION_FAILURE_KEYS & bad.keys():
+        current = gh("repos/" + ci.SOURCE + "/commits/main", token)
+        current_sha = current.get("sha") if isinstance(current, dict) else None
+        if not isinstance(current_sha, str) or not ci.SHA.fullmatch(current_sha):
+            raise RuntimeError("Cannot revalidate protected Chronicles source")
+        if current_sha != source_sha:
+            for key in VERSION_FAILURE_KEYS:
+                bad.pop(key, None)
+            print("CHRONICLES_STAGING_WATCH_SOURCE_ADVANCED", flush=True)
     return bad
 
 
