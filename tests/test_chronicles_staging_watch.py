@@ -26,6 +26,42 @@ def url(url, token=""):
 
 
 class WatchTest(unittest.TestCase):
+    def setUp(self):
+        # Existing unit tests use a synthetic HTTP manifest; keep the public
+        # HTML + asset probe deterministic without making network requests.
+        mocked = patch.object(watch.pages, "probe_react_preview", return_value="ok")
+        self.game_probe = mocked.start()
+        self.addCleanup(mocked.stop)
+
+    @patch.object(watch.ci, "inspect", return_value="pending")
+    def test_game_entry_is_checked_even_while_source_ci_is_pending(self, _):
+        self.game_probe.return_value = "js_content"
+        bad = watch.failures("t", get=url, gh=gh, now=NOW)
+        self.assertEqual(set(bad), {"pages-game"})
+        self.game_probe.assert_called_once_with(
+            path="/", assets=b"/assets/", manifest_path=None
+        )
+
+    @patch.object(watch.receipts, "public_api_revision_state", return_value="match")
+    @patch.object(watch.receipts, "evidence_ok", return_value=True)
+    @patch.object(watch.ci, "inspect", return_value="ready")
+    def test_manifest_and_api_healthy_cannot_hide_broken_game_assets(self, _, __, ___):
+        for state in ("html_missing", "js_reference", "js_mime",
+                      "css_reference", "css_content", "http_404", "unavailable"):
+            with self.subTest(state=state):
+                self.game_probe.return_value = state
+                self.assertEqual(set(watch.failures("t", get=url, gh=gh, now=NOW)),
+                                 {"pages-game"})
+        self.game_probe.return_value = "ok"
+        self.assertEqual(watch.failures("t", get=url, gh=gh, now=NOW), {})
+
+    @patch.object(watch.ci, "inspect", return_value="pending")
+    def test_watchdog_cannot_probe_a_different_pages_environment(self, _):
+        with patch.object(watch.pages, "HOST", "chronicles.shadowops.dpdns.org"):
+            with self.assertRaisesRegex(RuntimeError, "pinned staging origin"):
+                watch.failures("t", get=url, gh=gh, now=NOW)
+        self.game_probe.assert_not_called()
+
     @patch.object(watch.receipts, "public_api_revision_state", return_value="match")
     @patch.object(watch.ci, "inspect", return_value="ready")
     def test_fully_green_but_missing_api_receipt_is_reported_after_grace(self, _, __):
