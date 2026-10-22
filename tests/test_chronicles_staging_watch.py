@@ -22,7 +22,11 @@ def gh(path, token, *, method="GET", payload=None):
     return {"id": 123}
 
 
-def url(url, token=""):
+def url(address, token=""):
+    if address.endswith("/health"):
+        return {"ok": True}
+    if address.endswith("/ready"):
+        return {"ok": True, "storage": "mongo"}
     return {"build": SHA}
 
 
@@ -33,6 +37,44 @@ class WatchTest(unittest.TestCase):
         mocked = patch.object(watch.pages, "probe_react_preview", return_value="ok")
         self.game_probe = mocked.start()
         self.addCleanup(mocked.stop)
+
+    @patch.object(watch.ci, "inspect", return_value="pending")
+    def test_api_health_and_readiness_payload_contract_is_required(self, _):
+        baseline = watch.failures("t", get=url, gh=gh, now=NOW)
+        self.assertEqual(baseline, {})
+        cases = (
+            ("/health", {"detail": "gateway error"}),
+            ("/health", {"ok": False}),
+            ("/health", {"ok": 1}),
+            ("/health", []),
+            ("/health", None),
+            ("/ready", {"detail": "db unavailable"}),
+            ("/ready", {"ok": False, "storage": "mongo"}),
+            ("/ready", {"ok": 1, "storage": "mongo"}),
+            ("/ready", {"ok": True}),
+            ("/ready", {"ok": True, "storage": "redis"}),
+            ("/ready", ["ok"]),
+        )
+        for suffix, payload in cases:
+            with self.subTest(route=suffix, payload=payload):
+                def response(address, token=""):
+                    if address.endswith(suffix):
+                        return payload
+                    return url(address, token)
+                self.assertEqual(set(watch.failures(
+                    "t", get=response, gh=gh, now=NOW)), {"api-health"})
+
+    @patch.object(watch.receipts, "evidence_ok", return_value=True)
+    @patch.object(watch.ci, "inspect", return_value="ready")
+    def test_false_healthy_ready_payload_suppresses_revision_probe(self, _, __):
+        def response(address, token=""):
+            if address.endswith("/ready"):
+                return {"ok": True, "storage": "not-mongo"}
+            return url(address, token)
+        with patch.object(watch.receipts, "public_api_revision_state") as live:
+            bad = watch.failures("t", get=response, gh=gh, now=NOW)
+            self.assertEqual(set(bad), {"api-health"})
+            live.assert_not_called()
 
     @patch.object(watch.ci, "inspect", return_value="pending")
     def test_game_entry_is_checked_even_while_source_ci_is_pending(self, _):
@@ -101,7 +143,7 @@ class WatchTest(unittest.TestCase):
         def degraded(address, token=""):
             if address.endswith("/health"):
                 raise ValueError("HTTP health is degraded")
-            return {"build": SHA}
+            return url(address)
         with patch.object(watch.receipts, "public_api_revision_state") as live:
             self.assertEqual(set(watch.failures("t", get=degraded, gh=gh, now=NOW)),
                              {"api-health"})
@@ -206,7 +248,7 @@ class WatchTest(unittest.TestCase):
             def get(address, token=""):
                 if "/release.json?" in address:
                     raise failure
-                return {"build": SHA}
+                return url(address)
             return watch.failures("t", get=get, gh=gh, now=NOW)
 
         for code in (429, 500, 503, 522, 599):
@@ -229,7 +271,7 @@ class WatchTest(unittest.TestCase):
         for manifest in ([], None, {}, {"build": "not-a-sha"}, {"build": 12}):
             with self.subTest(manifest=manifest):
                 def get(address, token=""):
-                    return manifest if "/release.json?" in address else {"build": SHA}
+                    return manifest if "/release.json?" in address else url(address)
                 self.assertEqual(set(watch.failures("t", get=get, gh=gh, now=NOW)),
                                  {"pages-manifest"})
 
@@ -243,12 +285,12 @@ class WatchTest(unittest.TestCase):
                 def get(address, token=""):
                     if "/release.json?" in address:
                         raise outcome
-                    return {"build": SHA}
+                    return url(address)
                 bad = watch.failures("t", get=get, gh=gh, now=NOW)
                 self.assertEqual(set(bad), {key})
                 self.assertNotIn("frontend-lag", bad)
         def older(address, token=""):
-            return {"build": "b" * 40} if "/release.json?" in address else {"build": SHA}
+            return {"build": "b" * 40} if "/release.json?" in address else url(address)
         self.assertEqual(set(watch.failures("t", get=older, gh=gh, now=NOW)),
                          {"frontend-lag"})
 
