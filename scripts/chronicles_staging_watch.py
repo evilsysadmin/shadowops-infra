@@ -119,13 +119,30 @@ def source_ci_status(sha: str, token: str) -> tuple[str, dt.datetime | None]:
     return verdict, max(completed)
 
 
+class RejectHttpRedirects(urllib.request.HTTPRedirectHandler):
+    """Do not follow redirects, especially with a GitHub bearer token."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def open_no_redirect(request: urllib.request.Request, *, timeout: int):
+    if not request.full_url.startswith("https://"):
+        raise ValueError("Watchdog HTTPS transport requires HTTPS")
+    # urllib's default redirect handler can carry request headers to the next
+    # destination. Block redirects before any Authorization header is resent.
+    return urllib.request.build_opener(RejectHttpRedirects()).open(
+        request, timeout=timeout
+    )
+
+
 def get_url(url: str, token: str = "") -> dict:
     headers = {"Accept": "application/vnd.github+json" if token else "application/json",
                "User-Agent": "shadowops-chronicles-watch/1"}
     if token:
         headers["Authorization"] = "Bearer " + token
     request = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(request, timeout=15) as response:
+    with open_no_redirect(request, timeout=15) as response:
         # urllib follows redirects silently by default. A valid JSON payload
         # from a login page, foreign origin or another path must never count
         # as the requested public health/release endpoint (nor a GitHub read).
@@ -162,7 +179,9 @@ def github(path: str, token: str, *, method="GET", payload=None) -> dict:
                  "Accept": "application/vnd.github+json",
                  "Content-Type": "application/json",
                  "User-Agent": "shadowops-chronicles-watch/1"})
-    with urllib.request.urlopen(request, timeout=20) as response:
+    with open_no_redirect(request, timeout=20) as response:
+        if response.status not in (200, 201) or response.geturl() != request.full_url:
+            raise ValueError("Unexpected GitHub mutation status or redirect")
         return json.load(response)
 
 

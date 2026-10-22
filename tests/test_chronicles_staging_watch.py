@@ -156,7 +156,7 @@ class WatchTest(unittest.TestCase):
             self.assertEqual(timeout, 15)
             return Response(req)
 
-        with patch.object(watch.urllib.request, "urlopen", side_effect=mock_open):
+        with patch.object(watch, "open_no_redirect", side_effect=mock_open):
             self.assertEqual(watch.get_url(url), {"build": SHA})
         self.assertEqual(requested[0].full_url, url)
         self.assertIsNone(requested[0].get_header("Authorization"))
@@ -170,13 +170,13 @@ class WatchTest(unittest.TestCase):
             with self.subTest(destination=destination):
                 def redirect(req, timeout):
                     return Response(req, final=destination)
-                with patch.object(watch.urllib.request, "urlopen", side_effect=redirect):
+                with patch.object(watch, "open_no_redirect", side_effect=redirect):
                     with self.assertRaisesRegex(ValueError, "redirect"):
                         watch.get_url(url)
 
         for status in (204, 302, 418, 503):
             with self.subTest(status=status):
-                with patch.object(watch.urllib.request, "urlopen",
+                with patch.object(watch, "open_no_redirect",
                                   side_effect=lambda req, timeout: Response(req, status=status)):
                     with self.assertRaisesRegex(ValueError, "status"):
                         watch.get_url(url)
@@ -210,7 +210,7 @@ class WatchTest(unittest.TestCase):
         for mime in ("text/html", "text/plain", "application/javascript", "",
                      "application/octet-stream"):
             with self.subTest(mime=mime):
-                with patch.object(watch.urllib.request, "urlopen",
+                with patch.object(watch, "open_no_redirect",
                                   side_effect=lambda req, timeout: Response(req, good, mime)):
                     with self.assertRaisesRegex(ValueError, "content type"):
                         watch.get_url(origin)
@@ -221,7 +221,7 @@ class WatchTest(unittest.TestCase):
             nonlocal response
             response = Response(req, huge, "application/json")
             return response
-        with patch.object(watch.urllib.request, "urlopen", side_effect=open_huge):
+        with patch.object(watch, "open_no_redirect", side_effect=open_huge):
             with self.assertRaisesRegex(ValueError, "Oversized"):
                 watch.get_url(origin)
         self.assertEqual(response.read_sizes, [watch.MAX_PUBLIC_JSON_BYTES + 1])
@@ -229,7 +229,7 @@ class WatchTest(unittest.TestCase):
         for mime in ("application/json", "application/problem+json",
                      "application/json; charset=utf-8"):
             with self.subTest(mime=mime):
-                with patch.object(watch.urllib.request, "urlopen",
+                with patch.object(watch, "open_no_redirect",
                                   side_effect=lambda req, timeout: Response(req, good, mime)):
                     self.assertEqual(watch.get_url(origin), {"build": SHA})
 
@@ -258,7 +258,7 @@ class WatchTest(unittest.TestCase):
             def read(self, amount=-1):
                 return self.stream.read(amount)
 
-        with patch.object(watch.urllib.request, "urlopen",
+        with patch.object(watch, "open_no_redirect",
                           side_effect=lambda req, timeout: Response(req)):
             rows = watch.get_url(origin, "read-only-token")
         self.assertEqual(len(rows[0]["body"]), watch.MAX_PUBLIC_JSON_BYTES + 1)
@@ -275,9 +275,100 @@ class WatchTest(unittest.TestCase):
                 return "https://github.com/login"
             def read(self, size=-1):
                 return b"[]"
-        with patch.object(watch.urllib.request, "urlopen", return_value=Redirected()):
+        with patch.object(watch, "open_no_redirect", return_value=Redirected()):
             with self.assertRaisesRegex(ValueError, "redirect"):
                 watch.get_url(api_url, "read-only-token")
+
+    def test_no_redirect_transport_blocks_cross_origin_auth_before_following(self):
+        request = watch.urllib.request.Request(
+            "https://api.github.com/repos/" + watch.INFRA + "/issues",
+            headers={"Authorization": "Bearer TEST-SECRET"},
+        )
+        seen = []
+
+        class Opener:
+            def open(self, req, timeout):
+                seen.append((req, timeout))
+                return object()
+
+        def builder(*handlers):
+            self.assertEqual(len(handlers), 1)
+            blocker = handlers[0]
+            self.assertIsInstance(blocker, watch.RejectHttpRedirects)
+            # 301/302/303/307/308 must ALL refuse a second request carrying
+            # Authorization, even to the same origin.
+            for code in (301, 302, 303, 307, 308):
+                self.assertIsNone(blocker.redirect_request(
+                    request, None, code, "redirect", {"Location": "https://evil.invalid/"},
+                    "https://evil.invalid/"
+                ))
+            return Opener()
+
+        with patch.object(watch.urllib.request, "build_opener", side_effect=builder):
+            watch.open_no_redirect(request, timeout=20)
+        self.assertEqual(len(seen), 1)
+        self.assertIs(seen[0][0], request)
+        self.assertEqual(seen[0][1], 20)
+        self.assertIn("Bearer TEST-SECRET", request.get_header("Authorization"))
+        with self.assertRaisesRegex(ValueError, "requires HTTPS"):
+            watch.open_no_redirect(
+                watch.urllib.request.Request("http://api.github.com/"),
+                timeout=20
+            )
+
+    def test_github_write_uses_protected_transport_and_rejects_bad_response(self):
+        class Response:
+            def __init__(self, req, *, status=200, redirected=False):
+                self.req = req
+                self.status = status
+                self.redirected = redirected
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def geturl(self):
+                return "https://evil.invalid/hijack" if self.redirected else self.req.full_url
+
+            def read(self, size=-1):
+                return b'{"number": 42}'
+
+        for method, status in (("POST", 201), ("PATCH", 200)):
+            seen = []
+            def open_mock(req, *, timeout):
+                seen.append((req, timeout))
+                return Response(req, status=status)
+            with patch.object(watch, "open_no_redirect", side_effect=open_mock):
+                result = watch.github(
+                    "repos/" + watch.INFRA + "/issues",
+                    "TEST-SECRET", method=method,
+                    payload={"body": "incident"},
+                )
+            self.assertEqual(result, {"number": 42})
+            self.assertEqual(seen[0][1], 20)
+            req = seen[0][0]
+            self.assertEqual(req.get_header("Authorization"), "Bearer TEST-SECRET")
+            self.assertEqual(req.get_method(), method)
+            self.assertEqual(req.full_url, "https://api.github.com/repos/" +
+                             watch.INFRA + "/issues")
+            with patch.object(watch, "open_no_redirect",
+                              side_effect=lambda req, *, timeout: Response(
+                                  req, status=status, redirected=True
+                              )):
+                with self.assertRaisesRegex(ValueError, "redirect"):
+                    watch.github(
+                        "repos/" + watch.INFRA + "/issues", "TEST-SECRET",
+                        method=method, payload={"body": "incident"}
+                    )
+        with patch.object(watch, "open_no_redirect",
+                          side_effect=lambda req, *, timeout: Response(req, status=503)):
+            with self.assertRaisesRegex(ValueError, "status"):
+                watch.github(
+                    "repos/" + watch.INFRA + "/issues", "TEST-SECRET",
+                    method="PATCH", payload={"body": "incident"}
+                )
 
     @patch.object(watch, "source_ci_status", return_value=("pending", None))
     def test_api_health_and_readiness_payload_contract_is_required(self, _):
