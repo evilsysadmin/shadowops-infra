@@ -59,7 +59,7 @@ def tube(name, coords, radius, mat, closed=False, quality=5):
     return register(bpy.context.view_layer.objects.active,mat)
 
 def ring(name, x,y,z,major,minor,mat):
-    bpy.ops.mesh.primitive_torus_add(major_segments=96, minor_segments=10,
+    bpy.ops.mesh.primitive_torus_add(major_segments=64, minor_segments=8,
         location=(x,y,z), major_radius=major, minor_radius=minor)
     obj=bpy.context.object
     obj.name=name
@@ -81,7 +81,7 @@ def block(name, pos, dims, mat, bevel=.025):
     return register(obj,mat)
 
 def disk(name, pos, radius, depth, mat):
-    bpy.ops.mesh.primitive_cylinder_add(vertices=96,radius=radius,depth=depth,location=pos)
+    bpy.ops.mesh.primitive_cylinder_add(vertices=64,radius=radius,depth=depth,location=pos)
     obj=bpy.context.object
     obj.name=name
     return register(obj,mat)
@@ -153,6 +153,54 @@ for sign in [-1,1]:
     ring("Sconce retainer",x-sign*.52,4.46,-2.35,.13,.023,BRASS)
     star("Sconce enamel seal",x-sign*.52,4.46,-2.305,.065,.025,6,ENAMEL)
 
+
+
+# Lateral observatory wall is NOT flat painted backdrop anymore.
+# Each side has a true inset lancet bay: a shaded recessed rear field,
+# double-depth stone archivolts and an engraved astrolabe constellation.
+# These are slender architectural ornaments, not bright gameplay buttons.
+def lancet_outline(cx, low=1.56, width=.55, high=3.57, z=-2.24):
+    coords=[(cx-width,low,z),(cx-width,2.62,z)]
+    # Bezier-like pointed stone arch, two curved shoulders meet at the peak.
+    for i in range(13):
+        t=i/12
+        coords.append((cx-width*(1-t),2.62+(high-2.62)*math.sin(t*math.pi/2),z))
+    for i in range(1,13):
+        t=i/12
+        coords.append((cx+width*t,2.62+(high-2.62)*math.cos(t*math.pi/2),z))
+    coords.append((cx+width,low,z))
+    return coords
+
+def niche_recess(name,cx,mat):
+    outline=lancet_outline(cx,z=-2.56)
+    verts=list(outline)
+    verts.append((cx,2.38,-2.56))
+    center=len(verts)-1
+    faces=[(center,i+1,i) for i in range(len(outline)-1)]
+    mesh=bpy.data.meshes.new(name)
+    mesh.from_pydata(verts,[],faces)
+    mesh.update()
+    ob=bpy.data.objects.new(name,mesh)
+    bpy.context.collection.objects.link(ob)
+    return register(ob,mat)
+
+for sign in [-1,1]:
+    cx=sign*5.22
+    niche_recess("Shadowed wall astronomy bay",cx,STONE)
+    tube("Outer lancet voussoir",lancet_outline(cx,width=.59,z=-2.24),
+         .045,STONE,quality=3)
+    tube("Patinated brass inset edge",lancet_outline(cx,width=.48,high=3.46,z=-2.19),
+         .011,BRASS,quality=2)
+    # Round inset astrolabe: enough recognizable relief without a giant lamp.
+    disk("Midnight astrolabe field",(cx,2.45,-2.145),.26,.025,STONE)
+    ring("Astrolabe fine bronze chart",cx,2.45,-2.11,.255,.011,BRASS)
+    ring("Astrolabe zodiac orbit",cx,2.45,-2.095,.170,.007,ENAMEL)
+    star("Astrolabe cardinal star",cx,2.45,-2.077,.099,.035,8,BRASS)
+    # One subtle horizon instrument below each dial, kept within the wall niche.
+    tube("Niche engraved horizon",[(cx-.31,1.88,-2.205),
+         (cx-.16,1.84,-2.205),(cx,1.83,-2.205),
+         (cx+.16,1.84,-2.205),(cx+.31,1.88,-2.205)],
+         .011,BRASS,quality=2)
 
 # Forecourt: inset, honed-stone approach to all three destinations.
 # This completes the architectural composition without bright UI-like strips.

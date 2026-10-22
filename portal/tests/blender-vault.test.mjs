@@ -25,6 +25,7 @@ test('Blender-authored celestial vault is a bounded content-addressed GLB with P
   assert.ok(json.meshes.length>=1&&json.meshes.length<=3);
   const primitives=json.meshes.flatMap(mesh=>mesh.primitives||[]);
   assert.ok(primitives.length>=3&&primitives.length<=6);
+  assert.ok(primitives.every(p=>json.accessors[p.attributes.POSITION]?.count>0));
   // Exporter must retain a real Y-up foreground, not only upper wall art.
   const positions=primitives.map(p=>json.accessors[p.attributes.POSITION]).filter(Boolean);
   assert.ok(positions.some(p=>p.min?.[1]<-.1),'floor marquetry reaches the dais');
