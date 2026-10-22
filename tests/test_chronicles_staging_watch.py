@@ -39,6 +39,7 @@ class WatchTest(unittest.TestCase):
         mocked = patch.object(watch.pages, "probe_react_preview", return_value="ok")
         self.game_probe = mocked.start()
         self.addCleanup(mocked.stop)
+        self.real_model_probe = watch.probe_public_glb
         model = patch.object(watch, "probe_public_glb", return_value="ok")
         self.model_probe = model.start()
         self.addCleanup(model.stop)
@@ -68,7 +69,7 @@ class WatchTest(unittest.TestCase):
             return Response(req, good)
         # Real network disabled. Exercise the header verifier itself rather
         # than the per-test high-level health mock.
-        with patch.object(watch, "probe_public_glb", wraps=watch.probe_public_glb):
+        with patch.object(watch, "probe_public_glb", wraps=self.real_model_probe):
             with patch.object(watch, "open_no_redirect", side_effect=open_good):
                 self.assertEqual(watch.probe_public_glb(), "ok")
         req, timeout = requests[0]
@@ -95,7 +96,7 @@ class WatchTest(unittest.TestCase):
                 def serve(req, timeout):
                     return Response(req, header, status=status,
                                     destination=dest, mime=mime, content_range=byte_range)
-                with patch.object(watch, "probe_public_glb", wraps=watch.probe_public_glb):
+                with patch.object(watch, "probe_public_glb", wraps=self.real_model_probe):
                     with patch.object(watch, "open_no_redirect", side_effect=serve):
                         self.assertEqual(watch.probe_public_glb(), expected)
 
@@ -106,7 +107,7 @@ class WatchTest(unittest.TestCase):
         for result in ("http_429", "http_503", "http_522", "unavailable"):
             with self.subTest(result=result):
                 self.assertEqual(watch.pages_failure_key(result), "pages-edge")
-        with patch.object(watch, "probe_public_glb", wraps=watch.probe_public_glb):
+        with patch.object(watch, "probe_public_glb", wraps=self.real_model_probe):
             for exc, expected in (
                 (urllib.error.HTTPError("https://example.invalid", 404, "not found", {}, None), "http_404"),
                 (urllib.error.HTTPError("https://example.invalid", 503, "unavailable", {}, None), "http_503"),
