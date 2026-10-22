@@ -134,6 +134,10 @@ class ParallelReactPagesTest(unittest.TestCase):
         requested = []
 
         def request(req, timeout):
+            self.assertEqual(timeout, 10)
+            self.assertIsNone(req.get_header("Authorization"))
+            self.assertIsNone(req.get_header("Cookie"))
+            self.assertIn("Mozilla/5.0", req.get_header("User-agent"))
             requested.append(req.full_url)
             if req.full_url == "https://" + pages.HOST + "/":
                 return FakeResponse(req.full_url, html, "text/html")
