@@ -330,15 +330,15 @@ def probe_react_preview(
         # fetching arbitrary URLs from public HTML. Bound the work and never
         # include response bodies/URLs in CI diagnostics.
         preload_tags = [
-            tag for tag in re.findall(rb'<link\\b[^>]*>', html)
-            if re.search(rb'\\brel="modulepreload"', tag)
+            tag for tag in re.findall(rb'<link\b[^>]*>', html)
+            if re.search(rb'\brel="modulepreload"', tag)
         ]
         if len(preload_tags) > 16:
             return "preload_reference"
         preloads = set()
         for tag in preload_tags:
-            hrefs = re.findall(rb'\\bhref="([^"]*)"', tag)
-            if len(hrefs) != 1 or re.fullmatch(asset + rb'\\.js', hrefs[0]) is None:
+            hrefs = re.findall(rb'\bhref="([^"]*)"', tag)
+            if len(hrefs) != 1 or re.fullmatch(asset + rb'\.js', hrefs[0]) is None:
                 return "preload_reference"
             preloads.add(hrefs[0].decode("ascii"))
         for preload in sorted(preloads - {p.decode("ascii") for p in entries["js"]}):
