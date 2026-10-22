@@ -318,6 +318,110 @@ class WatchTest(unittest.TestCase):
             live.assert_not_called()
 
     @patch.object(watch, "source_ci_status", return_value=("pending", None))
+    def test_api_https_429_5xx_timeouts_are_transient_not_contract_failures(self, _):
+        def fails(exc):
+            def get(address, token=""):
+                if address.endswith("/health") or address.endswith("/ready"):
+                    raise exc
+                return url(address, token)
+            return watch.failures("t", get=get, gh=gh, now=NOW)
+
+        for status in (429, 500, 503, 522, 599):
+            for endpoint in ("/health", "/ready"):
+                with self.subTest(status=status, endpoint=endpoint):
+                    err = urllib.error.HTTPError(
+                        "https://example.invalid" + endpoint, status, "edge", {}, None
+                    )
+                    self.assertEqual(set(fails(err)), {"api-health-edge"})
+        for exc in (TimeoutError("timeout"), urllib.error.URLError("offline"),
+                    ConnectionError("connection reset")):
+            with self.subTest(error=type(exc).__name__):
+                self.assertEqual(set(fails(exc)), {"api-health-edge"})
+        for status in (400, 401, 403, 404):
+            with self.subTest(status=status):
+                err = urllib.error.HTTPError(
+                    "https://example.invalid/ready", status, "bad route", {}, None
+                )
+                self.assertEqual(set(fails(err)), {"api-health"})
+        self.assertEqual(set(fails(ValueError("HTML served for JSON"))), {"api-health"})
+
+    @patch.object(watch.receipts, "evidence_ok", return_value=True)
+    @patch.object(watch, "source_ci_status", return_value=("ready", OLD))
+    def test_api_edge_error_does_not_probe_api_release_revision(self, _, __):
+        def get(address, token=""):
+            if address.endswith("/ready"):
+                raise urllib.error.HTTPError(address, 503, "edge", {}, None)
+            return url(address, token)
+        with patch.object(watch.receipts, "public_api_revision_state") as revision:
+            self.assertEqual(set(watch.failures("t", get=get, gh=gh, now=NOW)),
+                             {"api-health-edge"})
+            revision.assert_not_called()
+
+    def test_transient_api_transport_requires_three_observations(self):
+        cases = (
+            ({}, {}),
+            ({"api-health-edge": "503"}, {"api-health-edge": "503"}),
+            ({"api-health": "bad ready JSON"}, {"api-health": "bad ready JSON"}),
+        )
+        for third, expected in cases:
+            with self.subTest(third=third):
+                samples = [
+                    {"api-health-edge": "503"},
+                    {"api-health-edge": "timeout"},
+                    third,
+                ]
+                pauses = []
+                self.assertEqual(
+                    watch.confirmed_failures(
+                        "t", probe=lambda _: samples.pop(0), pause=pauses.append
+                    ),
+                    expected,
+                )
+                self.assertEqual(pauses, [90, 90])
+                self.assertEqual(samples, [])
+
+    def test_structural_api_failure_needs_only_two_observations(self):
+        samples = [{"api-health": "bad JSON"}, {"api-health": "still bad JSON"}]
+        pauses = []
+        self.assertEqual(
+            watch.confirmed_failures(
+                "t", probe=lambda _: samples.pop(0), pause=pauses.append
+            ),
+            {"api-health": "still bad JSON"},
+        )
+        self.assertEqual(pauses, [90])
+
+    def test_mixed_api_edge_and_structural_needs_third_probe(self):
+        samples = [
+            {"api-health-edge": "503"},
+            {"api-health": "invalid readiness"},
+            {"api-health-edge": "timeout"},
+        ]
+        pauses = []
+        self.assertEqual(
+            watch.confirmed_failures(
+                "t", probe=lambda _: samples.pop(0), pause=pauses.append
+            ),
+            {"api-health-edge": "timeout"},
+        )
+        self.assertEqual(pauses, [90, 90])
+
+    def test_transient_api_recovery_does_not_erase_confirmed_pages_outage(self):
+        samples = [
+            {"api-health-edge": "503", "pages-game": "JS missing"},
+            {"api-health-edge": "503", "pages-game": "JS missing"},
+            {},
+        ]
+        pauses = []
+        self.assertEqual(
+            watch.confirmed_failures(
+                "t", probe=lambda _: samples.pop(0), pause=pauses.append
+            ),
+            {"pages-game": "JS missing"},
+        )
+        self.assertEqual(pauses, [90, 90])
+
+    @patch.object(watch, "source_ci_status", return_value=("pending", None))
     def test_game_entry_is_checked_even_while_source_ci_is_pending(self, _):
         self.game_probe.return_value = "js_content"
         bad = watch.failures("t", get=url, gh=gh, now=NOW)
