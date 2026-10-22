@@ -100,8 +100,15 @@ def failures(token: str, *, get: Callable = get_url, gh: Callable = github,
     now = now or dt.datetime.now(dt.timezone.utc)
     bad = {}
     try:
-        get(API + "/health")
-        get(API + "/ready")
+        # Chronicles' real Go identity API has explicit JSON contracts.
+        # A 200 that returns {"detail": ...}, {"ok": false} or an HTML
+        # fallback must never masquerade as a healthy runtime.
+        health = get(API + "/health")
+        ready = get(API + "/ready")
+        if (not isinstance(health, dict) or health.get("ok") is not True or
+                not isinstance(ready, dict) or ready.get("ok") is not True or
+                ready.get("storage") != "mongo"):
+            raise ValueError("Invalid Chronicles API health/readiness contract")
     except (urllib.error.URLError, ValueError, TimeoutError, OSError):
         bad["api-health"] = "La API pública /health o /ready no responde correctamente"
     live_sha = None
