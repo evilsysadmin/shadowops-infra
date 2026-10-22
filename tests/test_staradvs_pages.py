@@ -89,7 +89,8 @@ class StagingPagesTests(unittest.TestCase):
         s.ensure_project(cf)
         self.assertTrue(cf.project)
         self.assertEqual(len([x for x in cf.calls if x[0] == "POST"]), 1)
-        self.assertIn("/pages/projects", [x[1] for x in cf.calls if x[0] == "POST"])
+        self.assertEqual([p for method, p, _ in cf.calls if method == "POST"],
+                         [f"/accounts/{cf.account}/pages/projects"])
 
     def test_domain_and_dns_created_only_after_owned_project(self):
         cf = FakeCloudflare()
