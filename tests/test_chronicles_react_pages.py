@@ -147,7 +147,127 @@ class ParallelReactPagesTest(unittest.TestCase):
             self.assertEqual(pages.probe_react_preview(
                 path="/", assets=b"/assets/", manifest_path=None), "ok")
         self.assertIn("https://" + pages.HOST + "/assets/index-O94sP1mA.js", requested)
-        self.assertNotIn("https://" + pages.HOST + "/assets/vendor-CoSDG3-6.js", requested)
+        self.assertIn("https://" + pages.HOST + "/assets/vendor-CoSDG3-6.js", requested)
+        self.assertIn("https://" + pages.HOST + "/assets/vendor-react-BRcWHSNz.js", requested)
+        self.assertEqual(len(requested), 5)
+
+    def test_modulepreload_absence_html_fallback_redirect_and_mime_are_rejected(self):
+        html = (b'<!doctype html><html><head><title>Chronicles of Matthias</title>'
+                b'<script type="module" src="/assets/index-abc.js"></script>'
+                b'<link rel="stylesheet" href="/assets/index-def.css">'
+                b'<link rel="modulepreload" href="/assets/vendor-xyz.js">'
+                b'</head><body><div id="root"></div></body></html>')
+        urls = []
+
+        def serve(req, timeout):
+            urls.append(req.full_url)
+            if req.full_url.endswith("/"):
+                return FakeResponse(req.full_url, html, "text/html")
+            if req.full_url.endswith("/assets/index-abc.js"):
+                return FakeResponse(req.full_url, JS, "application/javascript")
+            if req.full_url.endswith("/assets/index-def.css"):
+                return FakeResponse(req.full_url, CSS, "text/css")
+            if req.full_url.endswith("/assets/vendor-xyz.js"):
+                return FakeResponse(req.full_url, JS, "application/javascript")
+            raise AssertionError("Unexpected URL")
+
+        with patch.object(pages.urllib.request, "urlopen", side_effect=serve):
+            self.assertEqual(pages.probe_react_preview(path="/", assets=b"/assets/",
+                             manifest_path=None), "ok")
+        self.assertIn("https://" + pages.HOST + "/assets/vendor-xyz.js", urls)
+
+        def broken(req, timeout):
+            response = serve(req, timeout)
+            if req.full_url.endswith("/assets/vendor-xyz.js"):
+                return FakeResponse(req.full_url, b"<html>SPA fallback</html>", "text/html")
+            return response
+        with patch.object(pages.urllib.request, "urlopen", side_effect=broken):
+            self.assertEqual(pages.probe_react_preview(path="/", assets=b"/assets/",
+                             manifest_path=None), "preload_mime")
+
+        def redirect(req, timeout):
+            response = serve(req, timeout)
+            if req.full_url.endswith("/assets/vendor-xyz.js"):
+                return FakeResponse(req.full_url, JS, "application/javascript",
+                                    redirect="https://foreign.invalid/vendor.js")
+            return response
+        with patch.object(pages.urllib.request, "urlopen", side_effect=redirect):
+            self.assertEqual(pages.probe_react_preview(path="/", assets=b"/assets/",
+                             manifest_path=None), "preload_mime")
+
+        def missing(req, timeout):
+            if req.full_url.endswith("/assets/vendor-xyz.js"):
+                raise urllib.error.HTTPError(req.full_url, 404, "private", {}, None)
+            return serve(req, timeout)
+        with patch.object(pages.urllib.request, "urlopen", side_effect=missing):
+            self.assertEqual(pages.probe_react_preview(path="/", assets=b"/assets/",
+                             manifest_path=None), "http_404")
+
+        def truncated(req, timeout):
+            if req.full_url.endswith("/assets/vendor-xyz.js"):
+                return FakeResponse(req.full_url, b"// tiny", "application/javascript")
+            return serve(req, timeout)
+        with patch.object(pages.urllib.request, "urlopen", side_effect=truncated):
+            self.assertEqual(pages.probe_react_preview(path="/", assets=b"/assets/",
+                             manifest_path=None), "preload_content")
+
+    def test_modulepreload_references_are_bounded_and_same_origin(self):
+        head = (b'<!doctype html><html><head><title>Chronicles of Matthias</title>'
+                b'<script type="module" src="/assets/index-abc.js"></script>'
+                b'<link rel="stylesheet" href="/assets/index-def.css">')
+        tail = b'</head><body><div id="root"></div></body></html>'
+
+        for href in (b'https://foreign.invalid/x.js', b'//foreign.invalid/x.js',
+                     b'/other/vendor.js', b'/assets/vendor.js?mutable=1',
+                     b'/assets/../vendor.js', b'/assets/vendor.css', b''):
+            with self.subTest(href=href):
+                html = (head + b'<link rel="modulepreload" href="' + href + b'">' + tail)
+                requests = []
+                def serve(req, timeout):
+                    requests.append(req.full_url)
+                    if req.full_url.endswith("/"):
+                        return FakeResponse(req.full_url, html, "text/html")
+                    if req.full_url.endswith(".js"):
+                        return FakeResponse(req.full_url, JS, "application/javascript")
+                    return FakeResponse(req.full_url, CSS, "text/css")
+                with patch.object(pages.urllib.request, "urlopen", side_effect=serve):
+                    self.assertEqual(pages.probe_react_preview(
+                        path="/", assets=b"/assets/", manifest_path=None),
+                        "preload_reference")
+                self.assertTrue(all("foreign.invalid" not in url for url in requests))
+
+        many = b"".join(
+            b'<link rel="modulepreload" href="/assets/vendor-' +
+            str(n).encode("ascii") + b'.js">' for n in range(17)
+        )
+        with patch.object(pages.urllib.request, "urlopen",
+                          side_effect=lambda req, timeout: FakeResponse(
+                              req.full_url, head + many + tail, "text/html")) as opened:
+            self.assertEqual(pages.probe_react_preview(
+                path="/", assets=b"/assets/", manifest_path=None),
+                "preload_reference")
+        self.assertEqual(opened.call_count, 3)
+
+    def test_modulepreload_duplicates_and_attribute_order_are_supported(self):
+        html = (b'<!doctype html><html><head><title>Chronicles of Matthias</title>'
+                b'<script type="module" src="/assets/index-abc.js"></script>'
+                b'<link rel="stylesheet" href="/assets/index-def.css">'
+                b'<link href="/assets/vendor-xyz.js" crossorigin rel="modulepreload">'
+                b'<link rel="modulepreload" href="/assets/vendor-xyz.js">'
+                b'</head><body><div id="root"></div></body></html>')
+        requests = []
+        def serve(req, timeout):
+            requests.append(req.full_url)
+            if req.full_url.endswith("/"):
+                return FakeResponse(req.full_url, html, "text/html")
+            if req.full_url.endswith(".css"):
+                return FakeResponse(req.full_url, CSS, "text/css")
+            return FakeResponse(req.full_url, JS, "application/javascript")
+        with patch.object(pages.urllib.request, "urlopen", side_effect=serve):
+            self.assertEqual(pages.probe_react_preview(
+                path="/", assets=b"/assets/", manifest_path=None), "ok")
+        self.assertEqual(requests.count("https://" + pages.HOST +
+                                        "/assets/vendor-xyz.js"), 1)
 
     def test_rejects_html_fallback_mismatched_root_or_missing_asset(self):
         def html_only(req, timeout):
