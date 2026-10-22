@@ -28,6 +28,7 @@ ORIGIN = "https://staging.chronicles.shadowops.dpdns.org"
 API = "https://chronicles-api-staging.shadowops.dpdns.org/api"
 GRACE_SECONDS = 90 * 60
 RECHECK_SECONDS = 90
+MAX_PUBLIC_JSON_BYTES = 64 * 1024
 ISSUES_PER_PAGE = 100
 MAX_ISSUE_PAGES = 20  # Fail closed instead of creating duplicates if enumeration is incomplete.
 PAGES_FAMILIES = {
@@ -118,7 +119,22 @@ def get_url(url: str, token: str = "") -> dict:
         # as the requested public health/release endpoint (nor a GitHub read).
         if response.status != 200 or response.geturl() != request.full_url:
             raise ValueError("Unexpected status or redirect in watchdog JSON read")
-        data = json.load(response)
+        if token:
+            # GitHub issue pages contain user-authored incident notes; their
+            # JSON payloads are not subject to the small public-health cap.
+            data = json.load(response)
+        else:
+            # A broken CDN must not return a 200 HTML fallback (or an
+            # unbounded payload) and be mistaken for a public JSON endpoint.
+            content_type = str(response.headers.get("Content-Type", "")).split(";", 1)[0].strip().lower()
+            if content_type != "application/json" and not (
+                content_type.startswith("application/") and content_type.endswith("+json")
+            ):
+                raise ValueError("Unexpected public JSON content type")
+            raw = response.read(MAX_PUBLIC_JSON_BYTES + 1)
+            if len(raw) > MAX_PUBLIC_JSON_BYTES:
+                raise ValueError("Oversized public JSON response")
+            data = json.loads(raw)
     if not isinstance(data, (dict, list)):
         raise ValueError("Expected JSON object or issue list")
     return data
