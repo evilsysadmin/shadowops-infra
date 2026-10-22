@@ -275,9 +275,9 @@ def probe_react_preview(
     assets: bytes = b"/react/assets/",
     manifest_path: str | None = "/react/manifest.webmanifest",
 ) -> str:
-    """Prove the isolated built React entry, JS and CSS on the public HTTPS host.
+    """Prove the React entry, JS, CSS and Vite preload assets on public HTTPS.
 
-    Never follow an asset outside the expected /react/assets/ path, and never
+    Never follow an asset outside the given same-origin assets path, and never
     return provider response bodies, redirects or headers in CI diagnostics.
     """
     def get_public(path: str, accept: str):
@@ -323,6 +323,30 @@ def probe_react_preview(
                 return "css_mime"
             if len(content) < 128 or content.lstrip().lower().startswith(b"<"):
                 return extension + "_content"
+
+        # The entry script can be healthy while a Vite modulepreload vendor
+        # chunk is missing or serves the SPA's HTML fallback. Validate all
+        # explicit preload dependencies on this same HTTPS origin, without
+        # fetching arbitrary URLs from public HTML. Bound the work and never
+        # include response bodies/URLs in CI diagnostics.
+        preload_tags = [
+            tag for tag in re.findall(rb'<link\b[^>]*>', html)
+            if re.search(rb'\brel="modulepreload"', tag)
+        ]
+        if len(preload_tags) > 16:
+            return "preload_reference"
+        preloads = set()
+        for tag in preload_tags:
+            hrefs = re.findall(rb'\bhref="([^"]*)"', tag)
+            if len(hrefs) != 1 or re.fullmatch(asset + rb'\.js', hrefs[0]) is None:
+                return "preload_reference"
+            preloads.add(hrefs[0].decode("ascii"))
+        for preload in sorted(preloads - {p.decode("ascii") for p in entries["js"]}):
+            mime, content = get_public(preload, "text/javascript,application/javascript,*/*")
+            if "javascript" not in mime:
+                return "preload_mime"
+            if len(content) < 128 or content.lstrip().lower().startswith(b"<"):
+                return "preload_content"
         if manifest_path is None:
             return "ok"
         # Installed standalone Chronicles must advertise landscape. The
