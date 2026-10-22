@@ -74,6 +74,8 @@ footer.append(
 shell.appendChild(footer);
 
 let selected = 'chess';
+let pointerPreview = null;
+let focusPreview = null;
 let scene = null;
 const buttons = new Map();
 const detail = el('div', 'world-detail');
@@ -105,11 +107,20 @@ function renderDetail() {
     button.setAttribute('aria-pressed', String(active));
   });
 }
+// A gallery preview is only visual. It must never silently change the
+// selected game, launch destination or aria-pressed state.
+function refreshSceneFocus(moveCamera = true) {
+  scene?.focusWorld(focusPreview ?? pointerPreview ?? selected, moveCamera);
+}
 function selectWorld(id) {
   if (!selectedWorld(id)) return;
+  // Explicit selection always wins, even after a keyboard preview when the
+  // player selects a different door directly in the 3D scene.
+  pointerPreview = null;
+  focusPreview = null;
   selected = id;
   renderDetail();
-  scene?.focusWorld(id);
+  refreshSceneFocus();
 }
 WORLDS.forEach((world, index) => {
   const button = el('button', 'world-button');
@@ -122,6 +133,26 @@ WORLDS.forEach((world, index) => {
   chevron.setAttribute('aria-hidden', 'true');
   button.append(number, label, chevron);
   button.addEventListener('click', () => selectWorld(world.id));
+  // Do not emulate hover on touch: tap remains the single select action.
+  button.addEventListener('pointerenter', event => {
+    if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return;
+    pointerPreview = world.id;
+    refreshSceneFocus();
+  });
+  button.addEventListener('pointerleave', () => {
+    if (pointerPreview !== world.id) return;
+    pointerPreview = null;
+    refreshSceneFocus();
+  });
+  button.addEventListener('focus', () => {
+    focusPreview = world.id;
+    refreshSceneFocus();
+  });
+  button.addEventListener('blur', () => {
+    if (focusPreview !== world.id) return;
+    focusPreview = null;
+    refreshSceneFocus();
+  });
   button.style.setProperty('--accent', world.tone);
   choices.appendChild(button);
   buttons.set(world.id, button);
@@ -152,7 +183,7 @@ async function loadScene() {
   try {
     const { mountObservatory } = await import('./world.js');
     scene = mountObservatory(stage, selectWorld);
-    scene.focusWorld(selected, false);
+    refreshSceneFocus(false);
     fallback.hidden = true;
     stage.dataset.scene = 'active';
     const canvas = stage.querySelector('canvas');
@@ -164,7 +195,7 @@ async function loadScene() {
         stage.classList.remove('no-webgl');
         stage.dataset.scene = 'active';
         fallback.hidden = true;
-        scene.focusWorld(selected, false);
+        refreshSceneFocus(false);
       }
     });
   } catch (error) {

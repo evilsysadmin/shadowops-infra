@@ -112,3 +112,7 @@ At 360–430px the standard masthead tagline is intentionally hidden, but stagin
 ## Stratified slate material study
 
 The shared gallery stone now uses deterministic multiscale mineral layers, irregular quiet bedding, a restrained iron/mica tint and tangent-space normal/roughness variation. This **replaces**, rather than adds, the three existing 256×256 stone PBR textures. Crucially, the separately baked 256×128 warm/cool grazing lightmap remains in place, preserving local illumination under the portals. No additional meshes, draw calls, network downloads or light sources are introduced. Unit tests enforce exact texture byte budgets, repeatability, material ranges and the unchanged grazing illumination; Chromium screenshots remain the visual review gate. This is interim art pending physical GPU and final material acceptance in #153.
+
+## Diegetic gateway focus, without accidental navigation
+
+On desktop, hovering a catalog world temporarily focuses the corresponding 3D portal; keyboard focus does the same, including when reduced motion is requested. Pointer exit or keyboard blur restores the actually selected world. This visual preview never rewrites the selected detail panel, its `aria-pressed` state, or its environment-specific launch URL: only click/tap/keyboard activation commits selection. Touch pointer-enter alone does not trigger hover. The behavior works with the existing offscreen GPU pause, optional WebGL, and no-WebGL semantic fallback.
