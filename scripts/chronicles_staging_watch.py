@@ -194,7 +194,13 @@ def probe_public_glb() -> str:
                     json_length % 4 != 0 or json_length > size - 20):
                 return "invalid"
             if response.status == 206:
-                return "ok" if total == size else "invalid"
+                if total != size:
+                    return "invalid"
+                # Content-Range and Content-Length describe the response, but
+                # do not alone prove that only the requested 20 bytes arrived.
+                # Reject an overlong 206 body even when its declared range and
+                # GLB header look valid; the read is bounded to one byte.
+                return "invalid" if response.read(1) else "ok"
 
             # A 200 ignores Range. Merely accepting a plausible 12-byte
             # header or Content-Length allows a truncated object to pass.
