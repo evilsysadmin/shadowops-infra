@@ -14,6 +14,15 @@ class BrowserOnlyReleaseTest(unittest.TestCase):
                         names.index("Validate the actual public Chronicles game in desktop and mobile"))
         code = next(s for s in steps if s.get("name") == "Read the public SHA actually served by Pages")["run"]
         self.assertIn("/release.json", code)
+        self.assertIn("https://staging.chronicles.shadowops.dpdns.org/release.json", code)
+        self.assertIn("--max-redirs 0", code)
+        self.assertIn("--write-out '%{http_code}'", code)
+        self.assertIn('[[ "$http_code" == \'200\' ]]', code)
+        self.assertIn("bytes > 0 && bytes <= 65536", code)
+        self.assertIn("CHRONICLES_PUBLIC_SMOKE_RELEASE_NOT_200", code)
+        self.assertIn("CHRONICLES_PUBLIC_SMOKE_RELEASE_OVERSIZED", code)
+        self.assertNotIn(" -fsSL", code)
+        self.assertNotIn("--location", code)
         self.assertIn('[[ "$sha" =~ ^[0-9a-f]{40}$ ]]', code)
         read = names.index("Read the public SHA actually served by Pages")
         checkout_name = "Check out test scripts from the exact published Chronicles revision"
