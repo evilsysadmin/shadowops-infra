@@ -132,6 +132,7 @@ class WatchTest(unittest.TestCase):
         url = watch.ORIGIN + "/release.json?watch=123"
 
         class Response:
+            headers = {"Content-Type": "application/json; charset=utf-8"}
             def __init__(self, request, *, final=None, status=200):
                 self.body = io.BytesIO(b'{"build": "' + SHA.encode() + b'"}')
                 self.final = request.full_url if final is None else final
@@ -179,6 +180,88 @@ class WatchTest(unittest.TestCase):
                                   side_effect=lambda req, timeout: Response(req, status=status)):
                     with self.assertRaisesRegex(ValueError, "status"):
                         watch.get_url(url)
+
+    def test_public_json_rejects_non_json_mime_and_oversized_payload(self):
+        origin = watch.ORIGIN + "/release.json?watch=124"
+
+        class Response:
+            status = 200
+
+            def __init__(self, req, content, mime):
+                self.req = req
+                self.stream = io.BytesIO(content)
+                self.headers = {"Content-Type": mime}
+                self.read_sizes = []
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def geturl(self):
+                return self.req.full_url
+
+            def read(self, amount=-1):
+                self.read_sizes.append(amount)
+                return self.stream.read(amount)
+
+        good = b'{"build": "' + SHA.encode() + b'"}'
+        for mime in ("text/html", "text/plain", "application/javascript", "",
+                     "application/octet-stream"):
+            with self.subTest(mime=mime):
+                with patch.object(watch.urllib.request, "urlopen",
+                                  side_effect=lambda req, timeout: Response(req, good, mime)):
+                    with self.assertRaisesRegex(ValueError, "content type"):
+                        watch.get_url(origin)
+
+        huge = good + b" " * watch.MAX_PUBLIC_JSON_BYTES
+        response = None
+        def open_huge(req, timeout):
+            nonlocal response
+            response = Response(req, huge, "application/json")
+            return response
+        with patch.object(watch.urllib.request, "urlopen", side_effect=open_huge):
+            with self.assertRaisesRegex(ValueError, "Oversized"):
+                watch.get_url(origin)
+        self.assertEqual(response.read_sizes, [watch.MAX_PUBLIC_JSON_BYTES + 1])
+
+        for mime in ("application/json", "application/problem+json",
+                     "application/json; charset=utf-8"):
+            with self.subTest(mime=mime):
+                with patch.object(watch.urllib.request, "urlopen",
+                                  side_effect=lambda req, timeout: Response(req, good, mime)):
+                    self.assertEqual(watch.get_url(origin), {"build": SHA})
+
+    def test_github_issue_listing_is_not_capped_like_public_health_json(self):
+        origin = ("https://api.github.com/repos/" + watch.INFRA +
+                  "/issues?state=open&per_page=100&page=1")
+        body = b'[{"body":"' + b"x" * (watch.MAX_PUBLIC_JSON_BYTES + 1) + b'"}]'
+
+        class Response:
+            status = 200
+            headers = {"Content-Type": "application/json"}
+
+            def __init__(self, request):
+                self.request = request
+                self.stream = io.BytesIO(body)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def geturl(self):
+                return self.request.full_url
+
+            def read(self, amount=-1):
+                return self.stream.read(amount)
+
+        with patch.object(watch.urllib.request, "urlopen",
+                          side_effect=lambda req, timeout: Response(req)):
+            rows = watch.get_url(origin, "read-only-token")
+        self.assertEqual(len(rows[0]["body"]), watch.MAX_PUBLIC_JSON_BYTES + 1)
 
     def test_redirected_github_json_cannot_substitute_issue_listing(self):
         api_url = "https://api.github.com/repos/" + watch.INFRA + "/issues?state=open"
