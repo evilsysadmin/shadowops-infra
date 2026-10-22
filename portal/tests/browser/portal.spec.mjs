@@ -120,6 +120,7 @@ test('catalog is usable before heavy 3D module loads', async ({page}) => {
 
 
 test('gallery GLB fetch failure restores existing masonry without blocking navigation', async ({page})=>{
+  await page.emulateMedia({reducedMotion:'reduce'});
   await page.route('**/art/gallery-frame-*.glb', route=>route.abort());
   await page.goto('/');
   await page.locator('.stage-area').scrollIntoViewIfNeeded();
@@ -132,6 +133,7 @@ test('gallery GLB fetch failure restores existing masonry without blocking navig
 
 
 test('Blender vault GLB failure preserves functional world navigation',async({page})=>{
+  await page.emulateMedia({reducedMotion:'reduce'});
   await page.route('**/art/celestial-vault-*.glb',route=>route.abort());
   await page.goto('/');
   await page.locator('.stage-area').scrollIntoViewIfNeeded();
