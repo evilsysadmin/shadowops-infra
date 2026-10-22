@@ -52,21 +52,38 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" == "$GITHUB_SHA" ]]
-      - name: Resolve latest successfully verified staging run and exact source SHA
+      - name: Require completed verified staging run for this exact Infra commit
         id: stage
         shell: bash
         run: |
           set -euo pipefail
-          candidate="$(gh api 'repos/evilsysadmin/shadowops-infra/actions/runs?per_page=100' --jq \
-            '[.workflow_runs[] | select(.name == "ShadowOps Universe · staging Pages release" and .event == "push" and .conclusion == "success" and .status == "completed")] | sort_by(.created_at) | reverse | .[0] | [.id, .head_sha] | @tsv')"
-          read -r run sha <<< "$candidate"
-          [[ "$run" =~ ^[0-9]+$ && "$sha" =~ ^[a-f0-9]{40}$ ]] || {
-            echo 'No completed successful immutable staging release available' >&2
-            exit 1
-          }
-          echo "run_id=$run" >> "$GITHUB_OUTPUT"
-          echo "source_sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "SHADOWOPS_UNIVERSE_STAGING_SELECTED sha=$sha"
+          # The production release is triggered by this same protected main
+          # commit as staging. Never select some unrelated "latest successful"
+          # build, which could silently promote different code.
+          [[ "$GITHUB_SHA" =~ ^[a-f0-9]{40}$ ]]
+          for attempt in $(seq 1 42); do
+            verdict="$(gh api "repos/evilsysadmin/shadowops-infra/actions/runs?head_sha=$GITHUB_SHA&event=push&per_page=100" --jq \
+              '[.workflow_runs[] | select(.name == "ShadowOps Universe · staging Pages release")] | sort_by(.created_at) | reverse | .[0] | [.id, .status, (.conclusion // "pending")] | @tsv')"
+            read -r run state result <<< "$verdict"
+            if [[ "$run" =~ ^[0-9]+$ && "$state" == "completed" && "$result" == "success" ]]; then
+              echo "run_id=$run" >> "$GITHUB_OUTPUT"
+              echo "source_sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+              echo "SHADOWOPS_UNIVERSE_STAGING_SELECTED sha=$GITHUB_SHA"
+              exit 0
+            fi
+            if [[ "$state" == "completed" && "$result" != "success" ]]; then
+              echo "Same-commit staging verification did not succeed ($result)" >&2
+              exit 1
+            fi
+            [[ "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" == "$GITHUB_SHA" ]] || {
+              echo "Infra main superseded while staging was pending" >&2
+              exit 1
+            }
+            echo "Waiting for exactly matching staged SHA ($attempt/42)"
+            sleep 15
+          done
+          echo 'Timed out waiting for same-commit verified staging release' >&2
+          exit 1
       - name: Download only previously published and verified staging dist
         env:
           RUN_ID: ${{ steps.stage.outputs.run_id }}
