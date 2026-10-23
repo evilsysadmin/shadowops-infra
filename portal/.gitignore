@@ -11,3 +11,6 @@ src/galleryFrame.generated.mjs
 public/art/celestial-vault-*.glb
 public/art/celestial-vault-draft.glb
 src/vaultAsset.generated.mjs
+
+# Local screenshots, renderer identity and timing evidence: never commit
+.gpu-profile/
