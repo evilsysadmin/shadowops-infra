@@ -47,21 +47,22 @@ jobs:
           set -euo pipefail
           sha="$(gh api repos/evilsysadmin/star-adventures/commits/main --jq .sha)"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || exit 64
-          # Source CI dispatches this Infra workflow from its final job. GitHub
-          # may not have finalized the source workflow conclusion at dispatch time.
-          # Retry that narrow race; never relax exact-SHA/core/browser admission.
-          for attempt in $(seq 1 12); do
+          # Infra main pushes can also race Star Adventures' Chrome CI. For
+          # dispatch or push, join its exact green main result for a bounded
+          # period; scheduled checks stay fail-fast. Never relax admission.
+          for attempt in $(seq 1 28); do
             if python3 scripts/staradvs_source_admission.py "$sha"; then
               break
             fi
-            if [[ "$GITHUB_EVENT_NAME" != "workflow_dispatch" || "$attempt" -eq 12 ]]; then
+            if [[ ( "$GITHUB_EVENT_NAME" != "workflow_dispatch" && "$GITHUB_EVENT_NAME" != "push" ) || "$attempt" -eq 28 ]]; then
               echo "Star Adventures exact-main CI not admitted" >&2
               exit 1
             fi
             # If main advanced, abandon the superseded candidate rather than
             # waiting for (or publishing) a stale source SHA.
             [[ "$(gh api repos/evilsysadmin/star-adventures/commits/main --jq .sha)" == "$sha" ]] || exit 1
-            echo "Source CI finalization pending ($attempt/12); retrying"
+            [[ "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" == "$GITHUB_SHA" ]] || exit 1
+            echo "Source CI finalization pending ($attempt/28); retrying"
             sleep 10
           done
           echo "source_sha=$sha" >> "$GITHUB_OUTPUT"
