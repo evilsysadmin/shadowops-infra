@@ -1,7 +1,9 @@
+import hashlib
 import importlib.util
 import io
 import json
 import pathlib
+import tempfile
 import unittest
 from unittest.mock import patch
 import urllib.error
@@ -149,7 +151,9 @@ class StagingPagesTests(unittest.TestCase):
             if req.full_url.endswith("/assets/index-abcdef.js"):
                 return Response(b"console.log('staradvs')", "application/javascript")
             if req.full_url == s.BASE + "/release.json":
-                return Response(json.dumps({"build": sha, "environment": "staging"}).encode(), "application/json")
+                return Response(json.dumps({"build": sha, "environment": "staging",
+                                            "entry_js": {"path": "/assets/index-abcdef.js",
+                                                         "sha256": hashlib.sha256(b"console.log('staradvs')").hexdigest()}}).encode(), "application/json")
             raise AssertionError("Unexpected external URL")
 
         with patch.object(s.urllib.request, "urlopen", side_effect=urlopen):
@@ -176,6 +180,109 @@ class StagingPagesTests(unittest.TestCase):
             raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, None)
         with patch.object(s.urllib.request, "urlopen", side_effect=urlopen):
             with self.assertRaisesRegex(s.AdmissionError, "Public JavaScript unavailable \\(HTTP 403\\)"):
+                s.public_check(sha)
+
+
+    def test_build_manifest_contains_real_entrypoint_digest_and_nocache_headers(self):
+        sha = "b" * 40
+        with tempfile.TemporaryDirectory() as tmp:
+            dist = pathlib.Path(tmp)
+            (dist / "assets").mkdir()
+            js = b"console.log('exact deployed bundle')"
+            (dist / "assets/index-genuine.js").write_bytes(js)
+            (dist / "index.html").write_bytes(
+                b'<div id="root"></div><script type="module" src="/assets/index-genuine.js"></script>'
+            )
+            s.write_manifest(dist, sha)
+            manifest = json.loads((dist / "release.json").read_text())
+            self.assertEqual(manifest["build"], sha)
+            self.assertEqual(manifest["environment"], "staging")
+            self.assertEqual(manifest["entry_js"], {
+                "path": "/assets/index-genuine.js",
+                "sha256": hashlib.sha256(js).hexdigest(),
+            })
+            self.assertIn("no-store", (dist / "_headers").read_text())
+
+    def test_manifest_rejects_missing_external_or_ambiguous_js_entries(self):
+        sha = "b" * 40
+        with tempfile.TemporaryDirectory() as tmp:
+            dist = pathlib.Path(tmp)
+            (dist / "assets").mkdir()
+            index = dist / "index.html"
+            for html in (
+                b'<script src="https://foreign.test/malicious.js"></script>',
+                b'<script src="/assets/../../../secret.js"></script>',
+                b'<script src="/assets/a.js"></script><script src="/assets/b.js"></script>',
+            ):
+                index.write_bytes(html)
+                with self.assertRaisesRegex(s.AdmissionError, "exactly one"):
+                    s.write_manifest(dist, sha)
+            index.write_bytes(b'<script src="/assets/missing.js"></script>')
+            with self.assertRaisesRegex(s.AdmissionError, "entrypoint missing"):
+                s.write_manifest(dist, sha)
+
+    def test_live_sha_manifest_rejects_mixed_or_stale_javascript_bytes(self):
+        sha = "b" * 40
+        expected_js = b"build-output-from-sha-b"
+        actual_js = b"stale-cdn-entry-from-other-release"
+        path = "/assets/index-build.js"
+
+        class Response:
+            status = 200
+            def __init__(self, data, mime):
+                self.data, self.headers = data, {"Content-Type": mime}
+            def read(self, _):
+                return self.data
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+
+        def urlopen(req, **kwargs):
+            self.assertIsNotNone(kwargs.get("context"))
+            if req.full_url == s.BASE + "/":
+                return Response(
+                    b'<title>Star Adventures</title><div id="root"></div><script src="/assets/index-build.js"></script>',
+                    "text/html")
+            if req.full_url == s.BASE + path:
+                return Response(actual_js, "application/javascript")
+            if req.full_url == s.BASE + "/release.json":
+                return Response(json.dumps({
+                    "build": sha, "environment": "staging",
+                    "entry_js": {"path": path, "sha256": hashlib.sha256(expected_js).hexdigest()},
+                }).encode(), "application/json")
+            raise AssertionError("Unexpected request " + req.full_url)
+
+        with patch.object(s.urllib.request, "urlopen", side_effect=urlopen):
+            with self.assertRaisesRegex(s.AdmissionError, "differs from built release manifest"):
+                s.public_check(sha)
+
+    def test_public_release_without_integrity_contract_is_not_verified(self):
+        sha = "b" * 40
+
+        class Response:
+            status = 200
+            def __init__(self, data, mime):
+                self.data, self.headers = data, {"Content-Type": mime}
+            def read(self, _):
+                return self.data
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+
+        def urlopen(req, **_):
+            if req.full_url == s.BASE + "/":
+                return Response(
+                    b'<title>Star Adventures</title><div id="root"></div><script src="/assets/index.js"></script>',
+                    "text/html")
+            if req.full_url.endswith("/assets/index.js"):
+                return Response(b"console.log(1)", "application/javascript")
+            if req.full_url == s.BASE + "/release.json":
+                return Response(json.dumps({"build": sha, "environment": "staging"}).encode(), "application/json")
+            raise AssertionError("Unexpected request")
+        with patch.object(s.urllib.request, "urlopen", side_effect=urlopen):
+            with self.assertRaisesRegex(s.AdmissionError, "differs from built release manifest"):
                 s.public_check(sha)
 
     def test_credentials_not_available_without_token(self):
