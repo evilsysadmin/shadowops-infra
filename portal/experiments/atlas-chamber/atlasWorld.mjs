@@ -82,10 +82,19 @@ export function mountAtlasChamber(container) {
     box(.075,6,.08,tarnished,x+.15,3,-4.55);
     box(.65,.22,.58,stone,x,5.72,-4.81);
   }
-  // Stone coursing stops at the window reveal; it never crosses the sky.
+  // One draw call for all twenty joints, split around the reveal.
+  // These must never slice across the sky or consume one call per course.
+  const coursing=new THREE.InstancedMesh(
+    new THREE.BoxGeometry(5.5,.018,.018),tarnished,20);
+  const jointTransform=new THREE.Object3D();
+  let course=0;
   for(let i=0;i<10;i++)for(const side of [-1,1]){
-    box(5.5,.018,.018,tarnished,side*4.55,.55+i*.55,-5.045);
+    jointTransform.position.set(side*4.55,.55+i*.55,-5.045);
+    jointTransform.updateMatrix();
+    coursing.setMatrixAt(course++,jointTransform.matrix);
   }
+  coursing.instanceMatrix.needsUpdate=true;
+  root.add(coursing);
   // One moonlit lancet window, split by sculpted iron mullions.
   const windowShape=new THREE.Shape();
   windowShape.moveTo(-1.18,0);windowShape.lineTo(1.18,0);
