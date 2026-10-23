@@ -42,10 +42,10 @@ keyShape.lineTo(.115,.085);
 keyShape.lineTo(-.115,.085);
 keyShape.closePath();
 for(const x of xs) {
- // Double setback yields a real, shadowed stone archivolt instead of
+ // Narrow stone setback with a recessed dark joint instead of
  // stacking more glowing lines around the already illuminated portals.
- part(new THREE.TubeGeometry(revealCurve(x,-1.485,1.19,.13),96,.135,8,false),2);
- part(new THREE.TubeGeometry(revealCurve(x,-1.365,1.14,.085),96,.10,8,false),0);
+ part(new THREE.TubeGeometry(revealCurve(x,-1.485,1.17,.10),72,.102,7,false),0);
+ part(new THREE.TubeGeometry(revealCurve(x,-1.365,1.11,.07),72,.052,7,false),2);
  const border=curve(x,-1.18);
  part(new THREE.TubeGeometry(border,110,.107,10,false),0);
  part(new THREE.TubeGeometry(curve(x,-1.105),110,.022,7,false),1);
