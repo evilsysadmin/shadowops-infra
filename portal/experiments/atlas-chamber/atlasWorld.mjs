@@ -17,15 +17,15 @@ export function mountAtlasChamber(container) {
   container.appendChild(renderer.domElement);
   const scene=new THREE.Scene();
   scene.background=new THREE.Color(0x0a0d14);
-  scene.fog=new THREE.FogExp2(0x0a0d14,.036);
-  const camera=new THREE.PerspectiveCamera(mobile?43:39,1,.1,90);
+  scene.fog=new THREE.FogExp2(0x0a0d14,.021);
+  const camera=new THREE.PerspectiveCamera(mobile?53:39,1,.1,90);
   const root=new THREE.Group();
   root.position.x=mobile ? 0 : 1.55;
   scene.add(root);
-  const stone=new THREE.MeshStandardMaterial({color:0x27313a,roughness:.94,metalness:.03});
-  const darkStone=new THREE.MeshStandardMaterial({color:0x141c26,roughness:.85});
-  const wood=new THREE.MeshStandardMaterial({color:0x39251d,roughness:.7});
-  const woodRim=new THREE.MeshStandardMaterial({color:0x523627,roughness:.48});
+  const stone=new THREE.MeshStandardMaterial({color:0x4b5360,roughness:.94,metalness:.03});
+  const darkStone=new THREE.MeshStandardMaterial({color:0x29323d,roughness:.85});
+  const wood=new THREE.MeshStandardMaterial({color:0x62402b,roughness:.7});
+  const woodRim=new THREE.MeshStandardMaterial({color:0x815539,roughness:.48});
   const brass=new THREE.MeshStandardMaterial({color:0xb88b4d,metalness:.8,roughness:.27});
   const tarnished=new THREE.MeshStandardMaterial({color:0x55452e,metalness:.73,roughness:.44});
   const ivory=new THREE.MeshStandardMaterial({color:0xd1bea0,roughness:.36,metalness:.05});
@@ -43,12 +43,12 @@ export function mountAtlasChamber(container) {
     const m=mesh(new THREE.TorusGeometry(r,tube,8,80),mat,x,y,z,parent);
     m.rotation.set(rotX,rotY,0);return m;
   };
-  scene.add(new THREE.HemisphereLight(0x718fac,0x1d1210,1.6));
-  const moon=new THREE.DirectionalLight(0x8dbce8,2.4);
+  scene.add(new THREE.HemisphereLight(0x94aec5,0x5b4134,2.15));
+  const moon=new THREE.DirectionalLight(0x9ec9ee,3.0);
   moon.position.set(-4,8,-2);scene.add(moon);
   const lamp=new THREE.PointLight(0xf2aa58,32,9,2);
   lamp.position.set(4,3.2,1.6);root.add(lamp);
-  const key=new THREE.PointLight(0xe7c29a,13,7,2);
+  const key=new THREE.PointLight(0xe7c29a,19,8,2);
   key.position.set(-2,4,3);root.add(key);
 
   // Room, with proper depth rather than an infinite portal-gallery backdrop.
@@ -83,8 +83,8 @@ export function mountAtlasChamber(container) {
   mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts),80,.080,7,false),tarnished);
   rod(.038,3.0,tarnished,0,2.6,-4.79);
   box(2.35,.07,.09,tarnished,0,3.15,-4.77);
-  const moonDisc=mesh(new THREE.SphereGeometry(.72,28,16),
-    new THREE.MeshBasicMaterial({color:0x91acc5}),.05,4.35,-5.01);
+  const moonDisc=mesh(new THREE.SphereGeometry(.55,32,20),
+    new THREE.MeshBasicMaterial({color:0x789ebc}),.05,4.35,-5.01);
   moonDisc.scale.z=.035;
   // Side shelves, books and handwritten-map-like stacked folios.
   for(const y of [1.42,2.55,3.68]) {
@@ -212,8 +212,8 @@ export function mountAtlasChamber(container) {
 
   // Cinematic, stationary art direction at rest. Moving parts are deliberately
   // sparse and stop under prefers-reduced-motion or hidden-tab conditions.
-  camera.position.set(mobile?4.85:5.45,mobile?4.55:3.82,mobile?9.1:10.9);
-  camera.lookAt(mobile?0:1.12,mobile?1.53:1.72,mobile ? .40 : .08);
+  camera.position.set(mobile?5.1:5.45,mobile?5.35:3.82,mobile?12.3:10.9);
+  camera.lookAt(mobile?0:1.12,mobile?1.82:1.72,mobile ? .40 : .08);
   const observer=new ResizeObserver(()=>{
     const width=Math.max(1,container.clientWidth),height=Math.max(1,container.clientHeight);
     camera.aspect=width/height;
