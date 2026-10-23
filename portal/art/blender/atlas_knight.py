@@ -5,7 +5,6 @@ Y is vertical in the exported asset (export_yup=False), matching the Atlas
 Chamber table's real geometry. No textures or external model dependencies.
 """
 import bpy
-import bmesh
 import math
 import sys
 
@@ -181,13 +180,6 @@ for name,objects in GROUPS.items():
     # rotation as the GLB node transform, so POSITION accessors appear Z-up.
     # Bake world transforms once: browser geometry and Y-up bounds now agree.
     bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
-    # Blender glTF auto-triangulation can flip equal-cost ngon diagonals between
-    # identical builds. Fix the triangulation explicitly before hashing the GLB.
-    bm=bmesh.new()
-    bm.from_mesh(bpy.context.object.data)
-    bmesh.ops.triangulate(bm,faces=list(bm.faces),quad_method="FIXED",ngon_method="EAR_CLIP")
-    bm.to_mesh(bpy.context.object.data)
-    bm.free()
     bpy.context.object.name="Atlas Knight / "+name
 
 filename=sys.argv[sys.argv.index("--")+1] if "--" in sys.argv else None
