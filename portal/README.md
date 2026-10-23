@@ -154,3 +154,21 @@ With `?portal_perf=1`, the local `document.querySelector('.stage').portalPerfSna
 Snapshot status is `unsupported` when the extension is absent, `collecting` while awaiting valid non-disjoint measurements, `available` when median/p95 GPU elapsed milliseconds exist, or `context-lost` after a lost WebGL context. Do **not** treat `unsupported`, `collecting` or `context-lost` as zero milliseconds. GPU query execution may still have diagnostic overhead, so compare consistent opted-in runs.
 
 For a real GPU acceptance session on a local machine: enable browser hardware acceleration, verify that WebGL actually uses the intended GPU (for Chromium see `chrome://gpu`), open the portal with `?portal_perf=1`, scroll the observatory into view, then inspect the snapshot in DevTools after the scene and GLBs load. Record the precise device, driver, browser, viewport, display scaling, WebGL renderer, extension status, GPU median/p95, draw calls and triangle counts, and compare mobile/desktop profiles. A headless CI browser can report real timings for its *software/virtual GPU*, but those values **cannot certify physical hardware**, physical GPU memory, thermals or sustained battery cost. No telemetry leaves the browser and no permission to access the user's device is implied. Issue #153 remains open until representative physical devices have been profiled.
+
+## Repeatable local GPU capture on Linux/desktop
+
+A human-driven session no longer needs copy/paste from DevTools. From the `portal/` directory, with Node 22+, Playwright Chromium installed and a desktop display:
+
+```bash
+npm install
+npx playwright install chromium
+npm run dev -- --port 4173
+# In a SECOND terminal in portal/:
+npm run profile:gpu
+```
+
+The separate `npm run profile:gpu` process launches **headed** Chromium (no forced software rendering), opens the local portal with `?portal_perf=1`, waits for the authored gallery/vault GLBs and at least 45 drawn-frame samples at both 390px and 1440px, and writes **only locally** to the Git-ignored `.gpu-profile/` directory: `gpu-profile.json`, `portal-390.png` and `portal-1440.png`. The profile includes browser/rendering identifiers, optional GPU query status, CPU submission and drawn-frame interval statistics and Three.js resource counters. It never uploads diagnostics.
+
+The target defaults to `http://127.0.0.1:4173/`; for an explicit alternate portal origin set `PORTAL_PROFILE_URL`. To select the output directory, set `PORTAL_PROFILE_DIR`. The script requires a graphical desktop session and a reachable portal; it does not silently start a server or change Cloudflare routes. The supplied 390px viewport is still a **desktop browser emulating a narrow width**, not a physical phone.
+
+The report labels suspected SwiftShader/llvmpipe/software renderers `not-qualified`, and GPU query `unsupported` or `collecting` likewise cannot qualify. Even valid samples on an apparently physical renderer are merely `review-required`: inspect `chrome://gpu`, actual GPU/driver, thermals, VRAM and sustained mobile/desktop frame pacing before accepting art against #153. Headless/shared CI does not run this physical workflow. No automated test can certify real mobile device performance.
