@@ -1,0 +1,75 @@
+name: Star Adventures staging recovery preflight (read-only)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/staradvs-recovery-preflight.yml'
+      - 'scripts/staradvs_recovery_preflight.py'
+      - 'tests/test_staradvs_recovery_preflight.py'
+      - 'docs/staradvs-staging.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/staradvs-recovery-preflight.yml'
+      - 'scripts/staradvs_recovery_preflight.py'
+      - 'tests/test_staradvs_recovery_preflight.py'
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: 'Optional exact historic SHA; empty selects most recent receipt-backed candidate'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staradvs-recovery-readonly-${{ github.event_name == 'pull_request' && github.ref || 'trusted' }}
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    name: Recovery dry-run contracts (offline)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m py_compile scripts/staradvs_recovery_preflight.py
+      - run: python3 -m unittest discover -s tests -p 'test_staradvs_recovery_preflight.py' -v
+
+  live:
+    name: Verify public staging, hold, candidate details and receipt (GET only)
+    needs: contract
+    if: >-
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    permissions:
+      contents: read
+      actions: read
+    environment:
+      name: staging
+      url: https://staging.staradvs.shadowops.dpdns.org
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CANDIDATE_SHA: ${{ inputs.candidate_sha || '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate actual staging recovery rehearsal without mutations
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$GH_TOKEN"
+          python3 scripts/staradvs_recovery_preflight.py --candidate-sha "$CANDIDATE_SHA"
+      - name: Confirm that no rollback, Pages change or production change was attempted
+        run: echo 'STARADVS_RECOVERY_READONLY_COMPLETE (not permission to perform rollback)'
