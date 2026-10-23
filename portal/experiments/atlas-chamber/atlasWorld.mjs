@@ -151,26 +151,26 @@ export function mountAtlasChamber(container) {
     mesh(new THREE.BoxGeometry(.19,.05,.05),brass,0,.88,0,g);
     return g;
   }
+  // Curved, chiselled knight profile with a distinct muzzle and swept mane:
+  // this must read as a horse silhouette, never an extrusion of square steps.
   const knightShape=new THREE.Shape();
-  knightShape.moveTo(-.20,0);
-  knightShape.lineTo(.20,0);
-  knightShape.lineTo(.13,.20);
-  knightShape.lineTo(.07,.33);
-  knightShape.lineTo(.21,.40);
-  knightShape.lineTo(.26,.51);
-  knightShape.lineTo(.17,.61);
-  knightShape.lineTo(.02,.63);
-  knightShape.lineTo(-.095,.76);
-  knightShape.lineTo(-.16,.75);
-  knightShape.lineTo(-.18,.54);
-  knightShape.lineTo(-.13,.36);
-  knightShape.lineTo(-.20,0);
+  knightShape.moveTo(-.23,0);
+  knightShape.lineTo(.21,0);
+  knightShape.bezierCurveTo(.08,.12,.05,.18,.10,.31);
+  knightShape.bezierCurveTo(.14,.37,.21,.39,.285,.445);
+  knightShape.lineTo(.275,.508);
+  knightShape.bezierCurveTo(.24,.58,.15,.595,.06,.566);
+  knightShape.bezierCurveTo(.048,.66,.02,.75,-.060,.80);
+  knightShape.lineTo(-.138,.78);
+  knightShape.lineTo(-.122,.68);
+  knightShape.bezierCurveTo(-.24,.59,-.22,.42,-.17,.30);
+  knightShape.bezierCurveTo(-.12,.18,-.16,.08,-.23,0);
   const knight=new THREE.Group();
   knight.position.set(-.60,1.18,1.24);
   root.add(knight);
   mesh(new THREE.CylinderGeometry(.25,.31,.08,24),ivory,0,.04,0,knight);
-  mesh(new THREE.ExtrudeGeometry(knightShape,{depth:.17,bevelEnabled:true,bevelSize:.024,bevelThickness:.035,bevelSegments:2}),ivory,0,.10,-.09,knight);
-  mesh(new THREE.SphereGeometry(.019,10,8),obsidian,.14,.60,.10,knight);
+  mesh(new THREE.ExtrudeGeometry(knightShape,{depth:.21,curveSegments:20,bevelEnabled:true,bevelSize:.026,bevelThickness:.036,bevelSegments:4}),ivory,0,.10,-.09,knight);
+  mesh(new THREE.SphereGeometry(.017,12,8),obsidian,.145,.61,.14,knight);
   crown(.64,-.99,obsidian);
   pawn(-1.2,1.24,ivory);pawn(-.17,1.24,ivory);
   pawn(.65,-.58,obsidian);pawn(1.06,-.99,obsidian);
