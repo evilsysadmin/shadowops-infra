@@ -79,21 +79,21 @@ export function mountAtlasChamber(container) {
   // Recessed mortar bed with large, offset flagstones. The old single gray
   // floor slab read as a featureless plane; physical courses catch moonlight.
   box(15,.32,13,darkStone,0,-.50,0);
-  const flagRows=12,flagCols=13;
+  const flagRows=14,flagCols=10;
   const flags=new THREE.InstancedMesh(
-    new THREE.BoxGeometry(1.01,.025,.99),stone,flagRows*flagCols);
+    new THREE.BoxGeometry(1.35,.026,.88),stone,flagRows*flagCols);
   const flagTransform=new THREE.Object3D();
   const flagTint=new THREE.Color();
   let flagIndex=0;
   for(let r=0;r<flagRows;r++)for(let c=0;c<flagCols;c++){
     // Alternate courses are offset like laid flagstone, not a dashboard grid.
-    const x=(c-6)*1.08+(r%2)*.26;
-    const z=(r-5.5)*1.08;
+    const x=(c-4.5)*1.39+(r%2)*.48;
+    const z=(r-6.5)*.91;
     flagTransform.position.set(x,-.323,z);
-    flagTransform.rotation.y=((r*7+c*3)%4)*Math.PI/2;
+    flagTransform.rotation.y=((r*7+c*3)%2)*Math.PI;
     flagTransform.updateMatrix();
     flags.setMatrixAt(flagIndex,flagTransform.matrix);
-    const tint=.72+((r*13+c*7)%11)*.012;
+    const tint=.66+((r*13+c*7)%11)*.009;
     flagTint.setRGB(tint,tint*.99,tint*.97);
     flags.setColorAt(flagIndex,flagTint);
     flagIndex++;
