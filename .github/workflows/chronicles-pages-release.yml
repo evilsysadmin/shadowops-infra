@@ -429,17 +429,32 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
       - name: Reject superseded source before writing verified receipt
+        id: source_freshness
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           ADMITTED_SHA: ${{ steps.source.outputs.sha }}
         run: |
           set -euo pipefail
+          [[ "$ADMITTED_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo 'CHRONICLES_PAGES_INVALID_ADMITTED_SHA' >&2
+            exit 64
+          }
           current="$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)"
+          [[ "$current" =~ ^[0-9a-f]{40}$ ]] || {
+            echo 'CHRONICLES_PAGES_INVALID_CURRENT_MAIN_SHA' >&2
+            exit 65
+          }
           if [[ "$current" != "$ADMITTED_SHA" ]]; then
             echo "CHRONICLES_PAGES_SUPERSEDED_AFTER_SMOKE sha=$ADMITTED_SHA current=$current"
-            exit 1
+            echo "::notice title=Chronicles Pages superseded::Public browser checks passed, but source main advanced. No staging receipt will be written."
+            printf '**State: superseded after public smoke.** This run validated an older source revision but cannot certify the current staging generation. No receipt issued.\\n' >> "$GITHUB_STEP_SUMMARY"
+            echo 'fresh=false' >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          echo 'fresh=true' >> "$GITHUB_OUTPUT"
       - name: Record the verified Chronicles Pages source generation
+        if: steps.source_freshness.outputs.fresh == 'true'
         shell: bash
         env:
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
@@ -472,6 +487,7 @@ jobs:
           pathlib.Path("verified-pages/evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
           PY
       - name: Save verified Pages receipt for idempotent hourly sync
+        if: steps.source_freshness.outputs.fresh == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: chronicles-pages-staging-${{ steps.source.outputs.sha }}
