@@ -320,8 +320,23 @@ export function mountAtlasChamber(container) {
     new THREE.Vector3(5.33,4.39,archFront),
     new THREE.Vector3(buttressX[1],archSpringY,archFront),
   );
+  // Restrained limestone ribs should not read as blue emissive neon.
+  // A shallow, raised keystone makes the crown unmistakably masonry.
+  const ribStone=new THREE.MeshStandardMaterial({
+    color:0x637381,roughness:.96,map:stoneGrain,
+  });
   for(const half of [leftHalf,rightHalf])
-    mesh(new THREE.TubeGeometry(half,24,.097,8,false),stone);
+    mesh(new THREE.TubeGeometry(half,24,.072,8,false),ribStone);
+  const keystoneShape=new THREE.Shape();
+  keystoneShape.moveTo(-.13,-.10);
+  keystoneShape.lineTo(.13,-.10);
+  keystoneShape.lineTo(.20,.13);
+  keystoneShape.lineTo(-.20,.13);
+  keystoneShape.closePath();
+  mesh(new THREE.ExtrudeGeometry(keystoneShape,{
+    depth:.15,steps:1,bevelEnabled:true,
+    bevelSize:.018,bevelThickness:.014,bevelSegments:1,
+  }),stone,4.175,4.99,-4.85);
   container.dataset.rearButtress='right-ashlar-arch';
   // An oak cabinetmaker's chess table: eased edges replace the old square
   // slabs; a narrow carved apron hangs under the lip facing the viewer.
