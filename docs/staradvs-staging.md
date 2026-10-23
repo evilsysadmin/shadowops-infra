@@ -72,3 +72,16 @@ The read-only `.github/workflows/staradvs-public-browser.yml` is owned by Infra.
 5. Prints `STARADVS_PUBLIC_JOURNEY_READY sha=<SHA>` **only after** all actual browser assertions pass. PR events run offline contract tests, never real browsing or mutations.
 
 **Scope:** This verifies the *published revision*, not necessarily the latest source `main`. Compare those SHAs when claiming freshness. No production, rollback, account security, full graphical fidelity or cross-device server-side persistence is implied. Browser captures are evidence to inspect, not automatic visual sign-off.
+
+## Rollback inventory — discovery only
+
+The dedicated Cloudflare Pages project is named `staradvs-staging`. Its Pages **production** deployment means the `main` branch of this *staging project*, **not** the ShadowOps game production environment or `staradvs.shadowops.dpdns.org`.
+
+`.github/workflows/staradvs-rollback-inventory.yml` runs offline contracts in PRs and may run a **GET-only** inventory after trusted Infra `main` changes or manual dispatch. The workflow uses the existing Infra `staging` Cloudflare credentials but its program has **no mutation or rollback method**.
+
+- Reverify public staging TLS, HTML, JS and SHA-256 release integrity and confirm exact project/DNS/custom-domain ownership before querying deployment metadata.
+- Inspect only the first 50 `env=production` Cloudflare Pages deployments for project `staradvs-staging`. Keep only entries with successful deployment stage, clean `main` source commit SHA, correct project ID/name and valid deployment UUID. The public live SHA must match at least one such entry or the run fails closed.
+- Print `STARADVS_STAGING_ROLLBACK_READONLY_PLAN` with the current verified source SHA and up to five distinct potential earlier candidates. Candidates are **not yet approved** as rollback targets: the first page may be incomplete, and archived GitHub verified release receipts and asset/browser checks must be independently reviewed.
+- This step does not change an alias, publish bytes, create/delete a Pages deployment, modify DNS or perform a rollback. A later rollback workflow requires a separate reviewed and explicitly approved procedure, a source/release proof, post-rollback HTTPS/browser checks, and a clear path forward.
+
+Cloudflare's documented Pages rollback operation is a **separate POST** endpoint; this inventory intentionally uses only the documented **GET** deployments list. Running this workflow proves inventory visibility, not rollback recoverability.
