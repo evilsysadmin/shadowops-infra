@@ -18,17 +18,21 @@ export function makeAtlasSurfaceTexels(kind='wood',size=256){
     const grit=hash(x,y)-.5;
     let color;
     if(kind==='wood'){
-      const waviness=Math.sin(y*.063)*7.0+Math.sin(y*.17)*1.8;
-      const grain=Math.sin((x+waviness)*.21)*.10+
-        Math.sin((x+waviness)*.83)*.036;
-      const knots=Math.exp(-((x-size*.71)**2/(size*size*.003)+
-                           (y-size*.48)**2/(size*size*.020)));
+      const phase=2*Math.PI/size;
+      const waviness=Math.sin(y*phase)*7.0+Math.sin(y*phase*3)*1.8;
+      const grain=Math.sin((x+waviness)*phase*9)*.10+
+        Math.sin((x+waviness)*phase*41)*.036;
+      const dx=Math.min(Math.abs(x-size*.71),size-Math.abs(x-size*.71));
+      const dy=Math.min(Math.abs(y-size*.48),size-Math.abs(y-size*.48));
+      const knots=Math.exp(-(dx*dx/(size*size*.003)+
+                             dy*dy/(size*size*.020)));
       const variance=grain*91+grit*21-knots*34;
       color=[210+variance,186+variance*.84,151+variance*.66];
     } else {
-      const mineral=Math.sin(x*.031+y*.027)*.065+
-        Math.cos(x*.077-y*.041)*.033+
-        Math.sin(x*.15+y*.093)*.022;
+      const phase=2*Math.PI/size;
+      const mineral=Math.sin((2*x+2*y)*phase)*.065+
+        Math.cos((5*x-3*y)*phase)*.033+
+        Math.sin((13*x+7*y)*phase)*.022;
       const v=mineral*165+grit*24;
       color=[193+v,202+v*.95,208+v*1.08];
     }
