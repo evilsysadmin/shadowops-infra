@@ -283,12 +283,12 @@ test('direct 3D portal hover previews without selection, restores keyboard focus
   await page.locator('.stage-area').scrollIntoViewIfNeeded();
   await expect(stage).toHaveAttribute('data-scene','active',{timeout:15000});
   await expect(stage).toHaveAttribute('data-hover-world','none');
-  const box=await canvas.boundingBox();
-  expect(box).toBeTruthy();
-
   // Test the actual public canvas with mouse coordinates, not internal Three
   // scene objects or implementation-only raycaster hooks.
   async function hoverGateway(id) {
+    await canvas.scrollIntoViewIfNeeded();
+    const box=await canvas.boundingBox();
+    expect(box).toBeTruthy();
     for (const fy of [.5,.45,.55,.4,.6,.35,.65]) {
       for (const fx of [.24,.5,.76,.19,.31,.69,.81]) {
         await page.mouse.move(box.x+box.width*fx,box.y+box.height*fy);
@@ -302,7 +302,7 @@ test('direct 3D portal hover previews without selection, restores keyboard focus
   await expect(stage).toHaveAttribute('data-focus-world','chronicles');
   await expect(page.locator('.detail-title')).toHaveText('Chess Studio');
   await expect(page.locator('.world-button[data-world="chess"]')).toHaveAttribute('aria-pressed','true');
-  await page.locator('.headline').hover();
+  await page.mouse.move(2,2);
   await expect(stage).toHaveAttribute('data-hover-world','none');
   await expect(stage).toHaveAttribute('data-focus-world','chess');
 
@@ -311,17 +311,18 @@ test('direct 3D portal hover previews without selection, restores keyboard focus
   await expect(stage).toHaveAttribute('data-focus-world','star');
   await hoverGateway('chronicles');
   await expect(stage).toHaveAttribute('data-focus-world','chronicles');
-  await page.locator('.headline').hover();
+  await page.mouse.move(2,2);
   await expect(stage).toHaveAttribute('data-focus-world','star');
   await page.locator('.brand').focus();
   await expect(stage).toHaveAttribute('data-focus-world','chess');
 
   await hoverGateway('star');
-  const dragX=page.mouse;
-  await dragX.down();
-  await dragX.move(box.x+box.width*.51,box.y+box.height*.47);
+  const box=await canvas.boundingBox();
+  expect(box).toBeTruthy();
+  await page.mouse.down();
+  await page.mouse.move(box.x+box.width*.51,box.y+box.height*.47);
   await expect(stage).toHaveAttribute('data-hover-world','none');
-  await dragX.up();
+  await page.mouse.up();
   await expect(page.locator('.detail-title')).toHaveText('Chess Studio');
 
   await hoverGateway('chronicles');
@@ -329,6 +330,6 @@ test('direct 3D portal hover previews without selection, restores keyboard focus
   await page.mouse.up();
   await expect(page.locator('.detail-title')).toHaveText('Chronicles');
   await expect(page.locator('.world-button[data-world="chronicles"]')).toHaveAttribute('aria-pressed','true');
-  await page.locator('.headline').hover();
+  await page.mouse.move(2,2);
   await expect(stage).toHaveAttribute('data-focus-world','chronicles');
 });
