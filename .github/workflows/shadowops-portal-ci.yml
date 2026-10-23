@@ -82,7 +82,13 @@ jobs:
       - name: Install isolated portal dependencies
         run: npm install --ignore-scripts --no-audit --no-fund
       - name: Install Chromium for deterministic browser smoke
-        run: npx playwright install --with-deps chromium
+        run: |
+          # Playwright --with-deps invokes apt on this second runner too.
+          # Reuse the stable archive endpoint from the Blender job.
+          if test -f /etc/apt/sources.list.d/ubuntu.sources; then
+            sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources
+          fi
+          npx playwright install --with-deps chromium
       - name: Desktop, mobile, keyboard and WebGL fallback
         run: npm run test:browser
       - name: Always attach visual evidence
