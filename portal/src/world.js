@@ -52,15 +52,15 @@ export function mountObservatory(container, onSelect, onPreview = () => {}) {
   key.position.set(-5, 9, 7);
   scene.add(key);
 
-  const darkMetal = new THREE.MeshStandardMaterial({color:0x19212f, metalness:.86, roughness:.27});
-  // Basalt reads as stone rather than pitch-black polished metal under moonlight.
-  // The platform and dais share this existing material; no extra draw calls.
-  const blackStone = new THREE.MeshStandardMaterial({color:0x2a3644, metalness:.08, roughness:.78});
+  const darkMetal = new THREE.MeshStandardMaterial({color:0x202b3b, metalness:.82, roughness:.30});
+  // Slightly lift the structural basalt, but retain the metallic inset dais:
+  // the latter catches the existing warm/cool portal light pools.
+  const blackStone = new THREE.MeshStandardMaterial({color:0x202b38, metalness:.14, roughness:.76});
   const trims = new THREE.MeshStandardMaterial({color:0x7a817f, metalness:.95, roughness:.23});
   const platform = new THREE.Mesh(new THREE.CylinderGeometry(7.7, 8.5, .38, 128), blackStone);
   platform.position.y = -.42;
   scene.add(platform);
-  const dais = new THREE.Mesh(new THREE.CylinderGeometry(6.65, 6.7, .075, 128), blackStone);
+  const dais = new THREE.Mesh(new THREE.CylinderGeometry(6.65, 6.7, .075, 128), darkMetal);
   dais.position.y = -.19;
   scene.add(dais);
   for (const radius of [6.25, 7.55]) {
