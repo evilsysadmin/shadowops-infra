@@ -49,13 +49,22 @@ export function mountAtlasChamber(container) {
     const m=mesh(new THREE.TorusGeometry(r,tube,8,80),mat,x,y,z,parent);
     m.rotation.set(rotX,rotY,0);return m;
   };
-  scene.add(new THREE.HemisphereLight(0x94aec5,0x5b4134,2.15));
-  const moon=new THREE.DirectionalLight(0x9ec9ee,3.0);
+  // Moon and candlelight need distinct jobs: low ambient reveals form without
+  // washing the walls; the actual lamp and window provide local color pools.
+  scene.add(new THREE.HemisphereLight(0x839cb7,0x4d362c,1.28));
+  const moon=new THREE.DirectionalLight(0x9bc8f2,2.85);
   moon.position.set(-4,8,-2);scene.add(moon);
-  const lamp=new THREE.PointLight(0xf2aa58,32,9,2);
-  lamp.position.set(4,3.2,1.6);root.add(lamp);
-  const key=new THREE.PointLight(0xe7c29a,19,8,2);
-  key.position.set(-2,4,3);root.add(key);
+  // The only warm point is tucked directly under the physical lamp shade.
+  // Previously it floated far to the right, with a second broad warm key.
+  const lampBulb=new THREE.Vector3(2.52,1.96,1.65);
+  const lamp=new THREE.PointLight(0xffae65,18,7,2);
+  lamp.position.copy(lampBulb).add(new THREE.Vector3(0,-.14,0));
+  root.add(lamp);
+  // Cool window bounce is secondary to the directional moon. No extra light.
+  const windowBounce=new THREE.PointLight(0x84b8e8,9,7.8,2);
+  windowBounce.position.set(0,4.12,-4.73);
+  root.add(windowBounce);
+  container.dataset.lightRig='moon-window-practical';
 
   // Room, with proper depth rather than an infinite portal-gallery backdrop.
   // Cut a genuine 55 cm deep lancet through the rear masonry. The previous
@@ -335,7 +344,7 @@ export function mountAtlasChamber(container) {
   rod(.052,1.00,brass,2.52,1.60,1.65);
   mesh(new THREE.ConeGeometry(.50,.57,32,1,true),tarnished,2.52,2.20,1.65);
   mesh(new THREE.SphereGeometry(.19,20,12),
-    new THREE.MeshBasicMaterial({color:0xe9a264}),2.52,1.96,1.65);
+    new THREE.MeshBasicMaterial({color:0xffbe76}),lampBulb.x,lampBulb.y,lampBulb.z);
   // Two archival volumes and an inkwell: handmade still-life around the atlas.
   for(let i=0;i<3;i++) {
     box(.90,.105,.60,i%2?obsidian:woodRim,-2.50,1.08+i*.115,.05+i*.02);
