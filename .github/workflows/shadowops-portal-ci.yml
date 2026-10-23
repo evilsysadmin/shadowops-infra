@@ -63,6 +63,7 @@ jobs:
           name: portal-compiled-art
           path: |
             portal/public/art/
+            portal/experiments/atlas-chamber/compiled/
             portal/src/*.generated.mjs
           if-no-files-found: error
           retention-days: 1
@@ -85,7 +86,7 @@ jobs:
           name: portal-compiled-art
           path: portal
       - name: Verify reused model manifests
-        run: test -s src/vaultAsset.generated.mjs && test -s src/galleryFrame.generated.mjs && test -n "$(find public/art -type f -name 'celestial-vault-*.glb' -print -quit)"
+        run: test -s src/vaultAsset.generated.mjs && test -s src/galleryFrame.generated.mjs && test -s src/atlasKnightAsset.generated.mjs && test -n "$(find experiments/atlas-chamber/compiled -type f -name 'atlas-knight-*.glb' -print -quit)" && test -n "$(find public/art -type f -name 'celestial-vault-*.glb' -print -quit)"
       - name: Install isolated portal dependencies
         run: npm install --ignore-scripts --no-audit --no-fund
       - name: Install Chromium for deterministic browser smoke
