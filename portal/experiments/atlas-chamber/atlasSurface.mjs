@@ -53,3 +53,46 @@ export function makeAtlasSurfaceTexture(kind){
   texture.needsUpdate=true;
   return texture;
 }
+
+
+/**
+ * Derive small tangent-space normal maps from the *same* original albedo.
+ * Broad, symmetric finite differences read as worn mineral relief or long
+ * wood fibres under light without procedural geometry or another asset fetch.
+ * Each RGBA8 256px map is 256 KiB before GPU mipmaps; both < 700 KiB total.
+ */
+export function makeAtlasNormalTexels(kind='wood',size=256){
+  const {data}=makeAtlasSurfaceTexels(kind,size); // shares validation and seed
+  const height=(x,y)=>{
+    const px=((x%size)+size)%size,py=((y%size)+size)%size;
+    const i=(py*size+px)*4;
+    return (data[i]*.2126+data[i+1]*.7152+data[i+2]*.0722)/255;
+  };
+  const result=new Uint8Array(data.length);
+  const pack=n=>Math.round(Math.max(0,Math.min(1,n*.5+.5))*255);
+  // A 4px derivative avoids turning the 1px-grit albedo into noisy glitter.
+  // The same texture-space UVs as the albedo ensure grain is phase-aligned.
+  const strength=kind==='wood'?2.25:2.0;
+  for(let y=0;y<size;y++)for(let x=0;x<size;x++){
+    const dx=(height(x+2,y)-height(x-2,y))*.5*strength;
+    const dy=(height(x,y+2)-height(x,y-2))*.5*strength;
+    const length=Math.hypot(dx,dy,1);
+    const i=(y*size+x)*4;
+    result[i]=pack(-dx/length);
+    result[i+1]=pack(-dy/length);
+    result[i+2]=pack(1/length);
+    result[i+3]=255;
+  }
+  return {size,data:result};
+}
+
+export function makeAtlasNormalTexture(kind){
+  const {size,data}=makeAtlasNormalTexels(kind);
+  const texture=new THREE.DataTexture(data,size,size,THREE.RGBAFormat);
+  texture.wrapS=texture.wrapT=THREE.RepeatWrapping;
+  texture.minFilter=THREE.LinearMipmapLinearFilter;
+  texture.magFilter=THREE.LinearFilter;
+  texture.generateMipmaps=true;
+  texture.needsUpdate=true;
+  return texture; // linear normal data, intentionally not sRGB
+}
