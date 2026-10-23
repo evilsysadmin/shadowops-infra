@@ -16,8 +16,8 @@ test('authored pilaster has actual twelve-channel stone relief, not texture-only
     const spread=Math.max(...middle)-Math.min(...middle);
     assert.ok(spread >= .011 && spread <= .015,
       'deep enough for genuine sculpting, but still a restrained stone channel');
-    assert.equal(shaft.boundingBox.min.y,-1.38);
-    assert.equal(shaft.boundingBox.max.y,1.38);
+    assert.ok(Math.abs(shaft.boundingBox.min.y + 1.38) < 1e-5);
+    assert.ok(Math.abs(shaft.boundingBox.max.y - 1.38) < 1e-5);
     assert.ok(shaft.index.count/3 < 2500,'bounded pilaster triangle cost');
   } finally {shaft.dispose();}
 });
