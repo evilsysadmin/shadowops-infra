@@ -177,8 +177,9 @@ class PagesVerifiedReceipt(unittest.TestCase):
                 return "https://other.example/release.json"
             def read(self, n=-1):
                 return json.dumps({"build": SHA}).encode()
+        original_reader = gate.read_manifest
         with patch.object(gate, "read_manifest", side_effect=lambda _:
-                          gate.read_manifest(url, opener=lambda req, timeout: Response())):
+                          original_reader(url, opener=lambda req, timeout: Response())):
             self.assertFalse(gate.live_matches(SHA))
 
     def test_absent_or_untrusted_receipt_never_consults_live_site(self):
