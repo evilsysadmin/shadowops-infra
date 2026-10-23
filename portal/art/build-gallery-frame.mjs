@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {makeFlutedPilasterGeometry} from './flutedPillar.mjs';
+import {makeCarvedCorniceGeometry} from './carvedCornice.mjs';
 import { GlbSculpture, writeManifest } from './glbWriter.mjs';
 
 // Original authored portal gallery facade, exported once at build time.
@@ -62,8 +63,9 @@ for(const x of [-4.45,-1.60,1.60,4.45]) {
  part(new THREE.CylinderGeometry(.205,.205,.085,32),2,[x,.035,-1.40]);
  part(new THREE.CylinderGeometry(.13,.15,.105,32),1,[x,2.78,-1.40]);
 }
-// Continuous cornice above all three worlds; subtle lattice engraved in.
-part(new THREE.BoxGeometry(12,.15,.40),0,[0,3.98,-1.31]);
+// Continuous sculpted cornice over all three doors: an authored coved
+// cross-section catches existing lunar/key lighting without new scene draws.
+part(makeCarvedCorniceGeometry(),0);
 part(new THREE.BoxGeometry(11.5,.09,.25),1,[0,3.78,-1.18]);
 part(new THREE.BoxGeometry(11.7,.028,.24),2,[0,4.08,-1.19]);
 for(let i=0;i<48;i++) {
