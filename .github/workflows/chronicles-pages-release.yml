@@ -379,7 +379,7 @@ jobs:
         run: |
           set -euo pipefail
           # npm ci already installed this exact locked version; a second
-          # npm install playwright@1 was both redundant and could drift.
+          # network package resolution was redundant and could drift.
           version="$(node -p 'require("./node_modules/playwright/package.json").version')"
           declared="$(node -p 'require("./package.json").devDependencies.playwright')"
           [[ "$version" == "$declared" ]] || {
