@@ -40,7 +40,7 @@ def cylinder(name, radius, height, y, mat, vertices=48):
     return register(obj,mat)
 
 def torus(name, radius, tube, y, mat):
-    bpy.ops.mesh.primitive_torus_add(major_segments=56, minor_segments=8,
+    bpy.ops.mesh.primitive_torus_add(major_segments=48, minor_segments=8,
         major_radius=radius, minor_radius=tube, location=(0,y,0),
         rotation=(math.pi/2,0,0))
     ob=bpy.context.object
@@ -51,7 +51,7 @@ def outline(name, points, depth, bevel, mat, z=0):
     """Smooth, thick real relief from an original Bezier contour in XY."""
     curve=bpy.data.curves.new(name,type="CURVE")
     curve.dimensions="2D"
-    curve.resolution_u=9
+    curve.resolution_u=8
     curve.fill_mode="BOTH"
     curve.extrude=depth
     curve.bevel_depth=bevel
@@ -76,7 +76,7 @@ def engraving(name, coords, gauge, mat):
     curve=bpy.data.curves.new(name,type="CURVE")
     curve.dimensions="3D"
     # Screen-space ornaments do not need Blender's default 12 Bezier subdivisions.
-    curve.resolution_u=8
+    curve.resolution_u=7
     curve.bevel_depth=gauge
     curve.bevel_resolution=2
     spline=curve.splines.new("BEZIER")
@@ -94,7 +94,7 @@ def engraving(name, coords, gauge, mat):
     return register(bpy.context.object,mat)
 
 def bead(name,loc,scale,mat):
-    bpy.ops.mesh.primitive_uv_sphere_add(segments=14,ring_count=9,
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=12,ring_count=8,
         location=loc)
     ob=bpy.context.object
     ob.name=name
