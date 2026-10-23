@@ -14,6 +14,8 @@ from typing import Callable
 from uuid import UUID
 
 import staradvs_pages as pages
+from staradvs_staging_hold import HoldConfigError, parse_hold
+from staradvs_immutable_target import immutable_origin
 
 ROOT = Path(__file__).resolve().parents[1]
 AUTH_PATH = ROOT / "config" / "staradvs-recovery-authorization.json"
@@ -82,6 +84,10 @@ def authorize_rollback(
             or approval["target_receipt_id"] < 1):
         raise pages.AdmissionError("Recovery approval contains invalid source, target or receipt")
     _expiry(approval.get("expires_at"), now)
+    try:
+        hold = parse_hold(hold, now)
+    except HoldConfigError:
+        raise pages.AdmissionError("Recovery hold is malformed or expired") from None
     if (not isinstance(hold, dict) or hold.get("mode") != "hold"
             or hold.get("anchor_sha") != sha
             or hold.get("issue") != approval.get("hold_issue")
@@ -95,8 +101,10 @@ def authorize_rollback(
             or plan.get("target_release_run_id") != approval["target_publish_run_id"]
             or plan.get("target_receipt_id") != approval["target_receipt_id"]
             or plan.get("can_mutate") is not False
-            or plan.get("operator_approval") != "not_given"):
+            or plan.get("operator_approval") != "not_given"
+            or not isinstance(plan.get("target_immutable_url"), str)):
         raise pages.AdmissionError("Recovery approval differs from fresh read-only evidence")
+    immutable_origin(plan["target_immutable_url"])
     # A separate future operator workflow must supply its actual Actions context.
     if not isinstance(event, dict) or any((
         event.get("repository") != REPO,
