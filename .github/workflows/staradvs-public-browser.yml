@@ -24,7 +24,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: staradvs-public-browser-\${{ github.event_name == 'pull_request' && github.ref || 'live' }}
+  group: staradvs-public-browser-${{ github.event_name == 'pull_request' && github.ref || 'live' }}
   cancel-in-progress: false
 
 jobs:
@@ -78,12 +78,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: evilsysadmin/star-adventures
-          ref: \${{ steps.release.outputs.sha }}
+          ref: ${{ steps.release.outputs.sha }}
           path: staradvs-source
           persist-credentials: false
       - name: Verify source pin and Chrome runtime
         env:
-          PUBLIC_SHA: \${{ steps.release.outputs.sha }}
+          PUBLIC_SHA: ${{ steps.release.outputs.sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -93,7 +93,7 @@ jobs:
         run: npm ci --prefix staradvs-source/frontend --ignore-scripts --no-audit --no-fund
       - name: Navigate real public bridge, decisions and F5 at 390/1280px
         env:
-          STARADVS_PUBLIC_SHA: \${{ steps.release.outputs.sha }}
+          STARADVS_PUBLIC_SHA: ${{ steps.release.outputs.sha }}
           STARADVS_LIVE_BROWSER: '1'
         shell: bash
         run: |
@@ -104,7 +104,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: staradvs-public-browser-\${{ github.run_id }}
+          name: staradvs-public-browser-${{ github.run_id }}
           path: staradvs-source/frontend/staradvs-public-captures/*.png
           if-no-files-found: ignore
           retention-days: 7
