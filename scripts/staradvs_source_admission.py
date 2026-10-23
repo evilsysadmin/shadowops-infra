@@ -67,8 +67,15 @@ def admit(reader, source_sha: str):
         jobs = response.get("jobs") if isinstance(response, dict) else None
         if not isinstance(jobs, list):
             continue
+        # GitHub occasionally reports status='in_progress' for a finished job,
+        # while already providing conclusion='success' and completed_at. Accept
+        # only that documented inconsistency within a completed successful RUN.
+        # Pending, uncompleted, cancelled or failed jobs are never evidence.
         passed = {job.get("name") for job in jobs if isinstance(job, dict) and
-                  job.get("status") == "completed" and job.get("conclusion") == "success"}
+                  job.get("conclusion") == "success" and
+                  job.get("status") in ("completed", "in_progress") and
+                  isinstance(job.get("completed_at"), str) and
+                  bool(job["completed_at"])}
         if NEEDED.issubset(passed):
             return rid
     raise SourceAdmissionError("Exact source-main CI core and Chrome jobs not yet green")
