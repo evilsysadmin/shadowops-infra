@@ -457,3 +457,51 @@ test('a tiny press crossing the glass edge does not activate a different target'
   await expect(page.locator('.detail-title')).toHaveText('Chronicles');
   await expect(page.locator('.world-button[data-world="chronicles"]')).toHaveAttribute('aria-pressed','true');
 });
+
+for (const width of [390, 1440]) {
+  test(`render evidence ${width}px: opt-in CPU submission and WebGL resource counts`, async ({page}, testInfo) => {
+    await page.setViewportSize({width,height:width < 500 ? 844 : 900});
+    await page.emulateMedia({reducedMotion:'no-preference'});
+    await page.goto('/?portal_perf=1');
+    const stage=page.locator('.stage');
+    await stage.scrollIntoViewIfNeeded();
+    await expect(stage).toHaveAttribute('data-scene','active',{timeout:15000});
+    await expect(stage).toHaveAttribute('data-gallery-frame','loaded',{timeout:15000});
+    await expect(stage).toHaveAttribute('data-celestial-vault','loaded',{timeout:15000});
+    await expect.poll(async()=>stage.evaluate(el=>el.portalPerfSnapshot?.().samples ?? 0),
+      {timeout:15000}).toBeGreaterThan(24);
+    const measurements=await stage.evaluate(el=>el.portalPerfSnapshot());
+    expect(measurements.kind).toBe('js-render-submission-not-gpu-time');
+    expect(measurements.samples).toBeGreaterThan(24);
+    expect(measurements.samples).toBeLessThanOrEqual(120);
+    expect(measurements.viewport.width).toBe(width);
+    expect(measurements.canvas.pixelRatio).toBeLessThanOrEqual(width < 500 ? 1.15 : 1.6);
+    expect(measurements.canvas.width*measurements.canvas.height).toBeGreaterThan(0);
+    expect(measurements.rendererCounters.drawCalls).toBeGreaterThan(0);
+    expect(measurements.rendererCounters.drawCalls).toBeLessThan(86);
+    expect(measurements.rendererCounters.triangles).toBeLessThan(260000);
+    expect(measurements.rendererCounters.geometries).toBeGreaterThan(0);
+    expect(measurements.rendererCounters.textures).toBeGreaterThan(0);
+    for(const metric of [measurements.cpuSubmissionMs,measurements.drawnFrameIntervalMs]){
+      expect(Number.isFinite(metric.median)).toBe(true);
+      expect(Number.isFinite(metric.p95)).toBe(true);
+      expect(metric.median).toBeGreaterThanOrEqual(0);
+      expect(metric.p95).toBeGreaterThanOrEqual(metric.median);
+    }
+    // Attach evidence, never invent a pass/fail threshold for CPU render time
+    // on shared CI hardware. Physical GPU timing remains a separate gate.
+    await testInfo.attach(`shadowops-render-evidence-${width}.json`,{
+      body:JSON.stringify({...measurements,provenance:'headless Chromium CI, not a physical GPU certificate'},null,2),
+      contentType:'application/json',
+    });
+    console.log('ShadowOps render evidence '+width+'px: '+JSON.stringify(measurements));
+  });
+}
+
+test('normal catalog does not enable render timing instrumentation',async({page})=>{
+  await page.goto('/');
+  const stage=page.locator('.stage');
+  await stage.scrollIntoViewIfNeeded();
+  await expect(stage).toHaveAttribute('data-scene','active',{timeout:15000});
+  expect(await stage.evaluate(el=>typeof el.portalPerfSnapshot)).toBe('undefined');
+});

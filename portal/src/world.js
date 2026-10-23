@@ -29,6 +29,9 @@ export function mountObservatory(container, onSelect, onPreview = () => {}) {
   if (!window.WebGLRenderingContext) throw new Error('WebGL no disponible');
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const narrow = window.matchMedia('(max-width: 720px)').matches;
+  // Explicit opt-in for performance evidence. A normal visitor never pays
+  // measurement overhead and does not expose a telemetry endpoint.
+  const measureRender = new URLSearchParams(window.location.search).get('portal_perf') === '1';
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'default' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, narrow ? 1.15 : 1.6));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -145,6 +148,48 @@ export function mountObservatory(container, onSelect, onPreview = () => {}) {
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
   const clock = new THREE.Clock();
+  // Bounded, local-only frame observations: timing the JS submission around
+  // renderer.render() is NOT a GPU timestamp or a physical GPU benchmark.
+  const perfSamples = [];
+  let lastMeasuredFrame = 0;
+  if (measureRender) {
+    const percentile = (values, percent) => {
+      if (!values.length) return null;
+      const sorted = [...values].sort((a, b) => a - b);
+      return Math.round(sorted[Math.floor((sorted.length - 1) * percent)] * 1000) / 1000;
+    };
+    container.portalPerfSnapshot = () => ({
+      kind: 'js-render-submission-not-gpu-time',
+      samples: perfSamples.length,
+      cpuSubmissionMs: {
+        median: percentile(perfSamples.map(v => v.cpuMs), .5),
+        p95: percentile(perfSamples.map(v => v.cpuMs), .95),
+      },
+      drawnFrameIntervalMs: {
+        median: percentile(perfSamples.map(v => v.intervalMs).filter(v => v !== null), .5),
+        p95: percentile(perfSamples.map(v => v.intervalMs).filter(v => v !== null), .95),
+      },
+      viewport: {width: window.innerWidth, height: window.innerHeight},
+      canvas: {
+        width: renderer.domElement.width,
+        height: renderer.domElement.height,
+        pixelRatio: renderer.getPixelRatio(),
+      },
+      scene: {
+        mode: narrow ? 'mobile' : 'desktop',
+        motion: reduceMotion ? 'reduced' : 'animated',
+        renderState: container.dataset.renderState,
+        galleryFrame: container.dataset.galleryFrame,
+        celestialVault: container.dataset.celestialVault,
+      },
+      rendererCounters: {
+        drawCalls: renderer.info.render.calls,
+        triangles: renderer.info.render.triangles,
+        geometries: renderer.info.memory.geometries,
+        textures: renderer.info.memory.textures,
+      },
+    });
+  }
 
   function resize() {
     const {width, height} = container.getBoundingClientRect();
@@ -175,7 +220,17 @@ export function mountObservatory(container, onSelect, onPreview = () => {}) {
       rim.material.opacity = .28 + material.uniforms.uFocus.value * .5;
       light.intensity = 4 + material.uniforms.uFocus.value * 9;
     });
+    const cpuStart = measureRender ? performance.now() : 0;
     renderer.render(scene,camera);
+    if (measureRender) {
+      const cpuEnd = performance.now();
+      perfSamples.push({
+        cpuMs: cpuEnd - cpuStart,
+        intervalMs: lastMeasuredFrame ? cpuEnd - lastMeasuredFrame : null,
+      });
+      lastMeasuredFrame = cpuEnd;
+      if (perfSamples.length > 120) perfSamples.shift();
+    }
     if (import.meta.env.DEV) {
       container.dataset.drawCalls = String(renderer.info.render.calls);
       container.dataset.triangles = String(renderer.info.render.triangles);
@@ -397,6 +452,7 @@ export function mountObservatory(container, onSelect, onPreview = () => {}) {
       observer.disconnect();
       viewportObserver?.disconnect();
       document.removeEventListener('visibilitychange', syncRendering);
+      if (measureRender) delete container.portalPerfSnapshot;
       scene.traverse(obj => {
         obj.geometry?.dispose();
         if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
