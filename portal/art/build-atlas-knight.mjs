@@ -37,7 +37,8 @@ if(processResult.error || processResult.status!==0){
   if(positions.some(p=>p.count>25000) ||
      !positions.some(p=>p.max?.[1]>1.20) ||
      !positions.some(p=>p.min?.[1]<.08))
-    throw Error('Atlas knight has missing sculptural detail or wrong Y-up orientation');
+    throw Error('Atlas knight has missing sculptural detail or wrong Y-up orientation: '+
+      JSON.stringify(positions.map(p=>({count:p.count,min:p.min,max:p.max}))));
   const sha=createHash('sha256').update(glb).digest('hex');
   const file='atlas-knight-'+sha.slice(0,12)+'.glb';
   await rename(draft,path.join(output,file));
