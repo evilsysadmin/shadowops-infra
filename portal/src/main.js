@@ -57,7 +57,9 @@ stage.dataset.scene = 'loading';
 stageArea.appendChild(stage);
 const eyebrow = el('div', 'stage-eyebrow', 'THE OBSERVATORY / 001');
 stageArea.appendChild(eyebrow);
-const tooltip = el('div', 'stage-footer', 'Toca un portal · Arrastra suavemente para mirar');
+const DEFAULT_SCENE_HINT = 'Toca un portal · Arrastra suavemente para mirar';
+const tooltip = el('div', 'stage-footer', DEFAULT_SCENE_HINT);
+tooltip.dataset.previewWorld = 'none';
 stageArea.appendChild(tooltip);
 const fallback = el('div', 'fallback');
 fallback.setAttribute('aria-hidden', 'true');
@@ -115,10 +117,20 @@ function refreshSceneFocus(moveCamera = true) {
   // over retained keyboard focus; leaving it restores the keyboard preview.
   scene?.focusWorld(scenePreview ?? pointerPreview ?? focusPreview ?? selected, moveCamera);
 }
+// A restrained hint uses the existing stage footer instead of another
+// floating panel. It is decorative; semantic selection stays in the catalog.
+function updateSceneHint(id) {
+  const world = selectedWorld(id);
+  tooltip.dataset.previewWorld = world?.id ?? 'none';
+  tooltip.textContent = world ? `${world.title} · Clic para explorar` : DEFAULT_SCENE_HINT;
+  if (world) tooltip.style.setProperty('--gateway-accent', world.tone);
+  else tooltip.style.removeProperty('--gateway-accent');
+}
 function previewSceneWorld(id) {
   if (id !== null && !selectedWorld(id)) return;
   if (scenePreview === id) return;
   scenePreview = id;
+  updateSceneHint(id);
   refreshSceneFocus();
 }
 function selectWorld(id) {
@@ -128,6 +140,7 @@ function selectWorld(id) {
   pointerPreview = null;
   focusPreview = null;
   scenePreview = null;
+  updateSceneHint(null);
   selected = id;
   renderDetail();
   refreshSceneFocus();
@@ -177,6 +190,7 @@ let sceneLoadStarted = false;
 let sceneObserver = null;
 function showFallback(reason) {
   scenePreview = null;
+  updateSceneHint(null);
   stage.dataset.scene = reason;
   stage.classList.add('no-webgl');
   fallback.hidden = false;
@@ -206,6 +220,7 @@ async function loadScene() {
         stage.classList.remove('no-webgl');
         stage.dataset.scene = 'active';
         fallback.hidden = true;
+        updateSceneHint(null);
         refreshSceneFocus(false);
       }
     });
