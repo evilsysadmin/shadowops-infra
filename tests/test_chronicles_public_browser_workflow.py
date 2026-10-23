@@ -126,6 +126,56 @@ class PublicBrowserWorkflow(unittest.TestCase):
         self.assertNotIn("environment=production", action["run"])
 
 
+    def test_public_browser_journeys_overlap_and_both_results_are_required(self):
+        # Execute the workflow's actual shell orchestration with a stub Node.
+        # A serial regression would deadlock until the bounded peer check fails.
+        workflow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
+        steps = workflow["jobs"]["release"]["steps"]
+        browser = next(step for step in steps if step.get("name") ==
+                       "Real public browser smoke (desktop, mobile, login, update deferral)")
+        command = browser["run"].split("bash smoke/ensure-chromium.sh\\n", 1)[1]
+        self.assertIn('wait "$public_pid"', command)
+        self.assertIn('wait "$journey_pid"', command)
+        self.assertIn("public_rc == 0 && journey_rc == 0", command)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fake = root / "node"
+            fake.write_text(
+                "#!/bin/sh\\n"
+                "case \\"$1\\" in\\n"
+                " *public-staging-journey.mjs) id=journey; peer=public;;\\n"
+                " *public-staging.mjs) id=public; peer=journey;;\\n"
+                " *) exit 90;;\\n"
+                "esac\\n"
+                "touch \\"$BROWSER_TEST_DIR/$id.started\\"\\n"
+                "i=0\\n"
+                "while [ ! -f \\"$BROWSER_TEST_DIR/$peer.started\\" ]; do\\n"
+                "  i=$((i + 1))\\n"
+                "  [ \\"$i\\" -lt 80 ] || exit 91\\n"
+                "  sleep 0.02\\n"
+                "done\\n"
+                "touch \\"$BROWSER_TEST_DIR/$id.finished\\"\\n"
+                "if [ \\"$FAIL_BROWSER\\" = \\"$id\\" ]; then exit 17; fi\\n"
+                "exit 0\\n"
+            )
+            fake.chmod(0o755)
+            for failing in ("", "public", "journey"):
+                with self.subTest(failing=failing):
+                    for file in root.glob("*.started"):
+                        file.unlink()
+                    for file in root.glob("*.finished"):
+                        file.unlink()
+                    env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
+                           "BROWSER_TEST_DIR": str(root), "FAIL_BROWSER": failing}
+                    run = subprocess.run(["bash", "-euo", "pipefail", "-c", command],
+                                         cwd=root, env=env, capture_output=True, text=True,
+                                         timeout=10)
+                    self.assertEqual(run.returncode == 0, not failing, run.stderr)
+                    self.assertTrue((root / "public.finished").exists())
+                    self.assertTrue((root / "journey.finished").exists())
+                    self.assertIn("CHRONICLES_PUBLIC_SMOKE_RESULTS", run.stdout)
+
+
     def test_same_sha_can_retry_public_smokes_without_redeployment(self):
         workflow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
         steps = workflow["jobs"]["release"]["steps"]
