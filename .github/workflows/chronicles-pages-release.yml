@@ -370,21 +370,26 @@ jobs:
               raise SystemExit("CHRONICLES_PUBLIC_RELEASE_MANIFEST_MISMATCH")
           print("CHRONICLES_PUBLIC_RELEASE_MANIFEST_OK")
           PY
-      - name: Prepare Playwright browser harness
+      - name: Verify lockfile-pinned Playwright browser harness
         id: playwright
         working-directory: chronicles-source/frontend
         shell: bash
         run: |
           set -euo pipefail
-          npm install --no-save --no-audit --no-fund playwright@1
-          # Cache key must track the actual resolved Playwright release.
+          # npm ci already installed this exact locked version; a second
+          # npm install playwright@1 was both redundant and could drift.
           version="$(node -p 'require("./node_modules/playwright/package.json").version')"
+          declared="$(node -p 'require("./package.json").devDependencies.playwright')"
+          [[ "$version" == "$declared" ]] || {
+            echo '::error::Staging Playwright differs from the source lockfile declaration'
+            exit 1
+          }
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
       - name: Cache exact Chromium browser binaries
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: chronicles-chromium-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+          key: chronicles-chromium-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
       - name: Real public browser smoke (desktop, mobile, login, update deferral)
         working-directory: chronicles-source/frontend
         env:
@@ -393,7 +398,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx playwright install --with-deps chromium
+          # Reuse source CI's pinned browser bootstrap. Install system
+          # packages only if Chromium's host-library probe actually needs them.
+          bash smoke/ensure-chromium.sh
           node smoke/public-staging.mjs
           # End-to-end first-hour flow with a real Chronicles API user and
           # completely fresh desktop/mobile browser contexts.
