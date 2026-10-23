@@ -19,7 +19,8 @@ Cloudflare Pages avoids touching the **Chess Studio** tunnel, Render, OCI A1, Ch
 - `python3 scripts/staradvs_pages.py preflight`: GET-only, verify exact zone, hostname and dedicated project without exposing Cloudflare identifiers or token.
 - `python3 scripts/staradvs_pages.py project`: create the dedicated Pages project only when absent. Reject any existing project that isn't exactly our name/main branch, and any foreign DNS.
 - `python3 scripts/staradvs_pages.py domain`: assign this exact hostname only to this dedicated Pages project; create proxied CNAME to `staradvs-staging.pages.dev` **only if absent**; refuse an existing foreign or ambiguous record.
-- `python3 scripts/staradvs_pages.py verify --sha <40 hex>`: real HTTPS/TLS root + non-fallback JS asset + immutable SHA from `/release.json`. HTTP status from DNS mutation is never enough. No insecure TLS bypass.
+- `python3 scripts/staradvs_pages.py manifest --sha <40 hex> --dist <built-dist>`: create a staging manifest with the SHA-256 of the actual Vite JavaScript entrypoint and no-store release headers, before uploading the built directory.
+- `python3 scripts/staradvs_pages.py verify --sha <40 hex>`: real HTTPS/TLS root + non-fallback JS asset + immutable SHA and **exact served JS SHA-256** from `/release.json`. Reject mixed CDN assets even when the announced source SHA matches. HTTP status from DNS mutation is never enough. No insecure TLS bypass.
 - DNS may need certificate validation/activation by Cloudflare Pages; do not advertise a live URL until HTTPS verification succeeds.
 
 ## Release-gating plan
@@ -46,11 +47,11 @@ Star Adventures source CI may request that existing Infra `workflow_dispatch` **
 
 - Admits the exact current Star Adventures `main` SHA through `scripts/staradvs_source_admission.py`; one completed **push-to-main** CI run must contain both successful core and React/Chrome jobs for the exact SHA.
 - Checks whether the public domain already serves precisely that SHA to avoid unnecessary redeploys.
-- Uses an exact-SHA checkout, `npm ci`, and a static Vite build. Adds infra-owned `release.json` and no-cache manifest headers.
+- Uses an exact-SHA checkout, `npm ci`, and a static Vite build. Generates infra-owned `release.json` with immutable source SHA and SHA-256 of its **actual JavaScript entrypoint**, plus no-cache manifest headers.
 - Uses Infra `staging` environment `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID`; does not request user credentials in PRs or print secrets.
-- Double-checks that game and Infra main haven't advanced before the Cloudflare mutation.
+- Checks that game and Infra `main` haven't advanced before mutation **and again after public verification**; if either changes while publishing, the run withholds the success receipt so the next reconciliation can publish current code.
 - `wrangler@4.127.1` publishes only project `staradvs-staging`; domain reconciliation refuses foreign DNS.
-- Retries genuine HTTPS/TLS, HTML entrypoint, JS MIME and release manifest for a bounded period. Only a successful check prints `STARADVS_STAGING_PUBLIC_READY` and uploads `staradvs-staging-verified-<SHA>` receipt.
+- Retries genuine HTTPS/TLS, HTML entrypoint, JS MIME, release manifest and JS SHA-256 agreement for a bounded period. The `STARADVS_STAGING_PUBLIC_READY` marker is emitted **only after** final main-head checks and artifact upload `staradvs-staging-verified-<SHA>` succeed. The JS digest proves consistency of the deployed entrypoint with the built release, not reproducibility of third-party dependencies or a full-site security attestation.
 
 ### Known hardening item
 

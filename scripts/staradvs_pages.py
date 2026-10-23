@@ -7,6 +7,7 @@ touches the Chess Studio tunnel, Chronicles Pages projects or production DNS.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -15,6 +16,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
 API = "https://api.cloudflare.com/client/v4"
 ZONE = "shadowops.dpdns.org"
@@ -158,10 +160,48 @@ def ensure_domain(client) -> None:
     inspect(client)
 
 
+def entrypoint_path(html: bytes) -> str:
+    """Return the single Vite JS entrypoint, never an arbitrary external path."""
+    matches = re.findall(rb'<script[^>]+src="(/assets/[A-Za-z0-9._-]+\.js)"', html)
+    if len(matches) != 1:
+        raise AdmissionError("Expected exactly one local Vite JS entrypoint")
+    return matches[0].decode("ascii")
+
+
+def write_manifest(dist: Path, expected_sha: str) -> None:
+    """Describe the actual built JS bytes, not a guessed asset name or mutable ref."""
+    if not SHA_PATTERN.fullmatch(expected_sha):
+        raise AdmissionError("Invalid expected immutable source SHA")
+    if not dist.is_dir():
+        raise AdmissionError("Staging build directory missing")
+    try:
+        html = (dist / "index.html").read_bytes()
+        entry = entrypoint_path(html)
+        js = (dist / entry.lstrip("/")).read_bytes()
+    except OSError:
+        raise AdmissionError("Built staging entrypoint missing") from None
+    if not js or len(js) > 16_000_000:
+        raise AdmissionError("Built staging JavaScript is empty or oversized")
+    manifest = {
+        "build": expected_sha,
+        "environment": "staging",
+        "entry_js": {"path": entry, "sha256": hashlib.sha256(js).hexdigest()},
+    }
+    (dist / "release.json").write_text(
+        json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    (dist / "_headers").write_text(
+        "/release.json\n  Cache-Control: no-store, max-age=0\n", encoding="utf-8"
+    )
+    print("STARADVS_STAGING_MANIFEST_READY sha=" + expected_sha)
+
+
 def public_check(expected_sha: str) -> None:
     if not SHA_PATTERN.fullmatch(expected_sha):
         raise AdmissionError("Invalid expected immutable source SHA")
     # urllib verifies TLS certificates by default; no -k/insecure workaround.
+    observed_entry = None
+    observed_digest = None
     for path, kind in [("/", "html"), ("/release.json", "release")]:
         req = urllib.request.Request(BASE + path, headers={
             "User-Agent": "Mozilla/5.0 Chrome/154.0.0.0 Safari/537.36",
@@ -179,10 +219,7 @@ def public_check(expected_sha: str) -> None:
         if kind == "html":
             if "text/html" not in content_type or b"Star Adventures" not in content or b'id="root"' not in content:
                 raise AdmissionError("Public staging root is not the expected Star Adventures game")
-            match = re.search(rb'<script[^>]+src="(/assets/[^"]+\.js)"', content)
-            if not match:
-                raise AdmissionError("Published index lacks Vite JS entrypoint")
-            asset = match.group(1).decode("ascii")
+            asset = entrypoint_path(content)
             # Keep the same browser identity for static assets as for HTML.
             # urllib's default Python-urllib UA was rejected with HTTP 403 by
             # Cloudflare despite the root returning the real game. This is
@@ -194,8 +231,13 @@ def public_check(expected_sha: str) -> None:
             })
             try:
                 with urllib.request.urlopen(asset_req, timeout=15, context=ssl.create_default_context()) as response:
-                    if response.status != 200 or "javascript" not in response.headers.get("Content-Type", "").lower() or not response.read(64):
-                        raise AdmissionError("Published JS is missing or an HTML SPA fallback")
+                    js = response.read(16_000_001)
+                    if (response.status != 200
+                            or "javascript" not in response.headers.get("Content-Type", "").lower()
+                            or not js or len(js) > 16_000_000):
+                        raise AdmissionError("Published JS is missing, oversized or an HTML SPA fallback")
+                    observed_entry = asset
+                    observed_digest = hashlib.sha256(js).hexdigest()
             except urllib.error.HTTPError as exc:
                 raise AdmissionError("Public JavaScript unavailable (HTTP " + str(exc.code) + ")") from None
             except (urllib.error.URLError, TimeoutError) as exc:
@@ -209,13 +251,19 @@ def public_check(expected_sha: str) -> None:
                 raise AdmissionError("Public release manifest not JSON") from None
             if not isinstance(obj, dict) or obj.get("build") != expected_sha or obj.get("environment") != "staging":
                 raise AdmissionError("Public staging does not serve expected source SHA")
+            entry_js = obj.get("entry_js")
+            if (not isinstance(entry_js, dict)
+                    or entry_js.get("path") != observed_entry
+                    or entry_js.get("sha256") != observed_digest):
+                raise AdmissionError("Public staging JavaScript differs from built release manifest")
     print("STARADVS_STAGING_HTTPS_SHA_OK " + expected_sha)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("operation", choices=("self-test", "preflight", "project", "domain", "verify"))
+    parser.add_argument("operation", choices=("self-test", "preflight", "project", "domain", "verify", "manifest"))
     parser.add_argument("--sha", default="")
+    parser.add_argument("--dist", default="")
     args = parser.parse_args()
     try:
         if args.operation == "self-test":
@@ -223,6 +271,10 @@ def main() -> int:
             print("STARADVS_PAGES_CONTRACT_OK")
         elif args.operation == "verify":
             public_check(args.sha)
+        elif args.operation == "manifest":
+            if not args.dist:
+                raise AdmissionError("Staging build directory not specified")
+            write_manifest(Path(args.dist), args.sha)
         else:
             client = CloudflareClient(os.environ)
             if args.operation == "preflight":
