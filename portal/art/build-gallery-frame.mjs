@@ -21,6 +21,17 @@ function curve(x,z) {
  ].map(([px,py])=>new THREE.Vector3(x+px,py,z)),false,'centripetal');
 }
 const xs=[-3.22,0,3.22];
+// The two stepped courses stand BEHIND the existing playable glass, not in
+// front of it. Each wider stone reveal catches grazing light at a different
+// depth; no new mesh/material/draw is created after the GLB is merged.
+function revealCurve(x,z,spread,rise) {
+  const points=curve(x,z).getPoints(64).map(p=>new THREE.Vector3(
+    x+(p.x-x)*spread,
+    p.y+rise*(p.y-.14)/3.13,
+    z,
+  ));
+  return new THREE.CatmullRomCurve3(points,false,'centripetal');
+}
 // Channeled structural arches, hand-sculpted voussoirs and nested bronze
 // mouldings share three PBR meshes in the final GLB.
 const up=new THREE.Vector3(0,1,0);
@@ -31,6 +42,10 @@ keyShape.lineTo(.115,.085);
 keyShape.lineTo(-.115,.085);
 keyShape.closePath();
 for(const x of xs) {
+ // Double setback yields a real, shadowed stone archivolt instead of
+ // stacking more glowing lines around the already illuminated portals.
+ part(new THREE.TubeGeometry(revealCurve(x,-1.485,1.19,.13),96,.135,8,false),2);
+ part(new THREE.TubeGeometry(revealCurve(x,-1.365,1.14,.085),96,.10,8,false),0);
  const border=curve(x,-1.18);
  part(new THREE.TubeGeometry(border,110,.107,10,false),0);
  part(new THREE.TubeGeometry(curve(x,-1.105),110,.022,7,false),1);
