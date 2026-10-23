@@ -128,3 +128,7 @@ A gateway only commits selection when the same **primary** pointer begins and en
 ## Scene hover cue
 
 When a desktop mouse/pen points at a glass gateway, the observatory's **existing** lower scene caption briefly identifies the world and says “Clic para explorar”, using the world accent color. The caption is visually subtle, non-interactive, and not an extra live announcement; the authoritative, keyboard-accessible game information remains in the catalog. Pointer leave, drag and actual selection restore its original guidance. No WebGL restores the dedicated accessible-catalog explanation. Mobile hides this hint as before and relies on touch selection. No new overlay obstruction, geometry, shader, light, request or texture.
+
+## Pointer-picking cost
+
+Raycast hit testing is now performed on pointer move only for hover-capable mouse/pen motion without pressed buttons. Touch movement, panning and active camera drags skip redundant picking entirely; pointer release still performs the exact glass-pane hit test needed for deliberate selection. This preserves the tested touch tap, desktop click, contextual hover hint, drag suppression and no-WebGL fallback without introducing a per-frame picker or GPU work.

@@ -246,15 +246,16 @@ export function mountObservatory(container, onSelect, onPreview = () => {}) {
     if (event.pointerType === 'touch') updateHoveredPortal(null);
   }
   function onPointerMove(event) {
-    const id = hit(event);
     const dragging = activePointerId === event.pointerId &&
       pointerDown && event.buttons === 1;
+    // Only a hovering mouse/pen needs a raycast. Fingers and active drags
+    // produce many move events yet cannot preview a door; preserve their
+    // existing pointerup hit-test for deliberate tap/click selection.
+    const canPreview = (event.pointerType === 'mouse' || event.pointerType === 'pen') &&
+      event.buttons === 0;
+    const id = canPreview ? hit(event) : null;
     renderer.domElement.style.cursor = dragging ? 'grabbing' : id ? 'pointer' : 'grab';
-    // Pointer movement during drag rotates the scene; it must not advertise
-    // a different portal or change selected-game semantics.
-    if ((event.pointerType === 'mouse' || event.pointerType === 'pen') &&
-        event.buttons === 0) updateHoveredPortal(id);
-    else updateHoveredPortal(null);
+    updateHoveredPortal(id);
     if (dragging && !reduceMotion) {
       desiredYaw = THREE.MathUtils.clamp(desiredYaw + (event.clientX - pointerDown.x) * .0015, -.33, .33);
       pointerDown = {x:event.clientX,y:event.clientY};
