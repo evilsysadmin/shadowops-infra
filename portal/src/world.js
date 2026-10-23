@@ -135,7 +135,7 @@ export function mountObservatory(container, onSelect, onPreview = () => {}) {
   scene.add(starPoints);
 
   let focus = 'chess', frame = 0, disposed = false;
-  let pointerDown = null, pointerStart = null, hoveredPortal = null, yaw = 0, desiredYaw = 0;
+  let pointerDown = null, pointerStart = null, activePointerId = null, hoveredPortal = null, yaw = 0, desiredYaw = 0;
   let cameraShift = 0, targetShift = 0, firstFrameRendered = false;
   let lastPaint = 0, sceneTime = 0;
   // The catalog remains usable offscreen; the canvas should not burn GPU time.
@@ -237,20 +237,25 @@ export function mountObservatory(container, onSelect, onPreview = () => {}) {
     onPreview(id);
   }
   function onPointerDown(event) {
+    // Only primary touch / left mouse / primary pen can commit a world.
+    // A right-click, pen barrel button or second finger is not a selection.
+    if (!event.isPrimary || (event.pointerType !== 'touch' && event.button !== 0)) return;
+    activePointerId = event.pointerId;
     pointerStart = {x:event.clientX,y:event.clientY};
     pointerDown = pointerStart;
     if (event.pointerType === 'touch') updateHoveredPortal(null);
   }
   function onPointerMove(event) {
     const id = hit(event);
-    renderer.domElement.style.cursor = pointerDown && event.buttons === 1
-      ? 'grabbing' : id ? 'pointer' : 'grab';
+    const dragging = activePointerId === event.pointerId &&
+      pointerDown && event.buttons === 1;
+    renderer.domElement.style.cursor = dragging ? 'grabbing' : id ? 'pointer' : 'grab';
     // Pointer movement during drag rotates the scene; it must not advertise
     // a different portal or change selected-game semantics.
     if ((event.pointerType === 'mouse' || event.pointerType === 'pen') &&
         event.buttons === 0) updateHoveredPortal(id);
     else updateHoveredPortal(null);
-    if (pointerDown && event.buttons === 1 && !reduceMotion) {
+    if (dragging && !reduceMotion) {
       desiredYaw = THREE.MathUtils.clamp(desiredYaw + (event.clientX - pointerDown.x) * .0015, -.33, .33);
       pointerDown = {x:event.clientX,y:event.clientY};
     }
@@ -258,16 +263,20 @@ export function mountObservatory(container, onSelect, onPreview = () => {}) {
   function onPointerLeave() {
     pointerDown = null;
     pointerStart = null;
+    activePointerId = null;
     updateHoveredPortal(null);
     renderer.domElement.style.cursor = 'grab';
   }
   function onPointerUp(event) {
+    if (activePointerId !== event.pointerId || !event.isPrimary ||
+        (event.pointerType !== 'touch' && event.button !== 0)) return;
     if (pointerStart && Math.abs(pointerStart.x - event.clientX) < 7 && Math.abs(pointerStart.y - event.clientY) < 7) {
       const id = hit(event);
       if (id) onSelect(id);
     }
     pointerDown = null;
     pointerStart = null;
+    activePointerId = null;
   }
   // Authored static gallery geometry: 3 batched PBR meshes replace dozens
   // of procedural arches, columns and ornaments in the normal render path.
