@@ -32,4 +32,9 @@ test('Blender-authored celestial vault is a bounded content-addressed GLB with P
   const positions=primitives.map(p=>json.accessors[p.attributes.POSITION]).filter(Boolean);
   assert.ok(positions.some(p=>p.min?.[1]<-.1),'floor marquetry reaches the dais');
   assert.ok(positions.some(p=>p.max?.[2]>2.9),'foreground compass is in front of the entrances');
+  // The fine outer astronomical scale is real merged GLB geometry, not a
+  // texture, runtime overlay or a source-level pattern that can go missing.
+  // Its new outer ring reaches z=2.25+.962 in authored scene coordinates.
+  assert.ok(positions.some(p=>p.max?.[2]>3.19),
+    'the engraved navigational compass must have an actual outer rim');
 });
