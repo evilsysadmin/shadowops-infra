@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {makeAtlasSurfaceTexture} from './atlasSurface.mjs';
+import {makeAtlasSurfaceTexture,makeAtlasNormalTexture} from './atlasSurface.mjs';
 import {ATLAS_KNIGHT_ASSET} from '../../src/atlasKnightAsset.generated.mjs';
 
 // Atlas Chamber vertical slice. One tactile chess diorama in a believable room;
@@ -26,17 +26,31 @@ export function mountAtlasChamber(container) {
   scene.add(root);
   const woodGrain=makeAtlasSurfaceTexture('wood');
   const stoneGrain=makeAtlasSurfaceTexture('stone');
+  const woodRelief=makeAtlasNormalTexture('wood');
+  const stoneRelief=makeAtlasNormalTexture('stone');
   woodGrain.repeat.set(3,1);
+  woodRelief.repeat.set(3,1);
   stoneGrain.repeat.set(2,2);
-  const stone=new THREE.MeshStandardMaterial({color:0x8694a2,roughness:.94,metalness:.03,map:stoneGrain});
+  stoneRelief.repeat.set(2,2);
+  const stone=new THREE.MeshStandardMaterial({
+    color:0x8694a2,roughness:.94,metalness:.03,map:stoneGrain,
+    normalMap:stoneRelief,normalScale:new THREE.Vector2(.75,.75),
+  });
   const darkStone=new THREE.MeshStandardMaterial({color:0x29323d,roughness:.85});
-  const wood=new THREE.MeshStandardMaterial({color:0x977758,roughness:.7,map:woodGrain});
-  const woodRim=new THREE.MeshStandardMaterial({color:0xb28b65,roughness:.48,map:woodGrain});
+  const wood=new THREE.MeshStandardMaterial({
+    color:0x977758,roughness:.7,map:woodGrain,
+    normalMap:woodRelief,normalScale:new THREE.Vector2(.7,.7),
+  });
+  const woodRim=new THREE.MeshStandardMaterial({
+    color:0xb28b65,roughness:.48,map:woodGrain,
+    normalMap:woodRelief,normalScale:new THREE.Vector2(.55,.55),
+  });
   const brass=new THREE.MeshStandardMaterial({color:0xb88b4d,metalness:.8,roughness:.27});
   const tarnished=new THREE.MeshStandardMaterial({color:0x55452e,metalness:.73,roughness:.44});
   const ivory=new THREE.MeshStandardMaterial({color:0xd1bea0,roughness:.36,metalness:.05});
   const obsidian=new THREE.MeshStandardMaterial({color:0x243341,roughness:.27,metalness:.22});
   const nightSky=new THREE.MeshBasicMaterial({color:0x2d465f,side:THREE.DoubleSide,fog:false});
+  container.dataset.surfaceRelief='wood-stone';
   const mesh=(geo,mat,x=0,y=0,z=0,parent=root)=>{
     const m=new THREE.Mesh(geo,mat);m.position.set(x,y,z);parent.add(m);return m;
   };
@@ -342,6 +356,7 @@ export function mountAtlasChamber(container) {
       else object.material?.dispose();
     });
     woodGrain.dispose();stoneGrain.dispose();
+    woodRelief.dispose();stoneRelief.dispose();
     renderer.dispose();renderer.domElement.remove();
   }};
 }
