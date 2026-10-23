@@ -144,7 +144,9 @@ class ForwardTransactionTests(unittest.TestCase):
         receipts.assert_called_once()
 
     def assert_before_post(self, **options):
-        cf = Cloudflare()
+        cf = options.pop("cf", None)
+        if cf is None:
+            cf = Cloudflare()
         with self.assertRaises(pages.AdmissionError):
             simulate(cf=cf, **options)
         self.assertFalse(any(method == "POST" for method, _ in cf.calls))
