@@ -80,7 +80,7 @@ class ReadOnlyRollbackInventoryTests(unittest.TestCase):
             calls = []
             def request(self, method, path, data=None):
                 self.calls.append((method, path))
-                if path.endswith("/deployments?env=production&per_page=50&page=1"):
+                if path.endswith("/deployments"):
                     return 200, [deployment(LIVE)]
                 raise AssertionError("Unexpected endpoint " + path)
         fake = FakePages()
