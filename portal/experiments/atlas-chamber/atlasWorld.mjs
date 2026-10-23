@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
 import {makeAtlasSurfaceTexture} from './atlasSurface.mjs';
+import {makeAtlasVoussoirGeometry} from './atlasVoussoirs.mjs';
 import {ATLAS_KNIGHT_ASSET} from '../../src/atlasKnightAsset.generated.mjs';
 
 // Atlas Chamber vertical slice. One tactile chess diorama in a believable room;
@@ -320,13 +321,17 @@ export function mountAtlasChamber(container) {
     new THREE.Vector3(5.33,4.39,archFront),
     new THREE.Vector3(buttressX[1],archSpringY,archFront),
   );
-  // Restrained limestone ribs should not read as blue emissive neon.
-  // A shallow, raised keystone makes the crown unmistakably masonry.
+  // Fourteen real tapered limestone voussoirs with actual mortar joints,
+  // joined into one geometry/one draw call. They sit on the existing piers
+  // and never extend into the moonlit lancet's aperture.
   const ribStone=new THREE.MeshStandardMaterial({
-    color:0x637381,roughness:.96,map:stoneGrain,
+    // Broad front-facing stone facets received almost no direct moonlight;
+    // pale limestone recovers legibility through the EXISTING ambient rig.
+    color:0xb7c2c8,roughness:.96,map:stoneGrain,
   });
-  for(const half of [leftHalf,rightHalf])
-    mesh(new THREE.TubeGeometry(half,24,.072,8,false),ribStone);
+  const voussoirs=makeAtlasVoussoirGeometry([leftHalf,rightHalf]);
+  mesh(voussoirs,ribStone);
+  container.dataset.archVoussoirs=String(voussoirs.userData.voussoirCount);
   const keystoneShape=new THREE.Shape();
   keystoneShape.moveTo(-.13,-.10);
   keystoneShape.lineTo(.13,-.10);
