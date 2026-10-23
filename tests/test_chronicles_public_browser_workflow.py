@@ -133,31 +133,30 @@ class PublicBrowserWorkflow(unittest.TestCase):
         steps = workflow["jobs"]["release"]["steps"]
         browser = next(step for step in steps if step.get("name") ==
                        "Real public browser smoke (desktop, mobile, login, update deferral)")
-        command = browser["run"].split("bash smoke/ensure-chromium.sh\\n", 1)[1]
+        command = browser["run"].split("bash smoke/ensure-chromium.sh\n", 1)[1]
         self.assertIn('wait "$public_pid"', command)
         self.assertIn('wait "$journey_pid"', command)
         self.assertIn("public_rc == 0 && journey_rc == 0", command)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             fake = root / "node"
-            fake.write_text(
-                "#!/bin/sh\\n"
-                "case \\"$1\\" in\\n"
-                " *public-staging-journey.mjs) id=journey; peer=public;;\\n"
-                " *public-staging.mjs) id=public; peer=journey;;\\n"
-                " *) exit 90;;\\n"
-                "esac\\n"
-                "touch \\"$BROWSER_TEST_DIR/$id.started\\"\\n"
-                "i=0\\n"
-                "while [ ! -f \\"$BROWSER_TEST_DIR/$peer.started\\" ]; do\\n"
-                "  i=$((i + 1))\\n"
-                "  [ \\"$i\\" -lt 80 ] || exit 91\\n"
-                "  sleep 0.02\\n"
-                "done\\n"
-                "touch \\"$BROWSER_TEST_DIR/$id.finished\\"\\n"
-                "if [ \\"$FAIL_BROWSER\\" = \\"$id\\" ]; then exit 17; fi\\n"
-                "exit 0\\n"
-            )
+            fake.write_text("""#!/bin/sh
+case "$1" in
+ *public-staging-journey.mjs) id=journey; peer=public;;
+ *public-staging.mjs) id=public; peer=journey;;
+ *) exit 90;;
+esac
+touch "$BROWSER_TEST_DIR/$id.started"
+i=0
+while [ ! -f "$BROWSER_TEST_DIR/$peer.started" ]; do
+  i=$((i + 1))
+  [ "$i" -lt 80 ] || exit 91
+  sleep 0.02
+done
+touch "$BROWSER_TEST_DIR/$id.finished"
+if [ "$FAIL_BROWSER" = "$id" ]; then exit 17; fi
+exit 0
+""")
             fake.chmod(0o755)
             for failing in ("", "public", "journey"):
                 with self.subTest(failing=failing):
