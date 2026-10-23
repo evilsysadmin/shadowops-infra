@@ -20,7 +20,7 @@ export function mountAtlasChamber(container) {
   scene.fog=new THREE.FogExp2(0x0a0d14,.036);
   const camera=new THREE.PerspectiveCamera(mobile?43:39,1,.1,90);
   const root=new THREE.Group();
-  root.position.x=mobile?.0:1.55;
+  root.position.x=mobile ? 0 : 1.55;
   scene.add(root);
   const stone=new THREE.MeshStandardMaterial({color:0x27313a,roughness:.94,metalness:.03});
   const darkStone=new THREE.MeshStandardMaterial({color:0x141c26,roughness:.85});
@@ -39,8 +39,8 @@ export function mountAtlasChamber(container) {
     const m=mesh(new THREE.CylinderGeometry(r,r,length,12),mat,x,y,z);
     m.rotation.z=rotZ;return m;
   };
-  const torus=(r,tube,mat,x,y,z,rotX=0,rotY=0)=>{
-    const m=mesh(new THREE.TorusGeometry(r,tube,8,80),mat,x,y,z);
+  const torus=(r,tube,mat,x,y,z,rotX=0,rotY=0,parent=root)=>{
+    const m=mesh(new THREE.TorusGeometry(r,tube,8,80),mat,x,y,z,parent);
     m.rotation.set(rotX,rotY,0);return m;
   };
   scene.add(new THREE.HemisphereLight(0x718fac,0x1d1210,1.6));
@@ -145,7 +145,7 @@ export function mountAtlasChamber(container) {
     const g=new THREE.Group();g.position.set(x,1.18,z);root.add(g);
     mesh(new THREE.CylinderGeometry(.17,.21,.09,24),mat,0,.055,0,g);
     mesh(new THREE.CylinderGeometry(.107,.16,.46,24),mat,0,.33,0,g);
-    torus(.13,.027,brass,0,.58,0,Math.PI/2);
+    torus(.13,.027,brass,0,.58,0,Math.PI/2,0,g);
     mesh(new THREE.SphereGeometry(.14,20,12),mat,0,.68,0,g);
     mesh(new THREE.BoxGeometry(.05,.26,.05),brass,0,.85,0,g);
     mesh(new THREE.BoxGeometry(.19,.05,.05),brass,0,.88,0,g);
@@ -213,7 +213,7 @@ export function mountAtlasChamber(container) {
   // Cinematic, stationary art direction at rest. Moving parts are deliberately
   // sparse and stop under prefers-reduced-motion or hidden-tab conditions.
   camera.position.set(mobile?4.85:5.45,mobile?4.55:3.82,mobile?9.1:10.9);
-  camera.lookAt(mobile?0:1.12,mobile?1.53:1.72,mobile?.40:.08);
+  camera.lookAt(mobile?0:1.12,mobile?1.53:1.72,mobile ? .40 : .08);
   const observer=new ResizeObserver(()=>{
     const width=Math.max(1,container.clientWidth),height=Math.max(1,container.clientHeight);
     camera.aspect=width/height;
