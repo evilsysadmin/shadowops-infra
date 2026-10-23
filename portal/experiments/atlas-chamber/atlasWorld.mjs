@@ -421,12 +421,56 @@ export function mountAtlasChamber(container) {
   const moving=instrumentRing(.94,.018,.50,1.00);
   instrumentRing(.73,.013,-.45,.48);
   mesh(new THREE.IcosahedronGeometry(.24,1),obsidian,0,0,0,mechanism);
+  // The engraved hour studs share two meshes instead of twelve individual
+  // draw calls, leaving room for a physically grounded instrument mount.
+  const hourMarks=new THREE.InstancedMesh(
+    new THREE.SphereGeometry(.025,8,6),brass,8);
+  const cardinalMarks=new THREE.InstancedMesh(
+    new THREE.SphereGeometry(.043,8,6),ivory,4);
+  const markTransform=new THREE.Object3D();
+  let hours=0,cardinals=0;
   for(let i=0;i<12;i++){
     const angle=i*Math.PI/6;
-    const spot=mesh(new THREE.SphereGeometry(i%3===0?.043:.025,8,6),
-      i%3===0?ivory:brass,Math.cos(angle)*1.26,Math.sin(angle)*1.26,.03,mechanism);
-    spot.scale.z=.6;
+    markTransform.position.set(Math.cos(angle)*1.26,Math.sin(angle)*1.26,.03);
+    markTransform.scale.set(1,1,.6);
+    markTransform.updateMatrix();
+    const cardinal=i%3===0;
+    (cardinal?cardinalMarks:hourMarks).setMatrixAt(
+      cardinal?cardinals++:hours++,markTransform.matrix);
   }
+  hourMarks.instanceMatrix.needsUpdate=true;
+  cardinalMarks.instanceMatrix.needsUpdate=true;
+  mechanism.add(hourMarks,cardinalMarks);
+
+  // Lathe-turned floor mounting: the sphere is no longer suspended in midair.
+  // Its spindle rises behind the chess table; the two arms of the bronze
+  // crescent cradle the equatorial ring without occluding the central globe.
+  // All coordinates stay in root space, outside the gently moving armature.
+  const mountZ=-2.08;
+  mesh(new THREE.CylinderGeometry(.43,.49,.23,24),woodRim,0,-.20,mountZ);
+  mesh(new THREE.CylinderGeometry(.34,.43,.07,24),tarnished,0,-.06,mountZ);
+  mesh(new THREE.CylinderGeometry(.095,.14,1.38,16),brass,0,.67,mountZ);
+  mesh(new THREE.CylinderGeometry(.18,.12,.14,20),tarnished,0,1.30,mountZ);
+  const cradlePoints=[
+    [-1.26,2.50],[-1.13,1.93],[-.72,1.48],[0,1.33],
+    [.72,1.48],[1.13,1.93],[1.26,2.50],
+  ].map(([x,y])=>new THREE.Vector3(x,y,mountZ));
+  mesh(new THREE.TubeGeometry(
+    new THREE.CatmullRomCurve3(cradlePoints,false,'centripetal'),
+    60,.051,8,false),brass);
+  const bearingGeometry=new THREE.CylinderGeometry(.12,.12,.13,12);
+  const bearings=new THREE.InstancedMesh(bearingGeometry,tarnished,2);
+  const bearingTransform=new THREE.Object3D();
+  for(const [index,x] of [-1,1].entries()){
+    bearingTransform.position.set(x*1.26,2.50,mountZ);
+    bearingTransform.rotation.set(Math.PI/2,0,0);
+    bearingTransform.updateMatrix();
+    bearings.setMatrixAt(index,bearingTransform.matrix);
+  }
+  bearings.instanceMatrix.needsUpdate=true;
+  root.add(bearings);
+  container.dataset.armillaryMount='floor-yoke';
+  container.dataset.armillaryHourStuds=String(hours+cardinals);
   // Working brass table lamp: an amber pool, not a free-floating point light.
   box(.72,.10,.72,tarnished,2.52,1.10,1.65);
   rod(.052,1.00,brass,2.52,1.60,1.65);
