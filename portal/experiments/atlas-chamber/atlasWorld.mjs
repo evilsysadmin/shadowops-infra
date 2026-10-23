@@ -201,19 +201,71 @@ export function mountAtlasChamber(container) {
   const moonDisc=mesh(new THREE.SphereGeometry(.48,32,20),
     new THREE.MeshBasicMaterial({color:0xb8cbd8}),.18,4.30,-5.72);
   moonDisc.scale.z=.035;
-  // Side shelves, books and handwritten-map-like stacked folios.
-  for(const y of [1.42,2.55,3.68]) {
+  // The archivist's oak library. The original 24 independent dark cubes
+  // read as featureless blocks; actual bound volumes need distinct cloth and
+  // leather faces, gilt head/tail bands and a carved timber surround.
+  // Bindings are InstancedMesh: 24 spines + 48 gilt lines in four draw calls.
+  const oxblood=new THREE.MeshStandardMaterial({color:0x63403b,roughness:.84});
+  const indigoCloth=new THREE.MeshStandardMaterial({color:0x435267,roughness:.93});
+  const oldVellum=new THREE.MeshStandardMaterial({color:0xb49a76,roughness:.91});
+  const gilt=new THREE.MeshStandardMaterial({color:0xc1a36b,metalness:.64,roughness:.42});
+  const folioColors=[oxblood,indigoCloth,oldVellum];
+  const bindingGeometry=new THREE.BoxGeometry(1,1,1);
+  const folios=folioColors.map(material=>
+    new THREE.InstancedMesh(bindingGeometry,material,8));
+  const titleBands=new THREE.InstancedMesh(
+    new THREE.BoxGeometry(1,1,1),gilt,48);
+  const bindingTransform=new THREE.Object3D();
+  const bandsTransform=new THREE.Object3D();
+  const bindingIndices=[0,0,0];
+  let bandCount=0;
+  // Recessed oak backing gives the book spines real room depth.
+  box(2.10,3.76,.11,wood,-4.35,2.78,-4.03);
+  for(const [shelf,y] of [1.42,2.55,3.68].entries()){
     box(2.05,.13,.72,woodRim,-4.35,y,-3.65);
     for(let i=0;i<8;i++){
-      const height=.37+(i%4)*.12;
-      const m= i%3===0?woodRim:i%3===1?obsidian:tarnished;
-      const b=box(.17,height,.37,m,-5.19+i*.23,y+.07+height/2,-3.73);
-      b.rotation.z=(i%5-2)*.035;
+      const height=.43+((i*3+shelf*5)%5)*.075;
+      const width=.155+((i+shelf)%3)*.015;
+      const x=-5.18+i*.23;
+      const leaning=(((i*7+shelf*3)%5)-2)*.022;
+      bindingTransform.position.set(x,y+.07+height/2,-3.71);
+      bindingTransform.scale.set(width,height,.40);
+      bindingTransform.rotation.set(0,0,leaning);
+      bindingTransform.updateMatrix();
+      const colorIndex=(i+shelf*2)%folioColors.length;
+      folios[colorIndex].setMatrixAt(bindingIndices[colorIndex]++,bindingTransform.matrix);
+      for(const fraction of [.18,.83]){
+        bandsTransform.position.set(x,y+.07+height*fraction,-3.504);
+        bandsTransform.scale.set(width*.78,.015,.012);
+        bandsTransform.rotation.set(0,0,leaning);
+        bandsTransform.updateMatrix();
+        titleBands.setMatrixAt(bandCount++,bandsTransform.matrix);
+      }
     }
   }
+  folios.forEach((folio,i)=>{
+    folio.count=bindingIndices[i];
+    folio.instanceMatrix.needsUpdate=true;
+    root.add(folio);
+  });
+  titleBands.instanceMatrix.needsUpdate=true;
+  root.add(titleBands);
   for(const x of [-5.37,-3.33]){
     box(.14,3.8,.75,wood,x,2.85,-3.62);
+    box(.22,.14,.81,woodRim,x,4.70,-3.61);
   }
+  // Curved carved crest: subtle Gothic top, not a flat IKEA shelf.
+  const bookCrest=new THREE.Shape();
+  bookCrest.moveTo(-1.08,0);bookCrest.lineTo(1.08,0);
+  bookCrest.lineTo(.98,.15);
+  bookCrest.bezierCurveTo(.58,.16,.23,.43,0,.50);
+  bookCrest.bezierCurveTo(-.23,.43,-.58,.16,-.98,.15);
+  bookCrest.closePath();
+  mesh(new THREE.ExtrudeGeometry(bookCrest,{
+    depth:.11,steps:1,curveSegments:12,bevelEnabled:true,
+    bevelSize:.018,bevelThickness:.012,bevelSegments:1,
+  }),woodRim,-4.35,4.58,-3.43);
+  container.dataset.archiveVolumes=String(bindingIndices.reduce((a,b)=>a+b,0));
   // Six substantial structural beams give the chamber a near-field ceiling.
   for(let i=0;i<5;i++) {
     box(.19,.23,10,woodRim,-5.2+i*2.6,5.78,-.7);
