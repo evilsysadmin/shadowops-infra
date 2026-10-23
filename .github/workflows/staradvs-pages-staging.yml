@@ -6,7 +6,7 @@ on:
     branches: [main]
     paths: ['.github/workflows/staradvs-pages-staging.yml', 'scripts/staradvs_source_admission.py', 'scripts/staradvs_pages.py', 'tests/test_staradvs_pages.py']
   schedule:
-    - cron: '23 * * * *'
+    - cron: '7,37 * * * *'
   workflow_dispatch:
 permissions:
   contents: read
