@@ -192,6 +192,26 @@ class PublicBrowserWorkflow(unittest.TestCase):
                     self.assertEqual(output_file.read_text().splitlines(),
                                      ["version=1.64.1"] if valid else [])
 
+    def test_pr_contract_checks_never_occupy_the_staging_publish_lock(self):
+        workflow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
+        group = workflow["concurrency"]["group"]
+        self.assertIn("github.event_name == 'pull_request'", group)
+        self.assertIn("shadowops-chronicles-pages-pr-{0}", group)
+        self.assertIn("github.event.pull_request.number", group)
+        self.assertIn("shadowops-cloudflare-chronicles-pages-{0}", group)
+        self.assertIn("inputs.environment || 'staging'", group)
+        self.assertEqual(workflow["concurrency"]["cancel-in-progress"],
+                         "${{ github.event_name == 'pull_request' }}")
+        # PRs only test contracts; all Cloudflare mutation jobs stay gated
+        # away from pull_request events.
+        jobs = workflow["jobs"]
+        self.assertIn("github.event_name == 'schedule'",
+                      jobs["staging-candidate"]["if"])
+        self.assertIn("github.event_name == 'push'",
+                      jobs["staging-candidate"]["if"])
+        self.assertIn("workflow_dispatch", jobs["production"]["if"])
+
+
     def test_staging_uses_lockfile_keyed_npm_cache_without_skipping_ci(self):
         workflow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
         steps = workflow["jobs"]["release"]["steps"]
