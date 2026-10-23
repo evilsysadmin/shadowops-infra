@@ -157,7 +157,7 @@ For a real GPU acceptance session on a local machine: enable browser hardware ac
 
 ## Repeatable local GPU capture on Linux/desktop
 
-A human-driven session no longer needs copy/paste from DevTools. From the `portal/` directory, with Node 22+, Playwright Chromium installed and a desktop display:
+A human-driven session no longer needs copy/paste from DevTools. From the `portal/` directory, with Node 22+, **Blender available for the full authored vault GLB**, Playwright Chromium installed and a desktop display:
 
 ```bash
 npm install
