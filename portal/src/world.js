@@ -241,7 +241,9 @@ export function mountObservatory(container, onSelect, onPreview = () => {}) {
     // A right-click, pen barrel button or second finger is not a selection.
     if (!event.isPrimary || (event.pointerType !== 'touch' && event.button !== 0)) return;
     activePointerId = event.pointerId;
-    pointerStart = {x:event.clientX,y:event.clientY};
+    // A click must begin on the same pane it eventually activates.
+    // One press-time pick is cheaper than accepting an accidental edge swipe.
+    pointerStart = {x:event.clientX,y:event.clientY,worldId:hit(event)};
     pointerDown = pointerStart;
     if (event.pointerType === 'touch') updateHoveredPortal(null);
   }
@@ -271,9 +273,11 @@ export function mountObservatory(container, onSelect, onPreview = () => {}) {
   function onPointerUp(event) {
     if (activePointerId !== event.pointerId || !event.isPrimary ||
         (event.pointerType !== 'touch' && event.button !== 0)) return;
-    if (pointerStart && Math.abs(pointerStart.x - event.clientX) < 7 && Math.abs(pointerStart.y - event.clientY) < 7) {
+    if (pointerStart?.worldId &&
+        Math.abs(pointerStart.x - event.clientX) < 7 &&
+        Math.abs(pointerStart.y - event.clientY) < 7) {
       const id = hit(event);
-      if (id) onSelect(id);
+      if (id === pointerStart.worldId) onSelect(id);
     }
     pointerDown = null;
     pointerStart = null;
