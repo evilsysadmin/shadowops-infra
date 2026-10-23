@@ -7,7 +7,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "check": "node --check src/main.js && node --check src/world.js && node --check src/gpuTimer.mjs && node --check src/portalVistas.js && node --check src/galleryArchitecture.js && node --check src/catalog.mjs && node --check scripts/gpu-profile-utils.mjs && node --check scripts/profile-gpu.mjs && node --check art/flutedPillar.mjs && node --check art/build-gallery-frame.mjs && node --check art/build-blender-vault.mjs",
+    "check": "node --check experiments/atlas-chamber/atlasWorld.mjs && node --check experiments/atlas-chamber/atlas.js && node --check src/main.js && node --check src/world.js && node --check src/gpuTimer.mjs && node --check src/portalVistas.js && node --check src/galleryArchitecture.js && node --check src/catalog.mjs && node --check scripts/gpu-profile-utils.mjs && node --check scripts/profile-gpu.mjs && node --check art/flutedPillar.mjs && node --check art/build-gallery-frame.mjs && node --check art/build-blender-vault.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:browser": "playwright test",
     "profile:gpu": "node scripts/profile-gpu.mjs",
