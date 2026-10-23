@@ -338,23 +338,37 @@ export function mountAtlasChamber(container) {
 
   // Miniature hand-turned chessmen. One authored hero knight anchors the story.
   container.dataset.atlasKnight=ATLAS_KNIGHT_ASSET?'loading':'fallback';
-  function pawn(x,z,mat,h=.29) {
-    const g=new THREE.Group();g.position.set(x,1.183,z);root.add(g);
-    mesh(new THREE.CylinderGeometry(.105,.13,.055,16),mat,0,.028,0,g);
-    mesh(new THREE.CylinderGeometry(.056,.08,h*.53,16),mat,0,.090+h*.22,0,g);
-    mesh(new THREE.SphereGeometry(.078,14,10),mat,0,h+.055,0,g);
-    return g;
-  }
-  function crown(x,z,mat){
+  // Miniature chessmen are turned in one continuous profile, rather than
+  // stacked cylindrical placeholders. Each is a single draw call for its
+  // body; the king retains his discreet brass cross and collar.
+  const lathe=(pairs,segments=20)=>new THREE.LatheGeometry(
+    pairs.map(([r,y])=>new THREE.Vector2(r,y)),segments);
+  const pawnProfile=lathe([
+    [0,0],[.113,0],[.129,.012],[.129,.038],[.112,.049],
+    [.089,.057],[.083,.070],[.061,.095],[.056,.127],
+    [.048,.165],[.054,.208],[.070,.247],[.074,.260],
+    [.057,.272],[.047,.282],[.069,.293],[.078,.319],
+    [.079,.345],[.067,.374],[.047,.399],[.023,.418],[0,.424],
+  ],18);
+  const crownProfile=lathe([
+    [0,0],[.19,0],[.207,.018],[.207,.065],
+    [.181,.092],[.155,.104],[.147,.124],[.135,.158],
+    [.116,.203],[.108,.265],[.103,.368],[.109,.454],
+    [.136,.512],[.151,.544],[.143,.571],[.118,.587],
+    [.137,.604],[.149,.645],[.136,.686],[.102,.715],
+    [.062,.734],[0,.742],
+  ],22);
+  const pawn=(x,z,mat)=>{
+    mesh(pawnProfile,mat,x,1.183,z);
+  };
+  const crown=(x,z,mat)=>{
     const g=new THREE.Group();g.position.set(x,1.18,z);root.add(g);
-    mesh(new THREE.CylinderGeometry(.17,.21,.09,24),mat,0,.055,0,g);
-    mesh(new THREE.CylinderGeometry(.107,.16,.46,24),mat,0,.33,0,g);
-    torus(.13,.027,brass,0,.58,0,Math.PI/2,0,g);
-    mesh(new THREE.SphereGeometry(.14,20,12),mat,0,.68,0,g);
-    mesh(new THREE.BoxGeometry(.05,.26,.05),brass,0,.85,0,g);
-    mesh(new THREE.BoxGeometry(.19,.05,.05),brass,0,.88,0,g);
-    return g;
-  }
+    mesh(crownProfile,mat,0,0,0,g);
+    torus(.139,.013,brass,0,.57,0,Math.PI/2,0,g);
+    mesh(new THREE.BoxGeometry(.05,.23,.05),brass,0,.82,0,g);
+    mesh(new THREE.BoxGeometry(.18,.045,.055),brass,0,.86,0,g);
+  };
+  container.dataset.turnedChessmen='5-pawns-1-crown';
   // Curved, chiselled knight profile with a distinct muzzle and swept mane:
   // this must read as a horse silhouette, never an extrusion of square steps.
   const knightShape=new THREE.Shape();
