@@ -112,3 +112,15 @@ Hold lifecycle:
 - The hold only governs this `staradvs-pages-staging.yml` workflow. Future mutating rollback must share its existing `shadowops-staradvs-staging-pages` Actions concurrency group, and must check the hold independently before any Cloudflare POST. It is not safe to presume this file blocks external Cloudflare/dashboard deploys or direct calls from other workflows.
 
 **Important race:** Git PR merges are not atomic with an in-flight Cloudflare API call. Do not activate the hold until earlier trusted Pages publishers are drained and the new hold's main-run logs show it is active. This check provides an enforceable gate for the owned publisher, not a distributed lock around Cloudflare itself. No restoration or production DNS change is implied by creating the hold.
+
+## Read-only restoration rehearsal (no rollback executor)
+
+Once Pages has receipt-backed candidates, run `.github/workflows/staradvs-recovery-preflight.yml` in Infra to prepare a reproducible **rollback → HTTPS/browser validation → roll-forward** plan without changing Cloudflare or DNS. A `main` push touching the workflow/script/tests tests the live plan automatically; PRs only run offline tests. Manual dispatch may choose an optional **full, exact 40-character source SHA**, otherwise the most recent receipt-backed historical Pages release is selected.
+
+The preflight reads the current public `/release.json` and checks actual HTML/JS SHA-256; confirms the dedicated Cloudflare zone, Pages project, hostname and domain ownership; enumerates successful clean `main` Pages deployments; corroborates previous SHA with unexpired trusted-main Infra release receipt; then GETs the **exact historical deployment UUID** for a second source/environment/success comparison. It rereads the public live SHA before declaring a consistent plan. Drift or missing evidence fails closed.
+
+With checked-in `mode: auto`, result is `preview_only`, `hold: inactive`, `can_mutate: false` and `operator_approval: not_given`. Even with a committed active hold it reports `held_preflight_only`, keeping `can_mutate: false`; the hold must match the *pre-rollback* publicly verified anchor SHA. **No rollback is performed or permission granted by this preflight.**
+
+The report identifies `forward_sha`, historic `target_sha`, exact Pages deployment UUID, trusted Infra publish run and artifact IDs and an informational **POST** rollback path, but never sends POST. A mutating rollback/roll-forward executor requires separate review, coordination with publisher concurrency/hold and public HTTPS/JS/Chrome/F5 checks after each transition. This preflight cannot guarantee state stays unchanged after it completes.
+
+Cloudflare documents rollback as `POST /accounts/{account_id}/pages/projects/{project_name}/deployments/{deployment_id}/rollback`. The Pages production **branch** in this isolated staging project does not refer to the separate ShadowOps game production hostname.
