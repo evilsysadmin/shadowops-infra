@@ -25,7 +25,7 @@ function archCurve(x, z, inset = 0) {
   ], false, 'centripetal');
 }
 
-export function mountObservatory(container, onSelect) {
+export function mountObservatory(container, onSelect, onPreview = () => {}) {
   if (!window.WebGLRenderingContext) throw new Error('WebGL no disponible');
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const narrow = window.matchMedia('(max-width: 720px)').matches;
@@ -135,7 +135,7 @@ export function mountObservatory(container, onSelect) {
   scene.add(starPoints);
 
   let focus = 'chess', frame = 0, disposed = false;
-  let pointerDown = null, pointerStart = null, yaw = 0, desiredYaw = 0;
+  let pointerDown = null, pointerStart = null, hoveredPortal = null, yaw = 0, desiredYaw = 0;
   let cameraShift = 0, targetShift = 0, firstFrameRendered = false;
   let lastPaint = 0, sceneTime = 0;
   // The catalog remains usable offscreen; the canvas should not burn GPU time.
@@ -227,13 +227,39 @@ export function mountObservatory(container, onSelect) {
     raycaster.setFromCamera(pointer, camera);
     return raycaster.intersectObjects(interactive, false)[0]?.object.userData.worldId ?? null;
   }
-  function onPointerDown(event) { pointerStart = {x:event.clientX,y:event.clientY}; pointerDown = pointerStart; }
+  // One raycast serves both the existing click picker and a lightweight,
+  // non-committing desktop preview. No polling, meshes, or extra GPU passes.
+  container.dataset.hoverWorld = 'none';
+  function updateHoveredPortal(id) {
+    if (disposed || hoveredPortal === id) return;
+    hoveredPortal = id;
+    container.dataset.hoverWorld = id ?? 'none';
+    onPreview(id);
+  }
+  function onPointerDown(event) {
+    pointerStart = {x:event.clientX,y:event.clientY};
+    pointerDown = pointerStart;
+    if (event.pointerType === 'touch') updateHoveredPortal(null);
+  }
   function onPointerMove(event) {
-    renderer.domElement.style.cursor = hit(event) ? 'pointer' : 'grab';
+    const id = hit(event);
+    renderer.domElement.style.cursor = pointerDown && event.buttons === 1
+      ? 'grabbing' : id ? 'pointer' : 'grab';
+    // Pointer movement during drag rotates the scene; it must not advertise
+    // a different portal or change selected-game semantics.
+    if ((event.pointerType === 'mouse' || event.pointerType === 'pen') &&
+        event.buttons === 0) updateHoveredPortal(id);
+    else updateHoveredPortal(null);
     if (pointerDown && event.buttons === 1 && !reduceMotion) {
       desiredYaw = THREE.MathUtils.clamp(desiredYaw + (event.clientX - pointerDown.x) * .0015, -.33, .33);
       pointerDown = {x:event.clientX,y:event.clientY};
     }
+  }
+  function onPointerLeave() {
+    pointerDown = null;
+    pointerStart = null;
+    updateHoveredPortal(null);
+    renderer.domElement.style.cursor = 'grab';
   }
   function onPointerUp(event) {
     if (pointerStart && Math.abs(pointerStart.x - event.clientX) < 7 && Math.abs(pointerStart.y - event.clientY) < 7) {
@@ -340,7 +366,8 @@ export function mountObservatory(container, onSelect) {
   renderer.domElement.addEventListener('pointerdown', onPointerDown);
   renderer.domElement.addEventListener('pointermove', onPointerMove);
   renderer.domElement.addEventListener('pointerup', onPointerUp);
-  renderer.domElement.addEventListener('pointerleave', () => { pointerDown = null; pointerStart = null; });
+  renderer.domElement.addEventListener('pointerleave', onPointerLeave);
+  renderer.domElement.addEventListener('pointercancel', onPointerLeave);
   return {
     focusWorld(id, moveCamera = true) {
       const index = WORLDS.findIndex(world => world.id === id);

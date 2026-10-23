@@ -116,3 +116,7 @@ The shared gallery stone now uses deterministic multiscale mineral layers, irreg
 ## Diegetic gateway focus, without accidental navigation
 
 On desktop, hovering a catalog world temporarily focuses the corresponding 3D portal; keyboard focus does the same, including when reduced motion is requested. Pointer exit or keyboard blur restores the actually selected world. This visual preview never rewrites the selected detail panel, its `aria-pressed` state, or its environment-specific launch URL: only click/tap/keyboard activation commits selection. Touch pointer-enter alone does not trigger hover. The behavior works with the existing offscreen GPU pause, optional WebGL, and no-WebGL semantic fallback.
+
+## Previewing the 3D gateways directly
+
+The observatory's existing raycaster now previews the portal beneath a mouse or pen cursor. Its portal shader/rim/light focus changes without committing selection, changing `aria-pressed`, or rewriting a world destination. Moving off the canvas returns to the catalog's hover/keyboard focus (or the selected game). Touch pointer movement and active camera dragging never trigger a preview. Clicking a glass pane remains the only 3D selection action. This reuses the preexisting three glass hit targets, with no extra geometry, GPU passes, network requests or per-frame picking; browser QA verifies hover, leave, keyboard precedence, drag cancellation and click on the real WebGL canvas.

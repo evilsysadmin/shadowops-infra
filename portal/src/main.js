@@ -76,6 +76,7 @@ shell.appendChild(footer);
 let selected = 'chess';
 let pointerPreview = null;
 let focusPreview = null;
+let scenePreview = null;
 let scene = null;
 const buttons = new Map();
 const detail = el('div', 'world-detail');
@@ -112,7 +113,13 @@ function renderDetail() {
 function refreshSceneFocus(moveCamera = true) {
   // The most recently hovered mouse/pen target takes temporary precedence
   // over retained keyboard focus; leaving it restores the keyboard preview.
-  scene?.focusWorld(pointerPreview ?? focusPreview ?? selected, moveCamera);
+  scene?.focusWorld(scenePreview ?? pointerPreview ?? focusPreview ?? selected, moveCamera);
+}
+function previewSceneWorld(id) {
+  if (id !== null && !selectedWorld(id)) return;
+  if (scenePreview === id) return;
+  scenePreview = id;
+  refreshSceneFocus();
 }
 function selectWorld(id) {
   if (!selectedWorld(id)) return;
@@ -120,6 +127,7 @@ function selectWorld(id) {
   // player selects a different door directly in the 3D scene.
   pointerPreview = null;
   focusPreview = null;
+  scenePreview = null;
   selected = id;
   renderDetail();
   refreshSceneFocus();
@@ -168,6 +176,7 @@ renderDetail();
 let sceneLoadStarted = false;
 let sceneObserver = null;
 function showFallback(reason) {
+  scenePreview = null;
   stage.dataset.scene = reason;
   stage.classList.add('no-webgl');
   fallback.hidden = false;
@@ -184,7 +193,7 @@ async function loadScene() {
   }
   try {
     const { mountObservatory } = await import('./world.js');
-    scene = mountObservatory(stage, selectWorld);
+    scene = mountObservatory(stage, selectWorld, previewSceneWorld);
     refreshSceneFocus(false);
     fallback.hidden = true;
     stage.dataset.scene = 'active';
