@@ -41,7 +41,11 @@ button:focus-visible, a:focus-visible { outline: 2px solid #d8ae72; outline-offs
 .stage canvas { width: 100%; height: 100%; display: block; }
 .stage-eyebrow, .stage-footer { position: absolute; z-index: 2; font-size: 10px; letter-spacing: .2em; color: #8a9cac; text-transform: uppercase; }
 .stage-eyebrow { top: 4%; right: 0; }
-.stage-footer { bottom: 23%; right: 0; font-size: 9px; letter-spacing: .12em; }
+.stage-footer { bottom: 23%; right: 0; font-size: 9px; letter-spacing: .12em; pointer-events: none; }
+.stage-footer[data-preview-world]:not([data-preview-world="none"]) {
+  color: var(--gateway-accent, #c9a77c);
+  text-shadow: 0 0 15px var(--gateway-accent, #c9a77c);
+}
 .world-detail { position: absolute; z-index: 3; display: flex; gap: 15px; justify-content: space-between; align-items: flex-end; bottom: 1%; left: 4%; right: 2%; min-height: 112px; border-top: 1px solid #59627355; padding-top: 18px; }
 .detail-copy { max-width: 65%; }
 .detail-kicker { font-size: 9px; color: #b0a392; margin: 0 0 7px; }
