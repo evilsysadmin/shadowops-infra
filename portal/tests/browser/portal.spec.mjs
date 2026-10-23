@@ -333,3 +333,66 @@ test('direct 3D portal hover previews without selection, restores keyboard focus
   await page.mouse.move(2,2);
   await expect(stage).toHaveAttribute('data-focus-world','chronicles');
 });
+
+async function findGatewayPoint(page,id) {
+  const stage=page.locator('.stage');
+  const canvas=stage.locator('canvas');
+  await canvas.scrollIntoViewIfNeeded();
+  const rect=await canvas.boundingBox();
+  expect(rect).toBeTruthy();
+  for(const fy of [.5,.45,.55,.4,.6,.35,.65]){
+    for(const fx of [.5,.24,.76,.19,.31,.69,.81]){
+      const x=rect.x+rect.width*fx,y=rect.y+rect.height*fy;
+      await page.mouse.move(x,y);
+      if(await stage.getAttribute('data-hover-world')===id) return {x,y};
+    }
+  }
+  throw new Error('Cannot locate the '+id+' glass pane in the real canvas');
+}
+
+test('right click does not select a 3D world, primary click still does',async({page})=>{
+  await page.setViewportSize({width:1440,height:900});
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await page.goto('/');
+  const stage=page.locator('.stage');
+  await stage.scrollIntoViewIfNeeded();
+  await expect(stage).toHaveAttribute('data-scene','active',{timeout:15000});
+  const point=await findGatewayPoint(page,'chronicles');
+
+  await page.mouse.click(point.x,point.y,{button:'right'});
+  await expect(page.locator('.detail-title')).toHaveText('Chess Studio');
+  await expect(page.locator('.world-button[data-world="chronicles"]')).toHaveAttribute('aria-pressed','false');
+
+  await page.mouse.click(point.x,point.y,{button:'left'});
+  await expect(page.locator('.detail-title')).toHaveText('Chronicles');
+  await expect(page.locator('.world-button[data-world="chronicles"]')).toHaveAttribute('aria-pressed','true');
+});
+
+test.describe('touch-only pointer activation',()=>{
+  test.use({hasTouch:true,viewport:{width:390,height:844}});
+  test('second-finger events cannot select and actual touchscreen tap still selects',async({page})=>{
+    await page.emulateMedia({reducedMotion:'reduce'});
+    await page.goto('/');
+    const stage=page.locator('.stage');
+    await stage.scrollIntoViewIfNeeded();
+    await expect(stage).toHaveAttribute('data-scene','active',{timeout:15000});
+    const point=await findGatewayPoint(page,'chronicles');
+    await page.mouse.move(2,2);
+    await expect(stage).toHaveAttribute('data-hover-world','none');
+
+    // Mimic an extraneous secondary touch pointer on the actual canvas.
+    const canvas=stage.locator('canvas');
+    const secondary={pointerType:'touch',isPrimary:false,pointerId:77,button:0,
+      clientX:point.x,clientY:point.y};
+    await canvas.dispatchEvent('pointerdown',secondary);
+    await canvas.dispatchEvent('pointerup',secondary);
+    await expect(page.locator('.detail-title')).toHaveText('Chess Studio');
+    await expect(stage).toHaveAttribute('data-hover-world','none');
+
+    // A trusted touch sequence is still the normal way to select on mobile.
+    await page.touchscreen.tap(point.x,point.y);
+    await expect(page.locator('.detail-title')).toHaveText('Chronicles');
+    await expect(page.locator('.world-button[data-world="chronicles"]')).toHaveAttribute('aria-pressed','true');
+    await expect(stage).toHaveAttribute('data-hover-world','none');
+  });
+});
