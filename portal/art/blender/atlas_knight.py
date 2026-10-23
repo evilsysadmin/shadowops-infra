@@ -27,6 +27,14 @@ INK = material("Obsidian inset", (.020, .032, .048), .24, .25)
 GROUPS = {m.name: [] for m in (IVORY, GOLD, INK)}
 
 def register(obj, mat):
+    # A joined mesh inherits the active object's local axes; if its original
+    # primitive was an X-rotated cylinder, accessor bounds may incorrectly
+    # report the horse height along Z. Bake every source mesh into shared
+    # world-space/Y-up coordinates before batching by PBR material.
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active=obj
+    bpy.ops.object.transform_apply(location=True,rotation=True,scale=True)
     obj.data.materials.clear()
     obj.data.materials.append(mat)
     GROUPS[mat.name].append(obj)
