@@ -1,7 +1,11 @@
 """Trust only a successful Pages receipt whose SHA still matches live HTTPS."""
 from pathlib import Path
+import io
+import json
 import sys
 import unittest
+import urllib.request
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import chronicles_pages_verified_receipt as gate
@@ -76,6 +80,106 @@ class PagesVerifiedReceipt(unittest.TestCase):
         self.assertFalse(gate.live_matches(SHA, public=unreachable))
         with self.assertRaises(gate.GateError):
             gate.live_matches("not-a-sha", public=lambda _: {"build": SHA})
+
+    def test_public_manifest_must_be_exact_https_200_json_with_no_redirect(self):
+        url = gate.ORIGIN + "/release.json?receipt_check=123"
+        data = json.dumps({"build": SHA}).encode()
+        requests = []
+
+        class Response:
+            def __init__(self, body=data, final=url, status=200,
+                         mime="application/json; charset=utf-8"):
+                self.status = status
+                self.headers = {"Content-Type": mime}
+                self.final = final
+                self.stream = io.BytesIO(body)
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+            def geturl(self):
+                return self.final
+            def read(self, n=-1):
+                return self.stream.read(n)
+
+        def open_public(req, timeout):
+            requests.append((req, timeout))
+            return Response()
+        self.assertEqual(gate.read_manifest(url, opener=open_public), {"build": SHA})
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(requests[0][0].full_url, url)
+        self.assertEqual(requests[0][1], 15)
+        self.assertIsNone(requests[0][0].get_header("Authorization"))
+        self.assertEqual(requests[0][0].get_header("Cache-control"), "no-cache")
+
+        for response in (
+            Response(final="https://other.example/release.json?receipt_check=123"),
+            Response(final=gate.ORIGIN + "/other.json"),
+            Response(status=204),
+            Response(status=503),
+            Response(mime="text/html"),
+            Response(mime="application/octet-stream"),
+            Response(body=b"<html>SPA fallback</html>"),
+            Response(body=b"[]"),
+            Response(body=b"null"),
+            Response(body=b'{"build":'),
+            Response(body=data + b" " * gate.MAX_MANIFEST_BYTES),
+        ):
+            with self.subTest(response=response.__dict__):
+                with self.assertRaises(ValueError):
+                    gate.read_manifest(url, opener=lambda req, timeout: response)
+
+        for bad in (
+            "http://staging.chronicles.shadowops.dpdns.org/release.json?receipt_check=123",
+            "https://evil.example/release.json?receipt_check=123",
+            gate.ORIGIN + "/other.json?receipt_check=123",
+            gate.ORIGIN + "/release.json",
+            gate.ORIGIN + "/release.json?receipt_check=123#fragment",
+        ):
+            with self.subTest(bad=bad):
+                with self.assertRaisesRegex(ValueError, "Untrusted"):
+                    gate.read_manifest(bad, opener=lambda req, timeout: self.fail("Untrusted request"))
+
+        self.assertEqual(gate.read_manifest(
+            url, opener=lambda req, timeout: Response(mime="application/problem+json")),
+            {"build": SHA})
+
+    def test_public_manifest_proof_does_not_follow_any_http_redirect(self):
+        # Default urllib follows 302; our transport explicitly declines even
+        # same-origin redirects, not just redirects to a foreign hostname.
+        redirect = gate._NoRedirect()
+        req = urllib.request.Request(gate.ORIGIN + "/release.json?receipt_check=123")
+        self.assertIsNone(redirect.redirect_request(
+            req, None, 302, "Found", {"Location": gate.ORIGIN + "/release.json"},
+            gate.ORIGIN + "/release.json"
+        ))
+        # Full public reader is actually wired to a no-redirect handler.
+        class RejectingOpener:
+            def open(self, req, timeout):
+                self.req = req
+                raise ValueError("Redirect blocked")
+        fake_transport = RejectingOpener()
+        with patch.object(gate.urllib.request, "build_opener", return_value=fake_transport) as builder:
+            self.assertFalse(gate.live_matches(SHA))
+            builder.assert_called_once()
+            self.assertIsInstance(builder.call_args.args[0], gate._NoRedirect)
+
+    def test_live_check_cannot_skip_if_strict_manifest_proof_fails(self):
+        url = gate.ORIGIN + "/release.json?receipt_check=123"
+        class Response:
+            status = 200
+            headers = {"Content-Type": "application/json"}
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+            def geturl(self):
+                return "https://other.example/release.json"
+            def read(self, n=-1):
+                return json.dumps({"build": SHA}).encode()
+        with patch.object(gate, "read_manifest", side_effect=lambda _:
+                          gate.read_manifest(url, opener=lambda req, timeout: Response())):
+            self.assertFalse(gate.live_matches(SHA))
 
     def test_absent_or_untrusted_receipt_never_consults_live_site(self):
         def get(path, token):
