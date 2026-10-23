@@ -285,53 +285,44 @@ export function mountAtlasChamber(container) {
   root.add(ceilingRafters);
   container.dataset.ceilingRafters='4';
 
-  // Side walls gain a real blind arcade: shallow ashlar piers, projecting
-  // capitals and springing arches. The walls retain their dark negative
-  // space; this is masonry, not a gallery of emissive doors or UI panels.
-  // Place all relief on the inner wall faces and keep the back moon window
-  // completely free. Two InstancedMeshes batch sixteen stone features.
-  const sidePiers=new THREE.InstancedMesh(
-    new RoundedBoxGeometry(.26,4.30,.32,2,.028),stone,8);
-  const pierCaps=new THREE.InstancedMesh(
-    new RoundedBoxGeometry(.34,.16,.53,2,.026),stone,8);
+  // The visible right wing of the rear wall needs one believable engaged
+  // relieving arch, not a repeated arcade hidden behind the editorial copy.
+  // Its masonry sits proud of the existing ashlar yet leaves the central
+  // moonlit lancet completely open. No additional virtual door/window.
+  const buttressX=[2.90,5.45];
+  const buttressGeo=new RoundedBoxGeometry(.29,3.18,.28,2,.035);
+  const buttresses=new THREE.InstancedMesh(buttressGeo,stone,2);
+  const buttressCaps=new THREE.InstancedMesh(
+    new RoundedBoxGeometry(.48,.19,.36,2,.033),stone,2);
   const pierTransform=new THREE.Object3D();
-  const pierTint=new THREE.Color();
-  const arcadeZ=[-4.18,-1.78,.62,3.02];
-  let pierCount=0,arcCount=0;
-  for(const side of [-1,1]){
-    const x=side*6.34;
-    for(const z of arcadeZ){
-      pierTransform.position.set(x,1.94,z);
-      pierTransform.updateMatrix();
-      sidePiers.setMatrixAt(pierCount,pierTransform.matrix);
-      pierTransform.position.set(x,4.18,z);
-      pierTransform.updateMatrix();
-      pierCaps.setMatrixAt(pierCount,pierTransform.matrix);
-      const patina=.74+(pierCount%4)*.055;
-      pierTint.setRGB(patina,patina*.995,patina*.99);
-      sidePiers.setColorAt(pierCount,pierTint);
-      pierCaps.setColorAt(pierCount,pierTint);
-      pierCount++;
-    }
-    for(let i=0;i<arcadeZ.length-1;i++){
-      const z0=arcadeZ[i],z1=arcadeZ[i+1];
-      const arch=new THREE.CubicBezierCurve3(
-        new THREE.Vector3(x,4.16,z0),
-        new THREE.Vector3(x,5.20,z0+.32),
-        new THREE.Vector3(x,5.20,z1-.32),
-        new THREE.Vector3(x,4.16,z1),
-      );
-      mesh(new THREE.TubeGeometry(arch,30,.082,8,false),stone);
-      arcCount++;
-    }
+  for(let i=0;i<2;i++){
+    pierTransform.position.set(buttressX[i],2.11,-4.91);
+    pierTransform.updateMatrix();
+    buttresses.setMatrixAt(i,pierTransform.matrix);
+    pierTransform.position.set(buttressX[i],3.75,-4.87);
+    pierTransform.updateMatrix();
+    buttressCaps.setMatrixAt(i,pierTransform.matrix);
   }
-  sidePiers.instanceMatrix.needsUpdate=true;
-  pierCaps.instanceMatrix.needsUpdate=true;
-  sidePiers.instanceColor.needsUpdate=true;
-  pierCaps.instanceColor.needsUpdate=true;
-  root.add(sidePiers,pierCaps);
-  container.dataset.sideArcades=String(arcCount);
-  container.dataset.arcadePiers=String(pierCount);
+  buttresses.instanceMatrix.needsUpdate=true;
+  buttressCaps.instanceMatrix.needsUpdate=true;
+  root.add(buttresses,buttressCaps);
+  const archSpringY=3.79,archApexY=4.95,archFront=-4.79;
+  const archShoulder=new THREE.Vector3(4.175,archApexY,archFront);
+  const leftHalf=new THREE.CubicBezierCurve3(
+    new THREE.Vector3(buttressX[0],archSpringY,archFront),
+    new THREE.Vector3(3.02,4.39,archFront),
+    new THREE.Vector3(3.86,4.81,archFront),
+    archShoulder,
+  );
+  const rightHalf=new THREE.CubicBezierCurve3(
+    archShoulder,
+    new THREE.Vector3(4.49,4.81,archFront),
+    new THREE.Vector3(5.33,4.39,archFront),
+    new THREE.Vector3(buttressX[1],archSpringY,archFront),
+  );
+  for(const half of [leftHalf,rightHalf])
+    mesh(new THREE.TubeGeometry(half,24,.097,8,false),stone);
+  container.dataset.rearButtress='right-ashlar-arch';
   // An oak cabinetmaker's chess table: eased edges replace the old square
   // slabs; a narrow carved apron hangs under the lip facing the viewer.
   // Both bevels are local geometry, not extra materials or texture requests.
