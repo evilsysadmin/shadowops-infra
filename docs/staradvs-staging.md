@@ -156,3 +156,13 @@ The forward core enforces an active, unexpired hold still anchored to the **orig
 Only after those conditions would the core call the dedicated project's `POST /deployments/<original-uuid>/rollback`. Its response must identify the isolated staging project and production **branch**, and the public HTML/JS integrity check must pass. The result remains **browser pending** and **hold-resume pending**. A later workflow must separately run real Chrome/F5 on the returned original SHA and require a reviewed hold release before allowing normal automatic reconciliation.
 
 **No mutating workflow is wired.** Both recovery transaction cores are tested offline with simulated GET/POST clients. Production remains untouched; no real staging rollback, roll-forward or hold activation has been performed. A complete drill requires an independently reviewed, serialized operator workflow that cannot silently bypass approvals or automatically resume on failure.
+
+## Manual operator recovery PLAN (read-only and serialized)
+
+`.github/workflows/staradvs-operator-recovery-plan.yml` provides an operator-selected **GET-only** preview. It is deliberately not the future mutating rollback/forward workflow. A human manually supplies the *complete* current live staging SHA, a distinct historic target SHA and literal confirmation `PLAN <full-live-sha> TO <full-target-sha>`. The workflow is trusted Infra `main` only and rechecks that Infra `main` remains the exact invoking SHA.
+
+Manual execution shares the automatic staging publisher concurrency group `shadowops-staradvs-staging-pages` with `cancel-in-progress: false`, so it does not race that workflow's Pages mutations. PR events run offline contracts under an independent concurrency group; they receive no Cloudflare credentials.
+
+The manual inspection reuses the live GET-only Cloudflare/HTTPS/receipt/immutable-bundle preflight, then independently validates an exactly matching machine-readable report and all forward/historic deployment identities, immutable URLs, release runs and receipt IDs. An inactive or reviewed active hold may be *inspected* but always yields `can_mutate: false` and `operator_approval: not_given`. The workflow writes a short-lived read-only report artifact and cannot POST/dispatch a rollback, deploy or modify DNS, hold or authorization.
+
+This PLAN action is not approval to restore. A future mutating workflow must be separately reviewed, must use its own protected `staging-recovery` environment and typed `ROLLBACK`/`FORWARD` confirmation, and must validate public Chrome/F5 after each transition before reviewed hold resumption. Do not interpret successful PLAN or absence of errors as a completed recovery.
