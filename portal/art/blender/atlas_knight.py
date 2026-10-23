@@ -56,7 +56,7 @@ def torus(name, radius, tube, y, mat):
     ob.name=name
     return register(ob,mat)
 
-def outline(name, points, depth, bevel, mat, z=0):
+def outline(name, points, depth, bevel, mat, z=0, sharp=False):
     """Smooth, thick real relief from an original Bezier contour in XY."""
     curve=bpy.data.curves.new(name,type="CURVE")
     curve.dimensions="2D"
@@ -69,8 +69,8 @@ def outline(name, points, depth, bevel, mat, z=0):
     spline.bezier_points.add(len(points)-1)
     for p,(x,y) in zip(spline.bezier_points,points):
         p.co=(x,y,0)
-        p.handle_left_type="AUTO"
-        p.handle_right_type="AUTO"
+        p.handle_left_type="VECTOR" if sharp else "AUTO"
+        p.handle_right_type="VECTOR" if sharp else "AUTO"
     spline.use_cyclic_u=True
     ob=bpy.data.objects.new(name,curve)
     bpy.context.collection.objects.link(ob)
@@ -122,19 +122,19 @@ torus("Small gilt shoulder",.245,.010,.141,GOLD)
 # 390px camera, while the pedestal still fits one chessboard square.
 outline("Carved swept neck and horse head",[
     (-.205,.141),(.205,.141),(.104,.280),(.091,.416),
-    (.204,.495),(.296,.595),(.296,.657),(.251,.697),
-    (.144,.693),(.075,.788),(.016,.985),(-.074,1.088),
+    (.168,.482),(.279,.558),(.300,.600),(.264,.657),
+    (.142,.677),(.069,.788),(.016,.985),(-.074,1.088),
     (-.144,1.050),(-.193,.913),(-.238,.773),
     (-.276,.603),(-.228,.460),(-.180,.331)
 ],.120,.035,IVORY)
 
 # Split tapering ears are separate sculptural planes, not a pyramid bolted on.
 outline("Near horse ear",[
-    (-.095,.995),(-.112,1.272),(.010,1.125),(.012,1.010)
-],.052,.018,IVORY,z=.087)
+    (-.100,1.005),(-.135,1.232),(-.055,1.147),(-.017,1.018)
+],.040,.010,IVORY,z=.087,sharp=True)
 outline("Far horse ear",[
-    (-.040,1.020),(.031,1.210),(.093,1.063),(.050,.984)
-],.033,.014,IVORY,z=-.105)
+    (-.030,1.015),(.018,1.170),(.061,1.095),(.044,1.001)
+],.026,.008,IVORY,z=-.105,sharp=True)
 
 # Incised fluting follows the flowing mane and cheek musculature. The
 # stepped gilding is actual world-space relief, not a baked cartoon stripe.
@@ -163,10 +163,10 @@ for side in [-1,1]:
       (.021,.021,.013),GOLD)
 
 # Raised horsehair braid over the back of the neck, with restrained insets.
-for i in range(6):
-    y=.42+i*.095
+for i in range(5):
+    y=.43+i*.096
     x=-.183-.045*math.sin(i*.52)
-    bead("Braided mane stud",(x,y,.175),(.032,.045,.018),GOLD)
+    bead("Braided mane stud",(x,y,.175),(.024,.035,.013),GOLD)
 
 # Bound tessellation for the 390px hero: preserve the Bezier profile and
 # three PBR batches without shipping subpixel curved surfaces as extra vertices.
