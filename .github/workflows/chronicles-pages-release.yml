@@ -403,10 +403,21 @@ jobs:
           # Reuse source CI's pinned browser bootstrap. Install system
           # packages only if Chromium's host-library probe actually needs them.
           bash smoke/ensure-chromium.sh
-          node smoke/public-staging.mjs
-          # End-to-end first-hour flow with a real Chronicles API user and
-          # completely fresh desktop/mobile browser contexts.
-          node smoke/public-staging-journey.mjs
+          # These are independent public journeys with unique ephemeral accounts
+          # and non-overlapping screenshot names. Exercise them concurrently,
+          # but ALWAYS wait for both (including cleanup) and fail if either fails.
+          node smoke/public-staging.mjs &
+          public_pid=$!
+          # End-to-end first-hour flow with a separate real Chronicles API
+          # user and completely fresh desktop/mobile browser contexts.
+          node smoke/public-staging-journey.mjs &
+          journey_pid=$!
+          public_rc=0
+          journey_rc=0
+          wait "$public_pid" || public_rc=$?
+          wait "$journey_pid" || journey_rc=$?
+          printf 'CHRONICLES_PUBLIC_SMOKE_RESULTS public=%s journey=%s\\n' "$public_rc" "$journey_rc"
+          (( public_rc == 0 && journey_rc == 0 ))
       - name: Preserve public-browser screenshots as deployment evidence
         if: always()
         uses: actions/upload-artifact@v4
