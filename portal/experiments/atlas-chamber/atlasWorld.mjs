@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
 import {makeAtlasSurfaceTexture} from './atlasSurface.mjs';
 import {ATLAS_KNIGHT_ASSET} from '../../src/atlasKnightAsset.generated.mjs';
 
@@ -270,15 +271,47 @@ export function mountAtlasChamber(container) {
   for(let i=0;i<5;i++) {
     box(.19,.23,10,woodRim,-5.2+i*2.6,5.78,-.7);
   }
-  // A real table: thick beveled edge, underside, carved supports.
-  box(7.1,.23,4.45,woodRim,0,.82,.65);
-  box(6.82,.06,4.16,wood,0,.976,.65);
+  // An oak cabinetmaker's chess table: eased edges replace the old square
+  // slabs; a narrow carved apron hangs under the lip facing the viewer.
+  // Both bevels are local geometry, not extra materials or texture requests.
+  mesh(new RoundedBoxGeometry(7.1,.23,4.45,3,.10),woodRim,0,.82,.65);
+  mesh(new RoundedBoxGeometry(6.82,.06,4.16,2,.025),wood,0,.976,.65);
   box(7.27,.055,4.53,tarnished,0,.69,.65);
+  // Keep the deep apron underneath the actual playing surface; it cannot
+  // obscure any pieces or interact with the king/knight geometry.
+  box(6.62,.31,.16,woodRim,0,.535,2.71);
+  const carveMaterial=new THREE.MeshStandardMaterial({
+    color:0x523a29,roughness:.82,map:woodGrain,
+  });
+  const gothicPanel=new THREE.Shape();
+  gothicPanel.moveTo(-.245,-.115);
+  gothicPanel.lineTo(.245,-.115);
+  gothicPanel.lineTo(.245,.015);
+  gothicPanel.quadraticCurveTo(.225,.12,0,.148);
+  gothicPanel.quadraticCurveTo(-.225,.12,-.245,.015);
+  gothicPanel.closePath();
+  const carvedPanels=new THREE.InstancedMesh(
+    new THREE.ExtrudeGeometry(gothicPanel,{
+      depth:.013,steps:1,curveSegments:8,
+      bevelEnabled:true,bevelThickness:.006,
+      bevelSize:.007,bevelSegments:1,
+    }),carveMaterial,8);
+  const carvingTransform=new THREE.Object3D();
+  for(let i=0;i<8;i++){
+    carvingTransform.position.set((i-3.5)*.78,.535,2.803);
+    carvingTransform.updateMatrix();
+    carvedPanels.setMatrixAt(i,carvingTransform.matrix);
+  }
+  carvedPanels.instanceMatrix.needsUpdate=true;
+  root.add(carvedPanels);
+  // Four chamfered legs keep the original footprint and support locations.
+  const legGeometry=new RoundedBoxGeometry(.38,1.26,.38,2,.065);
   for(const x of [-3.05,3.05])for(const z of [-1.05,2.25]){
-    box(.38,1.26,.38,woodRim,x,.12,z);
+    mesh(legGeometry,woodRim,x,.12,z);
     box(.48,.10,.48,brass,x,.62,z);
   }
   for(const z of [-1.1,2.3]) box(6,.20,.13,wood,0,.25,z);
+  container.dataset.carvedTable='apron-8';
 
   // The world atlas: a recessed stone-and-brass chess study, not a flat panel.
   box(3.52,.075,3.52,brass,.0,1.075,.42);
