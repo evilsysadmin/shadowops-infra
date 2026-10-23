@@ -36,7 +36,7 @@ export function mountAtlasChamber(container) {
   const tarnished=new THREE.MeshStandardMaterial({color:0x55452e,metalness:.73,roughness:.44});
   const ivory=new THREE.MeshStandardMaterial({color:0xd1bea0,roughness:.36,metalness:.05});
   const obsidian=new THREE.MeshStandardMaterial({color:0x243341,roughness:.27,metalness:.22});
-  const moonGlass=new THREE.MeshBasicMaterial({color:0x648bad,transparent:true,opacity:.30,depthWrite:false});
+  const nightSky=new THREE.MeshBasicMaterial({color:0x2d465f,side:THREE.DoubleSide,fog:false});
   const mesh=(geo,mat,x=0,y=0,z=0,parent=root)=>{
     const m=new THREE.Mesh(geo,mat);m.position.set(x,y,z);parent.add(m);return m;
   };
@@ -58,7 +58,21 @@ export function mountAtlasChamber(container) {
   key.position.set(-2,4,3);root.add(key);
 
   // Room, with proper depth rather than an infinite portal-gallery backdrop.
-  box(15,8,.55,stone,0,3,-5.35);
+  // Cut a genuine 55 cm deep lancet through the rear masonry. The previous
+  // wall was solid behind a painted glass shape, so joints crossed the moon.
+  const masonry=new THREE.Shape();
+  masonry.moveTo(-7.5,-1);masonry.lineTo(7.5,-1);
+  masonry.lineTo(7.5,7);masonry.lineTo(-7.5,7);masonry.closePath();
+  const opening=new THREE.Path();
+  opening.moveTo(-1.18,1.10);opening.lineTo(1.18,1.10);
+  opening.lineTo(1.18,3.65);
+  opening.bezierCurveTo(1.18,4.54,.60,5.02,0,5.48);
+  opening.bezierCurveTo(-.60,5.02,-1.18,4.54,-1.18,3.65);
+  opening.closePath();
+  masonry.holes.push(opening);
+  mesh(new THREE.ExtrudeGeometry(masonry,{
+    depth:.55,steps:1,curveSegments:24,bevelEnabled:false,
+  }),stone,0,0,-5.625);
   box(.65,8,9,darkStone,-6.8,3,-.7);
   box(.65,8,9,darkStone,6.8,3,-.7);
   box(15,.35,9,wood,-0,6,-1.0);
@@ -68,9 +82,19 @@ export function mountAtlasChamber(container) {
     box(.075,6,.08,tarnished,x+.15,3,-4.55);
     box(.65,.22,.58,stone,x,5.72,-4.81);
   }
-  for(let i=0;i<10;i++) {
-    box(13.5,.018,.018,tarnished,0,.55+i*.55,-5.045);
+  // One draw call for all twenty joints, split around the reveal.
+  // These must never slice across the sky or consume one call per course.
+  const coursing=new THREE.InstancedMesh(
+    new THREE.BoxGeometry(5.5,.018,.018),tarnished,20);
+  const jointTransform=new THREE.Object3D();
+  let course=0;
+  for(let i=0;i<10;i++)for(const side of [-1,1]){
+    jointTransform.position.set(side*4.55,.55+i*.55,-5.045);
+    jointTransform.updateMatrix();
+    coursing.setMatrixAt(course++,jointTransform.matrix);
   }
+  coursing.instanceMatrix.needsUpdate=true;
+  root.add(coursing);
   // One moonlit lancet window, split by sculpted iron mullions.
   const windowShape=new THREE.Shape();
   windowShape.moveTo(-1.18,0);windowShape.lineTo(1.18,0);
@@ -78,19 +102,44 @@ export function mountAtlasChamber(container) {
   windowShape.bezierCurveTo(1.18,3.44,.60,3.92,0,4.38);
   windowShape.bezierCurveTo(-.60,3.92,-1.18,3.44,-1.18,2.55);
   windowShape.closePath();
-  mesh(new THREE.ShapeGeometry(windowShape),moonGlass,0,1.10,-4.96);
+  // Opaque moonlit sky lives behind the opening, not on the wall surface.
+  mesh(new THREE.ShapeGeometry(windowShape,24),nightSky,0,1.10,-5.89);
   const windowBorder=new THREE.Shape();
   windowBorder.moveTo(-1.28,0);windowBorder.lineTo(-1.28,2.52);
   windowBorder.bezierCurveTo(-1.28,3.56,-.65,4.12,0,4.58);
   windowBorder.bezierCurveTo(.65,4.12,1.28,3.56,1.28,2.52);
   windowBorder.lineTo(1.28,0);
   // Extruded U-shaped frame follows the window without an opaque middle.
-  const pts=windowBorder.getPoints(24).map(v=>new THREE.Vector3(v.x,v.y+1.10,-4.82));
-  mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts),80,.080,7,false),tarnished);
-  rod(.038,3.0,tarnished,0,2.6,-4.79);
-  box(2.35,.07,.09,tarnished,0,3.15,-4.77);
-  const moonDisc=mesh(new THREE.SphereGeometry(.55,32,20),
-    new THREE.MeshBasicMaterial({color:0x789ebc}),.05,4.35,-5.01);
+  const reveal=windowBorder.getPoints(24).map(v=>new THREE.Vector3(v.x,v.y+1.10,-5.25));
+  const front=reveal.map(p=>new THREE.Vector3(p.x,p.y,-4.83));
+  mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(reveal),80,.145,8,false),darkStone);
+  mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(front),80,.125,8,false),stone);
+  const inlay=front.map(p=>new THREE.Vector3(p.x,p.y,-4.68));
+  mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(inlay),80,.020,6,false),tarnished);
+  box(2.82,.19,.60,stone,0,1.035,-4.89);
+  box(2.55,.055,.66,tarnished,0,1.14,-4.86);
+  // Sparse fixed stars are batched into one mesh, masked by the real hole.
+  const starPositions=[];
+  for(let i=0;i<18;i++){
+    const x=-.96+(i*7%19)/18*1.92;
+    const y=1.36+(i*11%23)/22*3.69;
+    if(Math.hypot(x-.18,y-4.30)>.60)starPositions.push([x,y]);
+  }
+  const stars=new THREE.InstancedMesh(new THREE.SphereGeometry(.013,6,4),
+    new THREE.MeshBasicMaterial({color:0xbcd0de}),starPositions.length);
+  const starTransform=new THREE.Object3D();
+  starPositions.forEach(([x,y],i)=>{
+    starTransform.position.set(x,y,-5.78);
+    starTransform.updateMatrix();stars.setMatrixAt(i,starTransform.matrix);
+  });
+  stars.instanceMatrix.needsUpdate=true;
+  root.add(stars);
+  const halo=mesh(new THREE.SphereGeometry(.73,24,16),
+    new THREE.MeshBasicMaterial({color:0x83afcb,transparent:true,opacity:.12,depthWrite:false}),
+    .18,4.30,-5.79);
+  halo.scale.z=.012;
+  const moonDisc=mesh(new THREE.SphereGeometry(.48,32,20),
+    new THREE.MeshBasicMaterial({color:0xb8cbd8}),.18,4.30,-5.72);
   moonDisc.scale.z=.035;
   // Side shelves, books and handwritten-map-like stacked folios.
   for(const y of [1.42,2.55,3.68]) {

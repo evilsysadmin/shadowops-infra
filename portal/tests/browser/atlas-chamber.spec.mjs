@@ -2,7 +2,7 @@ import {test,expect} from '@playwright/test';
 import pngjs from 'pngjs';
 const {PNG}=pngjs;
 
-for(const width of [390,1440]){
+for(const width of [360,390,430,1440]){
   test('Atlas Chamber experiment '+width+'px: real diorama, controls, no overflow',async({page},testInfo)=>{
     await page.setViewportSize({width,height:width<500?844:900});
     await page.emulateMedia({reducedMotion:'reduce'});
