@@ -471,7 +471,24 @@ for (const width of [390, 1440]) {
     await expect.poll(async()=>stage.evaluate(el=>el.portalPerfSnapshot?.().samples ?? 0),
       {timeout:15000}).toBeGreaterThan(24);
     const measurements=await stage.evaluate(el=>el.portalPerfSnapshot());
-    expect(measurements.kind).toBe('js-render-submission-not-gpu-time');
+    expect(measurements.kind).toBe('cpu-submission-and-optional-webgl2-gpu-timer');
+    const gpu=measurements.gpuTimeMs;
+    // Headless / software WebGL may not expose the optional timer extension.
+    // Real GPU samples are asynchronous and valid only when not disjoint.
+    expect(['unsupported','collecting','available','context-lost']).toContain(gpu.status);
+    expect(gpu.samples).toBeGreaterThanOrEqual(0);
+    expect(gpu.samples).toBeLessThanOrEqual(120);
+    expect(gpu.disjointEvents).toBeGreaterThanOrEqual(0);
+    expect(gpu.skippedQueries).toBeGreaterThanOrEqual(0);
+    if (gpu.status === 'available') {
+      expect(Number.isFinite(gpu.medianMs)).toBe(true);
+      expect(Number.isFinite(gpu.p95Ms)).toBe(true);
+      expect(gpu.medianMs).toBeGreaterThanOrEqual(0);
+      expect(gpu.p95Ms).toBeGreaterThanOrEqual(gpu.medianMs);
+    } else {
+      expect(gpu.medianMs).toBeNull();
+      expect(gpu.p95Ms).toBeNull();
+    }
     expect(measurements.samples).toBeGreaterThan(24);
     expect(measurements.samples).toBeLessThanOrEqual(120);
     expect(measurements.viewport.width).toBe(width);

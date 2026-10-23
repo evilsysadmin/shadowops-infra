@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {createGpuTimer} from './gpuTimer.mjs';
 import { WORLDS } from './catalog.mjs';
 import { VISTA_VERTEX, VISTA_FRAGMENT } from './portalVistas.js';
 import { addGalleryArchitecture } from './galleryArchitecture.js';
@@ -153,6 +154,7 @@ export function mountObservatory(container, onSelect, onPreview = () => {}) {
   // Bounded, local-only frame observations: timing the JS submission around
   // renderer.render() is NOT a GPU timestamp or a physical GPU benchmark.
   const perfSamples = [];
+  const gpuTimer = measureRender ? createGpuTimer(renderer.getContext()) : null;
   let lastMeasuredFrame = 0;
   if (measureRender) {
     const percentile = (values, percent) => {
@@ -161,7 +163,8 @@ export function mountObservatory(container, onSelect, onPreview = () => {}) {
       return Math.round(sorted[Math.floor((sorted.length - 1) * percent)] * 1000) / 1000;
     };
     container.portalPerfSnapshot = () => ({
-      kind: 'js-render-submission-not-gpu-time',
+      kind: 'cpu-submission-and-optional-webgl2-gpu-timer',
+      gpuTimeMs: gpuTimer.snapshot(),
       samples: perfSamples.length,
       cpuSubmissionMs: {
         median: percentile(perfSamples.map(v => v.cpuMs), .5),
@@ -223,7 +226,14 @@ export function mountObservatory(container, onSelect, onPreview = () => {}) {
       light.intensity = 4 + material.uniforms.uFocus.value * 9;
     });
     const cpuStart = measureRender ? performance.now() : 0;
-    renderer.render(scene,camera);
+    // Poll a previous query non-blockingly; never wait for the GPU.
+    gpuTimer?.poll();
+    gpuTimer?.begin();
+    try {
+      renderer.render(scene,camera);
+    } finally {
+      gpuTimer?.end();
+    }
     if (measureRender) {
       const cpuEnd = performance.now();
       perfSamples.push({
@@ -455,6 +465,7 @@ export function mountObservatory(container, onSelect, onPreview = () => {}) {
       viewportObserver?.disconnect();
       document.removeEventListener('visibilitychange', syncRendering);
       if (measureRender) delete container.portalPerfSnapshot;
+      gpuTimer?.dispose();
       scene.traverse(obj => {
         obj.geometry?.dispose();
         if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
