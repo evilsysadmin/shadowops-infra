@@ -120,3 +120,7 @@ On desktop, hovering a catalog world temporarily focuses the corresponding 3D po
 ## Previewing the 3D gateways directly
 
 The observatory's existing raycaster now previews the portal beneath a mouse or pen cursor. Its portal shader/rim/light focus changes without committing selection, changing `aria-pressed`, or rewriting a world destination. Moving off the canvas returns to the catalog's hover/keyboard focus (or the selected game). Touch pointer movement and active camera dragging never trigger a preview. Clicking a glass pane remains the only 3D selection action. This reuses the preexisting three glass hit targets, with no extra geometry, GPU passes, network requests or per-frame picking; browser QA verifies hover, leave, keyboard precedence, drag cancellation and click on the real WebGL canvas.
+
+## Primary-pointer activation safety
+
+A gateway only commits selection when the same **primary** pointer begins and ends the short tap/click gesture on the canvas. Right/middle mouse buttons, pen barrel clicks and secondary touch pointers do not launch or select a world; dragging still has its movement threshold. Pointer leave/cancel resets the gesture. Playwright covers an actual touch-enabled 390px canvas tap, a synthetic nonprimary touch and desktop right/left-click behavior. Hover remains mouse/pen-only and non-committing.
