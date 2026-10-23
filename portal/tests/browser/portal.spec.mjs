@@ -307,7 +307,7 @@ test('direct 3D portal hover previews without selection, restores keyboard focus
   await expect(page.locator('.world-button[data-world="chess"]')).toHaveAttribute('aria-pressed','true');
   await page.mouse.move(2,2);
   await expect(stage).toHaveAttribute('data-hover-world','none');
-  await expect(page.locator('.stage-footer')).toHaveText('Toca un portal · Arrastra suavemente para mirar');
+  await expect(page.locator('.stage-footer')).toHaveText('Toca un portal · Arrastra para mirar');
   await expect(page.locator('.stage-footer')).toHaveAttribute('data-preview-world','none');
   await expect(stage).toHaveAttribute('data-focus-world','chess');
 
