@@ -112,13 +112,7 @@ jobs:
           npm run build --prefix staradvs-source/frontend
           test -s staradvs-source/frontend/dist/index.html
           test -n "$(find staradvs-source/frontend/dist/assets -maxdepth 1 -name '*.js' -print -quit)"
-          python3 - <<'PY'
-          import json, os
-          from pathlib import Path
-          dist=Path('staradvs-source/frontend/dist')
-          (dist/'release.json').write_text(json.dumps({'build':os.environ['SOURCE_SHA'],'environment':'staging'})+'\n',encoding='utf8')
-          (dist/'_headers').write_text('/release.json\n  Cache-Control: no-store, max-age=0\n',encoding='utf8')
-          PY
+          python3 scripts/staradvs_pages.py manifest --sha "$SOURCE_SHA" --dist staradvs-source/frontend/dist
       - name: Refuse superseded Infra and game source SHAs
         shell: bash
         run: |
@@ -149,7 +143,7 @@ jobs:
           set -euo pipefail
           for attempt in $(seq 1 20); do
             if python3 scripts/staradvs_pages.py verify --sha "$SOURCE_SHA"; then
-              echo "STARADVS_STAGING_PUBLIC_READY https://staging.staradvs.shadowops.dpdns.org sha=$SOURCE_SHA"
+              echo "STARADVS_STAGING_PUBLIC_VERIFIED sha=$SOURCE_SHA"
               exit 0
             fi
             echo "Star Adventures HTTPS pending ($attempt/20)"
@@ -157,6 +151,20 @@ jobs:
           done
           echo 'Public FQDN unverified: no live receipt' >&2
           exit 1
+      - name: Refuse superseded release receipt after public verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A newer main during the Cloudflare mutation must never receive
+          # a success receipt for an obsolete deploy. Next reconciliation heals it.
+          [[ "$(gh api repos/evilsysadmin/star-adventures/commits/main --jq .sha)" == "$SOURCE_SHA" ]] || {
+            echo 'Source main advanced during staging publication; withhold receipt' >&2
+            exit 1
+          }
+          [[ "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" == "$GITHUB_SHA" ]] || {
+            echo 'Infra main advanced during staging publication; withhold receipt' >&2
+            exit 1
+          }
       - name: Record exact successful public source SHA
         run: |
           mkdir -p verified-staradvs
@@ -168,3 +176,5 @@ jobs:
           path: verified-staradvs/
           if-no-files-found: error
           retention-days: 30
+      - name: Confirm verified staging receipt
+        run: echo "STARADVS_STAGING_PUBLIC_READY https://staging.staradvs.shadowops.dpdns.org sha=$SOURCE_SHA"
