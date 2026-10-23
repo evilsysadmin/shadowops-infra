@@ -209,11 +209,66 @@ exit 0
             "Prove the public update manifest serves the exact SHA",
             "Real public browser smoke (desktop, mobile, login, update deferral)",
             "Reject superseded source before writing verified receipt",
-            "Record the verified Chronicles Pages source generation",
         ):
             self.assertNotIn("if", named[name])
+        self.assertEqual(named["Record the verified Chronicles Pages source generation"]["if"],
+                         "steps.source_freshness.outputs.fresh == 'true'")
+        self.assertEqual(named["Save verified Pages receipt for idempotent hourly sync"]["if"],
+                         "steps.source_freshness.outputs.fresh == 'true'")
         self.assertIn("ALREADY_PUBLISHED",
                       named["Record the verified Chronicles Pages source generation"]["env"])
+
+
+    def test_superseded_post_smoke_is_neutral_but_never_writes_receipts(self):
+        flow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
+        steps = flow["jobs"]["release"]["steps"]
+        named = {step.get("name", ""): step for step in steps}
+        gate = named["Reject superseded source before writing verified receipt"]
+        self.assertEqual(gate["id"], "source_freshness")
+        self.assertLess(steps.index(named[
+            "Real public browser smoke (desktop, mobile, login, update deferral)"]),
+            steps.index(gate))
+        self.assertLess(steps.index(gate), steps.index(named[
+            "Record the verified Chronicles Pages source generation"]))
+        self.assertIn("CHRONICLES_PAGES_SUPERSEDED_AFTER_SMOKE", gate["run"])
+        self.assertIn("fresh=false", gate["run"])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            gh = root / "gh"
+            gh.write_text("""#!/bin/sh
+[ "$FAKE_GH_FAIL" != "true" ] || exit 7
+printf '%s\\n' "$FAKE_SOURCE_MAIN"
+""")
+            gh.chmod(0o755)
+            main = "a" * 40
+            newer = "b" * 40
+            for admitted, current, fails, expected_rc, expected_output in (
+                (main, main, False, 0, "fresh=true"),
+                (main, newer, False, 0, "fresh=false"),
+                (main, "not-a-sha", False, 65, ""),
+                (main, main, True, 7, ""),
+                ("not-a-sha", main, False, 64, ""),
+            ):
+                with self.subTest(admitted=admitted, current=current, fails=fails):
+                    out = root / "github_output"
+                    summary = root / "github_summary"
+                    out.write_text("")
+                    summary.write_text("")
+                    env = {**os.environ,
+                           "PATH": str(root) + os.pathsep + os.environ["PATH"],
+                           "GITHUB_OUTPUT": str(out),
+                           "GITHUB_STEP_SUMMARY": str(summary),
+                           "ADMITTED_SHA": admitted,
+                           "FAKE_SOURCE_MAIN": current,
+                           "FAKE_GH_FAIL": "true" if fails else "false"}
+                    result = subprocess.run(["bash", "-euo", "pipefail", "-c", gate["run"]],
+                                            cwd=root, env=env, capture_output=True,
+                                            text=True, timeout=10)
+                    self.assertEqual(result.returncode, expected_rc, result.stderr)
+                    self.assertEqual(out.read_text().strip(), expected_output)
+                    if expected_output == "fresh=false":
+                        self.assertIn("superseded", summary.read_text())
+                        self.assertNotIn("verified", out.read_text())
 
 
     def test_playwright_version_step_runs_in_real_bash_and_exports_version(self):
