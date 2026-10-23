@@ -14,6 +14,14 @@ from chronicles_api_before_pages import GateError, INFRA, SHA, fetch
 
 PAGES_WORKFLOW = ".github/workflows/chronicles-pages-release.yml"
 ORIGIN = "https://staging.chronicles.shadowops.dpdns.org"
+MAX_MANIFEST_BYTES = 4096
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # A redirect, even to another valid JSON manifest, is not evidence
+        # that Chronicles staging is serving the requested release itself.
+        return None
 
 
 def receipt_ok(sha: str, listing: dict, read_run) -> bool:
@@ -46,14 +54,34 @@ def receipt_ok(sha: str, listing: dict, read_run) -> bool:
     return False
 
 
-def read_manifest(url: str) -> dict:
+def read_manifest(url: str, *, opener=None) -> dict:
+    """Require bounded JSON served directly from the exact staging hostname."""
+    parsed = urllib.parse.urlsplit(url)
+    expected = urllib.parse.urlsplit(ORIGIN)
+    if (parsed.scheme != "https" or parsed.netloc != expected.netloc
+            or parsed.path != "/release.json" or not parsed.query
+            or parsed.fragment):
+        raise ValueError("Untrusted Chronicles public manifest target")
     request = urllib.request.Request(
         url,
         headers={"Accept": "application/json", "Cache-Control": "no-cache",
                  "User-Agent": "shadowops-chronicles-pages-receipt/1"},
     )
-    with urllib.request.urlopen(request, timeout=15) as response:
-        return json.load(response)
+    transport = opener or urllib.request.build_opener(_NoRedirect()).open
+    with transport(request, timeout=15) as response:
+        if response.status != 200 or response.geturl() != url:
+            raise ValueError("Chronicles public manifest origin/status mismatch")
+        content_type = str(response.headers.get("Content-Type", "")).split(";", 1)[0].strip().lower()
+        if content_type != "application/json" and not (
+                content_type.startswith("application/") and content_type.endswith("+json")):
+            raise ValueError("Chronicles public manifest is not JSON")
+        raw = response.read(MAX_MANIFEST_BYTES + 1)
+    if len(raw) > MAX_MANIFEST_BYTES:
+        raise ValueError("Chronicles public manifest exceeds size limit")
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError("Chronicles public manifest must be a JSON object")
+    return data
 
 
 def verified_live(sha: str, token: str, *, get=fetch, public=read_manifest) -> bool:
