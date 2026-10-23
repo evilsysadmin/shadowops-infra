@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {makeFlutedPilasterGeometry} from './flutedPillar.mjs';
 import { GlbSculpture, writeManifest } from './glbWriter.mjs';
 
 // Original authored portal gallery facade, exported once at build time.
@@ -48,9 +49,16 @@ for(const x of xs) {
  // Diegetic keystone under the relief emblem, behind the clickable pane.
  part(new THREE.CylinderGeometry(.09,.12,.15,24),1,[x,3.29,-1.04],[Math.PI/2,0,0]);
 }
-// Slender supports: four shafts, fine metal bases/capitals and handrails.
+// Four stone shafts now have genuine twelve-flute relief instead of
+// unarticulated cylinders. Hand-set brass collars frame their chiseled edges.
+// They join the same three existing PBR primitives: no extra runtime draws.
+const flutedShaft = makeFlutedPilasterGeometry();
 for(const x of [-4.45,-1.60,1.60,4.45]) {
- part(new THREE.CylinderGeometry(.115,.151,2.76,32),0,[x,1.45,-1.40]);
+ part(flutedShaft,0,[x,1.45,-1.40]);
+ for(const y of [.19,2.62]) {
+   part(new THREE.TorusGeometry(y<1?.155:.126,.009,6,48),1,
+     [x,y,-1.40],[Math.PI/2,0,0]);
+ }
  part(new THREE.CylinderGeometry(.195,.195,.10,32),1,[x,2.89,-1.40]);
  part(new THREE.CylinderGeometry(.205,.205,.085,32),2,[x,.035,-1.40]);
  part(new THREE.CylinderGeometry(.13,.15,.105,32),1,[x,2.78,-1.40]);
