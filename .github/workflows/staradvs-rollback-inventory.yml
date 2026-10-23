@@ -5,14 +5,18 @@ on:
     paths:
       - '.github/workflows/staradvs-rollback-inventory.yml'
       - 'scripts/staradvs_rollback_inventory.py'
+      - 'scripts/staradvs_rollback_evidence.py'
       - 'tests/test_staradvs_rollback_inventory.py'
+      - 'tests/test_staradvs_rollback_evidence.py'
       - 'docs/staradvs-staging.md'
   push:
     branches: [main]
     paths:
       - '.github/workflows/staradvs-rollback-inventory.yml'
       - 'scripts/staradvs_rollback_inventory.py'
+      - 'scripts/staradvs_rollback_evidence.py'
       - 'tests/test_staradvs_rollback_inventory.py'
+      - 'tests/test_staradvs_rollback_evidence.py'
   workflow_dispatch:
 
 permissions:
@@ -31,7 +35,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - run: python3 -m py_compile scripts/staradvs_rollback_inventory.py
+      - run: python3 -m py_compile scripts/staradvs_rollback_inventory.py scripts/staradvs_rollback_evidence.py
+      - run: python3 -m unittest discover -s tests -p 'test_staradvs_rollback_evidence.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_staradvs_rollback_inventory.py' -v
 
   live:
@@ -45,10 +50,12 @@ jobs:
     timeout-minutes: 7
     permissions:
       contents: read
+      actions: read
     environment:
       name: staging
       url: https://staging.staradvs.shadowops.dpdns.org
     env:
+      GH_TOKEN: ${{ github.token }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
