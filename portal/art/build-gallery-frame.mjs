@@ -52,9 +52,8 @@ for(const x of xs) {
 // Four stone shafts now have genuine twelve-flute relief instead of
 // unarticulated cylinders. Hand-set brass collars frame their chiseled edges.
 // They join the same three existing PBR primitives: no extra runtime draws.
-const flutedShaft = makeFlutedPilasterGeometry();
 for(const x of [-4.45,-1.60,1.60,4.45]) {
- part(flutedShaft,0,[x,1.45,-1.40]);
+ part(makeFlutedPilasterGeometry(),0,[x,1.45,-1.40]);
  for(const y of [.19,2.62]) {
    part(new THREE.TorusGeometry(y<1?.155:.126,.009,6,48),1,
      [x,y,-1.40],[Math.PI/2,0,0]);
