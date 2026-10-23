@@ -20,6 +20,7 @@ for(const width of [360,390,430,1440]){
     await expect(page.locator('#atlas-viewport')).toHaveAttribute('data-stone-floor','flags-140');
     await expect(page.locator('#atlas-viewport')).toHaveAttribute('data-light-rig','moon-window-practical');
     await expect(page.locator('#atlas-viewport')).toHaveAttribute('data-archive-volumes','24');
+    await expect(page.locator('#atlas-viewport')).toHaveAttribute('data-carved-table','apron-8');
     if(process.env.REQUIRE_BLENDER_ART==='1'){
       await expect(page.locator('#atlas-viewport')).toHaveAttribute('data-atlas-knight','loaded',{timeout:15000});
     }else{
