@@ -18,6 +18,7 @@ for(const width of [360,390,430,1440]){
     await expect(page.getByText('Concepto en desarrollo — entrada desactivada')).toBeVisible();
     await expect(page.locator('#atlas-viewport')).toHaveAttribute('data-scene','ready',{timeout:15000});
     await expect(page.locator('#atlas-viewport')).toHaveAttribute('data-stone-floor','flags-140');
+    await expect(page.locator('#atlas-viewport')).toHaveAttribute('data-light-rig','moon-window-practical');
     if(process.env.REQUIRE_BLENDER_ART==='1'){
       await expect(page.locator('#atlas-viewport')).toHaveAttribute('data-atlas-knight','loaded',{timeout:15000});
     }else{
@@ -37,12 +38,19 @@ for(const width of [360,390,430,1440]){
     expect(stats.masonryBlocks,'the wall must remain sparse and GPU-batched').toBeLessThan(90);
     expect(stats.motion).toBe('reduced');
     const canvas=PNG.sync.read(await page.locator('#atlas-viewport canvas').screenshot());
-    let nonDark=0;
+    let nonDark=0,warm=0,cool=0;
     for(let y=0;y<canvas.height;y+=11)for(let x=0;x<canvas.width;x+=11){
       const i=(y*canvas.width+x)*4;
-      if(Math.max(canvas.data[i],canvas.data[i+1],canvas.data[i+2])>65)nonDark++;
+      const r=canvas.data[i],g=canvas.data[i+1],b=canvas.data[i+2];
+      if(Math.max(r,g,b)>65){
+        nonDark++;
+        if(r>g+14&&g>b+7)warm++;
+        if(b>r+10)cool++;
+      }
     }
     expect(nonDark,'a real illuminated table and environment, not a blank clear color').toBeGreaterThan(30);
+    expect(warm,'amber practical light needs visible warm surfaces').toBeGreaterThan(8);
+    expect(cool,'moonlit surfaces need visible blue bounce').toBeGreaterThan(15);
     expect(errors).toEqual([]);
     await testInfo.attach('atlas-chamber-'+width+'px',{body:await page.screenshot({fullPage:true,animations:'disabled'}),contentType:'image/png'});
   });
