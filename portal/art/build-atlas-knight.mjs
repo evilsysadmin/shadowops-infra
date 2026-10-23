@@ -1,5 +1,5 @@
 import {spawnSync} from 'node:child_process';
-import {readFile,mkdir,rename} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
@@ -39,6 +39,38 @@ if(processResult.error || processResult.status!==0){
      !positions.some(p=>p.min?.[1]<.08))
     throw Error('Atlas knight has missing sculptural detail or wrong Y-up orientation: '+
       JSON.stringify(positions.map(p=>({count:p.count,min:p.min,max:p.max}))));
+  // Blender may emit identical, identically wound triangles in a different
+  // iteration order across exports. Canonicalize *index order only* before
+  // hashing; vertex buffers, normals, winding and the rendered mesh are intact.
+  const binaryStart=20+glb.readUInt32LE(12)+8;
+  for(const mesh of json.meshes){
+    for(const primitive of mesh.primitives){
+      if((primitive.mode??4)!==4)throw Error('Expected indexed GLB triangles');
+      const accessor=json.accessors[primitive.indices];
+      const view=json.bufferViews[accessor?.bufferView];
+      if(!accessor || !view || accessor.count%3 || view.byteStride)
+        throw Error('Cannot canonicalize non-packed triangle index accessor');
+      const width=accessor.componentType===5123?2:accessor.componentType===5125?4:0;
+      if(!width)throw Error('Unsupported triangle index component type');
+      const offset=binaryStart+(view.byteOffset||0)+(accessor.byteOffset||0);
+      if(offset+width*accessor.count>glb.length)
+        throw Error('Triangle index accessor exceeds GLB');
+      const read=i=>width===2?glb.readUInt16LE(i):glb.readUInt32LE(i);
+      const write=(i,value)=>width===2?glb.writeUInt16LE(value,i):glb.writeUInt32LE(value,i);
+      const triangles=[];
+      for(let i=0;i<accessor.count;i+=3){
+        const base=offset+i*width;
+        const t=[read(base),read(base+width),read(base+width*2)];
+        while(t[0]>Math.min(...t))t.push(t.shift()); // cyclic: preserve winding
+        triangles.push(t);
+      }
+      triangles.sort((a,b)=>a[0]-b[0]||a[1]-b[1]||a[2]-b[2]);
+      for(let i=0;i<triangles.length;i++){
+        for(let j=0;j<3;j++)write(offset+(i*3+j)*width,triangles[i][j]);
+      }
+    }
+  }
+  await writeFile(draft,glb);
   const sha=createHash('sha256').update(glb).digest('hex');
   const file='atlas-knight-'+sha.slice(0,12)+'.glb';
   await rename(draft,path.join(output,file));
