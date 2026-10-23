@@ -342,7 +342,14 @@ export function mountAtlasChamber(container) {
   // Working brass table lamp: an amber pool, not a free-floating point light.
   box(.72,.10,.72,tarnished,2.52,1.10,1.65);
   rod(.052,1.00,brass,2.52,1.60,1.65);
-  mesh(new THREE.ConeGeometry(.50,.57,32,1,true),tarnished,2.52,2.20,1.65);
+  // A period-appropriate brushed-brass shade must stay readable even though
+  // its bulb (correctly) lights the underside, not the outer conical shell.
+  // This is surface reflectance with a tiny fixed glow, not another light.
+  const brushedShade=new THREE.MeshStandardMaterial({
+    color:0xc69a5b,metalness:.48,roughness:.41,
+    emissive:0x68401d,emissiveIntensity:.28,
+  });
+  mesh(new THREE.ConeGeometry(.50,.57,32,1,true),brushedShade,2.52,2.20,1.65);
   mesh(new THREE.SphereGeometry(.19,20,12),
     new THREE.MeshBasicMaterial({color:0xffbe76}),lampBulb.x,lampBulb.y,lampBulb.z);
   // Two archival volumes and an inkwell: handmade still-life around the atlas.
