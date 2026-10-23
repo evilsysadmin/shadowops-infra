@@ -274,14 +274,17 @@ export function mountAtlasChamber(container) {
   // An oak cabinetmaker's chess table: eased edges replace the old square
   // slabs; a narrow carved apron hangs under the lip facing the viewer.
   // Both bevels are local geometry, not extra materials or texture requests.
-  mesh(new RoundedBoxGeometry(7.1,.23,4.45,3,.10),woodRim,0,.82,.65);
-  mesh(new RoundedBoxGeometry(6.82,.06,4.16,2,.025),wood,0,.976,.65);
+  const tableOak=new THREE.MeshStandardMaterial({
+    color:0xb28b65,roughness:.69,map:woodGrain,
+  });
+  mesh(new RoundedBoxGeometry(7.1,.23,4.45,3,.052),tableOak,0,.82,.65);
+  mesh(new RoundedBoxGeometry(6.82,.06,4.16,2,.017),wood,0,.976,.65);
   box(7.27,.055,4.53,tarnished,0,.69,.65);
   // Keep the deep apron underneath the actual playing surface; it cannot
   // obscure any pieces or interact with the king/knight geometry.
-  box(6.62,.31,.16,woodRim,0,.535,2.71);
+  box(6.62,.31,.16,tableOak,0,.535,2.71);
   const carveMaterial=new THREE.MeshStandardMaterial({
-    color:0x523a29,roughness:.82,map:woodGrain,
+    color:0x936b49,roughness:.86,map:woodGrain,
   });
   const gothicPanel=new THREE.Shape();
   gothicPanel.moveTo(-.245,-.115);
@@ -307,7 +310,7 @@ export function mountAtlasChamber(container) {
   // Four chamfered legs keep the original footprint and support locations.
   const legGeometry=new RoundedBoxGeometry(.38,1.26,.38,2,.065);
   for(const x of [-3.05,3.05])for(const z of [-1.05,2.25]){
-    mesh(legGeometry,woodRim,x,.12,z);
+    mesh(legGeometry,tableOak,x,.12,z);
     box(.48,.10,.48,brass,x,.62,z);
   }
   for(const z of [-1.1,2.3]) box(6,.20,.13,wood,0,.25,z);
