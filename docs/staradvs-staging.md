@@ -86,3 +86,29 @@ The dedicated Cloudflare Pages project is named `staradvs-staging`. Its Pages **
 - This step does not change an alias, publish bytes, create/delete a Pages deployment, modify DNS or perform a rollback. A later rollback workflow requires a separate reviewed and explicitly approved procedure, a source/release proof, post-rollback HTTPS/browser checks, and a clear path forward.
 
 Cloudflare's documented Pages rollback operation is a **separate POST** endpoint; this inventory intentionally uses only the documented **GET** deployments list. Running this workflow proves inventory visibility, not rollback recoverability.
+
+## Operator hold for a controlled staging restoration
+
+`config/staradvs-staging-hold.json` is an explicitly reviewed, staging-only switch. Its checked-in default is `{ "mode": "auto" }`, so normal staging reconciliation remains unchanged. This is **not** itself a rollback workflow.
+
+To prepare a future controlled rollback, first confirm no older staging publish run is still mutating Pages. Then submit a reviewed Infra PR changing the file to the exact JSON shape below, with an SHA from the actual publicly verified staging release, a short reason, an Infra issue, and a UTC deadline less than 24 hours away:
+
+```json
+{
+  "mode": "hold",
+  "anchor_sha": "<40-character-sha-of-currently-verified-staging-release>",
+  "expires_at": "<future-UTC-YYYY-MM-DDTHH:MM:SSZ-within-24-hours>",
+  "reason": "Controlled staging recovery rehearsal with manual checks",
+  "issue": "#174"
+}
+```
+
+Hold lifecycle:
+
+- A valid active hold makes the normal candidate job **skip source admission and publication** (`STARADVS_STAGING_HOLD_SKIP`); scheduling, push and manual dispatch cannot bypass it. No DNS or Pages mutations are made by that skipped release.
+- Hold state is rechecked in the trusted release job **before any Cloudflare mutation and immediately before Wrangler deploy**. A hold applied while an existing release is compiling blocks that release, provided it reaches the guarded check after the Infra `main` change. The existing exact Infra-main freshness checks also prevent previously checked-out workflows from ignoring a newer reviewed hold.
+- A missing, corrupt, extra-field, malformed, future-too-distant or **expired** hold file blocks with a nonzero result rather than silently returning to auto. An expired hold requires an explicit reviewed change; it never resumes publication on its own.
+- To finish a drill, first verify the restored release and intended forward source. Use a **new reviewed PR** to change the file back to `{ "mode": "auto" }`; the normal main-triggered reconciliation may then publish the latest green source again. Re-check public HTTPS/JS digest and Chrome journey afterward.
+- The hold only governs this `staradvs-pages-staging.yml` workflow. Future mutating rollback must share its existing `shadowops-staradvs-staging-pages` Actions concurrency group, and must check the hold independently before any Cloudflare POST. It is not safe to presume this file blocks external Cloudflare/dashboard deploys or direct calls from other workflows.
+
+**Important race:** Git PR merges are not atomic with an in-flight Cloudflare API call. Do not activate the hold until earlier trusted Pages publishers are drained and the new hold's main-run logs show it is active. This check provides an enforceable gate for the owned publisher, not a distributed lock around Cloudflare itself. No restoration or production DNS change is implied by creating the hold.
