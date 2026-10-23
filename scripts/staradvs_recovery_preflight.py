@@ -16,6 +16,7 @@ from staradvs_staging_hold import HoldConfigError, load_hold
 from staradvs_rollback_inventory import inventory, public_sha, valid_deployment
 from staradvs_rollback_evidence import GitHubEvidence, corroborate
 from staradvs_immutable_target import verify_immutable_target
+from staradvs_forward_baseline import canonical_forward, forward_release_receipt
 
 
 def select_attested_candidate(report: dict, requested_sha: str) -> dict:
@@ -94,6 +95,8 @@ def assess_hold(hold: dict, live_sha: str) -> dict:
 
 def prepare_readonly_plan(client, evidence, hold: dict, requested_sha: str = "") -> dict:
     before = public_sha()
+    forward = canonical_forward(client, before)
+    forward_receipt = forward_release_receipt(evidence, before)
     report = inventory(client, before)
     attested = corroborate(report, evidence)
     chosen = select_attested_candidate(attested, requested_sha)
@@ -115,6 +118,8 @@ def prepare_readonly_plan(client, evidence, hold: dict, requested_sha: str = "")
         "rollback_endpoint": "/accounts/{account_id}/pages/projects/" + pages.PROJECT
                              + "/deployments/" + chosen["deployment_id"] + "/rollback",
         "forward_sha": before,
+        **forward,
+        **forward_receipt,
         "forward_release_revalidation": "required (HTTPS JS SHA-256 + real Chrome + explicit hold release)",
         "operator_approval": "not_given",
         **hold_state,
