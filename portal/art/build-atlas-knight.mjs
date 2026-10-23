@@ -6,7 +6,8 @@ import path from 'node:path';
 import {writeManifest} from './glbWriter.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
-const output=path.join(root,'public','art');
+// Keep this GLB strictly in the local experiment, never the root Pages build.
+const output=path.join(root,'experiments','atlas-chamber','compiled');
 await mkdir(output,{recursive:true});
 const draft=path.join(output,'atlas-knight-draft.glb');
 const required=process.env.REQUIRE_BLENDER_ART==='1';
@@ -41,7 +42,7 @@ if(processResult.error || processResult.status!==0){
   const file='atlas-knight-'+sha.slice(0,12)+'.glb';
   await rename(draft,path.join(output,file));
   await writeManifest('atlasKnightAsset.generated.mjs',{
-    ATLAS_KNIGHT_ASSET:'/art/'+file,ATLAS_KNIGHT_SHA256:sha,ATLAS_KNIGHT_BYTES:glb.length,
+    ATLAS_KNIGHT_ASSET:'/experiments/atlas-chamber/compiled/'+file,ATLAS_KNIGHT_SHA256:sha,ATLAS_KNIGHT_BYTES:glb.length,
   });
   console.log('Atlas hand-sculpted knight: '+file+' / '+glb.length+' bytes');
 }
