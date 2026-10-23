@@ -296,9 +296,20 @@ def probe_react_preview(
                 return "", b""
             return str(response.headers.get("Content-Type", "")).lower(), response.read(500000)
 
+    # Browsers enforce strict MIME types for ES module scripts. A response
+    # such as "application/json; note=javascript" must never count as JS.
+    # Match only the normalized media type before any charset parameters.
+    def is_mime(value: str, accepted: set[str]) -> bool:
+        return value.split(";", 1)[0].strip() in accepted
+
+    js_mimes = {
+        "text/javascript", "application/javascript",
+        "text/ecmascript", "application/ecmascript",
+    }
+
     try:
         html_type, html = get_public(path, "text/html,application/xhtml+xml")
-        if "text/html" not in html_type or not (
+        if not is_mime(html_type, {"text/html"}) or not (
             b'<div id="root">' in html
             and b'Chronicles of Matthias' in html
         ):
@@ -317,9 +328,9 @@ def probe_react_preview(
                 return extension + "_reference"
             mime, content = get_public(urls[0],
                 "text/javascript,application/javascript,*/*" if extension == "js" else "text/css,*/*")
-            if extension == "js" and "javascript" not in mime:
+            if extension == "js" and not is_mime(mime, js_mimes):
                 return "js_mime"
-            if extension == "css" and "text/css" not in mime:
+            if extension == "css" and not is_mime(mime, {"text/css"}):
                 return "css_mime"
             if len(content) < 128 or content.lstrip().lower().startswith(b"<"):
                 return extension + "_content"
@@ -343,7 +354,7 @@ def probe_react_preview(
             preloads.add(hrefs[0].decode("ascii"))
         for preload in sorted(preloads - {p.decode("ascii") for p in entries["js"]}):
             mime, content = get_public(preload, "text/javascript,application/javascript,*/*")
-            if "javascript" not in mime:
+            if not is_mime(mime, js_mimes):
                 return "preload_mime"
             if len(content) < 128 or content.lstrip().lower().startswith(b"<"):
                 return "preload_content"
@@ -351,9 +362,11 @@ def probe_react_preview(
             return "ok"
         # Installed standalone Chronicles must advertise landscape. The
         # ordinary Brave tab still requires a user gesture and browser API.
-        _, manifest_bytes = get_public(
+        manifest_mime, manifest_bytes = get_public(
             manifest_path, "application/manifest+json,application/json,*/*"
         )
+        if not is_mime(manifest_mime, {"application/manifest+json", "application/json"}):
+            return "manifest_content"
         try:
             manifest = json.loads(manifest_bytes)
         except (ValueError, UnicodeDecodeError):
