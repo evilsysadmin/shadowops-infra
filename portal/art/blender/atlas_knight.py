@@ -176,6 +176,10 @@ for name,objects in GROUPS.items():
     for ob in objects: ob.select_set(True)
     bpy.context.view_layer.objects.active=objects[0]
     bpy.ops.object.join()
+    # The active pedestal mesh was rotated +90° on X. Joining keeps that
+    # rotation as the GLB node transform, so POSITION accessors appear Z-up.
+    # Bake world transforms once: browser geometry and Y-up bounds now agree.
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
     bpy.context.object.name="Atlas Knight / "+name
 
 filename=sys.argv[sys.argv.index("--")+1] if "--" in sys.argv else None
