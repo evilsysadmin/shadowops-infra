@@ -1,0 +1,110 @@
+name: Star Adventures public staging browser journey
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/staradvs-public-browser.yml'
+      - 'scripts/staradvs_public_browser_smoke.mjs'
+      - 'tests/staradvs-public-browser.test.mjs'
+      - 'docs/staradvs-staging.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/staradvs-public-browser.yml'
+      - 'scripts/staradvs_public_browser_smoke.mjs'
+      - 'tests/staradvs-public-browser.test.mjs'
+  workflow_run:
+    workflows: ['Star Adventures staging Pages']
+    types: [completed]
+  workflow_dispatch:
+  schedule:
+    - cron: '17 6 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staradvs-public-browser-\${{ github.event_name == 'pull_request' && github.ref || 'live' }}
+  cancel-in-progress: false
+
+jobs:
+  contracts:
+    name: Public browser contract (offline)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: node --check scripts/staradvs_public_browser_smoke.mjs
+      - run: node --test tests/staradvs-public-browser.test.mjs
+
+  live:
+    name: Real public mobile and desktop journey
+    needs: contracts
+    if: >-
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' ||
+       github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'schedule' ||
+       (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.repository.full_name == 'evilsysadmin/shadowops-infra' &&
+        github.event.workflow_run.event != 'pull_request'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 17
+    environment:
+      name: staging
+      url: https://staging.staradvs.shadowops.dpdns.org
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Read real public staging release from immutable HTTPS origin
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(node scripts/staradvs_public_browser_smoke.mjs --release-sha)"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || exit 64
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "STARADVS_PUBLIC_BROWSER_PINNED sha=$sha"
+      - name: Checkout the exact published game revision
+        uses: actions/checkout@v4
+        with:
+          repository: evilsysadmin/star-adventures
+          ref: \${{ steps.release.outputs.sha }}
+          path: staradvs-source
+          persist-credentials: false
+      - name: Verify source pin and Chrome runtime
+        env:
+          PUBLIC_SHA: \${{ steps.release.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git -C staradvs-source rev-parse HEAD)" == "$PUBLIC_SHA" ]] || exit 1
+          google-chrome --version
+      - name: Install exact source Playwright dependency without running package scripts
+        run: npm ci --prefix staradvs-source/frontend --ignore-scripts --no-audit --no-fund
+      - name: Navigate real public bridge, decisions and F5 at 390/1280px
+        env:
+          STARADVS_PUBLIC_SHA: \${{ steps.release.outputs.sha }}
+          STARADVS_LIVE_BROWSER: '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd staradvs-source/frontend
+          node --input-type=module - < ../../scripts/staradvs_public_browser_smoke.mjs
+      - name: Keep real browser screenshots for inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staradvs-public-browser-\${{ github.run_id }}
+          path: staradvs-source/frontend/staradvs-public-captures/*.png
+          if-no-files-found: ignore
+          retention-days: 7
