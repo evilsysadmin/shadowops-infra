@@ -38,6 +38,65 @@ class FakeResponse:
 
 
 class ParallelReactPagesTest(unittest.TestCase):
+    def test_public_game_assets_reject_deceptive_mime_parameters(self):
+        # Every response contains plausible content; browser MIME validation,
+        # not body length or a substring from a parameter, must reject it.
+        html = (
+            b'<html><head><title>Chronicles of Matthias</title>'
+            b'<script type="module" src="/assets/index-abc.js"></script>'
+            b'<link rel="stylesheet" href="/assets/index-def.css">'
+            b'<link rel="modulepreload" href="/assets/vendor-xyz.js">'
+            b'</head><body><div id="root"></div></body></html>'
+        )
+        manifest = b'{"orientation":"landscape","display":"standalone","start_url":"./"}'
+        responses = {
+            "/": (html, "text/html"),
+            "/assets/index-abc.js": (JS, "application/javascript"),
+            "/assets/index-def.css": (CSS, "text/css"),
+            "/assets/vendor-xyz.js": (JS, "text/javascript; charset=utf-8"),
+            "/manifest.webmanifest": (manifest, "application/manifest+json"),
+        }
+        cases = (
+            ("/", "application/vnd.text/html+json", "html_missing"),
+            ("/assets/index-abc.js", "application/json; note=javascript", "js_mime"),
+            ("/assets/index-def.css", "application/vnd.text/css+json", "css_mime"),
+            ("/assets/vendor-xyz.js", "application/json; charset=javascript", "preload_mime"),
+            ("/manifest.webmanifest", "text/html", "manifest_content"),
+        )
+        for url_suffix, wrong_mime, expected in cases:
+            with self.subTest(asset=url_suffix):
+                def serve(req, timeout):
+                    self.assertEqual(timeout, 10)
+                    self.assertEqual(req.full_url.split(pages.HOST, 1)[0], "https://")
+                    self.assertIsNone(req.get_header("Authorization"))
+                    content, mime = responses[req.full_url.removeprefix(
+                        "https://" + pages.HOST)]
+                    if req.full_url.endswith(url_suffix):
+                        mime = wrong_mime
+                    return FakeResponse(req.full_url, content, mime)
+                with patch.object(pages.urllib.request, "urlopen", side_effect=serve):
+                    self.assertEqual(pages.probe_react_preview(
+                        path="/", assets=b"/assets/",
+                        manifest_path="/manifest.webmanifest",
+                    ), expected)
+
+        # Explicitly allow standard JS MIME with valid case and charset.
+        def valid(req, timeout):
+            key = req.full_url.removeprefix("https://" + pages.HOST)
+            content, mime = responses[key]
+            if key == "/assets/index-abc.js":
+                mime = "Text/JavaScript; charset=UTF-8"
+            elif key == "/assets/vendor-xyz.js":
+                mime = "application/ecmascript; charset=utf-8"
+            elif key == "/assets/index-def.css":
+                mime = "text/css; charset=UTF-8"
+            return FakeResponse(req.full_url, content, mime)
+        with patch.object(pages.urllib.request, "urlopen", side_effect=valid):
+            self.assertEqual(pages.probe_react_preview(
+                path="/", assets=b"/assets/",
+                manifest_path="/manifest.webmanifest",
+            ), "ok")
+
     def test_verified_html_and_both_bundles_are_public_same_origin(self):
         requested = []
         def request(req, timeout):
