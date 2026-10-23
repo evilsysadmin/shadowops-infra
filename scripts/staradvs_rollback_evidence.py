@@ -93,23 +93,26 @@ def corroborate(report: dict, reader: GitHubEvidence) -> dict:
     if not isinstance(runs, list):
         raise pages.AdmissionError("GitHub staging runs unavailable")
     # Bounded result set, with no inferred success if archived Actions metadata is missing.
-    selected = [run for run in runs[:100] if credible_run(run)]
+    selected = [run for run in runs[:100] if credible_run(run)][:40]
     verified = []
-    for candidate in candidates[:5]:
-        for run in selected:
-            rid = run["id"]
-            artifacts = reader.get(f"/repos/{OWNER}/actions/runs/{rid}/artifacts?per_page=100")
-            entries = artifacts.get("artifacts")
-            if not isinstance(entries, list):
-                raise pages.AdmissionError("GitHub release artifacts cannot be checked")
-            match = next((a for a in entries if credible_receipt(a, rid, candidate["source_sha"])), None)
+    remaining = {p["source_sha"]: p for p in candidates[:5]}
+    for run in selected:
+        if not remaining:
+            break
+        rid = run["id"]
+        artifacts = reader.get(f"/repos/{OWNER}/actions/runs/{rid}/artifacts?per_page=100")
+        entries = artifacts.get("artifacts")
+        if not isinstance(entries, list):
+            raise pages.AdmissionError("GitHub release artifacts cannot be checked")
+        for previous_sha, candidate in list(remaining.items()):
+            match = next((a for a in entries if credible_receipt(a, rid, previous_sha)), None)
             if match is not None:
                 verified.append({
                     **candidate,
                     "infra_publish_run_id": rid,
                     "verified_receipt_id": match["id"],
                 })
-                break
+                del remaining[previous_sha]
     report = dict(report)
     report["receipt_backed_previous"] = verified
     report["receipt_verification"] = "GET-only GitHub artifact evidence; not an executed rollback"
