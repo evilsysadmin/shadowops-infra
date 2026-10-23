@@ -285,11 +285,44 @@ for passage_x in [-3.22,0,3.22]:
                    .062 if n%3==0 else .039,
                    .020 if n%3==0 else .014,4,BRASS)
 
+# The physical floor compass becomes a legible instrument, not a UI button:
+# a fine outside bezel, an engraved 32-point degree scale and four longer
+# cardinal ticks. 32 subdivisions share ONE planar mesh and the existing
+# satin brass material, rather than 32 extra objects / draw calls.
+def compass_degree_marks(name,cx,cz,y,mat):
+    verts=[]
+    faces=[]
+    for index in range(32):
+        theta=index*2*math.pi/32
+        major=index%8==0
+        medium=index%4==0
+        r0=.840 if major else (.871 if medium else .898)
+        r1=.929
+        half_width=.010 if major else (.007 if medium else .005)
+        ct,st=math.cos(theta),math.sin(theta)
+        center=len(verts)
+        for rad,sgn in [(r0,-1),(r1,-1),(r1,1),(r0,1)]:
+            verts.append((cx+rad*ct-sgn*half_width*st,
+                          y,
+                          cz+rad*st+sgn*half_width*ct))
+        # Face winding towards +Y so bronze keeps its normal under GLB PBR.
+        faces.extend([(center,center+2,center+1),
+                      (center,center+3,center+2)])
+    mesh=bpy.data.meshes.new(name)
+    mesh.from_pydata(verts,[],faces)
+    mesh.update()
+    obj=bpy.data.objects.new(name,mesh)
+    bpy.context.collection.objects.link(obj)
+    return register(obj,mat)
+
 # One inset, centered compass rose: a restrained celestial instrument that
 # ties the three worlds together, visible in the foreground from the camera.
 cx,cz=0,2.25
 floor_ring("Forecourt circle, engraved brass",cx,cz,-.065,.79,.013,BRASS)
-floor_rose("Eight-point navigational mosaic",cx,cz,-.054,.50,.19,8,BRASS)
+floor_ring("Outer nautical degree bezel",cx,cz,-.065,.962,.009,BRASS)
+compass_degree_marks("Hand-engraved 32 division astronomical scale",
+                     cx,cz,-.046,BRASS)
+floor_rose("Eight-point navigational mosaic",cx,cz,-.054,.535,.19,8,BRASS)
 floor_rose("Lapis compass core",cx,cz,-.045,.17,.070,8,ENAMEL)
 for i in range(8):
     theta=2*math.pi*i/8

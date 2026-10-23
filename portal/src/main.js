@@ -57,7 +57,7 @@ stage.dataset.scene = 'loading';
 stageArea.appendChild(stage);
 const eyebrow = el('div', 'stage-eyebrow', 'THE OBSERVATORY / 001');
 stageArea.appendChild(eyebrow);
-const DEFAULT_SCENE_HINT = 'Toca un portal · Arrastra suavemente para mirar';
+const DEFAULT_SCENE_HINT = 'Toca un portal · Arrastra para mirar';
 const tooltip = el('div', 'stage-footer', DEFAULT_SCENE_HINT);
 tooltip.dataset.previewWorld = 'none';
 stageArea.appendChild(tooltip);
