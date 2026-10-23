@@ -17,7 +17,7 @@ for(const width of [360,390,430,1440]){
     await expect(page.locator('#atlas-enter a')).toHaveCount(0);
     await expect(page.getByText('Concepto en desarrollo — entrada desactivada')).toBeVisible();
     await expect(page.locator('#atlas-viewport')).toHaveAttribute('data-scene','ready',{timeout:15000});
-    await expect(page.locator('#atlas-viewport')).toHaveAttribute('data-surface-relief','wood-stone');
+    await expect(page.locator('#atlas-viewport')).toHaveAttribute('data-stone-floor','flags-156');
     if(process.env.REQUIRE_BLENDER_ART==='1'){
       await expect(page.locator('#atlas-viewport')).toHaveAttribute('data-atlas-knight','loaded',{timeout:15000});
     }else{
