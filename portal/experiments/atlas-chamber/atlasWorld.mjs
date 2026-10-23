@@ -267,10 +267,71 @@ export function mountAtlasChamber(container) {
     bevelSize:.018,bevelThickness:.012,bevelSegments:1,
   }),woodRim,-4.35,4.58,-3.43);
   container.dataset.archiveVolumes=String(bindingIndices.reduce((a,b)=>a+b,0));
-  // Six substantial structural beams give the chamber a near-field ceiling.
-  for(let i=0;i<5;i++) {
+  // The ceiling is not a single plank: cross-rafters interlock with the
+  // existing longitudinal timbers to read as deep, restrained oak coffers.
+  // One batched mesh adds all four transoms without extra downloads/lights.
+  for(let i=0;i<5;i++){
     box(.19,.23,10,woodRim,-5.2+i*2.6,5.78,-.7);
   }
+  const ceilingRafters=new THREE.InstancedMesh(
+    new RoundedBoxGeometry(13.0,.24,.29,2,.040),wood,4);
+  const rafterTransform=new THREE.Object3D();
+  for(let i=0;i<4;i++){
+    rafterTransform.position.set(0,5.66,-3.93+i*2.34);
+    rafterTransform.updateMatrix();
+    ceilingRafters.setMatrixAt(i,rafterTransform.matrix);
+  }
+  ceilingRafters.instanceMatrix.needsUpdate=true;
+  root.add(ceilingRafters);
+  container.dataset.ceilingRafters='4';
+
+  // Side walls gain a real blind arcade: shallow ashlar piers, projecting
+  // capitals and springing arches. The walls retain their dark negative
+  // space; this is masonry, not a gallery of emissive doors or UI panels.
+  // Place all relief on the inner wall faces and keep the back moon window
+  // completely free. Two InstancedMeshes batch sixteen stone features.
+  const sidePiers=new THREE.InstancedMesh(
+    new RoundedBoxGeometry(.26,4.30,.32,2,.028),stone,8);
+  const pierCaps=new THREE.InstancedMesh(
+    new RoundedBoxGeometry(.34,.16,.53,2,.026),stone,8);
+  const pierTransform=new THREE.Object3D();
+  const pierTint=new THREE.Color();
+  const arcadeZ=[-4.18,-1.78,.62,3.02];
+  let pierCount=0,arcCount=0;
+  for(const side of [-1,1]){
+    const x=side*6.34;
+    for(const z of arcadeZ){
+      pierTransform.position.set(x,1.94,z);
+      pierTransform.updateMatrix();
+      sidePiers.setMatrixAt(pierCount,pierTransform.matrix);
+      pierTransform.position.set(x,4.18,z);
+      pierTransform.updateMatrix();
+      pierCaps.setMatrixAt(pierCount,pierTransform.matrix);
+      const patina=.74+(pierCount%4)*.055;
+      pierTint.setRGB(patina,patina*.995,patina*.99);
+      sidePiers.setColorAt(pierCount,pierTint);
+      pierCaps.setColorAt(pierCount,pierTint);
+      pierCount++;
+    }
+    for(let i=0;i<arcadeZ.length-1;i++){
+      const z0=arcadeZ[i],z1=arcadeZ[i+1];
+      const arch=new THREE.CubicBezierCurve3(
+        new THREE.Vector3(x,4.16,z0),
+        new THREE.Vector3(x,5.20,z0+.32),
+        new THREE.Vector3(x,5.20,z1-.32),
+        new THREE.Vector3(x,4.16,z1),
+      );
+      mesh(new THREE.TubeGeometry(arch,30,.082,8,false),stone);
+      arcCount++;
+    }
+  }
+  sidePiers.instanceMatrix.needsUpdate=true;
+  pierCaps.instanceMatrix.needsUpdate=true;
+  sidePiers.instanceColor.needsUpdate=true;
+  pierCaps.instanceColor.needsUpdate=true;
+  root.add(sidePiers,pierCaps);
+  container.dataset.sideArcades=String(arcCount);
+  container.dataset.arcadePiers=String(pierCount);
   // An oak cabinetmaker's chess table: eased edges replace the old square
   // slabs; a narrow carved apron hangs under the lip facing the viewer.
   // Both bevels are local geometry, not extra materials or texture requests.
