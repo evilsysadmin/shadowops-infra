@@ -1,0 +1,54 @@
+import {test,expect} from '@playwright/test';
+import pngjs from 'pngjs';
+const {PNG}=pngjs;
+
+for(const width of [390,1440]){
+  test('Atlas Chamber experiment '+width+'px: real diorama, controls, no overflow',async({page},testInfo)=>{
+    await page.setViewportSize({width,height:width<500?844:900});
+    await page.emulateMedia({reducedMotion:'reduce'});
+    const errors=[];
+    page.on('pageerror',e=>errors.push(e.message));
+    await page.goto('/experiments/atlas-chamber/index.html');
+    await expect(page.getByRole('heading',{name:/No es una puerta/})).toBeVisible();
+    await expect(page.getByRole('navigation',{name:'Selección de universos'}).locator('button')).toHaveCount(3);
+    await expect(page.getByRole('button',{name:/Chronicles/})).toBeDisabled();
+    await expect(page.getByRole('button',{name:/Star Adventures/})).toBeDisabled();
+    await expect(page.locator('.atlas-seal-current')).toHaveAttribute('aria-current','true');
+    await expect(page.locator('#atlas-enter a')).toHaveCount(0);
+    await expect(page.getByText('Concepto en desarrollo — entrada desactivada')).toBeVisible();
+    await expect(page.locator('#atlas-viewport')).toHaveAttribute('data-scene','ready',{timeout:15000});
+    await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth)).toBeLessThanOrEqual(1);
+    const stats=await page.locator('#atlas-viewport').evaluate(e=>({
+      calls:Number(e.dataset.drawCalls),
+      triangles:Number(e.dataset.triangles),
+      motion:e.dataset.motion,
+    }));
+    expect(stats.calls,'composed 3D scenery needs actual draw calls').toBeGreaterThan(15);
+    expect(stats.calls,'limit GPU workload in this study').toBeLessThan(150);
+    expect(stats.triangles,'bounded hand-authored geometry').toBeLessThan(160000);
+    expect(stats.motion).toBe('reduced');
+    const canvas=PNG.sync.read(await page.locator('#atlas-viewport canvas').screenshot());
+    let nonDark=0;
+    for(let y=0;y<canvas.height;y+=11)for(let x=0;x<canvas.width;x+=11){
+      const i=(y*canvas.width+x)*4;
+      if(Math.max(canvas.data[i],canvas.data[i+1],canvas.data[i+2])>65)nonDark++;
+    }
+    expect(nonDark,'a real illuminated table and environment, not a blank clear color').toBeGreaterThan(30);
+    expect(errors).toEqual([]);
+    await testInfo.attach('atlas-chamber-'+width+'px',{body:await page.screenshot({fullPage:true,animations:'disabled'}),contentType:'image/png'});
+  });
+}
+
+test('Atlas Chamber concept remains accessible and never invents links without WebGL',async({page})=>{
+  await page.addInitScript(()=>{
+    Object.defineProperty(window,'WebGLRenderingContext',{value:undefined,configurable:true});
+  });
+  await page.goto('/experiments/atlas-chamber/index.html');
+  await expect(page.locator('#atlas-viewport')).toHaveAttribute('data-scene','unavailable');
+  await expect(page.getByRole('heading',{name:/No es una puerta/})).toBeVisible();
+  await expect(page.locator('#atlas-enter a')).toHaveCount(0);
+  await expect(page.getByText('Concepto en desarrollo — entrada desactivada')).toBeVisible();
+  await page.getByRole('button',{name:/Chess Studio/}).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('button',{name:/Chess Studio/})).toHaveAttribute('aria-current','true');
+});
