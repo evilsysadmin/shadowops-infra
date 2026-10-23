@@ -32,7 +32,7 @@ def register(obj, mat):
     GROUPS[mat.name].append(obj)
     return obj
 
-def cylinder(name, radius, height, y, mat, vertices=64):
+def cylinder(name, radius, height, y, mat, vertices=48):
     bpy.ops.mesh.primitive_cylinder_add(vertices=vertices, radius=radius,
         depth=height, location=(0,y,0), rotation=(math.pi/2,0,0))
     obj=bpy.context.object
@@ -40,7 +40,7 @@ def cylinder(name, radius, height, y, mat, vertices=64):
     return register(obj,mat)
 
 def torus(name, radius, tube, y, mat):
-    bpy.ops.mesh.primitive_torus_add(major_segments=80, minor_segments=10,
+    bpy.ops.mesh.primitive_torus_add(major_segments=56, minor_segments=8,
         major_radius=radius, minor_radius=tube, location=(0,y,0),
         rotation=(math.pi/2,0,0))
     ob=bpy.context.object
@@ -51,11 +51,11 @@ def outline(name, points, depth, bevel, mat, z=0):
     """Smooth, thick real relief from an original Bezier contour in XY."""
     curve=bpy.data.curves.new(name,type="CURVE")
     curve.dimensions="2D"
-    curve.resolution_u=24
+    curve.resolution_u=9
     curve.fill_mode="BOTH"
     curve.extrude=depth
     curve.bevel_depth=bevel
-    curve.bevel_resolution=4
+    curve.bevel_resolution=2
     spline=curve.splines.new("BEZIER")
     spline.bezier_points.add(len(points)-1)
     for p,(x,y) in zip(spline.bezier_points,points):
@@ -75,8 +75,10 @@ def outline(name, points, depth, bevel, mat, z=0):
 def engraving(name, coords, gauge, mat):
     curve=bpy.data.curves.new(name,type="CURVE")
     curve.dimensions="3D"
+    # Screen-space ornaments do not need Blender's default 12 Bezier subdivisions.
+    curve.resolution_u=8
     curve.bevel_depth=gauge
-    curve.bevel_resolution=4
+    curve.bevel_resolution=2
     spline=curve.splines.new("BEZIER")
     spline.bezier_points.add(len(coords)-1)
     for point,xyz in zip(spline.bezier_points,coords):
@@ -92,7 +94,7 @@ def engraving(name, coords, gauge, mat):
     return register(bpy.context.object,mat)
 
 def bead(name,loc,scale,mat):
-    bpy.ops.mesh.primitive_uv_sphere_add(segments=20,ring_count=12,
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=14,ring_count=9,
         location=loc)
     ob=bpy.context.object
     ob.name=name
@@ -157,6 +159,8 @@ for i in range(6):
     x=-.183-.045*math.sin(i*.52)
     bead("Braided mane stud",(x,y,.175),(.032,.045,.018),GOLD)
 
+# Bound tessellation for the 390px hero: preserve the Bezier profile and
+# three PBR batches without shipping subpixel curved surfaces as extra vertices.
 # Preserve just three batchable PBR primitives. The glTF runtime only
 # instantiates three meshes and is never authoritative for interaction.
 for name,objects in GROUPS.items():
