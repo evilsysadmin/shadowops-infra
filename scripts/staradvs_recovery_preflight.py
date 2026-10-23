@@ -15,6 +15,7 @@ import staradvs_pages as pages
 from staradvs_staging_hold import HoldConfigError, load_hold
 from staradvs_rollback_inventory import inventory, public_sha, valid_deployment
 from staradvs_rollback_evidence import GitHubEvidence, corroborate
+from staradvs_immutable_target import verify_immutable_target
 
 
 def select_attested_candidate(report: dict, requested_sha: str) -> dict:
@@ -57,7 +58,7 @@ def valid_deployment_identity(value: str) -> bool:
         return False
 
 
-def confirm_exact_pages_candidate(client, candidate: dict) -> None:
+def confirm_exact_pages_candidate(client, candidate: dict) -> str:
     # Allowlisted by construction: fixed staging project + strictly typed UUID.
     deployment_id = candidate["deployment_id"]
     if not valid_deployment_identity(deployment_id):
@@ -71,6 +72,7 @@ def confirm_exact_pages_candidate(client, candidate: dict) -> None:
             or actual["deployment_id"] != deployment_id
             or actual["source_sha"] != candidate["source_sha"]):
         raise pages.AdmissionError("Pages deployment details disagree with receipt-backed inventory")
+    return verify_immutable_target(row, candidate["source_sha"])
 
 
 def assess_hold(hold: dict, live_sha: str) -> dict:
@@ -95,7 +97,7 @@ def prepare_readonly_plan(client, evidence, hold: dict, requested_sha: str = "")
     report = inventory(client, before)
     attested = corroborate(report, evidence)
     chosen = select_attested_candidate(attested, requested_sha)
-    confirm_exact_pages_candidate(client, chosen)
+    immutable_url = confirm_exact_pages_candidate(client, chosen)
     hold_state = assess_hold(hold, before)
     after = public_sha()
     if after != before:
@@ -106,6 +108,7 @@ def prepare_readonly_plan(client, evidence, hold: dict, requested_sha: str = "")
         "live_sha": before,
         "target_sha": chosen["source_sha"],
         "target_deployment_id": chosen["deployment_id"],
+        "target_immutable_url": immutable_url,
         "target_release_run_id": chosen["infra_publish_run_id"],
         "target_receipt_id": chosen["verified_receipt_id"],
         "rollback_api_method": "POST (not called)",

@@ -71,12 +71,14 @@ class ReadOnlyRecoveryPreflightTests(unittest.TestCase):
             patch.object(preflight, "public_sha", side_effect=lambda: next(snapshot)),
             patch.object(preflight, "inventory", return_value=inventory_result()) as inv,
             patch.object(preflight, "corroborate", return_value=attested_result()) as evidence,
+            patch.object(preflight, "verify_immutable_target", return_value="https://facecafe.staradvs-staging.pages.dev") as immutable,
         ):
             result = preflight.prepare_readonly_plan(
                 client, object(), hold or {"mode": "auto"}, requested
             )
         self.assertEqual(inv.call_count, 1)
         self.assertEqual(evidence.call_count, 1)
+        self.assertEqual(immutable.call_count, 1)
         self.assertEqual(len(client.calls), 1)
         self.assertEqual(client.calls[0][0], "GET")
         return result
@@ -87,6 +89,7 @@ class ReadOnlyRecoveryPreflightTests(unittest.TestCase):
         self.assertEqual(result["target_sha"], OLD)
         self.assertEqual(result["target_deployment_id"], DEPLOYMENT)
         self.assertEqual(result["target_receipt_id"], 77)
+        self.assertEqual(result["target_immutable_url"], "https://facecafe.staradvs-staging.pages.dev")
         self.assertEqual(result["forward_sha"], LIVE)
         self.assertEqual(result["hold"], "inactive")
         self.assertEqual(result["rehearsal"], "preview_only")
