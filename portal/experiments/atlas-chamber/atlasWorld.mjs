@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {makeAtlasSurfaceTexture,makeAtlasNormalTexture} from './atlasSurface.mjs';
+import {makeAtlasSurfaceTexture} from './atlasSurface.mjs';
 import {ATLAS_KNIGHT_ASSET} from '../../src/atlasKnightAsset.generated.mjs';
 
 // Atlas Chamber vertical slice. One tactile chess diorama in a believable room;
@@ -26,31 +26,17 @@ export function mountAtlasChamber(container) {
   scene.add(root);
   const woodGrain=makeAtlasSurfaceTexture('wood');
   const stoneGrain=makeAtlasSurfaceTexture('stone');
-  const woodRelief=makeAtlasNormalTexture('wood');
-  const stoneRelief=makeAtlasNormalTexture('stone');
   woodGrain.repeat.set(3,1);
-  woodRelief.repeat.set(3,1);
   stoneGrain.repeat.set(2,2);
-  stoneRelief.repeat.set(2,2);
-  const stone=new THREE.MeshStandardMaterial({
-    color:0x8694a2,roughness:.94,metalness:.03,map:stoneGrain,
-    normalMap:stoneRelief,normalScale:new THREE.Vector2(.75,.75),
-  });
+  const stone=new THREE.MeshStandardMaterial({color:0x8694a2,roughness:.94,metalness:.03,map:stoneGrain});
   const darkStone=new THREE.MeshStandardMaterial({color:0x29323d,roughness:.85});
-  const wood=new THREE.MeshStandardMaterial({
-    color:0x977758,roughness:.7,map:woodGrain,
-    normalMap:woodRelief,normalScale:new THREE.Vector2(.7,.7),
-  });
-  const woodRim=new THREE.MeshStandardMaterial({
-    color:0xb28b65,roughness:.48,map:woodGrain,
-    normalMap:woodRelief,normalScale:new THREE.Vector2(.55,.55),
-  });
+  const wood=new THREE.MeshStandardMaterial({color:0x977758,roughness:.7,map:woodGrain});
+  const woodRim=new THREE.MeshStandardMaterial({color:0xb28b65,roughness:.48,map:woodGrain});
   const brass=new THREE.MeshStandardMaterial({color:0xb88b4d,metalness:.8,roughness:.27});
   const tarnished=new THREE.MeshStandardMaterial({color:0x55452e,metalness:.73,roughness:.44});
   const ivory=new THREE.MeshStandardMaterial({color:0xd1bea0,roughness:.36,metalness:.05});
   const obsidian=new THREE.MeshStandardMaterial({color:0x243341,roughness:.27,metalness:.22});
   const nightSky=new THREE.MeshBasicMaterial({color:0x2d465f,side:THREE.DoubleSide,fog:false});
-  container.dataset.surfaceRelief='wood-stone';
   const mesh=(geo,mat,x=0,y=0,z=0,parent=root)=>{
     const m=new THREE.Mesh(geo,mat);m.position.set(x,y,z);parent.add(m);return m;
   };
@@ -90,7 +76,32 @@ export function mountAtlasChamber(container) {
   box(.65,8,9,darkStone,-6.8,3,-.7);
   box(.65,8,9,darkStone,6.8,3,-.7);
   box(15,.35,9,wood,-0,6,-1.0);
-  box(15,.32,13,stone,0,-.50,0);
+  // Recessed mortar bed with large, offset flagstones. The old single gray
+  // floor slab read as a featureless plane; physical courses catch moonlight.
+  box(15,.32,13,darkStone,0,-.50,0);
+  const flagRows=12,flagCols=13;
+  const flags=new THREE.InstancedMesh(
+    new THREE.BoxGeometry(1.01,.025,.99),stone,flagRows*flagCols);
+  const flagTransform=new THREE.Object3D();
+  const flagTint=new THREE.Color();
+  let flagIndex=0;
+  for(let r=0;r<flagRows;r++)for(let c=0;c<flagCols;c++){
+    // Alternate courses are offset like laid flagstone, not a dashboard grid.
+    const x=(c-6)*1.08+(r%2)*.26;
+    const z=(r-5.5)*1.08;
+    flagTransform.position.set(x,-.323,z);
+    flagTransform.rotation.y=((r*7+c*3)%4)*Math.PI/2;
+    flagTransform.updateMatrix();
+    flags.setMatrixAt(flagIndex,flagTransform.matrix);
+    const tint=.72+((r*13+c*7)%11)*.012;
+    flagTint.setRGB(tint,tint*.99,tint*.97);
+    flags.setColorAt(flagIndex,flagTint);
+    flagIndex++;
+  }
+  flags.instanceMatrix.needsUpdate=true;
+  flags.instanceColor.needsUpdate=true;
+  root.add(flags);
+  container.dataset.stoneFloor='flags-'+flagIndex;
   for(const x of [-5.2,-2.3,2.3,5.2]) {
     box(.30,6,.48,darkStone,x,3,-4.91);
     box(.075,6,.08,tarnished,x+.15,3,-4.55);
@@ -356,7 +367,6 @@ export function mountAtlasChamber(container) {
       else object.material?.dispose();
     });
     woodGrain.dispose();stoneGrain.dispose();
-    woodRelief.dispose();stoneRelief.dispose();
     renderer.dispose();renderer.domElement.remove();
   }};
 }
