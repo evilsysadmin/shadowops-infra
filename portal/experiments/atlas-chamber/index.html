@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0a0d14">
+  <meta name="robots" content="noindex,nofollow">
+  <title>ShadowOps · La Cámara del Atlas — prototipo</title>
+</head>
+<body>
+  <main class="atlas-shell" id="atlas-shell" data-environment="preview">
+    <div class="atlas-viewport" id="atlas-viewport" data-scene="loading" aria-label="Diorama tridimensional de la Cámara del Atlas">
+      <div class="atlas-static" aria-hidden="true"></div>
+    </div>
+    <header class="atlas-head">
+      <a class="atlas-brand" href="/" aria-label="Volver a ShadowOps">✦ SHADOWOPS</a>
+      <div class="atlas-edition">EL ATLAS VIVO <span aria-hidden="true">/</span> CONCEPTO 001</div>
+    </header>
+    <section class="atlas-intro" aria-labelledby="atlas-title">
+      <span class="atlas-overline">UNA CÁMARA. INFINITOS MUNDOS.</span>
+      <h1 id="atlas-title">No es una<br>puerta.<br><em>Es un universo.</em></h1>
+      <p>Un artefacto olvidado. Tres destinos por descubrir. El primero aguarda sobre la mesa.</p>
+      <div class="atlas-rule" aria-hidden="true"></div>
+      <span class="atlas-caption">01 — EL TABLERO DE GUERRA</span>
+    </section>
+    <div class="atlas-bottom">
+      <section class="atlas-current" aria-label="Universo seleccionado">
+        <span class="atlas-current-number">I <span aria-hidden="true">—</span> CHESS STUDIO</span>
+        <h2>El primer movimiento.</h2>
+        <p>Un rival que recuerda cada una de tus derrotas.</p>
+        <div id="atlas-enter"></div>
+      </section>
+      <nav class="atlas-seals" aria-label="Selección de universos">
+        <button class="atlas-seal atlas-seal-current" type="button" aria-current="true">
+          <span class="atlas-seal-glyph" aria-hidden="true">♞</span>
+          <span><small>I</small> Chess Studio</span>
+        </button>
+        <button class="atlas-seal" type="button" disabled aria-label="Chronicles, próximo capítulo">
+          <span class="atlas-seal-glyph" aria-hidden="true">✥</span>
+          <span><small>II</small> Chronicles</span>
+        </button>
+        <button class="atlas-seal" type="button" disabled aria-label="Star Adventures, próximo capítulo">
+          <span class="atlas-seal-glyph" aria-hidden="true">✧</span>
+          <span><small>III</small> Star Adventures</span>
+        </button>
+      </nav>
+    </div>
+    <span class="atlas-stage-status" id="atlas-stage-status" aria-live="polite"></span>
+  </main>
+  <script type="module" src="./atlas.js"></script>
+</body>
+</html>
