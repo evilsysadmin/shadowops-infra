@@ -89,6 +89,7 @@ test('no WebGL: links and keyboard selection still work, scene stays optional', 
   await stage.scrollIntoViewIfNeeded();
   await expect(stage).toHaveAttribute('data-scene', 'unavailable');
   await expect(page.locator('.fallback')).toBeVisible();
+  await expect(page.locator('.stage-footer')).toHaveText('El catálogo funciona también sin 3D');
   const star = page.getByRole('button', {name: /Star Adventures/});
   await star.focus();
   await page.keyboard.press('Enter');
@@ -300,10 +301,14 @@ test('direct 3D portal hover previews without selection, restores keyboard focus
 
   await hoverGateway('chronicles');
   await expect(stage).toHaveAttribute('data-focus-world','chronicles');
+  await expect(page.locator('.stage-footer')).toHaveText('Chronicles · Clic para explorar');
+  await expect(page.locator('.stage-footer')).toHaveAttribute('data-preview-world','chronicles');
   await expect(page.locator('.detail-title')).toHaveText('Chess Studio');
   await expect(page.locator('.world-button[data-world="chess"]')).toHaveAttribute('aria-pressed','true');
   await page.mouse.move(2,2);
   await expect(stage).toHaveAttribute('data-hover-world','none');
+  await expect(page.locator('.stage-footer')).toHaveText('Toca un portal · Arrastra suavemente para mirar');
+  await expect(page.locator('.stage-footer')).toHaveAttribute('data-preview-world','none');
   await expect(stage).toHaveAttribute('data-focus-world','chess');
 
   // The canvas hover wins while present; leaving restores focused catalog.
