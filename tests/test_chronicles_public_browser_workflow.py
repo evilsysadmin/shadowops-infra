@@ -115,7 +115,8 @@ class PublicBrowserWorkflow(unittest.TestCase):
         self.assertLess(action["run"].index("smoke/public-staging.mjs"),
                         action["run"].index("smoke/public-staging-journey.mjs"))
         self.assertIn("chronicles-journey-*.png", PATH.read_text())
-        self.assertIn("playwright install --with-deps chromium", action["run"])
+        self.assertIn("bash smoke/ensure-chromium.sh", action["run"])
+        self.assertNotIn("playwright install --with-deps", action["run"])
         self.assertEqual(action["env"]["CHRONICLES_SOURCE_SHA"],
                          "${{ steps.source.outputs.sha }}")
         self.assertEqual(action["env"]["CHRONICLES_STAGING_INVITE_CODE"],
@@ -167,26 +168,49 @@ class PublicBrowserWorkflow(unittest.TestCase):
 
 
     def test_playwright_version_step_runs_in_real_bash_and_exports_version(self):
-        # Static inspection missed the broken escaped quotes. Execute the
-        # actual workflow shell with stub npm/node to catch parser errors.
+        # Exercise the real shell with pinned and mismatched dependencies.
         flow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
         harness = next(step for step in flow["jobs"]["release"]["steps"]
-                       if step.get("name") == "Prepare Playwright browser harness")
+                       if step.get("name") == "Verify lockfile-pinned Playwright browser harness")
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            for name, output in (("npm", ""), ("node", "1.62.0")):
-                fake = root / name
-                fake.write_text("#!/bin/sh\n" + ("exit 0\n" if name == "npm" else "echo 1.62.0\n"))
-                fake.chmod(0o755)
+            fake = root / "node"
+            fake.write_text("#!/bin/sh\ncase \"$*\" in\n  *devDependencies.playwright*) echo \"${DECLARED_VERSION}\" ;;\n  *) echo 1.64.1 ;;\nesac\n")
+            fake.chmod(0o755)
             output_file = root / "github_output"
-            env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
-                   "GITHUB_OUTPUT": str(output_file)}
-            result = subprocess.run(
-                ["bash", "-euo", "pipefail", "-c", harness["run"]],
-                cwd=root, env=env, capture_output=True, text=True, timeout=10,
-            )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(output_file.read_text().splitlines(), ["version=1.62.0"])
+            base_env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
+                        "GITHUB_OUTPUT": str(output_file)}
+            for declared, valid in (("1.64.1", True), ("1.64.0", False)):
+                with self.subTest(declared=declared):
+                    output_file.write_text("")
+                    result = subprocess.run(
+                        ["bash", "-euo", "pipefail", "-c", harness["run"]],
+                        cwd=root, env={**base_env, "DECLARED_VERSION": declared},
+                        capture_output=True, text=True, timeout=10,
+                    )
+                    self.assertEqual(result.returncode == 0, valid, result.stderr)
+                    self.assertEqual(output_file.read_text().splitlines(),
+                                     ["version=1.64.1"] if valid else [])
+
+    def test_pr_contract_checks_never_occupy_the_staging_publish_lock(self):
+        workflow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
+        group = workflow["concurrency"]["group"]
+        self.assertIn("github.event_name == 'pull_request'", group)
+        self.assertIn("shadowops-chronicles-pages-pr-{0}", group)
+        self.assertIn("github.event.pull_request.number", group)
+        self.assertIn("shadowops-cloudflare-chronicles-pages-{0}", group)
+        self.assertIn("inputs.environment || 'staging'", group)
+        self.assertEqual(workflow["concurrency"]["cancel-in-progress"],
+                         "${{ github.event_name == 'pull_request' }}")
+        # PRs only test contracts; all Cloudflare mutation jobs stay gated
+        # away from pull_request events.
+        jobs = workflow["jobs"]
+        self.assertIn("github.event_name == 'schedule'",
+                      jobs["staging-candidate"]["if"])
+        self.assertIn("github.event_name == 'push'",
+                      jobs["staging-candidate"]["if"])
+        self.assertIn("workflow_dispatch", jobs["production"]["if"])
+
 
     def test_staging_uses_lockfile_keyed_npm_cache_without_skipping_ci(self):
         workflow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
@@ -203,20 +227,23 @@ class PublicBrowserWorkflow(unittest.TestCase):
         browser = next(step for step in steps
                        if step.get("name") == "Real public browser smoke (desktop, mobile, login, update deferral)")
         harness = next(step for step in steps
-                       if step.get("name") == "Prepare Playwright browser harness")
+                       if step.get("name") == "Verify lockfile-pinned Playwright browser harness")
         cache = next(step for step in steps
                      if step.get("name") == "Cache exact Chromium browser binaries")
         self.assertLess(steps.index(harness), steps.index(cache))
         self.assertLess(steps.index(cache), steps.index(browser))
         self.assertEqual(harness["id"], "playwright")
-        self.assertIn("npm install --no-save --no-audit --no-fund playwright@1", harness["run"])
+        self.assertNotIn("npm install", harness["run"])
+        self.assertIn("devDependencies.playwright", harness["run"])
         self.assertIn("node_modules/playwright/package.json", harness["run"])
         self.assertEqual(cache["uses"], "actions/cache@v4")
         self.assertEqual(cache["with"]["path"], "~/.cache/ms-playwright")
         self.assertIn("steps.playwright.outputs.version", cache["with"]["key"])
         self.assertIn("runner.os", cache["with"]["key"])
+        self.assertIn("runner.arch", cache["with"]["key"])
         self.assertNotIn("npm install --no-save", browser["run"])
-        self.assertIn("playwright install --with-deps chromium", browser["run"])
+        self.assertIn("bash smoke/ensure-chromium.sh", browser["run"])
+        self.assertNotIn("install --with-deps", browser["run"])
         production = workflow["jobs"]["production"]["steps"]
         prod_setup = next(step for step in production
                           if step.get("name") == "Prepare pinned Node.js for the Chronicles frontend")
