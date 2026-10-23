@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {makeAtlasSurfaceTexture} from './atlasSurface.mjs';
 
 // Atlas Chamber vertical slice. One tactile chess diorama in a believable room;
 // no portal panes, no borrowed game assets and no extra runtime downloads.
@@ -22,10 +23,14 @@ export function mountAtlasChamber(container) {
   const root=new THREE.Group();
   root.position.x=mobile ? 0 : 1.55;
   scene.add(root);
-  const stone=new THREE.MeshStandardMaterial({color:0x4b5360,roughness:.94,metalness:.03});
+  const woodGrain=makeAtlasSurfaceTexture('wood');
+  const stoneGrain=makeAtlasSurfaceTexture('stone');
+  woodGrain.repeat.set(3,1);
+  stoneGrain.repeat.set(2,2);
+  const stone=new THREE.MeshStandardMaterial({color:0x8694a2,roughness:.94,metalness:.03,map:stoneGrain});
   const darkStone=new THREE.MeshStandardMaterial({color:0x29323d,roughness:.85});
-  const wood=new THREE.MeshStandardMaterial({color:0x62402b,roughness:.7});
-  const woodRim=new THREE.MeshStandardMaterial({color:0x815539,roughness:.48});
+  const wood=new THREE.MeshStandardMaterial({color:0x977758,roughness:.7,map:woodGrain});
+  const woodRim=new THREE.MeshStandardMaterial({color:0xb28b65,roughness:.48,map:woodGrain});
   const brass=new THREE.MeshStandardMaterial({color:0xb88b4d,metalness:.8,roughness:.27});
   const tarnished=new THREE.MeshStandardMaterial({color:0x55452e,metalness:.73,roughness:.44});
   const ivory=new THREE.MeshStandardMaterial({color:0xd1bea0,roughness:.36,metalness:.05});
@@ -258,6 +263,7 @@ export function mountAtlasChamber(container) {
       if(Array.isArray(object.material))object.material.forEach(m=>m.dispose());
       else object.material?.dispose();
     });
+    woodGrain.dispose();stoneGrain.dispose();
     renderer.dispose();renderer.domElement.remove();
   }};
 }
