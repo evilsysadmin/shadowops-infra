@@ -50,7 +50,7 @@ jobs:
       - name: Install isolated portal dependencies
         run: npm install --ignore-scripts --no-audit --no-fund
       - name: Source syntax
-        run: npm run check
+        run: npm run check && python3 -m py_compile art/blender/atlas_knight.py
       - name: Catalog and ownership contracts
         run: npm test
       - name: Production static build
