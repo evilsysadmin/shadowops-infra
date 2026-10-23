@@ -124,3 +124,7 @@ The observatory's existing raycaster now previews the portal beneath a mouse or 
 ## Primary-pointer activation safety
 
 A gateway only commits selection when the same **primary** pointer begins and ends the short tap/click gesture on the canvas. Right/middle mouse buttons, pen barrel clicks and secondary touch pointers do not launch or select a world; dragging still has its movement threshold. Pointer leave/cancel resets the gesture. Playwright covers an actual touch-enabled 390px canvas tap, a synthetic nonprimary touch and desktop right/left-click behavior. Hover remains mouse/pen-only and non-committing.
+
+## Scene hover cue
+
+When a desktop mouse/pen points at a glass gateway, the observatory's **existing** lower scene caption briefly identifies the world and says “Clic para explorar”, using the world accent color. The caption is visually subtle, non-interactive, and not an extra live announcement; the authoritative, keyboard-accessible game information remains in the catalog. Pointer leave, drag and actual selection restore its original guidance. No WebGL restores the dedicated accessible-catalog explanation. Mobile hides this hint as before and relies on touch selection. No new overlay obstruction, geometry, shader, light, request or texture.
