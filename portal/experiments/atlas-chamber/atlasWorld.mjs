@@ -267,10 +267,77 @@ export function mountAtlasChamber(container) {
     bevelSize:.018,bevelThickness:.012,bevelSegments:1,
   }),woodRim,-4.35,4.58,-3.43);
   container.dataset.archiveVolumes=String(bindingIndices.reduce((a,b)=>a+b,0));
-  // Six substantial structural beams give the chamber a near-field ceiling.
-  for(let i=0;i<5;i++) {
+  // The ceiling is not a single plank: cross-rafters interlock with the
+  // existing longitudinal timbers to read as deep, restrained oak coffers.
+  // One batched mesh adds all four transoms without extra downloads/lights.
+  for(let i=0;i<5;i++){
     box(.19,.23,10,woodRim,-5.2+i*2.6,5.78,-.7);
   }
+  const ceilingRafters=new THREE.InstancedMesh(
+    new RoundedBoxGeometry(13.0,.24,.29,2,.040),wood,4);
+  const rafterTransform=new THREE.Object3D();
+  for(let i=0;i<4;i++){
+    rafterTransform.position.set(0,5.66,-3.93+i*2.34);
+    rafterTransform.updateMatrix();
+    ceilingRafters.setMatrixAt(i,rafterTransform.matrix);
+  }
+  ceilingRafters.instanceMatrix.needsUpdate=true;
+  root.add(ceilingRafters);
+  container.dataset.ceilingRafters='4';
+
+  // The visible right wing of the rear wall needs one believable engaged
+  // relieving arch, not a repeated arcade hidden behind the editorial copy.
+  // Its masonry sits proud of the existing ashlar yet leaves the central
+  // moonlit lancet completely open. No additional virtual door/window.
+  const buttressX=[2.90,5.45];
+  const buttressGeo=new RoundedBoxGeometry(.29,3.18,.28,2,.035);
+  const buttresses=new THREE.InstancedMesh(buttressGeo,stone,2);
+  const buttressCaps=new THREE.InstancedMesh(
+    new RoundedBoxGeometry(.48,.19,.36,2,.033),stone,2);
+  const pierTransform=new THREE.Object3D();
+  for(let i=0;i<2;i++){
+    pierTransform.position.set(buttressX[i],2.11,-4.91);
+    pierTransform.updateMatrix();
+    buttresses.setMatrixAt(i,pierTransform.matrix);
+    pierTransform.position.set(buttressX[i],3.75,-4.87);
+    pierTransform.updateMatrix();
+    buttressCaps.setMatrixAt(i,pierTransform.matrix);
+  }
+  buttresses.instanceMatrix.needsUpdate=true;
+  buttressCaps.instanceMatrix.needsUpdate=true;
+  root.add(buttresses,buttressCaps);
+  const archSpringY=3.79,archApexY=4.95,archFront=-4.79;
+  const archShoulder=new THREE.Vector3(4.175,archApexY,archFront);
+  const leftHalf=new THREE.CubicBezierCurve3(
+    new THREE.Vector3(buttressX[0],archSpringY,archFront),
+    new THREE.Vector3(3.02,4.39,archFront),
+    new THREE.Vector3(3.86,4.81,archFront),
+    archShoulder,
+  );
+  const rightHalf=new THREE.CubicBezierCurve3(
+    archShoulder,
+    new THREE.Vector3(4.49,4.81,archFront),
+    new THREE.Vector3(5.33,4.39,archFront),
+    new THREE.Vector3(buttressX[1],archSpringY,archFront),
+  );
+  // Restrained limestone ribs should not read as blue emissive neon.
+  // A shallow, raised keystone makes the crown unmistakably masonry.
+  const ribStone=new THREE.MeshStandardMaterial({
+    color:0x637381,roughness:.96,map:stoneGrain,
+  });
+  for(const half of [leftHalf,rightHalf])
+    mesh(new THREE.TubeGeometry(half,24,.072,8,false),ribStone);
+  const keystoneShape=new THREE.Shape();
+  keystoneShape.moveTo(-.13,-.10);
+  keystoneShape.lineTo(.13,-.10);
+  keystoneShape.lineTo(.20,.13);
+  keystoneShape.lineTo(-.20,.13);
+  keystoneShape.closePath();
+  mesh(new THREE.ExtrudeGeometry(keystoneShape,{
+    depth:.15,steps:1,bevelEnabled:true,
+    bevelSize:.018,bevelThickness:.014,bevelSegments:1,
+  }),stone,4.175,4.99,-4.85);
+  container.dataset.rearButtress='right-ashlar-arch';
   // An oak cabinetmaker's chess table: eased edges replace the old square
   // slabs; a narrow carved apron hangs under the lip facing the viewer.
   // Both bevels are local geometry, not extra materials or texture requests.

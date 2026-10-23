@@ -460,6 +460,10 @@ test('a tiny press crossing the glass edge does not activate a different target'
 
 for (const width of [390, 1440]) {
   test(`render evidence ${width}px: opt-in CPU submission and WebGL resource counts`, async ({page}, testInfo) => {
+    // Hosted software WebGL can take ~750ms per full desktop frame: collecting
+    // the required real samples plus scene startup exceeded Playwright's 30s
+    // default on PR #255 twice. Keep every sample/assertion; adjust time only.
+    if(width===1440)test.setTimeout(90_000);
     await page.setViewportSize({width,height:width < 500 ? 844 : 900});
     await page.emulateMedia({reducedMotion:'no-preference'});
     await page.goto('/?portal_perf=1');
