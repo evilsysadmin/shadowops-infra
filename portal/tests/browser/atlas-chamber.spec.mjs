@@ -17,6 +17,11 @@ for(const width of [390,1440]){
     await expect(page.locator('#atlas-enter a')).toHaveCount(0);
     await expect(page.getByText('Concepto en desarrollo — entrada desactivada')).toBeVisible();
     await expect(page.locator('#atlas-viewport')).toHaveAttribute('data-scene','ready',{timeout:15000});
+    if(process.env.REQUIRE_BLENDER_ART==='1'){
+      await expect(page.locator('#atlas-viewport')).toHaveAttribute('data-atlas-knight','loaded',{timeout:15000});
+    }else{
+      await expect(page.locator('#atlas-viewport')).toHaveAttribute('data-atlas-knight',/^(fallback|loaded)$/,{timeout:15000});
+    }
     await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth)).toBeLessThanOrEqual(1);
     const stats=await page.locator('#atlas-viewport').evaluate(e=>({
       calls:Number(e.dataset.drawCalls),
@@ -51,4 +56,14 @@ test('Atlas Chamber concept remains accessible and never invents links without W
   await page.getByRole('button',{name:/Chess Studio/}).focus();
   await page.keyboard.press('Enter');
   await expect(page.getByRole('button',{name:/Chess Studio/})).toHaveAttribute('aria-current','true');
+});
+
+test('Atlas Chamber preserves original chess knight on optional GLB failure',async({page})=>{
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await page.route('**/experiments/atlas-chamber/compiled/atlas-knight-*.glb',route=>route.abort());
+  await page.goto('/experiments/atlas-chamber/index.html');
+  await expect(page.locator('#atlas-viewport')).toHaveAttribute('data-scene','ready',{timeout:15000});
+  await expect(page.locator('#atlas-viewport')).toHaveAttribute('data-atlas-knight','fallback',{timeout:15000});
+  await expect(page.locator('#atlas-viewport canvas')).toBeVisible();
+  await expect(page.locator('#atlas-enter a')).toHaveCount(0);
 });
