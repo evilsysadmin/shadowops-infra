@@ -105,7 +105,7 @@ def inventory(client, live_sha: str) -> dict:
     _, owners = pages.inspect(client)
     if owners != {"project": "owned", "domain": "owned", "dns": "owned"}:
         raise pages.AdmissionError("Pages staging identity is not completely owned")
-    path = f"/accounts/{client.account}/pages/projects/{pages.PROJECT}/deployments?env=production&per_page=50&page=1"
+    path = f"/accounts/{client.account}/pages/projects/{pages.PROJECT}/deployments"
     code, rows = client.request("GET", path)
     if code != 200:
         raise pages.AdmissionError("Pages deployment inventory unreadable")
