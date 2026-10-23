@@ -46,9 +46,11 @@ on:
         default: false
 permissions:
   contents: read
+# Only real publish/reconcile events contend for the staging/production lock.
+# PR contracts never mutate Pages and must not block, or be blocked by, a deploy.
 concurrency:
-  group: shadowops-cloudflare-chronicles-pages-${{ inputs.environment || 'staging' }}
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'pull_request' && format('shadowops-chronicles-pages-pr-{0}', github.event.pull_request.number) || format('shadowops-cloudflare-chronicles-pages-{0}', inputs.environment || 'staging') }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   contracts:
     name: Static Pages ownership and DNS boundary
