@@ -60,3 +60,15 @@ On 2026-10-22, the GitHub API reported `evilsysadmin/star-adventures/main` with 
 ### Operational state
 
 A workflow definition or successful admission job alone does not prove a live release. A trusted-main **publish job** must emit `STARADVS_STAGING_PUBLIC_READY` and upload a matching `staradvs-staging-verified-<SHA>` receipt. This was achieved in the verified run referenced above. Later release failures caused by token scope, Cloudflare, public DNS or certificate provisioning must be fixed **without bypassing hostname ownership/TLS checks**. A previous receipt never proves that the *latest* source `main` has deployed.
+
+## Real public-browser admission (not production approval)
+
+The read-only `.github/workflows/staradvs-public-browser.yml` is owned by Infra. On a relevant Infra `main` change, a successful trusted-main `Star Adventures staging Pages` workflow, manual dispatch or the daily check, it:
+
+1. Reads the **actual HTTPS staging** `/release.json` from the fixed hostname. Rejects redirects, wrong environment and missing `entry_js.sha256`.
+2. Checks out Star Adventures at **that exact published SHA**, installs its pinned Playwright dependency with `npm ci --ignore-scripts` and uses the runner Chrome. No local game server or deployment credentials.
+3. Exercises the real public `/bridge` deep link at **390px and 1280px**, including first-person navigation, science choice, two F5 reloads, persistent ending and horizontal overflow assertions.
+4. Compares the public JS SHA-256 against its release manifest before testing, then confirms the public build/asset identity has not changed during the journey. Keeps short-lived screenshots.
+5. Prints `STARADVS_PUBLIC_JOURNEY_READY sha=<SHA>` **only after** all actual browser assertions pass. PR events run offline contract tests, never real browsing or mutations.
+
+**Scope:** This verifies the *published revision*, not necessarily the latest source `main`. Compare those SHAs when claiming freshness. No production, rollback, account security, full graphical fidelity or cross-device server-side persistence is implied. Browser captures are evidence to inspect, not automatic visual sign-off.
