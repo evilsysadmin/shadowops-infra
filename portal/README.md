@@ -132,3 +132,7 @@ When a desktop mouse/pen points at a glass gateway, the observatory's **existing
 ## Pointer-picking cost
 
 Raycast hit testing is now performed on pointer move only for hover-capable mouse/pen motion without pressed buttons. Touch movement, panning and active camera drags skip redundant picking entirely; pointer release still performs the exact glass-pane hit test needed for deliberate selection. This preserves the tested touch tap, desktop click, contextual hover hint, drag suppression and no-WebGL fallback without introducing a per-frame picker or GPU work.
+
+## Consistent 3D gateway activation
+
+A pointer gesture can select a world only if its **primary pointerdown and pointerup hit the same glass pane** and displacement remains under the existing 7px click threshold. A short edge swipe from stone onto glass (or between panes) must not activate a destination; normal click/tap still works. This uses one pick per pointer press and one per candidate release, while retaining the preceding optimization that skips picking on touch movement and drags. The real-canvas browser regression finds an actual gateway boundary and verifies both rejection and a valid click.
