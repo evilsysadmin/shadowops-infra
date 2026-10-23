@@ -11,6 +11,7 @@ import urllib.request
 from uuid import UUID
 
 import staradvs_pages as pages
+from staradvs_rollback_evidence import GitHubEvidence, corroborate
 
 
 def valid_deployment(row: object) -> dict | None:
@@ -117,6 +118,7 @@ def main() -> int:
         live_sha = public_sha()
         client = pages.CloudflareClient(os.environ)
         report = inventory(client, live_sha)
+        report = corroborate(report, GitHubEvidence(os.environ.get("GH_TOKEN", "")))
         print("STARADVS_STAGING_ROLLBACK_READONLY_PLAN " + json.dumps(report, sort_keys=True))
         return 0
     except pages.AdmissionError as exc:

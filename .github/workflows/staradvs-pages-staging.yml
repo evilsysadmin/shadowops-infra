@@ -4,7 +4,7 @@ on:
     paths: ['.github/workflows/staradvs-pages-staging.yml', 'scripts/staradvs_source_admission.py', 'scripts/staradvs_pages.py', 'tests/test_staradvs_pages.py']
   push:
     branches: [main]
-    paths: ['.github/workflows/staradvs-pages-staging.yml', 'scripts/staradvs_source_admission.py', 'scripts/staradvs_pages.py', 'tests/test_staradvs_pages.py']
+    paths: ['.github/workflows/staradvs-pages-staging.yml', '.github/workflows/staradvs-rollback-inventory.yml', 'scripts/staradvs_source_admission.py', 'scripts/staradvs_pages.py', 'scripts/staradvs_rollback_evidence.py', 'tests/test_staradvs_pages.py']
   schedule:
     - cron: '7,37 * * * *'
   workflow_dispatch:
