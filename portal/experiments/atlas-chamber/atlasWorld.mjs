@@ -511,7 +511,7 @@ export function mountAtlasChamber(container) {
   const paperEdges=new THREE.InstancedMesh(
     new THREE.BoxGeometry(.84,.062,.57),ivory,3);
   const bindingBands=new THREE.InstancedMesh(
-    new THREE.BoxGeometry(.021,.012,.54),brass,6);
+    new THREE.BoxGeometry(.027,.075,.037),brass,6);
   const folioTransform=new THREE.Object3D();
   let spineBandCount=0;
   for(let i=0;i<3;i++){
@@ -520,11 +520,11 @@ export function mountAtlasChamber(container) {
     const volume=mesh(bookCaseGeometry,leatherCovers[i],-2.50,centerY,centerZ);
     volume.rotation.y=(i-1)*.045;
     // Exposed paper sits within the raised leather cover, not outside it.
-    folioTransform.position.set(-2.48,centerY,centerZ+.018);
+    folioTransform.position.set(-2.426,centerY,centerZ+.018);
     folioTransform.rotation.set(0,0,0);
     folioTransform.updateMatrix();
     paperEdges.setMatrixAt(i,folioTransform.matrix);
-    for(const z of [centerZ-.19,centerZ+.19]){
+    for(const z of [centerZ-.215,centerZ+.215]){
       folioTransform.position.set(-2.979,centerY,z);
       folioTransform.rotation.set(0,0,0);
       folioTransform.updateMatrix();
