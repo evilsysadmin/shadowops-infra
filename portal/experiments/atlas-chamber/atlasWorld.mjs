@@ -107,19 +107,45 @@ export function mountAtlasChamber(container) {
     box(.075,6,.08,tarnished,x+.15,3,-4.55);
     box(.65,.22,.58,stone,x,5.72,-4.81);
   }
-  // One draw call for all twenty joints, split around the reveal.
-  // These must never slice across the sky or consume one call per course.
-  const coursing=new THREE.InstancedMesh(
-    new THREE.BoxGeometry(5.5,.018,.018),tarnished,20);
-  const jointTransform=new THREE.Object3D();
-  let course=0;
-  for(let i=0;i<10;i++)for(const side of [-1,1]){
-    jointTransform.position.set(side*4.55,.55+i*.55,-5.045);
-    jointTransform.updateMatrix();
-    coursing.setMatrixAt(course++,jointTransform.matrix);
+  // Hand-laid, lightly chiselled ashlar replaces the ten ink-dark stripes.
+  // One InstancedMesh draws all the shallow stone faces; irregular alternating
+  // courses catch the existing moon/lamplight without adding lights or textures.
+  // Keep the real lancet opening free of any opaque stone, even at mobile angles.
+  const ashlarShape=new THREE.Shape();
+  ashlarShape.moveTo(-.695,-.266);
+  ashlarShape.lineTo(.695,-.266);
+  ashlarShape.lineTo(.695,.266);
+  ashlarShape.lineTo(-.695,.266);
+  ashlarShape.closePath();
+  const ashlar=new THREE.InstancedMesh(
+    new THREE.ExtrudeGeometry(ashlarShape,{
+      depth:.026,steps:1,bevelEnabled:true,bevelSize:.022,
+      bevelThickness:.010,bevelSegments:1,
+    }),stone,90);
+  const blockTransform=new THREE.Object3D();
+  const blockTint=new THREE.Color();
+  let blockCount=0;
+  for(let r=0;r<9;r++)for(let c=0;c<10;c++){
+    const x=(c-4.5)*1.45+(r%2?.26:-.26);
+    const y=.55+r*.61;
+    // The sill occupies y~1.1; above it, leave clear masonry around the
+    // full-height lancet rather than painting blocks across moonlit sky.
+    if(y>.88 && y<5.76 && Math.abs(x)<2.12)continue;
+    blockTransform.position.set(x,y+(((r*5+c*3)%3)-1)*.007,-5.068);
+    blockTransform.scale.set(.96+((r*3+c*7)%5)*.009,1,1);
+    blockTransform.rotation.z=(((r*11+c*3)%5)-2)*.0016;
+    blockTransform.updateMatrix();
+    ashlar.setMatrixAt(blockCount,blockTransform.matrix);
+    const patina=.80+((r*11+c*7)%9)*.015;
+    blockTint.setRGB(patina,patina*.99,patina*.97);
+    ashlar.setColorAt(blockCount,blockTint);
+    blockCount++;
   }
-  coursing.instanceMatrix.needsUpdate=true;
-  root.add(coursing);
+  ashlar.count=blockCount;
+  ashlar.instanceMatrix.needsUpdate=true;
+  ashlar.instanceColor.needsUpdate=true;
+  root.add(ashlar);
+  container.dataset.masonryBlocks=String(blockCount);
   // One moonlit lancet window, split by sculpted iron mullions.
   const windowShape=new THREE.Shape();
   windowShape.moveTo(-1.18,0);windowShape.lineTo(1.18,0);

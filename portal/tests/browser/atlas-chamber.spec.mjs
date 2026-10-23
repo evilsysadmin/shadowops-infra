@@ -27,11 +27,14 @@ for(const width of [360,390,430,1440]){
     const stats=await page.locator('#atlas-viewport').evaluate(e=>({
       calls:Number(e.dataset.drawCalls),
       triangles:Number(e.dataset.triangles),
+      masonryBlocks:Number(e.dataset.masonryBlocks),
       motion:e.dataset.motion,
     }));
     expect(stats.calls,'composed 3D scenery needs actual draw calls').toBeGreaterThan(15);
     expect(stats.calls,'limit GPU workload in this study').toBeLessThan(150);
     expect(stats.triangles,'bounded hand-authored geometry').toBeLessThan(160000);
+    expect(stats.masonryBlocks,'the wall needs real stone faces, not drawn stripes').toBeGreaterThan(50);
+    expect(stats.masonryBlocks,'the wall must remain sparse and GPU-batched').toBeLessThan(90);
     expect(stats.motion).toBe('reduced');
     const canvas=PNG.sync.read(await page.locator('#atlas-viewport canvas').screenshot());
     let nonDark=0;
