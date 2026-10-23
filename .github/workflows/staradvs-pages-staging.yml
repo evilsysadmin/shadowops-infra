@@ -118,8 +118,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" == "$GITHUB_SHA" ]] || exit 1
-          [[ "$(gh api repos/evilsysadmin/star-adventures/commits/main --jq .sha)" == "$SOURCE_SHA" ]] || exit 1
+          infra_head="$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)"
+          game_head="$(gh api repos/evilsysadmin/star-adventures/commits/main --jq .sha)"
+          if [[ "$infra_head" != "$GITHUB_SHA" || "$game_head" != "$SOURCE_SHA" ]]; then
+            echo "::warning title=Staging superseded::A newer Infra or Star Adventures main arrived while building; the old release was NOT published."
+            echo "STARADVS_STAGING_SUPERSEDED expected_source=$SOURCE_SHA latest_source=$game_head expected_infra=$GITHUB_SHA latest_infra=$infra_head"
+            {
+              echo "### Star Adventures staging: superseded before publication"
+              echo "Pinned game SHA: \`$SOURCE_SHA\`"
+              echo "Latest game SHA: \`$game_head\`"
+              echo "No Cloudflare deployment was attempted. Next trusted reconciliation checks the new source main."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
           python3 scripts/staradvs_source_admission.py "$SOURCE_SHA"
       - name: Fail closed on missing secrets or foreign Cloudflare DNS
         shell: bash
