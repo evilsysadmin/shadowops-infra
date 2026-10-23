@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {makeAtlasSurfaceTexture} from './atlasSurface.mjs';
+import {ATLAS_KNIGHT_ASSET} from '../../src/atlasKnightAsset.generated.mjs';
 
 // Atlas Chamber vertical slice. One tactile chess diorama in a believable room;
 // no portal panes, no borrowed game assets and no extra runtime downloads.
@@ -138,7 +139,8 @@ export function mountAtlasChamber(container) {
     box(3.52,.025,.025,brass,0,1.18,.42+v);
   }
 
-  // Miniature hand-turned chessmen. A single hero knight anchors the story.
+  // Miniature hand-turned chessmen. One authored hero knight anchors the story.
+  container.dataset.atlasKnight=ATLAS_KNIGHT_ASSET?'loading':'fallback';
   function pawn(x,z,mat,h=.29) {
     const g=new THREE.Group();g.position.set(x,1.183,z);root.add(g);
     mesh(new THREE.CylinderGeometry(.105,.13,.055,16),mat,0,.028,0,g);
@@ -173,9 +175,36 @@ export function mountAtlasChamber(container) {
   const knight=new THREE.Group();
   knight.position.set(-.60,1.18,1.24);
   root.add(knight);
-  mesh(new THREE.CylinderGeometry(.25,.31,.08,24),ivory,0,.04,0,knight);
-  mesh(new THREE.ExtrudeGeometry(knightShape,{depth:.21,curveSegments:20,bevelEnabled:true,bevelSize:.026,bevelThickness:.036,bevelSegments:4}),ivory,0,.10,-.09,knight);
-  mesh(new THREE.SphereGeometry(.017,12,8),obsidian,.145,.61,.14,knight);
+  // Retain the verified original as an immediate placeholder / full fallback.
+  const knightFallback=new THREE.Group();
+  knight.add(knightFallback);
+  mesh(new THREE.CylinderGeometry(.25,.31,.08,24),ivory,0,.04,0,knightFallback);
+  mesh(new THREE.ExtrudeGeometry(knightShape,{depth:.21,curveSegments:20,bevelEnabled:true,bevelSize:.026,bevelThickness:.036,bevelSegments:4}),ivory,0,.10,-.09,knightFallback);
+  mesh(new THREE.SphereGeometry(.017,12,8),obsidian,.145,.61,.14,knightFallback);
+  // Sculpted in Blender, loaded after the first usable frame. In reduced
+  // motion, a successful load explicitly repaints before screenshot capture.
+  if(ATLAS_KNIGHT_ASSET){
+    import('three/addons/loaders/GLTFLoader.js').then(async({GLTFLoader})=>{
+      const loaded=await new GLTFLoader().loadAsync(ATLAS_KNIGHT_ASSET);
+      if(disposed){
+        loaded.scene.traverse(obj=>{
+          obj.geometry?.dispose();
+          if(Array.isArray(obj.material))obj.material.forEach(m=>m.dispose());
+          else obj.material?.dispose();
+        });
+        return;
+      }
+      knight.add(loaded.scene);
+      knightFallback.visible=false;
+      container.dataset.atlasKnight='loaded';
+      paint();
+    }).catch(error=>{
+      if(disposed)return;
+      console.warn('Atlas knight sculpture unavailable; preserve carved fallback.',error);
+      container.dataset.atlasKnight='fallback';
+      paint();
+    });
+  }
   crown(.64,-.99,obsidian);
   pawn(-1.2,1.24,ivory);pawn(-.17,1.24,ivory);
   pawn(.65,-.58,obsidian);pawn(1.06,-.99,obsidian);

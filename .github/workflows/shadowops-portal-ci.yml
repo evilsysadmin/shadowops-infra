@@ -50,11 +50,17 @@ jobs:
       - name: Install isolated portal dependencies
         run: npm install --ignore-scripts --no-audit --no-fund
       - name: Source syntax
-        run: npm run check
+        run: npm run check && python3 -m py_compile art/blender/atlas_knight.py
       - name: Catalog and ownership contracts
         run: npm test
+      - name: Snapshot authored GLB identity
+        run: cp src/atlasKnightAsset.generated.mjs .atlas-knight-first-build.mjs
       - name: Production static build
         run: npm run build
+      - name: Reject nondeterministic GLB triangulation
+        run: |
+          cmp .atlas-knight-first-build.mjs src/atlasKnightAsset.generated.mjs
+          test "$(find experiments/atlas-chamber/compiled -maxdepth 1 -name 'atlas-knight-*.glb' | wc -l)" -eq 1
       - name: Check actual Pages artifact
         run: test -s dist/index.html && test -n "$(find dist/assets -type f -name '*.js' -print -quit)"
       - name: Export compiled GLB art to browser QA
@@ -63,6 +69,7 @@ jobs:
           name: portal-compiled-art
           path: |
             portal/public/art/
+            portal/experiments/atlas-chamber/compiled/
             portal/src/*.generated.mjs
           if-no-files-found: error
           retention-days: 1
@@ -85,7 +92,7 @@ jobs:
           name: portal-compiled-art
           path: portal
       - name: Verify reused model manifests
-        run: test -s src/vaultAsset.generated.mjs && test -s src/galleryFrame.generated.mjs && test -n "$(find public/art -type f -name 'celestial-vault-*.glb' -print -quit)"
+        run: test -s src/vaultAsset.generated.mjs && test -s src/galleryFrame.generated.mjs && test -s src/atlasKnightAsset.generated.mjs && test -n "$(find experiments/atlas-chamber/compiled -type f -name 'atlas-knight-*.glb' -print -quit)" && test -n "$(find public/art -type f -name 'celestial-vault-*.glb' -print -quit)"
       - name: Install isolated portal dependencies
         run: npm install --ignore-scripts --no-audit --no-fund
       - name: Install Chromium for deterministic browser smoke

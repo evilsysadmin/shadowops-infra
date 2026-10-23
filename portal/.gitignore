@@ -14,3 +14,7 @@ src/vaultAsset.generated.mjs
 
 # Local screenshots, renderer identity and timing evidence: never commit
 .gpu-profile/
+
+# Local-only Atlas Chamber generated art; never ship via root Pages.
+experiments/atlas-chamber/compiled/
+src/atlasKnightAsset.generated.mjs
