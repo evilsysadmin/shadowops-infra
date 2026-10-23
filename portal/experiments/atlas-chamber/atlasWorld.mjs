@@ -325,7 +325,9 @@ export function mountAtlasChamber(container) {
   // joined into one geometry/one draw call. They sit on the existing piers
   // and never extend into the moonlit lancet's aperture.
   const ribStone=new THREE.MeshStandardMaterial({
-    color:0x637381,roughness:.96,map:stoneGrain,
+    // Broad front-facing stone facets received almost no direct moonlight;
+    // pale limestone recovers legibility through the EXISTING ambient rig.
+    color:0xb7c2c8,roughness:.96,map:stoneGrain,
   });
   const voussoirs=makeAtlasVoussoirGeometry([leftHalf,rightHalf]);
   mesh(voussoirs,ribStone);
