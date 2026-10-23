@@ -69,6 +69,15 @@ class ReadOnlyRecoveryPreflightTests(unittest.TestCase):
         snapshot = iter(changes)
         with (
             patch.object(preflight, "public_sha", side_effect=lambda: next(snapshot)),
+            patch.object(preflight, "canonical_forward", return_value={
+                "forward_deployment_id": "4092240d-fdbb-4c7d-8f33-11a103f9c999",
+                "forward_sha": LIVE,
+                "forward_immutable_url": "https://facebeef.staradvs-staging.pages.dev",
+            }) as forward,
+            patch.object(preflight, "forward_release_receipt", return_value={
+                "forward_publish_run_id": 11,
+                "forward_receipt_id": 19,
+            }) as forward_receipt,
             patch.object(preflight, "inventory", return_value=inventory_result()) as inv,
             patch.object(preflight, "corroborate", return_value=attested_result()) as evidence,
             patch.object(preflight, "verify_immutable_target", return_value="https://facecafe.staradvs-staging.pages.dev") as immutable,
@@ -78,6 +87,8 @@ class ReadOnlyRecoveryPreflightTests(unittest.TestCase):
             )
         self.assertEqual(inv.call_count, 1)
         self.assertEqual(evidence.call_count, 1)
+        self.assertEqual(forward.call_count, 1)
+        self.assertEqual(forward_receipt.call_count, 1)
         self.assertEqual(immutable.call_count, 1)
         self.assertEqual(len(client.calls), 1)
         self.assertEqual(client.calls[0][0], "GET")
@@ -91,6 +102,9 @@ class ReadOnlyRecoveryPreflightTests(unittest.TestCase):
         self.assertEqual(result["target_receipt_id"], 77)
         self.assertEqual(result["target_immutable_url"], "https://facecafe.staradvs-staging.pages.dev")
         self.assertEqual(result["forward_sha"], LIVE)
+        self.assertEqual(result["forward_deployment_id"], "4092240d-fdbb-4c7d-8f33-11a103f9c999")
+        self.assertEqual(result["forward_publish_run_id"], 11)
+        self.assertEqual(result["forward_receipt_id"], 19)
         self.assertEqual(result["hold"], "inactive")
         self.assertEqual(result["rehearsal"], "preview_only")
         self.assertIs(result["can_mutate"], False)
