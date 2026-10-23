@@ -84,7 +84,7 @@ export function mountAtlasChamber(container) {
   rod(.038,3.0,tarnished,0,2.6,-4.79);
   box(2.35,.07,.09,tarnished,0,3.15,-4.77);
   const moonDisc=mesh(new THREE.SphereGeometry(.72,28,16),
-    new THREE.MeshBasicMaterial({color:0x91acc5}),.05,4.35,-5.11);
+    new THREE.MeshBasicMaterial({color:0x91acc5}),.05,4.35,-5.01);
   moonDisc.scale.z=.035;
   // Side shelves, books and handwritten-map-like stacked folios.
   for(const y of [1.42,2.55,3.68]) {
