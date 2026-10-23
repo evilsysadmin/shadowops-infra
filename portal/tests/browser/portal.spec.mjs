@@ -401,3 +401,59 @@ test.describe('touch-only pointer activation',()=>{
     await expect(stage).toHaveAttribute('data-hover-world','none');
   });
 });
+
+test('a tiny press crossing the glass edge does not activate a different target',async({page})=>{
+  await page.setViewportSize({width:1440,height:900});
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await page.goto('/');
+  const stage=page.locator('.stage');
+  await stage.scrollIntoViewIfNeeded();
+  await expect(stage).toHaveAttribute('data-scene','active',{timeout:15000});
+  // Keep the camera steady at the Chronicles focus while probing its edge.
+  await page.getByRole('button',{name:/Chronicles/}).focus();
+  await expect(page.locator('.detail-title')).toHaveText('Chess Studio');
+  const pane=await findGatewayPoint(page,'chronicles');
+  const rect=await stage.locator('canvas').boundingBox();
+  expect(rect).toBeTruthy();
+
+  let edge=null;
+  for(const dir of [1,-1]){
+    const limit=Math.min(240,Math.floor(dir>0 ? rect.x+rect.width-pane.x-3 : pane.x-rect.x-3));
+    let upper=null;
+    for(let distance=12;distance<=limit;distance+=12){
+      await page.mouse.move(pane.x+dir*distance,pane.y);
+      if(await stage.getAttribute('data-hover-world')!=='chronicles'){
+        upper=distance;
+        break;
+      }
+    }
+    if(upper===null)continue;
+    let lower=upper-12;
+    while(upper-lower>1){
+      const midpoint=Math.floor((lower+upper)/2);
+      await page.mouse.move(pane.x+dir*midpoint,pane.y);
+      if(await stage.getAttribute('data-hover-world')==='chronicles')lower=midpoint;
+      else upper=midpoint;
+    }
+    const inside={x:pane.x+dir*lower,y:pane.y};
+    const outside={x:pane.x+dir*upper,y:pane.y};
+    await page.mouse.move(inside.x,inside.y);
+    if(await stage.getAttribute('data-hover-world')!=='chronicles')continue;
+    await page.mouse.move(outside.x,outside.y);
+    if(await stage.getAttribute('data-hover-world')==='chronicles')continue;
+    edge={inside,outside};
+    break;
+  }
+  expect(edge,'find a stable 1-pixel boundary on the actual gateway').not.toBeNull();
+  await page.mouse.move(edge.outside.x,edge.outside.y);
+  await page.mouse.down();
+  await page.mouse.move(edge.inside.x,edge.inside.y);
+  await page.mouse.up();
+  await expect(page.locator('.detail-title')).toHaveText('Chess Studio');
+  await expect(page.locator('.world-button[data-world="chess"]')).toHaveAttribute('aria-pressed','true');
+
+  // A genuine click which starts and ends on the glass still selects.
+  await page.mouse.click(pane.x,pane.y);
+  await expect(page.locator('.detail-title')).toHaveText('Chronicles');
+  await expect(page.locator('.world-button[data-world="chronicles"]')).toHaveAttribute('aria-pressed','true');
+});
