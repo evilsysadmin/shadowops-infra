@@ -498,13 +498,72 @@ export function mountAtlasChamber(container) {
   mesh(new THREE.ConeGeometry(.50,.57,32,1,true),brushedShade,2.52,2.20,1.65);
   mesh(new THREE.SphereGeometry(.19,20,12),
     new THREE.MeshBasicMaterial({color:0xffbe76}),lampBulb.x,lampBulb.y,lampBulb.z);
-  // Two archival volumes and an inkwell: handmade still-life around the atlas.
-  for(let i=0;i<3;i++) {
-    box(.90,.105,.60,i%2?obsidian:woodRim,-2.50,1.08+i*.115,.05+i*.02);
-    box(.91,.019,.61,brass,-2.50,1.14+i*.115,.05+i*.02);
+  // The cartographer's desk: three real bound folios, a squat turned
+  // inkwell and a curved quill. Small props stay beside the chessboard.
+  // Shared paper edges and gilt spine bands are GPU-instanced, never dozens
+  // of individually drawn decorative strips.
+  const leatherCovers=[
+    new THREE.MeshStandardMaterial({color:0x654339,roughness:.88}),
+    new THREE.MeshStandardMaterial({color:0x435468,roughness:.86}),
+    new THREE.MeshStandardMaterial({color:0x847053,roughness:.89}),
+  ];
+  const bookCaseGeometry=new RoundedBoxGeometry(.94,.112,.64,2,.019);
+  const paperEdges=new THREE.InstancedMesh(
+    new THREE.BoxGeometry(.84,.062,.57),ivory,3);
+  const bindingBands=new THREE.InstancedMesh(
+    new THREE.BoxGeometry(.021,.012,.54),brass,6);
+  const folioTransform=new THREE.Object3D();
+  let spineBandCount=0;
+  for(let i=0;i<3;i++){
+    const centerY=1.085+i*.116;
+    const centerZ=.05+i*.025;
+    const volume=mesh(bookCaseGeometry,leatherCovers[i],-2.50,centerY,centerZ);
+    volume.rotation.y=(i-1)*.045;
+    // Exposed paper sits within the raised leather cover, not outside it.
+    folioTransform.position.set(-2.48,centerY,centerZ+.018);
+    folioTransform.rotation.set(0,0,0);
+    folioTransform.updateMatrix();
+    paperEdges.setMatrixAt(i,folioTransform.matrix);
+    for(const z of [centerZ-.19,centerZ+.19]){
+      folioTransform.position.set(-2.979,centerY,z);
+      folioTransform.rotation.set(0,0,0);
+      folioTransform.updateMatrix();
+      bindingBands.setMatrixAt(spineBandCount++,folioTransform.matrix);
+    }
   }
-  rod(.15,.12,obsidian,-2.65,1.08,1.63);
-  mesh(new THREE.ConeGeometry(.032,.4,9),brass,-2.65,1.38,1.63).rotation.z=-.35;
+  paperEdges.instanceMatrix.needsUpdate=true;
+  bindingBands.instanceMatrix.needsUpdate=true;
+  root.add(paperEdges,bindingBands);
+  const inkX=-2.65,inkZ=1.63;
+  const inkProfile=[
+    [0,0],[.135,0],[.175,.019],[.179,.045],[.166,.061],
+    [.146,.071],[.127,.11],[.123,.17],[.135,.211],
+    [.147,.239],[.142,.255],[.106,.260],[0,.260],
+  ].map(([radius,height])=>new THREE.Vector2(radius,height));
+  mesh(new THREE.LatheGeometry(inkProfile,22),obsidian,inkX,1.007,inkZ);
+  torus(.137,.014,tarnished,inkX,1.252,inkZ,Math.PI/2);
+  const ink=mesh(new THREE.CircleGeometry(.104,20),
+    new THREE.MeshStandardMaterial({color:0x111b23,roughness:.26,metalness:.08}),
+    inkX,1.266,inkZ);
+  ink.rotation.x=-Math.PI/2;
+  // Slim natural quill curves away from the ink, with a paired feather vane.
+  const quillPath=new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-2.65,1.22,1.63),
+    new THREE.Vector3(-2.61,1.51,1.63),
+    new THREE.Vector3(-2.49,1.82,1.63),
+    new THREE.Vector3(-2.40,2.05,1.63),
+  ]);
+  mesh(new THREE.TubeGeometry(quillPath,24,.011,6,false),oldVellum);
+  const vane=new THREE.Shape();
+  vane.moveTo(0,0);
+  vane.bezierCurveTo(-.14,.13,-.13,.41,-.015,.54);
+  vane.bezierCurveTo(.14,.42,.11,.20,0,0);
+  const feather=mesh(new THREE.ShapeGeometry(vane,12),
+    new THREE.MeshStandardMaterial({
+      color:0xc5b59c,roughness:.96,side:THREE.DoubleSide,
+    }),-2.49,1.55,1.64);
+  feather.rotation.z=-.27;
+  container.dataset.deskStillLife='folios-3-inkwell-quill';
 
   // Cinematic, stationary art direction at rest. Moving parts are deliberately
   // sparse and stop under prefers-reduced-motion or hidden-tab conditions.
