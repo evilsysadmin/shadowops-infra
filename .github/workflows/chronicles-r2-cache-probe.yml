@@ -1,0 +1,41 @@
+name: Chronicles R2 · public asset cache read-only probe
+on:
+  pull_request:
+    paths:
+      - .github/workflows/chronicles-r2-cache-probe.yml
+      - scripts/chronicles_r2_cache_probe.py
+      - tests/test_chronicles_r2_cache_probe.py
+      - scripts/cloudflare_control_plane.py
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/chronicles-r2-cache-probe.yml
+      - scripts/chronicles_r2_cache_probe.py
+      - tests/test_chronicles_r2_cache_probe.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test R2 public browser-cache and CORS observation (offline)
+        run: python3 -m unittest discover -s tests -p 'test_chronicles_r2_cache_probe.py' -v
+  live:
+    needs: contract
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Discover real Chronicles custom domain and inspect public asset
+        run: python3 scripts/chronicles_r2_cache_probe.py
