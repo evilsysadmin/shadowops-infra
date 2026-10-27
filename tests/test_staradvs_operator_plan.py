@@ -86,6 +86,12 @@ class OperatorReadOnlyContractTests(unittest.TestCase):
             {"target_deployment_id": "2dcda9c2-67b7-4f2c-be14-c7693f82fcbb"},
             {"forward_immutable_url": "https://main.staradvs-staging.pages.dev"},
             {"target_immutable_url": "https://79bc9d01.another-project.pages.dev"},
+            # Correct Pages project, but the origin belongs to a different
+            # deployment (or swaps the verified forward/rollback identities).
+            {"forward_immutable_url": "https://79bc9d01.staradvs-staging.pages.dev"},
+            {"target_immutable_url": "https://2dcda9c2.staradvs-staging.pages.dev"},
+            {"forward_immutable_url": "https://abcdef12.staradvs-staging.pages.dev"},
+            {"target_immutable_url": "https://abcdef12.staradvs-staging.pages.dev"},
             {"forward_publish_run_id": 0},
             {"forward_receipt_id": True},
             {"target_release_run_id": 0},
