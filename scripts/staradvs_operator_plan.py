@@ -61,8 +61,18 @@ def validate_operator_plan(
             raise pages.AdmissionError("Operator recovery Pages deployment ID invalid")
     if data["forward_deployment_id"] == data["target_deployment_id"]:
         raise pages.AdmissionError("Forward and historical deployment IDs must differ")
-    for field in ("forward_immutable_url", "target_immutable_url"):
-        immutable_origin(data.get(field))
+    # Cloudflare's immutable Pages host begins with the deployment UUID's
+    # eight-hex prefix. A valid staging-project URL is not sufficient: the
+    # operator must not accept a URL belonging to another Pages deployment.
+    for deployment_field, origin_field in (
+        ("forward_deployment_id", "forward_immutable_url"),
+        ("target_deployment_id", "target_immutable_url"),
+    ):
+        origin = immutable_origin(data.get(origin_field))
+        origin_prefix = origin.removeprefix("https://").split(".", 1)[0][:8]
+        deployment_prefix = data[deployment_field].split("-", 1)[0]
+        if origin_prefix != deployment_prefix:
+            raise pages.AdmissionError("Immutable Pages origin mismatches deployment UUID")
     for field in ("forward_publish_run_id", "forward_receipt_id",
                   "target_release_run_id", "target_receipt_id"):
         if type(data.get(field)) is not int or data[field] <= 0:
