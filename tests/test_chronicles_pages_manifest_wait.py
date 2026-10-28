@@ -55,6 +55,17 @@ class ManifestConvergenceTest(unittest.TestCase):
                 sleep=lambda _: None, attempts=2, delay_seconds=0))
             self.assertFalse(path.exists())
 
+    def test_staging_workflow_waits_before_browser_and_receipt(self):
+        workflow = (Path(__file__).resolve().parents[1] /
+                    ".github/workflows/chronicles-pages-release.yml").read_text()
+        staging = workflow.split("\n  production:\n", 1)[0]
+        proof = staging.index("python3 scripts/chronicles_pages_manifest_wait.py")
+        browser = staging.index("Real public browser smoke")
+        receipt = staging.index("Record the verified Chronicles Pages source generation")
+        self.assertLess(proof, browser)
+        self.assertLess(browser, receipt)
+        self.assertIn("EXPECTED_SHA: ${{ steps.source.outputs.sha }}", staging)
+
     def test_invalid_inputs_never_request_public_host(self):
         for sha, run_id, attempts in (
             ("not-a-sha", "42", 2), (SHA, "0", 2),
