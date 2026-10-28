@@ -17,6 +17,8 @@ on:
       - 'tests/test_chronicles_public_browser_workflow.py'
       - 'scripts/chronicles_api_before_pages.py'
       - 'scripts/chronicles_pages_verified_receipt.py'
+      - 'scripts/chronicles_pages_manifest_wait.py'
+      - 'tests/test_chronicles_pages_manifest_wait.py'
       - 'tests/test_chronicles_pages_verified_receipt.py'
       - 'tests/test_chronicles_api_before_pages.py'
       - 'docs/chronicles-pages-handoff.md'
@@ -67,6 +69,7 @@ jobs:
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_public_browser_workflow.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_before_pages.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_verified_receipt.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_manifest_wait.py' -v
       - run: python3 scripts/chronicles_pages.py self-test
 
   staging-candidate:
@@ -355,23 +358,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --location --retry 3 --retry-delay 2 --max-time 20 \
-            --user-agent 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/154.0.0.0 Safari/537.36' \
-            -H 'Accept: application/json' -H 'Cache-Control: no-cache' \
-            "https://staging.chronicles.shadowops.dpdns.org/release.json?ts=${GITHUB_RUN_ID}" \
-            -o "$RUNNER_TEMP/chronicles-published-release.json"
-          python3 - <<'PY'
-          import json, os, pathlib
-          path = pathlib.Path(os.environ["RUNNER_TEMP"]) / "chronicles-published-release.json"
-          try:
-              data = json.loads(path.read_text(encoding="utf-8"))
-              valid = isinstance(data, dict) and data.get("build") == os.environ["EXPECTED_SHA"]
-          except (ValueError, UnicodeError):
-              valid = False
-          if not valid:
-              raise SystemExit("CHRONICLES_PUBLIC_RELEASE_MANIFEST_MISMATCH")
-          print("CHRONICLES_PUBLIC_RELEASE_MANIFEST_OK")
-          PY
+          # Pages deploy completion can precede custom-domain edge convergence.
+          # The helper preserves strict public HTTPS/JSON/exact-SHA checks.
+          python3 scripts/chronicles_pages_manifest_wait.py
       - name: Verify lockfile-pinned Playwright browser harness
         id: playwright
         working-directory: chronicles-source/frontend
