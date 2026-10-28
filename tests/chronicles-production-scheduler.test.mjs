@@ -78,5 +78,34 @@ test('Wrangler configuration declares both UTC slots, but is disabled by default
   const config = readFileSync(new URL('../workers/chronicles-production-scheduler/wrangler.toml', import.meta.url), 'utf8');
   assert.match(config, /crons = \["0 6 \* \* \*", "0 7 \* \* \*"\]/);
   assert.match(config, /SCHEDULER_ENABLED = "false"/);
+  assert.match(config, /workers_dev = false/);
   assert.doesNotMatch(config, /GH_ACTIONS_TOKEN\s*=/);
+});
+
+test('Worker rollout is manual only, defaults to offline verification and has an explicit disabled-deploy gate', () => {
+  const workflow = readFileSync(
+    new URL('../.github/workflows/chronicles-scheduler-worker-rollout.yml', import.meta.url),
+    'utf8',
+  );
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /pull_request:/);
+  assert.doesNotMatch(workflow, /\n  schedule:/);
+  assert.doesNotMatch(workflow, /\n  push:/);
+  assert.match(workflow, /options: \[verify, deploy_disabled\]/);
+  assert.match(workflow, /default: verify/);
+  assert.match(workflow, /DEPLOY_DISABLED_CHRONICLES_SCHEDULER/);
+  assert.match(workflow, /npx --yes wrangler@4\.149\.0 deploy --dry-run/);
+  assert.match(workflow, /npx --yes wrangler@4\.149\.0 deploy\n/);
+  assert.match(workflow, /github\.event_name == 'workflow_dispatch'/);
+  assert.match(workflow, /github\.ref == 'refs\/heads\/main'/);
+  assert.match(workflow, /inputs\.operation == 'deploy_disabled'/);
+  assert.match(workflow, /inputs\.confirmation == 'DEPLOY_DISABLED_CHRONICLES_SCHEDULER'/);
+  assert.match(workflow, /environment:\n      name: production/);
+  assert.match(workflow, /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/);
+  assert.match(workflow, /CLOUDFLARE_ACCOUNT_ID: \$\{\{ secrets\.CLOUDFLARE_ACCOUNT_ID \}\}/);
+  assert.match(workflow, /SCHEDULER_ENABLED.*false/);
+  assert.match(workflow, /workers_dev/);
+  assert.doesNotMatch(workflow, /GH_ACTIONS_TOKEN:/);
+  assert.doesNotMatch(workflow, /wrangler secret put/);
+  assert.doesNotMatch(workflow, /schedule_trigger/);
 });

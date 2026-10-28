@@ -1,5 +1,7 @@
 name = "shadowops-chronicles-production-scheduler"
 main = "worker.mjs"
+# No public HTTP endpoint: only Cloudflare Cron may invoke this Worker.
+workers_dev = false
 compatibility_date = "2026-10-28"
 
 # UTC triggers: only one is 08:00 Madrid, checked using Europe/Madrid in code.
