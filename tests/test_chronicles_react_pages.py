@@ -1,6 +1,10 @@
 """Public-hosted React preview admission; all tests offline and no Cloudflare writes."""
+import os
 import pathlib
+import re
+import subprocess
 import sys
+import tempfile
 import unittest
 import urllib.error
 from unittest.mock import patch
@@ -414,6 +418,112 @@ class ParallelReactPagesTest(unittest.TestCase):
                         workflow.index("npm run build"))
         # Chronicles owns its source: no dependency on a Chess Studio checkout.
         self.assertNotIn("evilsysadmin/chess-studio", workflow)
+
+
+class PagesSupersededReleaseTests(unittest.TestCase):
+    """Run the actual staging freshness shell snippets with an offline fake gh."""
+
+    @staticmethod
+    def staging_workflow():
+        return (pathlib.Path(__file__).resolve().parents[1] /
+                ".github/workflows/chronicles-pages-release.yml").read_text().split(
+                    "\n  production:\n", 1)[0]
+
+    def run_step(self, name, current):
+        workflow = self.staging_workflow()
+        block = workflow.split("      - name: " + name + "\n", 1)[1].split(
+            "\n      - name:", 1)[0]
+        source = block.split("\n        run: |\n", 1)[1]
+        lines = source.splitlines()
+        script = "\n".join(line[10:] for line in lines if line.startswith("          "))
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            fake_gh = root / "gh"
+            fake_gh.write_text('#!/bin/sh\n'
+                               'test "$1" = api || exit 3\n'
+                               'echo "$MOCK_MAIN_SHA"\n')
+            fake_gh.chmod(0o755)
+            fake_npx = root / "npx"
+            fake_npx.write_text('#!/bin/sh\necho ran > "$RUNNER_TEMP/npx-ran"\n')
+            fake_npx.chmod(0o755)
+            output, summary = root / "output", root / "summary"
+            env = {**os.environ,
+                   "PATH": str(root) + os.pathsep + os.environ["PATH"],
+                   "MOCK_MAIN_SHA": current,
+                   "ADMITTED_SHA": "a" * 40,
+                   "CHRONICLES_SOURCE_SHA": "a" * 40,
+                   "GITHUB_OUTPUT": str(output),
+                   "GITHUB_STEP_SUMMARY": str(summary),
+                   "RUNNER_TEMP": directory}
+            process = subprocess.run(["bash", "-c", script], env=env,
+                                     stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE, text=True)
+            return (process.returncode, process.stdout,
+                    output.read_text() if output.exists() else "",
+                    summary.read_text() if summary.exists() else "",
+                    (root / "npx-ran").exists())
+
+    def test_stale_build_skips_without_wrangler_or_deployment_receipt(self):
+        for name, result in (
+            ("Skip superseded source before Pages mutations", "fresh=false"),
+            ("Publish exact source SHA to the isolated Pages project",
+             "published=false"),
+        ):
+            with self.subTest(step=name):
+                code, stdout, output, summary, npx = self.run_step(name, "b" * 40)
+                self.assertEqual(code, 0)
+                self.assertIn(result, output)
+                self.assertIn("superseded", summary.lower())
+                self.assertIn("SUPERSEDED_", stdout)
+                self.assertFalse(npx)
+
+    def test_current_build_preserves_actual_publish_and_fail_closed_errors(self):
+        before = self.run_step("Skip superseded source before Pages mutations", "a" * 40)
+        self.assertEqual(before[0], 0)
+        self.assertIn("fresh=true", before[2])
+        matching = self.run_step("Publish exact source SHA to the isolated Pages project",
+                                 "a" * 40)
+        self.assertEqual(matching[0], 0)
+        self.assertIn("published=true", matching[2])
+        self.assertTrue(matching[4])
+        for step in ("Skip superseded source before Pages mutations",
+                     "Publish exact source SHA to the isolated Pages project"):
+            with self.subTest(step=step):
+                code, stdout, output, summary, npx = self.run_step(step, "invalid-sha")
+                self.assertNotEqual(code, 0)
+                self.assertNotIn("fresh=false", output)
+                self.assertNotIn("published=false", output)
+                self.assertFalse(npx)
+
+    def test_skip_never_runs_public_smoke_or_emits_verified_receipt(self):
+        workflow = self.staging_workflow()
+        self.assertIn("id: source_pre_publish", workflow)
+        self.assertIn("id: deploy", workflow)
+        for name in (
+            "Reconcile independent Chronicles Pages project",
+            "Publish exact source SHA to the isolated Pages project",
+        ):
+            block = workflow.split("      - name: " + name + "\n", 1)[1].split(
+                "\n      - name:", 1)[0]
+            self.assertIn("steps.source_pre_publish.outputs.fresh == 'true'", block)
+        for name in (
+            "Prove the public game build at root",
+            "Prove the public update manifest serves the exact SHA",
+            "Verify lockfile-pinned Playwright browser harness",
+            "Cache exact Chromium browser binaries",
+            "Real public browser smoke (desktop, mobile, login, update deferral)",
+            "Reject superseded source before writing verified receipt",
+        ):
+            block = workflow.split("      - name: " + name + "\n", 1)[1].split(
+                "\n      - name:", 1)[0]
+            self.assertIn(
+                "steps.live.outputs.already_published == 'true' || "
+                "steps.deploy.outputs.published == 'true'", block)
+        self.assertIn(
+            "if: steps.source_freshness.outputs.fresh == 'true'\n"
+            "        uses: actions/upload-artifact@v4", workflow)
+        self.assertIn("if: steps.deploy.outputs.published == 'true'", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
