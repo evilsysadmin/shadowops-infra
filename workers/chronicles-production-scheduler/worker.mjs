@@ -22,11 +22,17 @@ export function isMadridEight(controller) {
   return hour === '08' && minute === '00';
 }
 
-export async function dispatchMadridTrain(controller, env, send = fetch) {
+export async function dispatchMadridTrain(controller, env, send = fetch, now = Date.now) {
   // Cloudflare crons are UTC: at most one of 06:00/07:00 is 08:00 Madrid.
   // Check the nominal *scheduled* instant, not actual delayed invocation time.
   if (!isMadridEight(controller)) return { status: 'outside-madrid-slot' };
   if (env?.SCHEDULER_ENABLED !== 'true') return { status: 'disabled' };
+  // Never turn a provider outage into an unexpected afternoon production release.
+  // Use actual invocation time as well as the nominal Cron scheduled timestamp.
+  const lagMs = now() - controller.scheduledTime;
+  if (!Number.isFinite(lagMs) || lagMs < -60000 || lagMs > 300000) {
+    return { status: 'missed-08-slot' };
+  }
   const token = env?.GH_ACTIONS_TOKEN;
   if (typeof token !== 'string' || !token.trim()) {
     throw new Error('scheduler secret not configured');
