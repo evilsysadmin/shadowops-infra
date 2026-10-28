@@ -1,5 +1,5 @@
 name: Chronicles production · release train
-run-name: Chronicles train · 08:00 Madrid · ${{ github.event_name }}
+run-name: Chronicles train · 08:00 Madrid · ${{ inputs.automated && 'external-schedule' || github.event_name }}
 
 on:
   pull_request:
@@ -20,6 +20,11 @@ on:
         required: false
       dry_run:
         description: Verify staging candidate and production readiness without triggering any deploy
+        type: boolean
+        required: false
+        default: false
+      automated:
+        description: External scheduler invocation; use the same automatic production safety preflight as schedule
         type: boolean
         required: false
         default: false
@@ -88,6 +93,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       CHRONICLES_PAGES_ENV: production
       CHRONICLES_TRAIN_SOURCE_SHA: ${{ inputs.source_sha || '' }}
+      CHRONICLES_TRAIN_AUTOMATED: ${{ github.event_name == 'schedule' || inputs.automated == true }}
     steps:
       - uses: actions/checkout@v4
       - name: Promote only admitted source, stop if API/Pages fail
