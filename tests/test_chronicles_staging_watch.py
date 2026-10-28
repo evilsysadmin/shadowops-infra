@@ -46,6 +46,7 @@ class WatchTest(unittest.TestCase):
         # Unit tests never contact the public endpoint unless explicitly
         # exercising the new preflight helper under a mock transport.
         cors = patch.object(watch, "probe_login_preflight", return_value="ok")
+        self.cors_patcher = cors
         self.cors_probe = cors.start()
         self.addCleanup(cors.stop)
 
@@ -747,7 +748,7 @@ class WatchTest(unittest.TestCase):
                 )
 
     def test_preflight_exact_browser_request_and_headers(self):
-        self.cors_probe.stop()
+        self.cors_patcher.stop()
         captured = []
         class Response:
             status = 200
@@ -781,7 +782,7 @@ class WatchTest(unittest.TestCase):
         self.assertIsNone(req.get_header("Authorization"))
 
     def test_preflight_denied_origin_and_http_530(self):
-        self.cors_probe.stop()
+        self.cors_patcher.stop()
         class Response:
             status = 200
             def __init__(self, request, headers):
