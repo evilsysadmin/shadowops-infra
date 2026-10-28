@@ -152,3 +152,58 @@ class TestProductionPromotion(unittest.TestCase):
     def test_without_promote_an_earlier_commit_is_stale(self):
         with self.assertRaises(a.AdmissionError):
             a.admit(ENV, self.reader("ahead"))
+
+    def test_production_accepts_one_unrelated_infra_main_merge(self):
+        # Reproduces the real Pages failure: scheduler-only Infra commit landed
+        # between the API receipt and the Pages ownership gate.
+        changed = [
+            ".github/workflows/chronicles-scheduler-worker-rollout.yml",
+            "docs/chronicles-production.md",
+            "tests/chronicles-production-scheduler.test.mjs",
+        ]
+        base = Read(stale=True)
+        def read(path, token):
+            if path == f"/repos/{a.OWNER}/compare/{OWNER_SHA}...main":
+                return 200, {
+                    "status": "ahead", "ahead_by": 1, "total_commits": 1,
+                    "files": [{"filename": item, "status": "modified"} for item in changed],
+                }
+            return base(path, token)
+
+        self.assertEqual(a.admit({**ENV, "CHRONICLES_RELEASE_MODE": "promote"}, read),
+                         SOURCE_SHA)
+        self.assertEqual(len(base.calls), 4)
+
+    def test_production_rejects_sensitive_or_unverifiable_infra_drift(self):
+        for case in (
+            {"paths": ["scripts/pages_owner_admission.py"]},
+            {"paths": [".github/workflows/chronicles-pages-release.yml"]},
+            {"paths": [".github/workflows/chronicles-production-train.yml"]},
+            {"paths": ["docs/safe.md"], "previous": "scripts/unsafe.py"},
+            {"paths": ["docs/safe.md"], "ahead_by": 4, "total_commits": 4},
+            {"paths": ["docs/safe.md"], "status": "diverged"},
+            {"paths": ["docs/safe.md"], "total_commits": 2},
+            {"paths": []},
+            {"paths": ["docs/safe.md"], "ahead_by": None},
+        ):
+            with self.subTest(case=case):
+                base = Read(stale=True)
+                def read(path, token):
+                    if path == f"/repos/{a.OWNER}/compare/{OWNER_SHA}...main":
+                        return 200, {
+                            "status": case.get("status", "ahead"),
+                            "ahead_by": case.get("ahead_by", 1),
+                            "total_commits": case.get("total_commits", 1),
+                            "files": [
+                                {"filename": p, "previous_filename": case.get("previous")}
+                                for p in case["paths"]
+                            ],
+                        }
+                    return base(path, token)
+                with self.assertRaisesRegex(a.AdmissionError, "Infra main advanced"):
+                    a.admit({**ENV, "CHRONICLES_RELEASE_MODE": "promote"}, read)
+
+    def test_staging_never_accepts_unrelated_infra_main_drift(self):
+        with self.assertRaisesRegex(a.AdmissionError, "Main has advanced"):
+            a.admit(ENV, Read(stale=True))
+
