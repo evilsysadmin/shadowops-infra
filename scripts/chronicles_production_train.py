@@ -276,7 +276,8 @@ def main() -> int:
         dry_run = os.environ.get("CHRONICLES_TRAIN_DRY_RUN", "").lower() == "true"
         result = (preflight(token, source_sha, progress=progress) if dry_run
                   else run(token, source_sha,
-                           scheduled=os.environ["GITHUB_EVENT_NAME"] == "schedule",
+                           scheduled=(os.environ["GITHUB_EVENT_NAME"] == "schedule"
+                                      or os.environ.get("CHRONICLES_TRAIN_AUTOMATED", "").lower() == "true"),
                            progress=progress))
         progress.update(result)
         return 0
