@@ -1,0 +1,103 @@
+name: Chronicles production scheduler · disabled Worker rollout
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/chronicles-scheduler-worker-rollout.yml'
+      - 'workers/chronicles-production-scheduler/**'
+      - 'tests/chronicles-production-scheduler.test.mjs'
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: verify only or deploy the Worker with all promotions disabled
+        type: choice
+        options: [verify, deploy_disabled]
+        default: verify
+        required: true
+      confirmation:
+        description: Required only for deploy_disabled; type DEPLOY_DISABLED_CHRONICLES_SCHEDULER
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chronicles-scheduler-disabled-worker-rollout
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify scheduler and compile Worker without deployment
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Reject ambiguous manual rollout requests
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          OPERATION: ${{ inputs.operation }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          if [[ "$OPERATION" == "deploy_disabled" ]]; then
+            test "$CONFIRMATION" = "DEPLOY_DISABLED_CHRONICLES_SCHEDULER"
+          else
+            test "$OPERATION" = "verify"
+          fi
+      - name: Worker contract and DST tests
+        run: node --test tests/chronicles-production-scheduler.test.mjs
+      - name: Verify disabled rollout configuration
+        run: |
+          python3 - <<'PY'
+          import tomllib
+          from pathlib import Path
+          config = tomllib.loads(Path("workers/chronicles-production-scheduler/wrangler.toml").read_text())
+          assert config["name"] == "shadowops-chronicles-production-scheduler"
+          assert config["vars"]["SCHEDULER_ENABLED"] == "false"
+          assert config["workers_dev"] is False
+          assert config["triggers"]["crons"] == ["0 6 * * *", "0 7 * * *"]
+          PY
+      - name: Wrangler compile-only preview (no API token)
+        working-directory: workers/chronicles-production-scheduler
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+        run: npx --yes wrangler@4.149.0 deploy --dry-run
+
+  deploy_disabled:
+    name: Operator-approved Cloudflare deployment (scheduler OFF)
+    needs: verify
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      inputs.operation == 'deploy_disabled' &&
+      inputs.confirmation == 'DEPLOY_DISABLED_CHRONICLES_SCHEDULER'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Refuse missing Cloudflare credentials
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+      - name: Deploy only the disabled cron Worker
+        working-directory: workers/chronicles-production-scheduler
+        run: npx --yes wrangler@4.149.0 deploy
