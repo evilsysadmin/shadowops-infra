@@ -37,6 +37,39 @@ class ReleaseTrainTests(unittest.TestCase):
         self.assertIn("environment", data["jobs"]["train"])
         self.assertEqual(data["jobs"]["train"]["environment"]["name"], "production")
 
+    def test_external_scheduler_keeps_automatic_production_readiness_gate(self):
+        workflow = yaml.load(
+            (ROOT / ".github/workflows/chronicles-production-train.yml").read_text(),
+            Loader=yaml.BaseLoader,
+        )
+        self.assertEqual(workflow["on"]["workflow_dispatch"]["inputs"]["automated"]["default"], "false")
+        self.assertEqual(workflow["on"]["workflow_dispatch"]["inputs"]["automated"]["type"], "boolean")
+        automatic = workflow["jobs"]["train"]["env"]["CHRONICLES_TRAIN_AUTOMATED"]
+        self.assertIn("github.event_name == 'schedule'", automatic)
+        self.assertIn("inputs.automated == true", automatic)
+        self.assertIn("inputs.automated", workflow["run-name"])
+        for event, automatic, expected in (
+            ("schedule", "false", True),
+            ("workflow_dispatch", "true", True),
+            ("workflow_dispatch", "false", False),
+        ):
+            with self.subTest(event=event, automatic=automatic):
+                with tempfile.TemporaryDirectory() as tmp:
+                    environ = {
+                        "GITHUB_REPOSITORY": train.INFRA,
+                        "GITHUB_REF": "refs/heads/main",
+                        "GITHUB_EVENT_NAME": event,
+                        "CHRONICLES_TRAIN_AUTOMATED": automatic,
+                        "GH_TOKEN": TOKEN,
+                        "RUNNER_TEMP": tmp,
+                    }
+                    def verify(*args, **kwargs):
+                        self.assertEqual(kwargs["scheduled"], expected)
+                        return {"source_sha": SHA, "result": "unchanged",
+                                "api_run": None, "pages_run": None}
+                    with patch.dict(os.environ, environ), patch.object(train, "run", side_effect=verify):
+                        self.assertEqual(train.main(), 0)
+
     def test_readonly_preflight_cannot_enter_mutating_train_job(self):
         path = ROOT / ".github/workflows/chronicles-production-train.yml"
         workflow = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
