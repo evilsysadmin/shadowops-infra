@@ -158,7 +158,14 @@ def audit(token: str, *, manifest=read_release, page=probe_https,
     for path in ("health", "ready", "cors"):
         if not api(path):
             raise AuditError("production API " + path + " failed")
-    if api_build() != sha:
+    runtime_build = api_build()
+    if runtime_build != sha:
+        # Both values are public source identities, not API responses/tokens.
+        # Sanitize even mocks or compromised responses before logging.
+        safe_runtime = (runtime_build if isinstance(runtime_build, str)
+                        and SHA.fullmatch(runtime_build) else "unavailable")
+        print(f"CHRONICLES_PRODUCTION_SHA_MISMATCH pages={sha} api={safe_runtime}",
+              file=sys.stderr)
         raise AuditError("production API public source SHA missing or mismatched")
     if not sso():
         raise AuditError("production SSO issuer public JWKS unavailable or invalid")
@@ -166,6 +173,24 @@ def audit(token: str, *, manifest=read_release, page=probe_https,
         if not receipt(sha, kind, token):
             raise AuditError("no trusted " + kind + " receipt for public SHA")
     return sha
+
+
+# Closed vocabulary for operators: no untrusted exception text, URLs or secrets.
+AUDIT_FAILURE_REASONS = {
+    "production environment and read token required": "AUDIT_CONTEXT_INVALID",
+    "unexpected public release origin": "PAGES_MANIFEST_UNAVAILABLE",
+    "malformed public release manifest": "PAGES_MANIFEST_INVALID",
+    "public release SHA missing or invalid": "PAGES_BUILD_INVALID",
+    "public HTTPS/game shell unavailable": "PAGES_SHELL_DOWN",
+    "public game JS/CSS unavailable": "PAGES_ASSETS_DOWN",
+    "production API health failed": "API_HEALTH_DOWN",
+    "production API ready failed": "API_READY_DOWN",
+    "production API cors failed": "API_CORS_FAILED",
+    "production API public source SHA missing or mismatched": "API_PAGES_SHA_MISMATCH",
+    "production SSO issuer public JWKS unavailable or invalid": "SSO_JWKS_UNAVAILABLE",
+    "no trusted production-api receipt for public SHA": "API_RECEIPT_MISSING",
+    "no trusted production-pages receipt for public SHA": "PAGES_RECEIPT_MISSING",
+}
 
 
 def main() -> int:
@@ -180,9 +205,11 @@ def main() -> int:
         return 64
     try:
         sha = audit(os.environ.get("GH_TOKEN", ""))
-    except (AuditError, urllib.error.URLError, OSError, ValueError, TypeError, TimeoutError):
-        # Never echo response bodies, URLs with query strings, secrets or tokens.
-        print("CHRONICLES_PRODUCTION_AUDIT_BLOCKED public readiness or evidence failed", file=sys.stderr)
+    except (AuditError, urllib.error.URLError, OSError, ValueError, TypeError, TimeoutError) as exc:
+        # Fixed reason codes only. Never echo provider errors, URLs, bodies or tokens.
+        reason = (AUDIT_FAILURE_REASONS.get(str(exc), "EVIDENCE_UNAVAILABLE")
+                  if isinstance(exc, AuditError) else "EVIDENCE_UNAVAILABLE")
+        print("CHRONICLES_PRODUCTION_AUDIT_BLOCKED reason=" + reason, file=sys.stderr)
         return 1
     print("CHRONICLES_PRODUCTION_READONLY_AUDIT_OK sha=" + sha)
     return 0
