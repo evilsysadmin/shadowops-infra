@@ -8,6 +8,13 @@ on:
       - 'tests/test_chronicles_train_schedule_watch.py'
       - 'scripts/chronicles_production_admission.py'
       - 'tests/test_chronicles_production_audit.py'
+  # Audit the live production surfaces immediately after audit-code changes
+  # land on protected main. PR checks remain offline; this event never deploys.
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/chronicles-production-audit.yml'
+      - 'scripts/chronicles_production_audit.py'
   workflow_dispatch:
   workflow_run:
     workflows: ['Chronicles production · release train']
