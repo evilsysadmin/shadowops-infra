@@ -134,6 +134,42 @@ class ProductionAuditTests(unittest.TestCase):
                 with self.assertRaises(audit.AuditError):
                     self.checked(**kwargs)
 
+    def test_api_sha_mismatch_logs_only_public_validated_builds(self):
+        for live, expected in (
+            ("b" * 40, "b" * 40),
+            (None, "unavailable"),
+            ("secret-in-provider-message", "unavailable"),
+        ):
+            with self.subTest(live=live), patch.dict(
+                os.environ, {"CHRONICLES_PAGES_ENV": "production"}
+            ), patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                with self.assertRaisesRegex(audit.AuditError, "^api_sha$"):
+                    audit.audit(
+                        "read-only-token", manifest=lambda: {"build": SHA},
+                        page=lambda: "ok", assets=lambda **_: "ok",
+                        api=lambda _: True, receipt=lambda *_: True,
+                        sso=lambda: True, api_build=lambda: live,
+                    )
+                self.assertEqual(stderr.getvalue().strip(),
+                    f"CHRONICLES_PRODUCTION_SHA_MISMATCH pages={SHA} api={expected}")
+                self.assertNotIn("secret-in-provider-message", stderr.getvalue())
+                self.assertNotIn("read-only-token", stderr.getvalue())
+
+    def test_api_sha_lookup_errors_remain_private_and_preserve_stage(self):
+        with patch.dict(os.environ, {"CHRONICLES_PAGES_ENV": "production"}), patch(
+            "sys.stderr", new_callable=io.StringIO
+        ) as stderr:
+            with self.assertRaisesRegex(audit.AuditError, "^api_sha$"):
+                audit.audit(
+                    "secret-token", manifest=lambda: {"build": SHA},
+                    page=lambda: "ok", assets=lambda **_: "ok",
+                    api=lambda _: True, receipt=lambda *_: True,
+                    sso=lambda: True,
+                    api_build=lambda: (_ for _ in ()).throw(
+                        RuntimeError("sensitive-provider-error")),
+                )
+            self.assertEqual(stderr.getvalue(), "")
+
     def test_public_manifest_origin_is_fixed(self):
         url = audit.ORIGIN + "/release.json?production_audit=1"
         payload = ('{"release":"v1","build":"' + SHA + '"}').encode()
