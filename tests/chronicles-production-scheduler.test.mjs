@@ -91,7 +91,7 @@ test('Worker rollout is manual only, defaults to offline verification and has an
   assert.match(workflow, /pull_request:/);
   assert.doesNotMatch(workflow, /\n  schedule:/);
   assert.doesNotMatch(workflow, /\n  push:/);
-  assert.match(workflow, /options: \[verify, deploy_disabled\]/);
+  assert.match(workflow, /options: \[verify, inspect, deploy_disabled\]/);
   assert.match(workflow, /default: verify/);
   assert.match(workflow, /DEPLOY_DISABLED_CHRONICLES_SCHEDULER/);
   assert.match(workflow, /npx --yes wrangler@4\.149\.0 deploy --dry-run/);
@@ -114,5 +114,19 @@ test('Worker rollout is manual only, defaults to offline verification and has an
   assert.match(workflow, /workers_dev/);
   assert.doesNotMatch(workflow, /GH_ACTIONS_TOKEN:/);
   assert.doesNotMatch(workflow, /wrangler secret put/);
+
+  assert.match(workflow, /scripts\/chronicles_scheduler_occupancy\.py'/);
+  assert.match(workflow, /test_chronicles_scheduler_occupancy\.py'/);
+  const inspected = workflow.split('  inspect:\n')[1]?.split('  deploy_disabled:\n')[0];
+  assert.ok(inspected, 'inspect job must be present and separate');
+  assert.match(inspected, /needs: verify/);
+  assert.match(inspected, /github\.event_name == 'workflow_dispatch'/);
+  assert.match(inspected, /github\.ref == 'refs\/heads\/main'/);
+  assert.match(inspected, /github\.repository == 'evilsysadmin\/shadowops-infra'/);
+  assert.match(inspected, /inputs\.operation == 'inspect'/);
+  assert.match(inspected, /environment:\n      name: production/);
+  assert.match(inspected, /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/);
+  assert.match(inspected, /python3 scripts\/chronicles_scheduler_occupancy\.py/);
+  assert.doesNotMatch(inspected, /wrangler|deploy --|actions: write/);
   assert.doesNotMatch(workflow, /schedule_trigger/);
 });

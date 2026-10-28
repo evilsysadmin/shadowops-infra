@@ -6,12 +6,14 @@ on:
       - '.github/workflows/chronicles-scheduler-worker-rollout.yml'
       - 'workers/chronicles-production-scheduler/**'
       - 'tests/chronicles-production-scheduler.test.mjs'
+      - 'scripts/chronicles_scheduler_occupancy.py'
+      - 'tests/test_chronicles_scheduler_occupancy.py'
   workflow_dispatch:
     inputs:
       operation:
-        description: verify only or deploy the Worker with all promotions disabled
+        description: verify offline, inspect Cloudflare without writes, or deploy disabled Worker
         type: choice
-        options: [verify, deploy_disabled]
+        options: [verify, inspect, deploy_disabled]
         default: verify
         required: true
       confirmation:
@@ -48,7 +50,7 @@ jobs:
           if [[ "$OPERATION" == "deploy_disabled" ]]; then
             test "$CONFIRMATION" = "DEPLOY_DISABLED_CHRONICLES_SCHEDULER"
           else
-            test "$OPERATION" = "verify"
+            [[ "$OPERATION" == "verify" || "$OPERATION" == "inspect" ]]
           fi
       - name: Worker contract and DST tests
         run: node --test tests/chronicles-production-scheduler.test.mjs
@@ -70,6 +72,30 @@ jobs:
         env:
           WRANGLER_SEND_METRICS: 'false'
         run: npx --yes wrangler@4.149.0 deploy --dry-run
+
+  inspect:
+    name: Inspect Cloudflare credentials and Worker name (read-only)
+    needs: verify
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      inputs.operation == 'inspect'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment:
+      name: production
+    permissions:
+      contents: read
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inspect exact Worker name with Cloudflare GET only (no deploy)
+        run: python3 scripts/chronicles_scheduler_occupancy.py
 
   deploy_disabled:
     name: Operator-approved Cloudflare deployment (scheduler OFF)
