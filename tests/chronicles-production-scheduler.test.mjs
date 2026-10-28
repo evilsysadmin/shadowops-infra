@@ -64,7 +64,7 @@ test('provider failures fail closed, never accept non-attributable HTTP 204', as
 
 test('Wrangler configuration declares both UTC slots, but is disabled by default', () => {
   const config = readFileSync(new URL('../workers/chronicles-production-scheduler/wrangler.toml', import.meta.url), 'utf8');
-  assert.match(config, /crons = \\["0 6 \\* \\* \\*", "0 7 \\* \\* \\*"\\]/);
+  assert.match(config, /crons = \["0 6 \* \* \*", "0 7 \* \* \*"\]/);
   assert.match(config, /SCHEDULER_ENABLED = "false"/);
-  assert.doesNotMatch(config, /GH_ACTIONS_TOKEN\\s*=/);
+  assert.doesNotMatch(config, /GH_ACTIONS_TOKEN\s*=/);
 });
