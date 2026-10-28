@@ -21,6 +21,38 @@ OLD_PUBLISHER = ".github/workflows/pages-staging.yml"
 SOURCE_FRONTEND_CI = ".github/workflows/react-frontend.yml"
 SHA = re.compile(r"^[0-9a-f]{40}$")
 
+# A production Pages run may start just before an unrelated Infra merge.
+# Only a short, fully enumerated, descendant-only drift is acceptable.
+# Deployment scripts/workflows, secrets, host config and unrecognized files
+# still require a fresh dispatch from current protected Infra main.
+SAFE_OWNER_DRIFT_PATHS = {
+    ".github/workflows/chronicles-scheduler-worker-rollout.yml",
+}
+SAFE_OWNER_DRIFT_PREFIXES = ("docs/", "tests/", "workers/chronicles-production-scheduler/")
+
+
+def safe_owner_drift(compare: dict) -> bool:
+    files = compare.get("files")
+    commits = compare.get("ahead_by")
+    if (compare.get("status") != "ahead"
+        or type(commits) is not int or not 1 <= commits <= 3
+        or compare.get("total_commits") != commits
+        or not isinstance(files, list) or not 1 <= len(files) < 300):
+        return False
+    for item in files:
+        if not isinstance(item, dict):
+            return False
+        paths = (item.get("filename"),)
+        if item.get("previous_filename") is not None:
+            paths += (item["previous_filename"],)
+        if any(not isinstance(path, str)
+               or not (path in SAFE_OWNER_DRIFT_PATHS
+                       or path.startswith(SAFE_OWNER_DRIFT_PREFIXES))
+               for path in paths):
+            return False
+    return True
+
+
 
 class AdmissionError(Exception):
     pass
@@ -87,6 +119,13 @@ def admit(
         actual = (branch.get("commit") or {}).get("sha")
         if actual == expected:
             continue
+        if promote and repo == OWNER:
+            status, compare = read(f"/repos/{OWNER}/compare/{expected}...main", token)
+            if status == 200 and safe_owner_drift(compare):
+                continue
+            raise AdmissionError(
+                "Infra main advanced with release-sensitive or unverifiable changes"
+            )
         if promote and repo == SOURCE:
             status, compare = read(f"/repos/{SOURCE}/compare/{expected}...main", token)
             if status == 200 and compare.get("status") in {"ahead", "identical"}:
