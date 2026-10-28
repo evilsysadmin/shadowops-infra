@@ -165,7 +165,7 @@ class ReleaseTrainTests(unittest.TestCase):
                    "head_branch": "main", "event": "schedule",
                    "repository": {"full_name": train.INFRA}}
         for history in ([], [{**current, "id": 21}], [current, current],
-                        [current, {"id": 22, "created_at": "bad"}]):
+                        [current, {**current, "id": 19, "created_at": "bad"}]):
             with self.subTest(history=history):
                 with self.assertRaises(train.TrainError):
                     train.previous_daily_train(
@@ -176,6 +176,10 @@ class ReleaseTrainTests(unittest.TestCase):
             call=lambda *_: {"workflow_runs": [
                 current, {**current, "id": 19, "event": "workflow_dispatch",
                           "display_title": "manual hotfix"}]}))
+        self.assertIsNone(train.previous_daily_train(
+            TOKEN, 20, now=now,
+            call=lambda *_: {"workflow_runs": [
+                current, {"id": 22, "created_at": "bad"}]}))
         with self.assertRaisesRegex(train.TrainError, "history truncated"):
             train.previous_daily_train(
                 TOKEN, 20, now=now,
