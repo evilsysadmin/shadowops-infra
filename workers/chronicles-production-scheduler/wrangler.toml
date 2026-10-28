@@ -1,0 +1,11 @@
+name = "shadowops-chronicles-production-scheduler"
+main = "worker.mjs"
+compatibility_date = "2026-10-28"
+
+# UTC triggers: only one is 08:00 Madrid, checked using Europe/Madrid in code.
+[triggers]
+crons = ["0 6 * * *", "0 7 * * *"]
+
+# Deliberately disabled until credentials, audit/watch and rollout are verified.
+[vars]
+SCHEDULER_ENABLED = "false"
