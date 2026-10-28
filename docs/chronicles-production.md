@@ -23,6 +23,15 @@ Producción es igual que staging, con su propio estado. Nada se comparte salvo e
 
 ## Release train diario (08:00 Europe/Madrid)
 
+### Protección de duplicados del release train (preparada, sin activar)
+
+El tren serializa sus ejecuciones en GitHub y dispone ahora de una segunda protección de *solo lectura* para la coexistencia temporal entre el cron de GitHub y el disparador Cloudflare. **Por defecto está desactivada**: variable de repositorio `CHRONICLES_TRAIN_DEDUPE_ENABLED` sin valor o `false`. No habilitar antes del cutover validado. Con valor `true`, el job de promoción automática comprueba antes de tocar producción las ejecuciones del día según `Europe/Madrid` y la identidad real del workflow: incluye `schedule` y `workflow_dispatch` explícitamente `external-schedule`, nunca hotfixes manuales normales.
+
+Si ya hubo una ejecución automática ese día, solo termina sin desplegar cuando el run anterior está en verde y su **job y paso reales de promoción** constan como completados correctamente. Si fue fallido, cancelado o no verificable, **falla cerrado** (no reintenta a ciegas); la recuperación queda bajo el flujo manual. Si no hay historial fiable, la comprobación bloquea la promoción en lugar de asumir que es el primer tren. La bitácora del run duplicado identifica el ID anterior. Los hotfixes manuales y `dry_run` no pasan por este guard.
+
+Durante una eventual activación, verificar en el mismo cambio operativo: variable del guard habilitada, credencial del Worker limitada, disparo externo verificable, y **solo una fuente primaria de programación**; el cron GitHub debe retirarse tras validar la sustitución, no antes. Conservar rollback y auditoría independiente. Esta protección no hace que GitHub arranque instantáneamente ni resuelve el drift API/Pages.
+
+
 > **Preparación de disparador externo, sin activar (28/10/2026):** `workers/chronicles-production-scheduler/` contiene un Worker de Cloudflare con dos franjas UTC y comprobación de zona `Europe/Madrid`. Rechaza ejecuciones que lleguen más de **5 minutos tarde** (o con reloj inválido) para impedir promociones imprevistas a media tarde; un retraso debe investigarse, no despachar un deploy tardío. **Está deshabilitado (`SCHEDULER_ENABLED=false`)**, no está desplegado ni tiene secreto de GitHub. La auditoría de las 09:15 acepta ya los eventos `schedule` o un `workflow_dispatch` etiquetado exactamente `external-schedule` y creado entre 07:45 y 08:15 de Madrid; sigue comprobando que el job real terminó correctamente. **Aún falta** verificación de idempotencia entre fuentes, token de Actions de mínimo privilegio, despliegue del Worker y prueba operacional. El dispatch automático envía `automated=true` para mantener los mismos gates de salud de producción que `schedule`. Mientras tanto permanece el cron existente de GitHub y el watchdog se basa en eventos `schedule`; no considerar desplegado el backup externo.
 
 
