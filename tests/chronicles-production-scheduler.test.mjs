@@ -27,7 +27,7 @@ test('inactive and off-slot invocations cannot dispatch, even with credentials',
   const forbidden = () => { throw new Error('network must not be used'); };
   assert.deepEqual(await dispatchMadridTrain(summer, { SCHEDULER_ENABLED: 'false', GH_ACTIONS_TOKEN: 'x' }, forbidden), { status: 'disabled' });
   assert.deepEqual(await dispatchMadridTrain(controller('2026-07-15T07:00:00Z', '0 7 * * *'), { SCHEDULER_ENABLED: 'true', GH_ACTIONS_TOKEN: 'x' }, forbidden), { status: 'outside-madrid-slot' });
-  await assert.rejects(dispatchMadridTrain(summer, { SCHEDULER_ENABLED: 'true' }, forbidden), /secret/);
+  await assert.rejects(dispatchMadridTrain(summer, { SCHEDULER_ENABLED: 'true' }, forbidden, () => summer.scheduledTime + 1000), /secret/);
 });
 
 test('enabled Madrid slot dispatches only protected main, as automated, with attributable ID', async () => {
