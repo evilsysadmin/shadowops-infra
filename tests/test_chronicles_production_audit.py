@@ -255,6 +255,26 @@ class ProductionAuditTests(unittest.TestCase):
         self.assertIn("github.event_name != 'pull_request'", workflow)
         self.assertIn("scripts/chronicles_production_audit.py", workflow)
 
+    def test_main_audit_code_changes_trigger_only_readonly_production_audit(self):
+        workflow = (Path(__file__).resolve().parents[1] /
+                    ".github/workflows/chronicles-production-audit.yml").read_text()
+        # PR validation is offline; protected main push of the auditor itself
+        # requests a fresh live diagnostic with the just-merged reason codes.
+        self.assertIn("  push:\n    branches: [main]\n    paths:\n", workflow)
+        self.assertIn("      - 'scripts/chronicles_production_audit.py'", workflow)
+        self.assertIn("      - '.github/workflows/chronicles-production-audit.yml'", workflow)
+        self.assertNotIn("  push:\n    branches: ['*']", workflow)
+        self.assertIn("  workflow_dispatch:", workflow)
+        self.assertIn("  workflow_run:", workflow)
+        self.assertIn("  schedule:", workflow)
+        self.assertIn("  contents: read\n  actions: read", workflow)
+        self.assertNotIn("actions: write", workflow)
+        self.assertNotIn("issues: write", workflow)
+        self.assertIn("if: github.event_name != 'pull_request'", workflow)
+        self.assertIn("run: python3 scripts/chronicles_production_audit.py", workflow)
+        self.assertNotIn("scripts/chronicles_production_train.py", workflow)
+        self.assertNotIn("chronicles-pages-release.yml", workflow)
+
     def test_production_sso_issuer_jwks_public_ed25519_only(self):
         url = audit.SSO_JWKS
         self.assertEqual(
