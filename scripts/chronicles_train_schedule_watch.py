@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Observe a scheduled Chronicles release train; never trigger or mutate it.
+"""Observe native or external scheduled Chronicles trains; never trigger or mutate.
 
 The daily production audit must not be green solely because yesterday's
 production release still serves traffic when today's train never started.
@@ -20,23 +20,26 @@ ZONE = ZoneInfo("Europe/Madrid")
 URL = ("https://api.github.com/repos/" + REPO
        + "/actions/workflows/chronicles-production-train.yml/runs"
        + "?event=schedule&per_page=10")
+EXTERNAL_URL = URL.replace("event=schedule", "event=workflow_dispatch")
+EXTERNAL_TITLE = "Chronicles train · 08:00 Madrid · external-schedule"
+
 
 
 class ScheduleError(RuntimeError):
     pass
 
 
-def fetch_runs(token: str, *, opener=urllib.request.urlopen) -> list:
+def _fetch_event_runs(token: str, url: str, opener) -> list:
     if not token:
         raise ScheduleError("missing read-only GitHub token")
-    request = urllib.request.Request(URL, headers={
+    request = urllib.request.Request(url, headers={
         "Accept": "application/vnd.github+json",
         "Authorization": "Bearer " + token,
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "ChroniclesTrainScheduleWatch/1",
     })
     with opener(request, timeout=15) as response:
-        if response.status != 200 or response.geturl() != URL:
+        if response.status != 200 or response.geturl() != url:
             raise ScheduleError("unexpected workflow evidence origin")
         raw = response.read(256001)
     if len(raw) > 256000:
@@ -47,6 +50,13 @@ def fetch_runs(token: str, *, opener=urllib.request.urlopen) -> list:
         raise ScheduleError("invalid scheduled workflow evidence")
     return runs
 
+
+def fetch_runs(token: str, *, opener=urllib.request.urlopen) -> list:
+    return _fetch_event_runs(token, URL, opener)
+
+
+def fetch_external_runs(token: str, *, opener=urllib.request.urlopen) -> list:
+    return _fetch_event_runs(token, EXTERNAL_URL, opener)
 
 TRAIN_JOB = "Admit staging, promote API, promote Pages, verify public release"
 TRAIN_STEP = "Promote only admitted source, stop if API/Pages fail"
@@ -97,7 +107,7 @@ def train_job_succeeded(jobs: list) -> bool:
 
 
 def latest_scheduled_run(runs: list, now: datetime) -> dict | None:
-    """Select today's latest authentic 08:00 Madrid schedule event."""
+    """Select today's latest native or explicitly marked external train."""
     if now.tzinfo is None or now.utcoffset() is None:
         raise ScheduleError("timezone-aware clock required")
     local = now.astimezone(ZONE)
@@ -108,7 +118,11 @@ def latest_scheduled_run(runs: list, now: datetime) -> dict | None:
             continue
         run_id = run.get("id")
         if (type(run_id) is not int or run_id <= 0
-                or run.get("event") != "schedule"
+                or not (
+                    run.get("event") == "schedule"
+                    or (run.get("event") == "workflow_dispatch"
+                        and run.get("display_title") == EXTERNAL_TITLE)
+                )
                 or run.get("path") != WORKFLOW
                 or run.get("head_branch") != "main"
                 or (run.get("repository") or {}).get("full_name") != REPO):
@@ -120,6 +134,10 @@ def latest_scheduled_run(runs: list, now: datetime) -> dict | None:
         if created.tzinfo is None:
             continue
         timestamp = created.astimezone(ZONE)
+        # External dispatches must originate close to the 08:00 Madrid slot,
+        # never mistake an afternoon manual hotfix for the daily release train.
+        if run.get("event") == "workflow_dispatch" and timestamp.time() > time(8, 15):
+            continue
         if earliest <= timestamp <= local:
             if latest is None or (timestamp, run_id) > (latest[0], latest[1]["id"]):
                 latest = (timestamp, run)
@@ -151,7 +169,8 @@ def main() -> int:
                 or os.environ.get("GITHUB_REF") != "refs/heads/main"):
             raise ScheduleError("scheduled audit main only")
         token = os.environ.get("GH_TOKEN", "")
-        run_id = completed_train_today(fetch_runs(token), datetime.now(timezone.utc))
+        run_id = completed_train_today(fetch_runs(token) + fetch_external_runs(token),
+                                       datetime.now(timezone.utc))
         if not train_job_succeeded(fetch_train_jobs(run_id, token)):
             raise ScheduleError("JOB_NOT_SUCCESSFUL")
     except (ScheduleError, urllib.error.URLError, ValueError, TypeError,

@@ -94,6 +94,56 @@ class TrainScheduleWatchTests(unittest.TestCase):
         later["repository"] = {"full_name": "another/infra"}
         self.assertEqual(watch.completed_train_today([earlier, later], now), 23)
 
+    def test_external_schedule_is_accepted_only_with_trusted_title_and_early_slot(self):
+        now = datetime(2026, 10, 26, 9, 15, tzinfo=MADRID)
+        external = scheduled(
+            "2026-10-26T07:00:30Z", event="workflow_dispatch",
+            display_title=watch.EXTERNAL_TITLE,
+            status="completed", conclusion="success", id=314,
+        )
+        self.assertEqual(watch.completed_train_today([external], now), 314)
+        native = scheduled(
+            "2026-10-26T07:00:00Z", id=312,
+            status="completed", conclusion="failure",
+        )
+        self.assertEqual(watch.completed_train_today([native, external], now), 314)
+        for fake in (
+            {**external, "display_title": "Chronicles train · manual"},
+            {**external, "display_title": None},
+            {**external, "head_branch": "untrusted"},
+            {**external, "repository": {"full_name": "untrusted/repo"}},
+            {**external, "created_at": "2026-10-26T07:16:00Z"},
+            {**external, "created_at": "2026-10-25T07:00:00Z"},
+        ):
+            with self.subTest(fake=fake):
+                self.assertIsNone(watch.scheduled_today([fake], now))
+        failing = {**external, "conclusion": "failure", "id": 315}
+        with self.assertRaisesRegex(watch.ScheduleError, "FAILED"):
+            watch.completed_train_today([external, failing], now)
+
+    def test_external_runs_are_read_from_fixed_authenticated_readonly_endpoint(self):
+        external = scheduled(
+            "2026-10-26T07:00:00Z", event="workflow_dispatch",
+            display_title=watch.EXTERNAL_TITLE,
+        )
+        payload = json.dumps({"workflow_runs": [external]}).encode()
+        calls = []
+        def opener(request, timeout):
+            calls.append((request, timeout))
+            return Response(watch.EXTERNAL_URL, payload)
+        self.assertEqual(watch.fetch_external_runs("read-token", opener=opener),
+                         [external])
+        request, timeout = calls[0]
+        self.assertEqual(timeout, 15)
+        self.assertEqual(request.get_method(), "GET")
+        self.assertEqual(request.full_url, watch.EXTERNAL_URL)
+        self.assertEqual(request.get_header("Authorization"), "Bearer read-token")
+        self.assertIn("event=workflow_dispatch", watch.EXTERNAL_URL)
+        with self.assertRaises(watch.ScheduleError):
+            watch.fetch_external_runs(
+                "read-token",
+                opener=lambda *_args, **_kwargs: Response(watch.URL, payload))
+
     def test_missing_old_early_future_or_forged_schedule_fails_closed(self):
         now = datetime(2026, 10, 22, 9, 15, tzinfo=MADRID)
         for case in (
@@ -175,7 +225,8 @@ class TrainScheduleWatchTests(unittest.TestCase):
                         run_id, "read-token",
                         opener=lambda *_args, **_kwargs: Response(redirect, data))
 
-    def test_main_rejects_green_workflow_with_skipped_train_job(self):
+    @patch.object(watch, "fetch_external_runs", return_value=[])
+    def test_main_rejects_green_workflow_with_skipped_train_job(self, _external_mock):
         env = {"GITHUB_REPOSITORY": watch.REPO, "GITHUB_REF": "refs/heads/main",
                "GITHUB_EVENT_NAME": "schedule", "GH_TOKEN": "private-test-token"}
         with patch.dict(os.environ, env, clear=True):
@@ -239,7 +290,8 @@ class TrainScheduleWatchTests(unittest.TestCase):
         self.assertIn("scripts/chronicles_train_schedule_watch.py", src)
         self.assertIn("test_chronicles_train_schedule_watch.py", src)
 
-    def test_main_fails_closed_without_leaking_token(self):
+    @patch.object(watch, "fetch_external_runs", return_value=[])
+    def test_main_fails_closed_without_leaking_token(self, _external_mock):
         context = {"GITHUB_REPOSITORY": watch.REPO,
                    "GITHUB_REF": "refs/heads/main",
                    "GITHUB_EVENT_NAME": "schedule",
