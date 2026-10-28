@@ -89,6 +89,23 @@ El rollback sigue siendo **manual y explícito** mediante los workflows de API y
 3. `Chronicles Pages release` → environment `production`, `source_sha` = el mismo SHA.
    La admisión exige que el SHA esté en `main` protegido; el build falla si apunta a la API de staging.
 
+### Evitar un falso verde de staging al recuperar Pages
+
+**Importante:** el formulario manual de `chronicles-pages-release.yml` tiene `environment=staging` como valor predeterminado. Al hacer una recuperación **solo de Pages en producción**, elegir explícitamente **production** e indicar el SHA completo del backend que ya responde por `/api/release`. De otro modo, un run de staging puede terminar verde aunque el job de producción esté *skipped*.
+
+La validación temprana `chronicles_pages_manual_target.py` ahora rechaza un `source_sha` suministrado con `environment=staging` en modo manual normal; exige `environment=production` y SHA exacto para la promoción. Las sincronizaciones internas de staging con `only_if_new=true` mantienen el SHA como mecanismo de control y no cambian. Un workflow rojo por selección ambigua **no prueba una incidencia en producción** ni autoriza nuevos despliegues.
+
+Ejemplo de recuperación **dirigida exclusivamente a Pages**, sujeto a CI, recibos y guardas de producción:
+
+~~~bash
+gh workflow run chronicles-pages-release.yml \
+  -R evilsysadmin/shadowops-infra --ref main \
+  -f environment=production \
+  -f source_sha='03e8f308a701e2df1c30d5e1259330a477a4ade3'
+~~~
+
+Después, exigir que el job **«Promote a Chronicles main SHA to production»** termine verde, comprobar los recibos de API y Pages de producción, y ejecutar una nueva auditoría independiente desde `main`. Un `success` global con ese job omitido no cuenta como recuperación.
+
 ## Puerta de promoción (control previo a mutaciones)
 
 - Indicar siempre el SHA completo; no se puede usar un `source_sha` vacío en producción.

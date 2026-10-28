@@ -8,6 +8,8 @@ on:
       - 'scripts/pages_owner_admission.py'
       - 'scripts/chronicles_source_ci.py'
       - 'scripts/chronicles_production_admission.py'
+      - 'scripts/chronicles_pages_manual_target.py'
+      - 'tests/test_chronicles_pages_manual_target.py'
       - 'tests/test_chronicles_source_ci.py'
       - 'tests/test_chronicles_production_admission.py'
       - 'tests/test_pages_owner_admission.py'
@@ -60,6 +62,14 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+      - name: Reject ambiguous manual staging versus production target
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          CHRONICLES_TARGET_ENV: ${{ inputs.environment }}
+          CHRONICLES_SOURCE_SHA: ${{ inputs.source_sha }}
+          CHRONICLES_ONLY_IF_NEW: ${{ inputs.only_if_new }}
+        run: python3 scripts/chronicles_pages_manual_target.py
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_manual_target.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_pages_owner_admission.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_source_ci.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_production_admission.py' -v
