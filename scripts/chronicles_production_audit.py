@@ -180,7 +180,18 @@ def audit(token: str, *, manifest=read_release, page=probe_https,
     )
     for path in ("health", "ready", "cors"):
         audit_phase("api_" + path, lambda path=path: api(path))
-    audit_phase("api_sha", lambda: api_build() == sha)
+    def same_public_build():
+        runtime = api_build()
+        if runtime == sha:
+            return True
+        # Both build IDs are public, but still sanitize untrusted API values.
+        safe_runtime = (runtime if isinstance(runtime, str)
+                        and SHA.fullmatch(runtime) else "unavailable")
+        print(f"CHRONICLES_PRODUCTION_SHA_MISMATCH pages={sha} api={safe_runtime}",
+              file=sys.stderr)
+        return False
+
+    audit_phase("api_sha", same_public_build)
     audit_phase("sso_jwks", sso)
     for kind in ("production-api", "production-pages"):
         audit_phase("receipt_" + kind.replace("-", "_"),
