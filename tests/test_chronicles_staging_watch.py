@@ -43,6 +43,12 @@ class WatchTest(unittest.TestCase):
         model = patch.object(watch, "probe_public_glb", return_value="ok")
         self.model_probe = model.start()
         self.addCleanup(model.stop)
+        # Unit tests never contact the public endpoint unless explicitly
+        # exercising the new preflight helper under a mock transport.
+        cors = patch.object(watch, "probe_login_preflight", return_value="ok")
+        self.cors_patcher = cors
+        self.cors_probe = cors.start()
+        self.addCleanup(cors.stop)
 
     def test_canonical_model_glb_header_is_checked_from_exact_public_origin(self):
         class Response:
@@ -740,6 +746,100 @@ class WatchTest(unittest.TestCase):
                     "repos/" + watch.INFRA + "/issues", "TEST-SECRET",
                     method="PATCH", payload={"body": "incident"}
                 )
+
+    def test_preflight_exact_browser_request_and_headers(self):
+        self.cors_patcher.stop()
+        captured = []
+        class Response:
+            status = 200
+            def __init__(self, request):
+                self.request = request
+                self.headers = {
+                    "Access-Control-Allow-Origin": watch.ORIGIN,
+                    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+                }
+            def geturl(self):
+                return self.request.full_url
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+        def mock_open(request, *, timeout):
+            self.assertEqual(timeout, 10)
+            captured.append(request)
+            return Response(request)
+        with patch.object(watch, "open_no_redirect", side_effect=mock_open):
+            self.assertEqual(watch.probe_login_preflight(), "ok")
+        self.assertEqual(len(captured), 1)
+        req = captured[0]
+        self.assertEqual(req.full_url, watch.API + "/auth/login")
+        self.assertEqual(req.get_method(), "OPTIONS")
+        self.assertEqual(req.get_header("Origin"), watch.ORIGIN)
+        self.assertEqual(req.get_header("Access-control-request-method"), "POST")
+        self.assertEqual(req.get_header("Access-control-request-headers"), "content-type")
+        self.assertIsNone(req.data)
+        self.assertIsNone(req.get_header("Authorization"))
+
+    def test_preflight_denied_origin_and_http_530(self):
+        self.cors_patcher.stop()
+        class Response:
+            status = 200
+            def __init__(self, request, headers):
+                self.request = request
+                self.headers = headers
+            def geturl(self):
+                return self.request.full_url
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+        headers = {
+            "Access-Control-Allow-Origin": "https://wrong.invalid",
+            "Access-Control-Allow-Methods": "POST",
+            "Access-Control-Allow-Headers": "Content-Type",
+        }
+        with patch.object(watch, "open_no_redirect",
+                          side_effect=lambda req, **kw: Response(req, headers)):
+            self.assertEqual(watch.probe_login_preflight(), "invalid")
+        error = urllib.error.HTTPError(watch.API + "/auth/login", 530, "edge", {}, None)
+        with patch.object(watch, "open_no_redirect", side_effect=error):
+            self.assertEqual(watch.probe_login_preflight(), "http_530")
+
+    @patch.object(watch, "source_ci_status", return_value=("pending", None))
+    def test_preflight_530_alerts_as_edge_but_bad_cors_as_structural(self, _):
+        for result, expected in (
+            ("ok", set()),
+            ("http_530", {"api-login-cors-edge"}),
+            ("unavailable", {"api-login-cors-edge"}),
+            ("invalid", {"api-login-cors"}),
+            ("http_400", {"api-login-cors"}),
+        ):
+            with self.subTest(result=result):
+                self.cors_probe.return_value = result
+                self.assertEqual(set(watch.failures("t", get=url, gh=gh, now=NOW)), expected)
+
+    @patch.object(watch, "source_ci_status", return_value=("pending", None))
+    def test_no_duplicate_preflight_alert_if_health_fails(self, _):
+        self.cors_probe.side_effect = AssertionError("do not probe preflight")
+        def down(address, token=""):
+            if address.endswith("/health"):
+                raise urllib.error.HTTPError(address, 530, "edge", {}, None)
+            return url(address, token)
+        self.assertEqual(set(watch.failures("t", get=down, gh=gh, now=NOW)),
+                         {"api-health-edge"})
+
+    def test_cors_edge_needs_three_readings_but_bad_headers_only_two(self):
+        readings = iter([
+            {"api-login-cors-edge": "530"},
+            {"api-login-cors-edge": "530"},
+            {},
+        ])
+        self.assertEqual(watch.confirmed_failures(
+            "t", probe=lambda _: next(readings), pause=lambda _: None), {})
+        self.assertEqual(watch.confirmed_failures(
+            "t", probe=lambda _: {"api-login-cors": "wrong origin"},
+            pause=lambda _: None), {"api-login-cors": "wrong origin"})
 
     @patch.object(watch, "source_ci_status", return_value=("pending", None))
     def test_api_health_and_readiness_payload_contract_is_required(self, _):
