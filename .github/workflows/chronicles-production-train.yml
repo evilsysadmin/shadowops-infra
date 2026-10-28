@@ -23,6 +23,11 @@ on:
         type: boolean
         required: false
         default: false
+      pages_only:
+        description: Manual recovery only - keep verified exact-SHA production API, deploy Pages only (requires source_sha)
+        type: boolean
+        required: false
+        default: false
       automated:
         description: External scheduler invocation; use the same automatic production safety preflight as schedule
         type: boolean
@@ -62,6 +67,7 @@ jobs:
       CHRONICLES_PAGES_ENV: production
       CHRONICLES_TRAIN_DRY_RUN: 'true'
       CHRONICLES_TRAIN_SOURCE_SHA: ${{ inputs.source_sha || '' }}
+      CHRONICLES_TRAIN_PAGES_ONLY: ${{ inputs.pages_only == true }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -93,6 +99,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       CHRONICLES_PAGES_ENV: production
       CHRONICLES_TRAIN_SOURCE_SHA: ${{ inputs.source_sha || '' }}
+      CHRONICLES_TRAIN_PAGES_ONLY: ${{ inputs.pages_only == true }}
       CHRONICLES_TRAIN_AUTOMATED: ${{ github.event_name == 'schedule' || inputs.automated == true }}
       # Must be enabled only as part of the Cloudflare/GitHub cutover.
       CHRONICLES_TRAIN_DEDUPE_ENABLED: ${{ vars.CHRONICLES_TRAIN_DEDUPE_ENABLED || 'false' }}

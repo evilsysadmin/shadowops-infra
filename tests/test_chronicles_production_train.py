@@ -511,6 +511,143 @@ class ReleaseTrainTests(unittest.TestCase):
                 train.receipt_after(SHA, "api", TOKEN, invalid,
                                     receipt=receipt, sleep=lambda _: None)
 
+    def test_pages_only_recovery_has_an_explicit_manual_workflow_input(self):
+        workflow = yaml.load(
+            (ROOT / ".github/workflows/chronicles-production-train.yml").read_text(),
+            Loader=yaml.BaseLoader,
+        )
+        inputs = workflow["on"]["workflow_dispatch"]["inputs"]
+        self.assertEqual(inputs["pages_only"]["type"], "boolean")
+        self.assertEqual(inputs["pages_only"]["default"], "false")
+        self.assertIn("CHRONICLES_TRAIN_PAGES_ONLY",
+                      workflow["jobs"]["preflight"]["env"])
+        self.assertIn("CHRONICLES_TRAIN_PAGES_ONLY",
+                      workflow["jobs"]["train"]["env"])
+        self.assertNotIn("actions: write",
+                         str(workflow["jobs"]["preflight"]["permissions"]))
+
+    def test_existing_api_reuse_requires_sha_health_cors_and_trusted_receipt(self):
+        checks = []
+        def api_probe(name):
+            checks.append(name)
+            return True
+        def receipt_probe(sha, kind, token):
+            checks.append(kind)
+            self.assertEqual((sha, token), (SHA, TOKEN))
+            return kind == "production-api"
+        self.assertTrue(train.reusable_production_api(
+            SHA, TOKEN, probe=api_probe, api_build=lambda: SHA,
+            receipt=receipt_probe))
+        self.assertEqual(checks, ["health", "ready", "cors", "production-api"])
+        for mismatch in (OTHER, None):
+            with self.subTest(mismatch=mismatch):
+                self.assertFalse(train.reusable_production_api(
+                    SHA, TOKEN, probe=lambda _: self.fail("no probe on SHA mismatch"),
+                    api_build=lambda: mismatch,
+                    receipt=lambda *_: self.fail("no receipt on SHA mismatch")))
+        for broken in ("health", "ready", "cors"):
+            with self.subTest(broken=broken):
+                self.assertFalse(train.reusable_production_api(
+                    SHA, TOKEN, probe=lambda stage: stage != broken,
+                    api_build=lambda: SHA,
+                    receipt=lambda *_: self.fail("unhealthy API has no valid reuse")))
+        self.assertFalse(train.reusable_production_api(
+            SHA, TOKEN, probe=lambda _: True, api_build=lambda: SHA,
+            receipt=lambda *_: False))
+        self.assertFalse(train.reusable_production_api(
+            "invalid", TOKEN,
+            api_build=lambda: self.fail("reject malformed SHA before network")))
+
+    def test_pages_only_preflight_is_read_only_and_can_repair_broken_frontend(self):
+        actions = []
+        result = train.preflight(
+            TOKEN, pinned=SHA, pages_only=True, select=lambda *_: SHA,
+            current=lambda *_: False,
+            api_reusable=lambda sha, token: actions.append("api-evidence") or True,
+            surface=lambda: self.fail("broken Pages must not block explicit repair"))
+        self.assertEqual(result["result"], "would-recover-pages")
+        self.assertEqual(actions, ["api-evidence"])
+        with self.assertRaisesRegex(train.TrainError, "healthy exact-SHA"):
+            train.preflight(
+                TOKEN, pinned=SHA, pages_only=True, select=lambda *_: SHA,
+                current=lambda *_: False, api_reusable=lambda *_: False,
+                surface=lambda: self.fail("no frontend surface on Pages-only"))
+        with self.assertRaisesRegex(train.TrainError, "explicit source SHA"):
+            train.preflight(TOKEN, pages_only=True,
+                            select=lambda *_: self.fail("no selection"))
+
+    def test_explicit_pages_only_recovery_never_dispatches_api(self):
+        steps = []
+        progress = {}
+        def start(kind, sha, token):
+            self.assertEqual((kind, sha, token), ("pages", SHA, TOKEN))
+            steps.append("pages-dispatched")
+            return 92
+        result = train.run(
+            TOKEN, pinned=SHA, pages_only=True,
+            select=lambda *_: SHA, current=lambda *_: False,
+            api_reusable=lambda *_: steps.append("api-attested") or True,
+            start=start, wait=lambda kind, *_: steps.append("pages-green"),
+            receipt=lambda sha, kind, token, run: steps.append("pages-receipt"),
+            probe=lambda name: steps.append(name) or True,
+            api_build=lambda: steps.append("live-sha") or SHA,
+            verify=lambda _: steps.append("full-audit") or SHA,
+            progress=progress)
+        self.assertEqual(steps, ["api-attested", "health", "ready", "cors",
+                                 "live-sha", "pages-dispatched", "pages-green",
+                                 "pages-receipt", "full-audit"])
+        self.assertEqual(result, {"source_sha": SHA, "result": "pages-recovered",
+                                  "api_run": None, "pages_run": 92})
+        self.assertEqual(progress["result"], "pages-recovered")
+
+    def test_pages_only_blocked_before_mutation_on_missing_api_evidence(self):
+        for condition in (False, None):
+            with self.subTest(condition=condition):
+                progress = {}
+                with self.assertRaisesRegex(train.TrainError, "healthy exact-SHA"):
+                    train.run(TOKEN, pinned=SHA, pages_only=True,
+                              select=lambda *_: SHA, current=lambda *_: False,
+                              api_reusable=lambda *_: condition,
+                              start=lambda *_: self.fail("no dispatch"),
+                              progress=progress)
+                self.assertEqual(progress["stage"], "existing-api-verification")
+                self.assertNotIn("pages_run", progress)
+        with self.assertRaisesRegex(train.TrainError, "manual"):
+            train.run(TOKEN, pinned=SHA, pages_only=True, scheduled=True,
+                      select=lambda *_: self.fail("no selection"))
+        with self.assertRaisesRegex(train.TrainError, "explicit source SHA"):
+            train.run(TOKEN, pages_only=True, select=lambda *_: self.fail("no selection"))
+
+    def test_pages_only_main_requires_dispatch_non_automated_and_pinned_sha(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {
+                "GITHUB_REPOSITORY": train.INFRA,
+                "GITHUB_REF": "refs/heads/main",
+                "GITHUB_EVENT_NAME": "workflow_dispatch",
+                "GH_TOKEN": TOKEN, "RUNNER_TEMP": tmp,
+                "CHRONICLES_TRAIN_PAGES_ONLY": "true",
+                "CHRONICLES_TRAIN_SOURCE_SHA": SHA,
+            }
+            for override in (
+                {"GITHUB_EVENT_NAME": "schedule"},
+                {"CHRONICLES_TRAIN_AUTOMATED": "true"},
+                {"CHRONICLES_TRAIN_SOURCE_SHA": ""},
+                {"CHRONICLES_TRAIN_SOURCE_SHA": "bad"},
+            ):
+                with self.subTest(override=override), patch.dict(
+                    os.environ, {**env, **override}, clear=True
+                ), patch.object(train, "run",
+                                side_effect=AssertionError("not dispatched")):
+                    self.assertEqual(train.main(), 1)
+            with patch.dict(os.environ, env, clear=True), patch.object(
+                train, "run",
+                return_value={"source_sha": SHA, "result": "pages-recovered",
+                              "api_run": None, "pages_run": 92}
+            ) as runner:
+                self.assertEqual(train.main(), 0)
+                self.assertTrue(runner.call_args.kwargs["pages_only"])
+                self.assertFalse(runner.call_args.kwargs["scheduled"])
+
     def test_partial_api_success_is_journaled_before_pages_failure(self):
         stages = {"result": "blocked", "stage": "starting",
                   "source_sha": None, "api_run": None, "pages_run": None}

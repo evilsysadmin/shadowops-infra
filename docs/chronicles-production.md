@@ -55,6 +55,26 @@ Durante una eventual activación, verificar en el mismo cambio operativo: variab
 - Para una versión nueva, despacha el workflow de API con SHA exacto, espera a su **run ID devuelto por GitHub**, exige resultado verde, recibo producido **por ese mismo run ID** (no vale uno antiguo con el mismo SHA), health/ready/CORS **y `/api/release.build` público igual al SHA admitido**. Una API sana con una imagen vieja o sin identidad de build bloquea el tren; **solo entonces** despacha Pages y vuelve a exigir resultado verde, recibo del **run ID exacto** y auditoría pública exacta.
 - Los despliegues siguen siendo propiedad exclusiva de sus dos workflows protegidos. El tren solo dispone de `actions: write` y `contents: read`; no recibe secretos Atlas/OCI/Cloudflare. Se serializan los trenes entre sí, y cada workflow hijo mantiene sus locks propios.
 - Los runs y el SHA elegido se registran en un artefacto JSON del train (90 días), **incluso si falla**: conserva etapa alcanzada y los IDs exactos de los workflows hijos, sin almacenar tokens ni respuestas privadas. Si falla Pages después de API, el registro indica el despliegue parcial; **no** se toca Mongo ni se aplica un rollback ciego: requiere intervención y comprobación de compatibilidad de datos.
+
+### Recuperación manual de Pages tras un tren parcial
+
+Cuando la **API de producción ya sirve el SHA deseado**, pero el Pages de producción no pudo publicarse (p. ej. porque `main` de Infra avanzó durante el tren), se puede recuperar **únicamente Pages** sin volver a desplegar la API. Esta opción no está habilitada para `schedule` ni para el scheduler externo, requiere el `source_sha` completo explícito en `workflow_dispatch` y debe utilizarse después de evaluar compatibilidad/estado de producción.
+
+1. Validar con un **dry-run de recuperación** (no muta OCI, Cloudflare ni datos):
+   ```bash
+   gh workflow run chronicles-production-train.yml -R evilsysadmin/shadowops-infra --ref main \
+     -f source_sha='<SHA_ACREDITADO_QUE_SIRVE_LA_API_PROD>' -f pages_only=true -f dry_run=true
+   ```
+2. Revisar que el run indica `CHRONICLES_TRAIN_PREFLIGHT would-recover-pages`. El gate exige CI y **ambos recibos staging** válidos del SHA; `/api/release.build` de producción debe coincidir exactamente, API health/ready/CORS deben pasar y debe existir un **recibo production-api confiable** para ese mismo SHA.
+3. Solo tras el preflight verde, recuperar Pages:
+   ```bash
+   gh workflow run chronicles-production-train.yml -R evilsysadmin/shadowops-infra --ref main \
+     -f source_sha='<SHA_ACREDITADO_QUE_SIRVE_LA_API_PROD>' -f pages_only=true -f dry_run=false
+   ```
+4. El tren repite el gate de API antes de despachar Pages y exige el **recibo production-pages del run nuevo** y la auditoría pública completa (API y Pages con SHA idéntico). El artefacto de progreso registra `api_run: null`, el `pages_run` real y resultado `pages-recovered`. Si falta alguna evidencia o falla Pages, **bloquea sin publicar recibo falso ni desplegar API**.
+
+No usar este modo para promover un SHA que todavía no sirve la API de producción. Para actualizar ambas partes a un SHA **nuevo** de staging, usar el release train normal; la recuperación anterior no sustituye un rollout completo ni autoriza saltarse gates.
+
 - Producción requiere el entorno de GitHub `production`; si se configuran aprobaciones, se respetarán antes de ejecutar el train.
 
 ### Simulacro de admisión (sin desplegar nada)

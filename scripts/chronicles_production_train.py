@@ -85,6 +85,22 @@ def deployed_sha(sha: str, token: str, *, manifest=read_release,
     return True
 
 
+def reusable_production_api(sha: str, token: str, *, probe=check_api,
+                            api_build=read_live_api_build,
+                            receipt=verified_receipt) -> bool:
+    """Read-only gate for explicit manual Pages-only recovery.
+
+    Live API identity AND health AND a trusted production API receipt are
+    mandatory. A historical receipt alone never proves the live API's SHA.
+    """
+    return bool(
+        isinstance(sha, str) and SHA.fullmatch(sha) and token
+        and api_build() == sha
+        and all(probe(name) for name in ("health", "ready", "cors"))
+        and receipt(sha, "production-api", token)
+    )
+
+
 def github_api(method: str, path: str, token: str, data: dict | None = None) -> dict:
     # Fixed GitHub-owned workflow/run family; no caller-provided URL.
     if not path.startswith("repos/" + INFRA + "/actions/"):
@@ -287,8 +303,11 @@ def production_surface_ready(*, page=probe_https, assets=probe_react_preview,
 def preflight(token: str, pinned: str = "", *, select=select_sha,
               current=deployed_sha, verify=public_audit,
               surface=production_surface_ready,
+              pages_only: bool = False, api_reusable=reusable_production_api,
               progress: dict | None = None) -> dict:
     """Inspect live staging admission and production, without any dispatch/write."""
+    if pages_only and not pinned:
+        raise TrainError("pages-only recovery requires an explicit source SHA")
     progress_stage(progress, "candidate-admission")
     sha = select(token, pinned)
     progress_stage(progress, "production-inspection", source_sha=sha)
@@ -297,6 +316,13 @@ def preflight(token: str, pinned: str = "", *, select=select_sha,
         if verify(token) != sha:
             raise TrainError("unchanged production failed public game audit")
         action = "unchanged"
+    elif pages_only:
+        # A broken frontend may be the point of this explicit repair. Do not
+        # require its readiness, but rigorously verify the API we will reuse.
+        progress_stage(progress, "existing-api-verification")
+        if not api_reusable(sha, token):
+            raise TrainError("pages-only recovery requires healthy exact-SHA production API and receipt")
+        action = "would-recover-pages"
     else:
         # A different SHA is not proof the live production service is healthy.
         # Check its public surface before claiming the candidate is promotable.
@@ -315,7 +341,10 @@ def run(token: str, pinned: str = "", *, select=select_sha,
         receipt=receipt_after, verify=public_audit,
         probe=check_api, api_build=read_live_api_build,
         scheduled: bool = False, surface=production_surface_ready,
+        pages_only: bool = False, api_reusable=reusable_production_api,
         progress: dict | None = None) -> dict:
+    if pages_only and (scheduled or not pinned):
+        raise TrainError("pages-only recovery must be manual with an explicit source SHA")
     progress_stage(progress, "candidate-admission")
     sha = select(token, pinned)
     progress_stage(progress, "production-inspection", source_sha=sha)
@@ -336,13 +365,21 @@ def run(token: str, pinned: str = "", *, select=select_sha,
         if not surface():
             raise TrainError("current production unhealthy before scheduled promotion")
         progress_stage(progress, "existing-production-ready")
-    progress_stage(progress, "api-dispatch")
-    api_run = start("api", sha, token)
-    progress_stage(progress, "api-running", api_run=api_run)
-    wait("api", api_run, token)
-    progress_stage(progress, "api-green")
-    receipt(sha, "api", token, api_run)
-    progress_stage(progress, "api-receipt")
+    if pages_only:
+        progress_stage(progress, "existing-api-verification")
+        if not api_reusable(sha, token):
+            raise TrainError("pages-only recovery requires healthy exact-SHA production API and receipt")
+        api_run = None
+        progress_stage(progress, "api-reused")
+        print("CHRONICLES_TRAIN_API_REUSED sha=" + sha, flush=True)
+    else:
+        progress_stage(progress, "api-dispatch")
+        api_run = start("api", sha, token)
+        progress_stage(progress, "api-running", api_run=api_run)
+        wait("api", api_run, token)
+        progress_stage(progress, "api-green")
+        receipt(sha, "api", token, api_run)
+        progress_stage(progress, "api-receipt")
     # Absolutely no Pages dispatch if the new API isn't publicly ready.
     if not all(probe(p) for p in ("health", "ready", "cors")):
         raise TrainError("production API public smoke failed after API deployment")
@@ -358,9 +395,10 @@ def run(token: str, pinned: str = "", *, select=select_sha,
     progress_stage(progress, "pages-receipt")
     if verify(token) != sha:
         raise TrainError("public production release does not match admitted SHA")
-    progress_stage(progress, "completed", result="promoted")
-    print("CHRONICLES_TRAIN_PROMOTED sha=" + sha, flush=True)
-    return {"source_sha": sha, "result": "promoted", "api_run": api_run,
+    result = "pages-recovered" if pages_only else "promoted"
+    progress_stage(progress, "completed", result=result)
+    print("CHRONICLES_TRAIN_" + result.upper().replace("-", "_") + " sha=" + sha, flush=True)
+    return {"source_sha": sha, "result": result, "api_run": api_run,
             "pages_run": pages_run}
 
 
@@ -382,6 +420,11 @@ def main() -> int:
         dry_run = os.environ.get("CHRONICLES_TRAIN_DRY_RUN", "").lower() == "true"
         automated = (os.environ["GITHUB_EVENT_NAME"] == "schedule"
                      or os.environ.get("CHRONICLES_TRAIN_AUTOMATED", "").lower() == "true")
+        pages_only = os.environ.get("CHRONICLES_TRAIN_PAGES_ONLY", "").lower() == "true"
+        if pages_only and (automated or not source_sha
+                           or not SHA.fullmatch(source_sha)
+                           or os.environ["GITHUB_EVENT_NAME"] != "workflow_dispatch"):
+            raise TrainError("pages-only recovery requires manual dispatch and pinned SHA")
         if (not dry_run and automated
                 and os.environ.get("CHRONICLES_TRAIN_DEDUPE_ENABLED", "").lower() == "true"):
             try:
@@ -396,10 +439,10 @@ def main() -> int:
                 print(f"CHRONICLES_TRAIN_DUPLICATE_SKIPPED previous_run={previous}",
                       flush=True)
                 return 0
-        result = (preflight(token, source_sha, progress=progress) if dry_run
+        mode = {"pages_only": True} if pages_only else {}
+        result = (preflight(token, source_sha, progress=progress, **mode) if dry_run
                   else run(token, source_sha,
-                           scheduled=automated,
-                           progress=progress))
+                           scheduled=automated, progress=progress, **mode))
         progress.update(result)
         return 0
     except (TrainError, PromotionError, urllib.error.URLError, ValueError,
