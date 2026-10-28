@@ -37,6 +37,7 @@ MAX_ISSUE_PAGES = 20  # Fail closed instead of creating duplicates if enumeratio
 VERSION_FAILURE_KEYS = frozenset({"frontend-lag", "backend-lag", "api-revision"})
 CONFIRM_FAMILIES = {
     "api": ("api-health", "api-health-edge"),
+    "login": ("api-login-cors", "api-login-cors-edge"),
     "game": ("pages-game", "pages-edge"),
     "model": ("pages-model", "pages-model-edge"),
     "manifest": ("pages-manifest", "pages-manifest-edge"),
@@ -139,6 +140,40 @@ def open_no_redirect(request: urllib.request.Request, *, timeout: int):
     return urllib.request.build_opener(RejectHttpRedirects()).open(
         request, timeout=timeout
     )
+
+
+def probe_login_preflight() -> str:
+    """Verify that the REAL staging browser can reach login, without credentials.
+
+    A healthy /health and /ready do not prove OPTIONS /auth/login works.
+    Keep this read-only and on the fixed staging API + frontend origin.
+    Never POST a password, follow redirects, or expose response bodies.
+    """
+    url = API + "/auth/login"
+    request = urllib.request.Request(url, method="OPTIONS", headers={
+        "User-Agent": "shadowops-chronicles-watch/1",
+        "Origin": ORIGIN,
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type",
+    })
+    try:
+        with open_no_redirect(request, timeout=10) as response:
+            if response.status not in (200, 204) or response.geturl() != url:
+                return "invalid"
+            headers = response.headers
+            if headers.get("Access-Control-Allow-Origin") != ORIGIN:
+                return "invalid"
+            methods = {v.strip().upper() for v in
+                       headers.get("Access-Control-Allow-Methods", "").split(",")}
+            allowed_headers = {v.strip().lower() for v in
+                               headers.get("Access-Control-Allow-Headers", "").split(",")}
+            if "POST" not in methods or "content-type" not in allowed_headers:
+                return "invalid"
+            return "ok"
+    except urllib.error.HTTPError as exc:
+        return ("http_" + str(exc.code)) if isinstance(exc.code, int) and 400 <= exc.code <= 599 else "http_error"
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        return "unavailable"
 
 
 def probe_public_glb() -> str:
@@ -291,6 +326,19 @@ def failures(token: str, *, get: Callable = get_url, gh: Callable = github,
         bad[key] = ("La API pública /health o /ready no es accesible por la conexión HTTPS"
                     if key == "api-health-edge"
                     else "La API pública /health o /ready no cumple el contrato de salud")
+    # A plain HTTPS health GET can succeed while Cloudflare returns HTTP
+    # 530 to the browser preflight for /auth/login. Monitor the exact OPTIONS
+    # route and CORS headers independently of source CI/deploy receipts.
+    # If health is already down, avoid two alerts for the same API outage.
+    if not {"api-health", "api-health-edge"} & bad.keys():
+        preflight = probe_login_preflight()
+        if preflight != "ok":
+            key = ("api-login-cors-edge"
+                   if pages_failure_key(preflight) == "pages-edge"
+                   else "api-login-cors")
+            bad[key] = ("El preflight HTTPS de login falla por conexión/CDN/Cloudflare"
+                        if key.endswith("-edge")
+                        else "El preflight de login no permite el origen, método o cabeceras de staging")
     live_sha = None
     try:
         manifest = get(ORIGIN + "/release.json?watch=" + str(int(now.timestamp())))
