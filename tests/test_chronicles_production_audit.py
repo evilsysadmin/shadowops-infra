@@ -86,6 +86,59 @@ class ProductionAuditTests(unittest.TestCase):
                 with self.assertRaises(audit.AuditError):
                     self.checked(**kwargs)
 
+    def test_sha_mismatch_reports_only_valid_public_sha_or_unavailable(self):
+        other = "b" * 40
+        for observed, expected in (
+            (other, other),
+            (None, "unavailable"),
+            ("leaky-private-token-value", "unavailable"),
+        ):
+            with self.subTest(observed=observed), patch.dict(
+                os.environ, {"CHRONICLES_PAGES_ENV": "production"}
+            ), patch("sys.stderr", new_callable=io.StringIO) as logged:
+                with self.assertRaisesRegex(audit.AuditError, "source SHA"):
+                    audit.audit(
+                        "read-token", manifest=lambda: {"build": SHA},
+                        page=lambda: "ok", assets=lambda **_: "ok",
+                        api=lambda _: True, receipt=lambda *_: True,
+                        sso=lambda: True, api_build=lambda: observed,
+                    )
+                self.assertEqual(
+                    logged.getvalue().strip(),
+                    f"CHRONICLES_PRODUCTION_SHA_MISMATCH pages={SHA} api={expected}",
+                )
+                self.assertNotIn("leaky-private-token", logged.getvalue())
+
+    def test_audit_main_emits_only_fixed_reason_codes_without_leaking_errors(self):
+        failures = (
+            ("production API public source SHA missing or mismatched", "API_PAGES_SHA_MISMATCH"),
+            ("public game JS/CSS unavailable", "PAGES_ASSETS_DOWN"),
+            ("no trusted production-pages receipt for public SHA", "PAGES_RECEIPT_MISSING"),
+            ("production SSO issuer public JWKS unavailable or invalid", "SSO_JWKS_UNAVAILABLE"),
+            ("production API cors failed", "API_CORS_FAILED"),
+            ("production API health failed", "API_HEALTH_DOWN"),
+            ("untrusted-token-should-not-appear", "EVIDENCE_UNAVAILABLE"),
+        )
+        for message, expected in failures:
+            with self.subTest(message=message), patch.object(
+                audit.sys, "argv", ["audit"]
+            ), patch.dict(os.environ, {"GH_TOKEN": "private-test-token"}), patch.object(
+                audit, "audit", side_effect=audit.AuditError(message)
+            ), patch("sys.stderr", new_callable=io.StringIO) as logged:
+                self.assertEqual(audit.main(), 1)
+                self.assertEqual(
+                    logged.getvalue().strip(),
+                    "CHRONICLES_PRODUCTION_AUDIT_BLOCKED reason=" + expected,
+                )
+                self.assertNotIn("private-test-token", logged.getvalue())
+                self.assertNotIn("untrusted-token-should-not-appear", logged.getvalue())
+        with patch.object(audit.sys, "argv", ["audit"]), patch.object(
+            audit, "audit", side_effect=TimeoutError("secret")
+        ), patch("sys.stderr", new_callable=io.StringIO) as logged:
+            self.assertEqual(audit.main(), 1)
+            self.assertEqual(logged.getvalue().strip(),
+                             "CHRONICLES_PRODUCTION_AUDIT_BLOCKED reason=EVIDENCE_UNAVAILABLE")
+
     def test_public_manifest_origin_is_fixed(self):
         url = audit.ORIGIN + "/release.json?production_audit=1"
         payload = ('{"release":"v1","build":"' + SHA + '"}').encode()
