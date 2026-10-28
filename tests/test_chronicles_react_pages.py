@@ -392,10 +392,14 @@ class ParallelReactPagesTest(unittest.TestCase):
             'wrangler@4.127.1 pages deploy "$RUNNER_TEMP/chronicles-pages"',
         ]:
             self.assertIn(required, workflow)
-        for guard in ("CHRONICLES_PUBLIC_RELEASE_MANIFEST_OK", "EXPECTED_SHA:",
-                      "https://staging.chronicles.shadowops.dpdns.org/release.json",
-                      'data.get("build") == os.environ["EXPECTED_SHA"]'):
-            self.assertIn(guard, workflow)
+        self.assertIn("EXPECTED_SHA: ${{ steps.source.outputs.sha }}", workflow)
+        self.assertIn("python3 scripts/chronicles_pages_manifest_wait.py", workflow)
+        helper = (pathlib.Path(__file__).resolve().parents[1]
+                  / "scripts/chronicles_pages_manifest_wait.py").read_text()
+        for guard in ("CHRONICLES_PUBLIC_RELEASE_MANIFEST_OK",
+                      'manifest.get("build") == sha',
+                      "from chronicles_pages_verified_receipt import ORIGIN, read_manifest"):
+            self.assertIn(guard, helper)
         self.assertIn('chronicles_api_before_pages.py "$ADMITTED_SHA"', workflow)
         self.assertIn("needs: [contracts, staging-candidate, api-ready]", workflow)
         self.assertIn("if: needs.api-ready.outputs.publish == 'true'", workflow)
