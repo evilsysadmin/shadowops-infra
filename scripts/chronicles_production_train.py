@@ -6,6 +6,8 @@ This orchestrator does not handle OCI, MongoDB, or Cloudflare secrets.
 """
 from __future__ import annotations
 
+from datetime import datetime, time, timezone
+from zoneinfo import ZoneInfo
 import json
 import os
 from pathlib import Path
@@ -105,6 +107,110 @@ def github_api(method: str, path: str, token: str, data: dict | None = None) -> 
     if not isinstance(result, dict):
         raise TrainError("invalid GitHub Actions response")
     return result
+
+
+
+DAILY_TRAIN_RUNS = (
+    f"repos/{INFRA}/actions/workflows/chronicles-production-train.yml/runs?per_page=30"
+)
+DAILY_TRAIN_JOB = "Admit staging, promote API, promote Pages, verify public release"
+DAILY_TRAIN_STEP = "Promote only admitted source, stop if API/Pages fail"
+DAILY_EXTERNAL_TITLE = "Chronicles train · 08:00 Madrid · external-schedule"
+
+
+def _daily_train_created(run: dict) -> datetime:
+    try:
+        value = datetime.fromisoformat(run["created_at"].replace("Z", "+00:00"))
+        if value.tzinfo is None:
+            raise ValueError("naive run timestamp")
+        return value.astimezone(ZoneInfo("Europe/Madrid"))
+    except (KeyError, AttributeError, TypeError, ValueError) as exc:
+        raise TrainError("invalid daily train timestamp evidence") from exc
+
+
+def _is_automatic_run(run: dict) -> bool:
+    return (
+        run.get("path") == ".github/workflows/chronicles-production-train.yml"
+        and run.get("head_branch") == "main"
+        and (run.get("repository") or {}).get("full_name") == INFRA
+        and (run.get("event") == "schedule"
+             or (run.get("event") == "workflow_dispatch"
+                 and run.get("display_title") == DAILY_EXTERNAL_TITLE))
+    )
+
+
+def previous_daily_train(token: str, current_run_id: int, *, now=None,
+                         call=github_api) -> int | None:
+    """Read-only exactly-once gate under the workflow's serialized concurrency.
+
+    A second automatic run is a no-op only when the *previous* daily train
+    actually ran and passed; failures require human recovery, not retry storms.
+    This check is intentionally opt-in until the external scheduler cutover.
+    """
+    if not token or type(current_run_id) is not int or current_run_id <= 0:
+        raise TrainError("invalid daily train identity")
+    instant = now if now is not None else datetime.now(timezone.utc)
+    if instant.tzinfo is None or instant.utcoffset() is None:
+        raise TrainError("daily train clock needs timezone")
+    local = instant.astimezone(ZoneInfo("Europe/Madrid"))
+    payload = call("GET", DAILY_TRAIN_RUNS, token)
+    runs = payload.get("workflow_runs")
+    if not isinstance(runs, list) or not runs or len(runs) > 30:
+        raise TrainError("incomplete daily train history")
+    if any(not isinstance(run, dict) for run in runs):
+        raise TrainError("invalid daily train history")
+    if len({run.get("id") for run in runs}) != len(runs):
+        raise TrainError("duplicate daily train evidence")
+    # If pagination truncates the current Madrid day, never guess that no
+    # previous automatic train exists.
+    if len(runs) == 30 and _daily_train_created(runs[-1]).date() >= local.date():
+        raise TrainError("daily train history truncated")
+    current = [r for r in runs if r.get("id") == current_run_id]
+    if len(current) != 1 or not _is_automatic_run(current[0]):
+        raise TrainError("current automatic train identity unavailable")
+    created = _daily_train_created(current[0])
+    if created.date() != local.date():
+        raise TrainError("current daily train not from today")
+
+    earlier = []
+    for run in runs:
+        if run.get("id") == current_run_id or not _is_automatic_run(run):
+            continue
+        run_id = run.get("id")
+        if type(run_id) is not int or run_id <= 0:
+            raise TrainError("invalid earlier train ID")
+        timestamp = _daily_train_created(run)
+        if (timestamp.date() != local.date()
+                or timestamp.time() < time(7, 45)
+                or (run["event"] == "workflow_dispatch"
+                    and timestamp.time() > time(8, 15))):
+            continue
+        if (timestamp, run_id) < (created, current_run_id):
+            earlier.append((timestamp, run_id, run))
+    if not earlier:
+        return None
+    # The first attempt is authoritative. No automatic reattempt after a
+    # failed, cancelled or incomplete train.
+    previous = min(earlier, key=lambda item: (item[0], item[1]))[2]
+    if (previous.get("status") != "completed"
+            or previous.get("conclusion") != "success"):
+        raise TrainError("previous automatic train was not successful")
+    run_id = previous["id"]
+    jobs = call("GET", f"repos/{INFRA}/actions/runs/{run_id}/jobs?per_page=30",
+                token).get("jobs")
+    if not isinstance(jobs, list) or len(jobs) > 30:
+        raise TrainError("invalid earlier train job evidence")
+    matched = [j for j in jobs if isinstance(j, dict)
+               and j.get("name") == DAILY_TRAIN_JOB]
+    if (len(matched) != 1 or matched[0].get("status") != "completed"
+            or matched[0].get("conclusion") != "success"
+            or not any(isinstance(step, dict)
+                       and step.get("name") == DAILY_TRAIN_STEP
+                       and step.get("status") == "completed"
+                       and step.get("conclusion") == "success"
+                       for step in matched[0].get("steps", []))):
+        raise TrainError("previous automatic promotion step unverified")
+    return run_id
 
 
 def dispatch(kind: str, sha: str, token: str, *, call=github_api) -> int:
@@ -274,10 +380,25 @@ def main() -> int:
         token = os.environ.get("GH_TOKEN", "")
         source_sha = os.environ.get("CHRONICLES_TRAIN_SOURCE_SHA", "").strip()
         dry_run = os.environ.get("CHRONICLES_TRAIN_DRY_RUN", "").lower() == "true"
+        automated = (os.environ["GITHUB_EVENT_NAME"] == "schedule"
+                     or os.environ.get("CHRONICLES_TRAIN_AUTOMATED", "").lower() == "true")
+        if (not dry_run and automated
+                and os.environ.get("CHRONICLES_TRAIN_DEDUPE_ENABLED", "").lower() == "true"):
+            try:
+                run_id = int(os.environ.get("GITHUB_RUN_ID", ""))
+            except ValueError as exc:
+                raise TrainError("invalid current daily train run ID") from exc
+            progress_stage(progress, "daily-duplicate-check")
+            previous = previous_daily_train(token, run_id)
+            if previous is not None:
+                progress_stage(progress, "completed", result="duplicate-skip",
+                               previous_run=previous)
+                print(f"CHRONICLES_TRAIN_DUPLICATE_SKIPPED previous_run={previous}",
+                      flush=True)
+                return 0
         result = (preflight(token, source_sha, progress=progress) if dry_run
                   else run(token, source_sha,
-                           scheduled=(os.environ["GITHUB_EVENT_NAME"] == "schedule"
-                                      or os.environ.get("CHRONICLES_TRAIN_AUTOMATED", "").lower() == "true"),
+                           scheduled=automated,
                            progress=progress))
         progress.update(result)
         return 0
