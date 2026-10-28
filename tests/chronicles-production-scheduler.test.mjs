@@ -96,6 +96,13 @@ test('Worker rollout is manual only, defaults to offline verification and has an
   assert.match(workflow, /DEPLOY_DISABLED_CHRONICLES_SCHEDULER/);
   assert.match(workflow, /npx --yes wrangler@4\.149\.0 deploy --dry-run/);
   assert.match(workflow, /npx --yes wrangler@4\.149\.0 deploy\n/);
+  assert.match(workflow, /python3 scripts\/chronicles_scheduler_occupancy\.py/);
+  assert.match(workflow, /test_chronicles_scheduler_occupancy\.py/);
+  assert.ok(
+    workflow.indexOf('python3 scripts/chronicles_scheduler_occupancy.py') <
+    workflow.indexOf('run: npx --yes wrangler@4.149.0 deploy\n'),
+    'occupancy preflight must precede any Cloudflare deployment',
+  );
   assert.match(workflow, /github\.event_name == 'workflow_dispatch'/);
   assert.match(workflow, /github\.ref == 'refs\/heads\/main'/);
   assert.match(workflow, /inputs\.operation == 'deploy_disabled'/);

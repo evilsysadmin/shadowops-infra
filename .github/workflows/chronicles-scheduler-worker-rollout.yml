@@ -52,6 +52,8 @@ jobs:
           fi
       - name: Worker contract and DST tests
         run: node --test tests/chronicles-production-scheduler.test.mjs
+      - name: Worker name occupancy guard offline tests
+        run: python3 -m unittest discover -s tests -p 'test_chronicles_scheduler_occupancy.py' -v
       - name: Verify disabled rollout configuration
         run: |
           python3 - <<'PY'
@@ -98,6 +100,8 @@ jobs:
           set -euo pipefail
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
+      - name: Refuse to overwrite any existing Worker with this name
+        run: python3 scripts/chronicles_scheduler_occupancy.py
       - name: Deploy only the disabled cron Worker
         working-directory: workers/chronicles-production-scheduler
         run: npx --yes wrangler@4.149.0 deploy
