@@ -757,7 +757,8 @@ class WatchTest(unittest.TestCase):
                 self.headers = {
                     "Access-Control-Allow-Origin": watch.ORIGIN,
                     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-                    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+                    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Request-ID",
+                    "Access-Control-Allow-Credentials": "true",
                 }
             def geturl(self):
                 return self.request.full_url
@@ -771,15 +772,21 @@ class WatchTest(unittest.TestCase):
             return Response(request)
         with patch.object(watch, "open_no_redirect", side_effect=mock_open):
             self.assertEqual(watch.probe_login_preflight(), "ok")
-        self.assertEqual(len(captured), 1)
-        req = captured[0]
-        self.assertEqual(req.full_url, watch.API + "/auth/login")
-        self.assertEqual(req.get_method(), "OPTIONS")
-        self.assertEqual(req.get_header("Origin"), watch.ORIGIN)
-        self.assertEqual(req.get_header("Access-control-request-method"), "POST")
-        self.assertEqual(req.get_header("Access-control-request-headers"), "content-type")
-        self.assertIsNone(req.data)
-        self.assertIsNone(req.get_header("Authorization"))
+        self.assertEqual(len(captured), 2)
+        login, handoff = captured
+        self.assertEqual(login.full_url, watch.IDENTITY_API + "/auth/login")
+        self.assertEqual(handoff.full_url, watch.IDENTITY_API + "/identity/session")
+        for req in captured:
+            self.assertEqual(req.get_method(), "OPTIONS")
+            self.assertEqual(req.get_header("Origin"), watch.ORIGIN)
+            self.assertEqual(req.get_header("Access-control-request-method"), "POST")
+            self.assertIsNone(req.data)
+            self.assertIsNone(req.get_header("Authorization"))
+            self.assertIsNone(req.get_header("Cookie"))
+        self.assertEqual(login.get_header("Access-control-request-headers"),
+                         "content-type,x-request-id")
+        self.assertEqual(handoff.get_header("Access-control-request-headers"),
+                         "authorization,content-type,x-request-id")
 
     def test_preflight_denied_origin_and_http_530(self):
         self.cors_patcher.stop()
@@ -802,44 +809,78 @@ class WatchTest(unittest.TestCase):
         with patch.object(watch, "open_no_redirect",
                           side_effect=lambda req, **kw: Response(req, headers)):
             self.assertEqual(watch.probe_login_preflight(), "invalid")
-        error = urllib.error.HTTPError(watch.API + "/auth/login", 530, "edge", {}, None)
+        error = urllib.error.HTTPError(watch.IDENTITY_API + "/auth/login", 530, "edge", {}, None)
         with patch.object(watch, "open_no_redirect", side_effect=error):
             self.assertEqual(watch.probe_login_preflight(), "http_530")
+
+    def test_sso_handoff_must_allow_credentialed_cors_and_authorization(self):
+        self.cors_patcher.stop()
+        class Response:
+            status = 204
+            def __init__(self, request, headers):
+                self.request = request
+                self.headers = headers
+            def geturl(self):
+                return self.request.full_url
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+        headers = {
+            "Access-Control-Allow-Origin": watch.ORIGIN,
+            "Access-Control-Allow-Methods": "POST",
+            "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Request-ID",
+            "Access-Control-Allow-Credentials": "true",
+        }
+        def fake(request, **_):
+            specific = dict(headers)
+            if request.full_url.endswith("/identity/session"):
+                specific.pop("Access-Control-Allow-Credentials")
+            return Response(request, specific)
+        with patch.object(watch, "open_no_redirect", side_effect=fake):
+            self.assertEqual(watch.probe_login_preflight(), "invalid")
+        def missing_header(request, **_):
+            specific = dict(headers)
+            if request.full_url.endswith("/identity/session"):
+                specific["Access-Control-Allow-Headers"] = "Content-Type, X-Request-ID"
+            return Response(request, specific)
+        with patch.object(watch, "open_no_redirect", side_effect=missing_header):
+            self.assertEqual(watch.probe_login_preflight(), "invalid")
 
     @patch.object(watch, "source_ci_status", return_value=("pending", None))
     def test_preflight_530_alerts_as_edge_but_bad_cors_as_structural(self, _):
         for result, expected in (
             ("ok", set()),
-            ("http_530", {"api-login-cors-edge"}),
-            ("unavailable", {"api-login-cors-edge"}),
-            ("invalid", {"api-login-cors"}),
-            ("http_400", {"api-login-cors"}),
+            ("http_530", {"idp-login-cors-edge"}),
+            ("unavailable", {"idp-login-cors-edge"}),
+            ("invalid", {"idp-login-cors"}),
+            ("http_400", {"idp-login-cors"}),
         ):
             with self.subTest(result=result):
                 self.cors_probe.return_value = result
                 self.assertEqual(set(watch.failures("t", get=url, gh=gh, now=NOW)), expected)
 
     @patch.object(watch, "source_ci_status", return_value=("pending", None))
-    def test_no_duplicate_preflight_alert_if_health_fails(self, _):
-        self.cors_probe.side_effect = AssertionError("do not probe preflight")
+    def test_independent_idp_failure_survives_chronicles_api_outage(self, _):
+        self.cors_probe.return_value = "http_530"
         def down(address, token=""):
             if address.endswith("/health"):
                 raise urllib.error.HTTPError(address, 530, "edge", {}, None)
             return url(address, token)
         self.assertEqual(set(watch.failures("t", get=down, gh=gh, now=NOW)),
-                         {"api-health-edge"})
+                         {"api-health-edge", "idp-login-cors-edge"})
 
     def test_cors_edge_needs_three_readings_but_bad_headers_only_two(self):
         readings = iter([
-            {"api-login-cors-edge": "530"},
-            {"api-login-cors-edge": "530"},
+            {"idp-login-cors-edge": "530"},
+            {"idp-login-cors-edge": "530"},
             {},
         ])
         self.assertEqual(watch.confirmed_failures(
             "t", probe=lambda _: next(readings), pause=lambda _: None), {})
         self.assertEqual(watch.confirmed_failures(
-            "t", probe=lambda _: {"api-login-cors": "wrong origin"},
-            pause=lambda _: None), {"api-login-cors": "wrong origin"})
+            "t", probe=lambda _: {"idp-login-cors": "wrong origin"},
+            pause=lambda _: None), {"idp-login-cors": "wrong origin"})
 
     @patch.object(watch, "source_ci_status", return_value=("pending", None))
     def test_api_health_and_readiness_payload_contract_is_required(self, _):
