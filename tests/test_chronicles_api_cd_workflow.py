@@ -15,6 +15,16 @@ class StagingConvergenceContracts(unittest.TestCase):
     def setUpClass(cls):
         cls.workflow = yaml.load(YML.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
+    def test_deployment_target_visible_in_workflow_run_title(self):
+        self.assertIn('STAGING / PRODUCTION', self.workflow['name'])
+        run_name = self.workflow['run-name']
+        self.assertIn("github.event_name == 'pull_request'", run_name)
+        self.assertIn("'CI only'", run_name)
+        self.assertIn("inputs.environment == 'production'", run_name)
+        self.assertIn("'PRODUCTION'", run_name)
+        self.assertIn("'STAGING'", run_name)
+        self.assertIn('inputs.action || github.event_name', run_name)
+
     def test_source_ci_and_manual_entrypoint_retained(self):
         events = self.workflow["on"]
         self.assertIn("workflow_dispatch", events)
