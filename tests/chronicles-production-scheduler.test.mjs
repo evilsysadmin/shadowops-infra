@@ -48,7 +48,7 @@ test('enabled Madrid slot dispatches only protected main, as automated, with att
   const logs = [];
   console.log = (message) => logs.push(message);
   try {
-    const result = await dispatchMadridTrain(winter, { SCHEDULER_ENABLED: 'true', GH_ACTIONS_TOKEN: 'secret-test' }, fakeFetch);
+    const result = await dispatchMadridTrain(winter, { SCHEDULER_ENABLED: 'true', GH_ACTIONS_TOKEN: 'secret-test' }, fakeFetch, () => winter.scheduledTime + 1000);
     assert.deepEqual(result, { status: 'dispatched', day: '2026-11-15', runId: 12345 });
     assert.equal(n, 1);
     assert.ok(logs[0].includes('run=12345'));
@@ -58,8 +58,20 @@ test('enabled Madrid slot dispatches only protected main, as automated, with att
 
 test('provider failures fail closed, never accept non-attributable HTTP 204', async () => {
   const env = { SCHEDULER_ENABLED: 'true', GH_ACTIONS_TOKEN: 'redacted' };
-  await assert.rejects(dispatchMadridTrain(summer, env, async () => ({ status: 204 })), /HTTP 204/);
-  await assert.rejects(dispatchMadridTrain(summer, env, async () => ({ status: 200, json: async () => ({}) })), /attributable/);
+  await assert.rejects(dispatchMadridTrain(summer, env, async () => ({ status: 204 }), () => summer.scheduledTime + 1000), /HTTP 204/);
+  await assert.rejects(dispatchMadridTrain(summer, env, async () => ({ status: 200, json: async () => ({}) }), () => summer.scheduledTime + 1000), /attributable/);
+});
+
+test('delayed or clock-invalid cron event never dispatches production', async () => {
+  const env = { SCHEDULER_ENABLED: 'true', GH_ACTIONS_TOKEN: 'redacted' };
+  const forbidden = () => { throw new Error('delayed cron attempted a deployment'); };
+  for (const time of [summer.scheduledTime + 300001,
+                      summer.scheduledTime - 60001, Number.NaN]) {
+    assert.deepEqual(
+      await dispatchMadridTrain(summer, env, forbidden, () => time),
+      { status: 'missed-08-slot' },
+    );
+  }
 });
 
 test('Wrangler configuration declares both UTC slots, but is disabled by default', () => {
