@@ -83,17 +83,17 @@ class ReleaseTrainTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as tmp:
             original["RUNNER_TEMP"] = tmp
-            with patch.dict(os.environ, original, clear=True), \\
+            with patch.dict(os.environ, original, clear=True), \
                  patch.object(train, "previous_daily_train",
-                              side_effect=AssertionError("dedupe off")), \\
+                              side_effect=AssertionError("dedupe off")), \
                  patch.object(train, "run", return_value={"result": "unchanged"}):
                 self.assertEqual(train.main(), 0)
             original.update({"GITHUB_EVENT_NAME": "workflow_dispatch",
                              "CHRONICLES_TRAIN_AUTOMATED": "false",
                              "CHRONICLES_TRAIN_DEDUPE_ENABLED": "true"})
-            with patch.dict(os.environ, original, clear=True), \\
+            with patch.dict(os.environ, original, clear=True), \
                  patch.object(train, "previous_daily_train",
-                              side_effect=AssertionError("manual hotfix skipped")), \\
+                              side_effect=AssertionError("manual hotfix skipped")), \
                  patch.object(train, "run", return_value={"result": "unchanged"}):
                 self.assertEqual(train.main(), 0)
 
@@ -107,8 +107,8 @@ class ReleaseTrainTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as tmp:
             context["RUNNER_TEMP"] = tmp
-            with patch.dict(os.environ, context, clear=True), \\
-                 patch.object(train, "previous_daily_train", return_value=19) as dedupe, \\
+            with patch.dict(os.environ, context, clear=True), \
+                 patch.object(train, "previous_daily_train", return_value=19) as dedupe, \
                  patch.object(train, "run", side_effect=AssertionError("no promotion")):
                 self.assertEqual(train.main(), 0)
                 dedupe.assert_called_once_with(TOKEN, 20)
@@ -167,17 +167,10 @@ class ReleaseTrainTests(unittest.TestCase):
         for history in ([], [{**current, "id": 21}], [current, current],
                         [current, {"id": 22, "created_at": "bad"}]):
             with self.subTest(history=history):
-                # An invalid future/unrelated run may be ignored, but never
-                # cause an unverified earlier successful run to be accepted.
-                if len(history) == 2 and history[1].get("created_at") == "bad":
-                    self.assertIsNone(train.previous_daily_train(
+                with self.assertRaises(train.TrainError):
+                    train.previous_daily_train(
                         TOKEN, 20, now=now,
-                        call=lambda *_: {"workflow_runs": history}))
-                else:
-                    with self.assertRaises(train.TrainError):
-                        train.previous_daily_train(
-                            TOKEN, 20, now=now,
-                            call=lambda *_: {"workflow_runs": history})
+                        call=lambda *_: {"workflow_runs": history})
         self.assertIsNone(train.previous_daily_train(
             TOKEN, 20, now=now,
             call=lambda *_: {"workflow_runs": [
