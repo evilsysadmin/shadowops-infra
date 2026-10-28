@@ -193,24 +193,44 @@ exit 0
         self.assertIn("dist/index.html", build["run"])
         self.assertLess(steps.index(build), steps.index(named[
             "Real public browser smoke (desktop, mobile, login, update deferral)"]))
+        # Existing public builds can retry the smoke without re-publishing;
+        # obsolete source builds exit cleanly but cannot run downstream smokes
+        # or accidentally record a trusted staging receipt.
         for name in (
             "Assemble static root",
             "Reject foreign hostname ownership before any mutations",
-            "Reject superseded source before Pages mutations",
-            "Reconcile independent Chronicles Pages project",
-            "Publish exact source SHA to the isolated Pages project",
-            "Reconcile the exact domain without overwriting other DNS",
+            "Skip superseded source before Pages mutations",
         ):
             self.assertEqual(named[name]["if"],
                              "steps.live.outputs.already_published != 'true'")
-        # Both the HTTPS and real-browser checks remain compulsory in both paths.
+        for name in (
+            "Reconcile independent Chronicles Pages project",
+            "Publish exact source SHA to the isolated Pages project",
+        ):
+            self.assertEqual(named[name]["if"],
+                             "steps.live.outputs.already_published != 'true' && "
+                             "steps.source_pre_publish.outputs.fresh == 'true'")
+        self.assertEqual(
+            named["Reconcile the exact domain without overwriting other DNS"]["if"],
+            "steps.deploy.outputs.published == 'true'")
+        self.assertEqual(named["Skip superseded source before Pages mutations"]["id"],
+                         "source_pre_publish")
+        self.assertEqual(named["Publish exact source SHA to the isolated Pages project"]["id"],
+                         "deploy")
+        # HTTPS and real-browser smokes are compulsory only when this run
+        # already finds the exact build public or publishes it successfully.
         for name in (
             "Prove the public game build at root",
             "Prove the public update manifest serves the exact SHA",
+            "Verify lockfile-pinned Playwright browser harness",
+            "Cache exact Chromium browser binaries",
             "Real public browser smoke (desktop, mobile, login, update deferral)",
             "Reject superseded source before writing verified receipt",
         ):
-            self.assertNotIn("if", named[name])
+            self.assertEqual(
+                named[name]["if"],
+                "steps.live.outputs.already_published == 'true' || "
+                "steps.deploy.outputs.published == 'true'")
         self.assertEqual(named["Record the verified Chronicles Pages source generation"]["if"],
                          "steps.source_freshness.outputs.fresh == 'true'")
         self.assertEqual(named["Save verified Pages receipt for idempotent hourly sync"]["if"],
