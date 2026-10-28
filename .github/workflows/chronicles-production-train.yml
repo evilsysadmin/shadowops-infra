@@ -94,6 +94,8 @@ jobs:
       CHRONICLES_PAGES_ENV: production
       CHRONICLES_TRAIN_SOURCE_SHA: ${{ inputs.source_sha || '' }}
       CHRONICLES_TRAIN_AUTOMATED: ${{ github.event_name == 'schedule' || inputs.automated == true }}
+      # Must be enabled only as part of the Cloudflare/GitHub cutover.
+      CHRONICLES_TRAIN_DEDUPE_ENABLED: ${{ vars.CHRONICLES_TRAIN_DEDUPE_ENABLED || 'false' }}
     steps:
       - uses: actions/checkout@v4
       - name: Promote only admitted source, stop if API/Pages fail
