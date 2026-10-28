@@ -142,29 +142,40 @@ def check_sso_jwks() -> bool:
     return bool(trusted_kids)
 
 
+def audit_phase(stage: str, check):
+    """Return a fixed-phase result; never expose provider errors or payloads."""
+    try:
+        value = check()
+    except Exception:
+        # Even non-network evidence errors must not print HTTP bodies, tokens
+        # or arbitrary GitHub / Cloudflare response strings.
+        raise AuditError(stage) from None
+    if not value:
+        raise AuditError(stage)
+    return value
+
+
 def audit(token: str, *, manifest=read_release, page=probe_https,
           assets=probe_react_preview, api=check_api, receipt=verified_receipt,
           sso=check_sso_jwks, api_build=read_live_api_build) -> str:
     if os.environ.get("CHRONICLES_PAGES_ENV") != "production" or not token:
-        raise AuditError("production environment and read token required")
-    data = manifest()
-    sha = data.get("build")
+        raise AuditError("configuration")
+    data = audit_phase("manifest_read", manifest)
+    sha = data.get("build") if isinstance(data, dict) else None
     if not isinstance(sha, str) or not SHA.fullmatch(sha):
-        raise AuditError("public release SHA missing or invalid")
-    if page() != "ok":
-        raise AuditError("public HTTPS/game shell unavailable")
-    if assets(path="/", assets=b"/assets/", manifest_path=None) != "ok":
-        raise AuditError("public game JS/CSS unavailable")
+        raise AuditError("manifest_sha")
+    audit_phase("pages_https", lambda: page() == "ok")
+    audit_phase(
+        "pages_assets",
+        lambda: assets(path="/", assets=b"/assets/", manifest_path=None) == "ok",
+    )
     for path in ("health", "ready", "cors"):
-        if not api(path):
-            raise AuditError("production API " + path + " failed")
-    if api_build() != sha:
-        raise AuditError("production API public source SHA missing or mismatched")
-    if not sso():
-        raise AuditError("production SSO issuer public JWKS unavailable or invalid")
+        audit_phase("api_" + path, lambda path=path: api(path))
+    audit_phase("api_sha", lambda: api_build() == sha)
+    audit_phase("sso_jwks", sso)
     for kind in ("production-api", "production-pages"):
-        if not receipt(sha, kind, token):
-            raise AuditError("no trusted " + kind + " receipt for public SHA")
+        audit_phase("receipt_" + kind.replace("-", "_"),
+                    lambda kind=kind: receipt(sha, kind, token))
     return sha
 
 
@@ -180,9 +191,13 @@ def main() -> int:
         return 64
     try:
         sha = audit(os.environ.get("GH_TOKEN", ""))
-    except (AuditError, urllib.error.URLError, OSError, ValueError, TypeError, TimeoutError):
-        # Never echo response bodies, URLs with query strings, secrets or tokens.
-        print("CHRONICLES_PRODUCTION_AUDIT_BLOCKED public readiness or evidence failed", file=sys.stderr)
+    except AuditError as exc:
+        # All audit errors originate in fixed, local stage names. No exception
+        # details, response bodies, URLs, keys or tokens can reach the log.
+        print("CHRONICLES_PRODUCTION_AUDIT_BLOCKED stage=" + str(exc), file=sys.stderr)
+        return 1
+    except Exception:
+        print("CHRONICLES_PRODUCTION_AUDIT_BLOCKED stage=internal", file=sys.stderr)
         return 1
     print("CHRONICLES_PRODUCTION_READONLY_AUDIT_OK sha=" + sha)
     return 0
