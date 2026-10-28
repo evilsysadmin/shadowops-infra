@@ -29,6 +29,15 @@ class AuditError(RuntimeError):
     pass
 
 
+# Explicit allowlist prevents a future uncaught provider error from appearing
+# in the log even if it accidentally reaches an AuditError exception.
+SAFE_AUDIT_STAGES = frozenset({
+    "configuration", "manifest_read", "manifest_sha", "pages_https",
+    "pages_assets", "api_health", "api_ready", "api_cors", "api_sha",
+    "sso_jwks", "receipt_production_api", "receipt_production_pages",
+})
+
+
 def read_release() -> dict:
     url = ORIGIN + "/release.json?production_audit=1"
     req = urllib.request.Request(url, headers={
@@ -194,7 +203,9 @@ def main() -> int:
     except AuditError as exc:
         # All audit errors originate in fixed, local stage names. No exception
         # details, response bodies, URLs, keys or tokens can reach the log.
-        print("CHRONICLES_PRODUCTION_AUDIT_BLOCKED stage=" + str(exc), file=sys.stderr)
+        phase = str(exc)
+        print("CHRONICLES_PRODUCTION_AUDIT_BLOCKED stage=" +
+              (phase if phase in SAFE_AUDIT_STAGES else "internal"), file=sys.stderr)
         return 1
     except Exception:
         print("CHRONICLES_PRODUCTION_AUDIT_BLOCKED stage=internal", file=sys.stderr)
