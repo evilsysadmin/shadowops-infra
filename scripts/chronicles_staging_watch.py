@@ -28,6 +28,8 @@ INFRA = "evilsysadmin/shadowops-infra"
 TITLE = "[staging-watch] Chronicles staging necesita atención"
 ORIGIN = "https://staging.chronicles.shadowops.dpdns.org"
 API = "https://chronicles-api-staging.shadowops.dpdns.org/api"
+# Chronicles authenticates via Chess Studio staging (SSO), not its own API.
+IDENTITY_API = "https://api-staging.chess-studio.shadowops.dpdns.org/api"
 GRACE_SECONDS = 90 * 60
 RECHECK_SECONDS = 90
 MAX_PUBLIC_JSON_BYTES = 64 * 1024
@@ -37,7 +39,7 @@ MAX_ISSUE_PAGES = 20  # Fail closed instead of creating duplicates if enumeratio
 VERSION_FAILURE_KEYS = frozenset({"frontend-lag", "backend-lag", "api-revision"})
 CONFIRM_FAMILIES = {
     "api": ("api-health", "api-health-edge"),
-    "login": ("api-login-cors", "api-login-cors-edge"),
+    "login": ("idp-login-cors", "idp-login-cors-edge"),
     "game": ("pages-game", "pages-edge"),
     "model": ("pages-model", "pages-model-edge"),
     "manifest": ("pages-manifest", "pages-manifest-edge"),
@@ -143,37 +145,46 @@ def open_no_redirect(request: urllib.request.Request, *, timeout: int):
 
 
 def probe_login_preflight() -> str:
-    """Verify that the REAL staging browser can reach login, without credentials.
+    """Exercise the actual two-stage SSO browser flow, without credentials.
 
-    A healthy /health and /ready do not prove OPTIONS /auth/login works.
-    Keep this read-only and on the fixed staging API + frontend origin.
-    Never POST a password, follow redirects, or expose response bodies.
+    Chronicles' login form calls Chess Studio staging's IdP, NOT Chronicles'
+    own API. The HTTP fetch wrapper adds X-Request-ID to both requests.
+    The second call exchanges a bearer token for a credentialed SSO session;
+    an OPTIONS probe contains NO token or cookie, just header names.
     """
-    url = API + "/auth/login"
-    request = urllib.request.Request(url, method="OPTIONS", headers={
-        "User-Agent": "shadowops-chronicles-watch/1",
-        "Origin": ORIGIN,
-        "Access-Control-Request-Method": "POST",
-        "Access-Control-Request-Headers": "content-type",
-    })
-    try:
-        with open_no_redirect(request, timeout=10) as response:
-            if response.status not in (200, 204) or response.geturl() != url:
-                return "invalid"
-            headers = response.headers
-            if headers.get("Access-Control-Allow-Origin") != ORIGIN:
-                return "invalid"
-            methods = {v.strip().upper() for v in
-                       headers.get("Access-Control-Allow-Methods", "").split(",")}
-            allowed_headers = {v.strip().lower() for v in
-                               headers.get("Access-Control-Allow-Headers", "").split(",")}
-            if "POST" not in methods or "content-type" not in allowed_headers:
-                return "invalid"
-            return "ok"
-    except urllib.error.HTTPError as exc:
-        return ("http_" + str(exc.code)) if isinstance(exc.code, int) and 400 <= exc.code <= 599 else "http_error"
-    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
-        return "unavailable"
+    routes = (
+        ("/auth/login", ("content-type", "x-request-id"), False),
+        ("/identity/session",
+         ("authorization", "content-type", "x-request-id"), True),
+    )
+    for path, requested, credentialed in routes:
+        url = IDENTITY_API + path
+        request = urllib.request.Request(url, method="OPTIONS", headers={
+            "User-Agent": "shadowops-chronicles-watch/1",
+            "Origin": ORIGIN,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": ",".join(requested),
+        })
+        try:
+            with open_no_redirect(request, timeout=10) as response:
+                if response.status not in (200, 204) or response.geturl() != url:
+                    return "invalid"
+                headers = response.headers
+                if headers.get("Access-Control-Allow-Origin") != ORIGIN:
+                    return "invalid"
+                methods = {v.strip().upper() for v in
+                           headers.get("Access-Control-Allow-Methods", "").split(",")}
+                allowed_headers = {v.strip().lower() for v in
+                                   headers.get("Access-Control-Allow-Headers", "").split(",")}
+                if "POST" not in methods or not set(requested).issubset(allowed_headers):
+                    return "invalid"
+                if credentialed and headers.get("Access-Control-Allow-Credentials", "").lower() != "true":
+                    return "invalid"
+        except urllib.error.HTTPError as exc:
+            return ("http_" + str(exc.code)) if isinstance(exc.code, int) and 400 <= exc.code <= 599 else "http_error"
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+            return "unavailable"
+    return "ok"
 
 
 def probe_public_glb() -> str:
@@ -326,19 +337,17 @@ def failures(token: str, *, get: Callable = get_url, gh: Callable = github,
         bad[key] = ("La API pública /health o /ready no es accesible por la conexión HTTPS"
                     if key == "api-health-edge"
                     else "La API pública /health o /ready no cumple el contrato de salud")
-    # A plain HTTPS health GET can succeed while Cloudflare returns HTTP
-    # 530 to the browser preflight for /auth/login. Monitor the exact OPTIONS
-    # route and CORS headers independently of source CI/deploy receipts.
-    # If health is already down, avoid two alerts for the same API outage.
-    if not {"api-health", "api-health-edge"} & bad.keys():
-        preflight = probe_login_preflight()
-        if preflight != "ok":
-            key = ("api-login-cors-edge"
-                   if pages_failure_key(preflight) == "pages-edge"
-                   else "api-login-cors")
-            bad[key] = ("El preflight HTTPS de login falla por conexión/CDN/Cloudflare"
-                        if key.endswith("-edge")
-                        else "El preflight de login no permite el origen, método o cabeceras de staging")
+    # These are DIFFERENT services. Chronicles' own API can be healthy
+    # while its shared Chess Studio IdP cannot accept a login. Probe both
+    # independent of health to avoid a false-green outage diagnosis.
+    preflight = probe_login_preflight()
+    if preflight != "ok":
+        key = ("idp-login-cors-edge"
+               if pages_failure_key(preflight) == "pages-edge"
+               else "idp-login-cors")
+        bad[key] = ("El SSO real de Chess Studio staging no responde por Cloudflare/red"
+                    if key.endswith("-edge")
+                    else "El SSO de Chess Studio staging rechaza la petición CORS del navegador")
     live_sha = None
     try:
         manifest = get(ORIGIN + "/release.json?watch=" + str(int(now.timestamp())))
