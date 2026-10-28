@@ -70,6 +70,125 @@ class ReleaseTrainTests(unittest.TestCase):
                     with patch.dict(os.environ, environ), patch.object(train, "run", side_effect=verify):
                         self.assertEqual(train.main(), 0)
 
+    def test_daily_dedup_is_opt_in_and_preserves_manual_hotfix(self):
+        workflow = yaml.load(
+            (ROOT / ".github/workflows/chronicles-production-train.yml").read_text(),
+            Loader=yaml.BaseLoader)
+        self.assertIn("CHRONICLES_TRAIN_DEDUPE_ENABLED", workflow["jobs"]["train"]["env"])
+        self.assertIn("'false'", workflow["jobs"]["train"]["env"]["CHRONICLES_TRAIN_DEDUPE_ENABLED"])
+        original = {
+            "GITHUB_REPOSITORY": train.INFRA, "GITHUB_REF": "refs/heads/main",
+            "GITHUB_EVENT_NAME": "schedule", "CHRONICLES_TRAIN_DEDUPE_ENABLED": "false",
+            "GH_TOKEN": TOKEN, "GITHUB_RUN_ID": "20",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            original["RUNNER_TEMP"] = tmp
+            with patch.dict(os.environ, original, clear=True), \\
+                 patch.object(train, "previous_daily_train",
+                              side_effect=AssertionError("dedupe off")), \\
+                 patch.object(train, "run", return_value={"result": "unchanged"}):
+                self.assertEqual(train.main(), 0)
+            original.update({"GITHUB_EVENT_NAME": "workflow_dispatch",
+                             "CHRONICLES_TRAIN_AUTOMATED": "false",
+                             "CHRONICLES_TRAIN_DEDUPE_ENABLED": "true"})
+            with patch.dict(os.environ, original, clear=True), \\
+                 patch.object(train, "previous_daily_train",
+                              side_effect=AssertionError("manual hotfix skipped")), \\
+                 patch.object(train, "run", return_value={"result": "unchanged"}):
+                self.assertEqual(train.main(), 0)
+
+    def test_auto_daily_duplicate_succeeds_without_dispatching_any_child(self):
+        context = {
+            "GITHUB_REPOSITORY": train.INFRA, "GITHUB_REF": "refs/heads/main",
+            "GITHUB_EVENT_NAME": "workflow_dispatch",
+            "CHRONICLES_TRAIN_AUTOMATED": "true",
+            "CHRONICLES_TRAIN_DEDUPE_ENABLED": "true",
+            "GH_TOKEN": TOKEN, "GITHUB_RUN_ID": "20",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            context["RUNNER_TEMP"] = tmp
+            with patch.dict(os.environ, context, clear=True), \\
+                 patch.object(train, "previous_daily_train", return_value=19) as dedupe, \\
+                 patch.object(train, "run", side_effect=AssertionError("no promotion")):
+                self.assertEqual(train.main(), 0)
+                dedupe.assert_called_once_with(TOKEN, 20)
+            journal = json.loads((Path(tmp) / "chronicles-production-train.json").read_text())
+            self.assertEqual(journal["result"], "duplicate-skip")
+            self.assertEqual(journal["previous_run"], 19)
+            self.assertIsNone(journal["api_run"])
+
+    def test_earlier_successful_train_is_verified_by_actual_promotion_job(self):
+        now = train.datetime.fromisoformat("2026-10-28T07:15:00+00:00")
+        def record(id, when, event="schedule", result="success",
+                   title="Chronicles train · 08:00 Madrid · schedule"):
+            return {"id": id, "created_at": when, "path": ".github/workflows/chronicles-production-train.yml",
+                    "event": event, "display_title": title, "head_branch": "main",
+                    "repository": {"full_name": train.INFRA},
+                    "status": "completed", "conclusion": result}
+        previous = record(19, "2026-10-28T07:00:00Z", event="workflow_dispatch",
+                          title=train.DAILY_EXTERNAL_TITLE)
+        current = record(20, "2026-10-28T07:02:00Z")
+        history = {"workflow_runs": [current, previous,
+                   record(18, "2026-10-27T07:00:00Z")]}
+        good_jobs = {"jobs": [{
+            "name": train.DAILY_TRAIN_JOB, "status": "completed",
+            "conclusion": "success",
+            "steps": [{"name": train.DAILY_TRAIN_STEP, "status": "completed",
+                       "conclusion": "success"}]}]}
+        paths = []
+        def call(method, path, token):
+            self.assertEqual((method, token), ("GET", TOKEN))
+            paths.append(path)
+            return good_jobs if "/jobs?" in path else history
+        self.assertEqual(train.previous_daily_train(TOKEN, 20, now=now, call=call), 19)
+        self.assertEqual(paths, [train.DAILY_TRAIN_RUNS,
+                                f"repos/{train.INFRA}/actions/runs/19/jobs?per_page=30"])
+        history["workflow_runs"] = [current, record(18, "2026-10-27T07:00:00Z")]
+        self.assertIsNone(train.previous_daily_train(TOKEN, 20, now=now, call=call))
+        history["workflow_runs"] = [current, previous]
+        with self.assertRaisesRegex(train.TrainError, "promotion step unverified"):
+            train.previous_daily_train(
+                TOKEN, 20, now=now,
+                call=lambda method, path, token: (
+                    {"jobs": [{"name": train.DAILY_TRAIN_JOB, "conclusion": "skipped"}]}
+                    if "/jobs?" in path else history))
+        for conclusion in ("failure", "cancelled", None):
+            with self.subTest(conclusion=conclusion):
+                history["workflow_runs"] = [current, {**previous, "conclusion": conclusion}]
+                with self.assertRaisesRegex(train.TrainError, "previous automatic train"):
+                    train.previous_daily_train(TOKEN, 20, now=now, call=call)
+
+    def test_dedup_rejects_incomplete_or_untrusted_history(self):
+        now = train.datetime.fromisoformat("2026-10-28T07:15:00+00:00")
+        current = {"id": 20, "created_at": "2026-10-28T07:02:00Z",
+                   "path": ".github/workflows/chronicles-production-train.yml",
+                   "head_branch": "main", "event": "schedule",
+                   "repository": {"full_name": train.INFRA}}
+        for history in ([], [{**current, "id": 21}], [current, current],
+                        [current, {"id": 22, "created_at": "bad"}]):
+            with self.subTest(history=history):
+                # An invalid future/unrelated run may be ignored, but never
+                # cause an unverified earlier successful run to be accepted.
+                if len(history) == 2 and history[1].get("created_at") == "bad":
+                    self.assertIsNone(train.previous_daily_train(
+                        TOKEN, 20, now=now,
+                        call=lambda *_: {"workflow_runs": history}))
+                else:
+                    with self.assertRaises(train.TrainError):
+                        train.previous_daily_train(
+                            TOKEN, 20, now=now,
+                            call=lambda *_: {"workflow_runs": history})
+        self.assertIsNone(train.previous_daily_train(
+            TOKEN, 20, now=now,
+            call=lambda *_: {"workflow_runs": [
+                current, {**current, "id": 19, "event": "workflow_dispatch",
+                          "display_title": "manual hotfix"}]}))
+        with self.assertRaisesRegex(train.TrainError, "history truncated"):
+            train.previous_daily_train(
+                TOKEN, 20, now=now,
+                call=lambda *_: {"workflow_runs": [
+                    {**current, "id": 20 - n} for n in range(30)]})
+
     def test_readonly_preflight_cannot_enter_mutating_train_job(self):
         path = ROOT / ".github/workflows/chronicles-production-train.yml"
         workflow = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
