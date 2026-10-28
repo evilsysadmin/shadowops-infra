@@ -321,24 +321,38 @@ jobs:
       - name: Reject foreign hostname ownership before any mutations
         if: steps.live.outputs.already_published != 'true'
         run: python3 scripts/chronicles_pages.py preflight
-      - name: Reject superseded source before Pages mutations
+      - name: Skip superseded source before Pages mutations
         if: steps.live.outputs.already_published != 'true'
+        id: source_pre_publish
         shell: bash
         env:
           ADMITTED_SHA: ${{ steps.source.outputs.sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          [[ "$ADMITTED_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo 'CHRONICLES_PAGES_INVALID_ADMITTED_SHA' >&2
+            exit 64
+          }
           current="$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)"
+          [[ "$current" =~ ^[0-9a-f]{40}$ ]] || {
+            echo 'CHRONICLES_PAGES_INVALID_CURRENT_MAIN_SHA' >&2
+            exit 65
+          }
           if [[ "$current" != "$ADMITTED_SHA" ]]; then
             echo "CHRONICLES_PAGES_SUPERSEDED_BEFORE_PUBLISH sha=$ADMITTED_SHA current=$current"
-            exit 1
+            echo '::notice title=Chronicles Pages superseded::Source main advanced; no staging publish or receipt.'
+            printf '**State: superseded before Pages mutations.** The obsolete build was not published and no receipt was issued.\n' >> "$GITHUB_STEP_SUMMARY"
+            echo 'fresh=false' >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          echo 'fresh=true' >> "$GITHUB_OUTPUT"
       - name: Reconcile independent Chronicles Pages project
-        if: steps.live.outputs.already_published != 'true'
+        if: steps.live.outputs.already_published != 'true' && steps.source_pre_publish.outputs.fresh == 'true'
         run: python3 scripts/chronicles_pages.py project
       - name: Publish exact source SHA to the isolated Pages project
-        if: steps.live.outputs.already_published != 'true'
+        if: steps.live.outputs.already_published != 'true' && steps.source_pre_publish.outputs.fresh == 'true'
+        id: deploy
         shell: bash
         env:
           CHRONICLES_SOURCE_SHA: ${{ steps.source.outputs.sha }}
@@ -348,21 +362,31 @@ jobs:
           # The earlier gate also protects project reconciliation, but a build
           # can become obsolete while Cloudflare setup runs.
           current="$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)"
+          [[ "$current" =~ ^[0-9a-f]{40}$ ]] || {
+            echo 'CHRONICLES_PAGES_INVALID_CURRENT_MAIN_SHA' >&2
+            exit 65
+          }
           if [[ "$current" != "$CHRONICLES_SOURCE_SHA" ]]; then
             echo "CHRONICLES_PAGES_SUPERSEDED_AT_DEPLOY sha=$CHRONICLES_SOURCE_SHA current=$current"
-            exit 1
+            echo '::notice title=Chronicles Pages superseded::Source main advanced immediately before publish; no staging publish or receipt.'
+            printf '**State: superseded at deploy.** The obsolete build was not published and no receipt was issued.\n' >> "$GITHUB_STEP_SUMMARY"
+            echo 'published=false' >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           npx --yes wrangler@4.127.1 pages deploy "$RUNNER_TEMP/chronicles-pages" \
             --project-name chronicles-staging \
             --branch main \
             --commit-hash "$CHRONICLES_SOURCE_SHA" \
             --commit-dirty=false
+          echo 'published=true' >> "$GITHUB_OUTPUT"
       - name: Reconcile the exact domain without overwriting other DNS
-        if: steps.live.outputs.already_published != 'true'
+        if: steps.deploy.outputs.published == 'true'
         run: python3 scripts/chronicles_pages.py domain
       - name: Prove the public game build at root
+        if: steps.live.outputs.already_published == 'true' || steps.deploy.outputs.published == 'true'
         run: python3 scripts/chronicles_pages.py verify
       - name: Prove the public update manifest serves the exact SHA
+        if: steps.live.outputs.already_published == 'true' || steps.deploy.outputs.published == 'true'
         env:
           EXPECTED_SHA: ${{ steps.source.outputs.sha }}
         shell: bash
@@ -372,6 +396,7 @@ jobs:
           # The helper preserves strict public HTTPS/JSON/exact-SHA checks.
           python3 scripts/chronicles_pages_manifest_wait.py
       - name: Verify lockfile-pinned Playwright browser harness
+        if: steps.live.outputs.already_published == 'true' || steps.deploy.outputs.published == 'true'
         id: playwright
         working-directory: chronicles-source/frontend
         shell: bash
@@ -387,11 +412,13 @@ jobs:
           }
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
       - name: Cache exact Chromium browser binaries
+        if: steps.live.outputs.already_published == 'true' || steps.deploy.outputs.published == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: chronicles-chromium-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
       - name: Real public browser smoke (desktop, mobile, login, update deferral)
+        if: steps.live.outputs.already_published == 'true' || steps.deploy.outputs.published == 'true'
         working-directory: chronicles-source/frontend
         env:
           CHRONICLES_SOURCE_SHA: ${{ steps.source.outputs.sha }}
@@ -418,7 +445,7 @@ jobs:
           printf 'CHRONICLES_PUBLIC_SMOKE_RESULTS public=%s journey=%s\\n' "$public_rc" "$journey_rc"
           (( public_rc == 0 && journey_rc == 0 ))
       - name: Preserve public-browser screenshots as deployment evidence
-        if: always()
+        if: always() && (steps.live.outputs.already_published == 'true' || steps.deploy.outputs.published == 'true')
         uses: actions/upload-artifact@v4
         with:
           name: chronicles-public-browser-${{ needs.staging-candidate.outputs.source_sha }}
@@ -428,6 +455,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
       - name: Reject superseded source before writing verified receipt
+        if: steps.live.outputs.already_published == 'true' || steps.deploy.outputs.published == 'true'
         id: source_freshness
         shell: bash
         env:
