@@ -1,6 +1,7 @@
 """Read-only production smoke gates; every test runs without external traffic."""
 import base64
 import io
+from contextlib import redirect_stderr
 import json
 import os
 from pathlib import Path
@@ -65,6 +66,53 @@ class ProductionAuditTests(unittest.TestCase):
             "health", "ready", "cors", "api-build", "sso-jwks",
             "production-api", "production-pages",
         ])
+
+    def test_failure_phase_is_specific_and_never_prints_untrusted_details(self):
+        cases = (
+            ("manifest_read", {"manifest": {}}),
+            ("manifest_sha", {"manifest": {"build": "invalid"}}),
+            ("pages_https", {"page": "tls_error"}),
+            ("pages_assets", {"assets": "html_missing"}),
+            ("api_health", {"api": lambda name: name != "health"}),
+            ("api_ready", {"api": lambda name: name != "ready"}),
+            ("api_cors", {"api": lambda name: name != "cors"}),
+            ("api_sha", {"api_build": None}),
+            ("sso_jwks", {"sso": False}),
+            ("receipt_production_api",
+             {"receipt": lambda kind: kind != "production-api"}),
+            ("receipt_production_pages",
+             {"receipt": lambda kind: kind != "production-pages"}),
+            ("configuration", {"token": ""}),
+        )
+        for phase, kwargs in cases:
+            with self.subTest(phase=phase), self.assertRaisesRegex(
+                audit.AuditError, "^" + phase + "$"
+            ):
+                self.checked(**kwargs)
+
+        def fail_with_secret():
+            raise RuntimeError("secret-token=must-never-leak")
+        with patch.dict(os.environ, {"CHRONICLES_PAGES_ENV": "production"}):
+            with self.assertRaisesRegex(audit.AuditError, "^pages_https$"):
+                audit.audit("test-token", manifest=lambda: {"build": SHA},
+                            page=fail_with_secret)
+
+        for error, expected in (
+            (audit.AuditError("api_cors"), "api_cors"),
+            (audit.AuditError("private-key=not-a-stage"), "internal"),
+            (RuntimeError("provider-secret=still-private"), "internal"),
+        ):
+            output = io.StringIO()
+            with patch.object(audit.sys, "argv", ["audit"]), \
+                 patch.dict(os.environ, {"CHRONICLES_PAGES_ENV": "production",
+                                         "GH_TOKEN": "test-token"}), \
+                 patch.object(audit, "audit", side_effect=error), \
+                 redirect_stderr(output):
+                self.assertEqual(audit.main(), 1)
+            self.assertEqual(
+                output.getvalue().strip(),
+                "CHRONICLES_PRODUCTION_AUDIT_BLOCKED stage=" + expected,
+            )
 
     def test_fail_closed_for_bad_manifest_or_public_resources(self):
         for kwargs in (
