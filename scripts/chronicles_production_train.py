@@ -6,7 +6,7 @@ This orchestrator does not handle OCI, MongoDB, or Cloudflare secrets.
 """
 from __future__ import annotations
 
-from datetime import datetime, time, timezone
+from datetime import datetime, time as clock_time, timezone
 from zoneinfo import ZoneInfo
 import json
 import os
@@ -181,9 +181,9 @@ def previous_daily_train(token: str, current_run_id: int, *, now=None,
             raise TrainError("invalid earlier train ID")
         timestamp = _daily_train_created(run)
         if (timestamp.date() != local.date()
-                or timestamp.time() < time(7, 45)
+                or timestamp.time() < clock_time(7, 45)
                 or (run["event"] == "workflow_dispatch"
-                    and timestamp.time() > time(8, 15))):
+                    and timestamp.time() > clock_time(8, 15))):
             continue
         if (timestamp, run_id) < (created, current_run_id):
             earlier.append((timestamp, run_id, run))
