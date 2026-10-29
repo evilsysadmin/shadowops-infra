@@ -92,8 +92,8 @@ func TestFirstBootstrapEnablesOnlyPinnedStagingSignerAndCreatesOneGenesis(t *tes
 		t.Fatal("missing or duplicate genesis event")
 	}
 	var audit struct {
-		Action string `bson:"action"`
-		Generation int64 `bson:"generation"`
+		Action            string `bson:"action"`
+		Generation        int64  `bson:"generation"`
 		OperatorKeySHA256 string `bson:"operator_key_sha256"`
 		SecurityKeySHA256 string `bson:"security_key_sha256"`
 	}
@@ -213,13 +213,15 @@ func TestBootstrapRejectsMissingAndForgedFourSignatures(t *testing.T) {
 		t.Fatal("same governance signer enrolled twice")
 	}
 	for name, alter := range map[string]func(*BootstrapStatement){
-		"production": func(v *BootstrapStatement) { v.Environment = "production" },
-		"wrong action": func(v *BootstrapStatement) { v.Action = retirementAction },
-		"bad key": func(v *BootstrapStatement) { v.NewSecurityPublicKey = "invalid" },
-		"same new key": func(v *BootstrapStatement) { v.NewSecurityPublicKey = v.NewOperatorPublicKey },
+		"production":          func(v *BootstrapStatement) { v.Environment = "production" },
+		"wrong action":        func(v *BootstrapStatement) { v.Action = retirementAction },
+		"bad key":             func(v *BootstrapStatement) { v.NewSecurityPublicKey = "invalid" },
+		"same new key":        func(v *BootstrapStatement) { v.NewSecurityPublicKey = v.NewOperatorPublicKey },
 		"not before approval": func(v *BootstrapStatement) { v.NotBefore = v.IssuedAt - 1 },
-		"too long operating window": func(v *BootstrapStatement) { v.NotAfter = v.NotBefore + int64(maxRecoveredSignerLifetime.Seconds()) + 1 },
-		"expired": func(v *BootstrapStatement) { v.ExpiresAt = v.IssuedAt },
+		"too long operating window": func(v *BootstrapStatement) {
+			v.NotAfter = v.NotBefore + int64(maxRecoveredSignerLifetime.Seconds()) + 1
+		},
+		"expired":        func(v *BootstrapStatement) { v.ExpiresAt = v.IssuedAt },
 		"unsigned nonce": func(v *BootstrapStatement) { v.Nonce = "" },
 		"foreign ticket": func(v *BootstrapStatement) { v.ReviewIssue = "https://example.com" },
 	} {
