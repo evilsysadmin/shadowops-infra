@@ -40,10 +40,10 @@ type AuthorizedStagingRevoker struct {
 	afterSessionDelete func() error // tests only: force rollback after session deletion
 }
 
-// NewAuthorizedStagingRevoker creates the durable unique nonce index OUTSIDE
-// any transaction. Neither public keys nor signatures come from Mongo or a
-// request. The journal has no TTL: replay evidence must not expire with the
-// short-lived approval.
+// NewAuthorizedStagingRevoker verifies preprovisioned unique, non-TTL audit
+// indexes with read-only metadata calls; it NEVER creates indexes. Prepare
+// them separately with a privileged maintenance identity. Runtime DB roles
+// must NOT have createIndex, update or remove on the audit collection.
 func NewAuthorizedStagingRevoker(ctx context.Context, client *mongo.Client, operator, security ed25519.PublicKey) (*AuthorizedStagingRevoker, error) {
 	if ctx == nil || ctx.Err() != nil || client == nil {
 		return nil, ErrApprovalDenied
@@ -55,11 +55,7 @@ func NewAuthorizedStagingRevoker(ctx context.Context, client *mongo.Client, oper
 	db := client.Database(StagingDatabase)
 	journal := db.Collection(suspensionJournalCollection,
 		options.Collection().SetWriteConcern(writeconcern.Majority()).SetReadPreference(readpref.Primary()))
-	_, err = journal.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys:    bson.D{{Key: "environment", Value: 1}, {Key: "action", Value: 1}, {Key: "nonce", Value: 1}},
-		Options: options.Index().SetName("staging_action_nonce_unique").SetUnique(true),
-	})
-	if err != nil {
+	if err := verifyStagingJournalIndex(ctx, journal, "staging_action_nonce_unique"); err != nil {
 		return nil, ErrApprovalStore
 	}
 	return &AuthorizedStagingRevoker{
