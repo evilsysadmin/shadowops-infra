@@ -14,6 +14,7 @@ import re
 import stat
 import subprocess
 import sys
+import tempfile
 
 INFRA = Path("/opt/shadowops-infra")
 APP = Path("/opt/shadowops/cka-factory-staging")
@@ -64,10 +65,15 @@ def command(args: list[str]) -> str:
 def verify_checkout(path: Path, expected: str) -> None:
     trusted(path, directory=True)
     trusted(path / ".git", directory=True)
+    if command(["git", "-C", str(path), "rev-parse", "--show-toplevel"]) != str(path):
+        raise InstallError("Pinned checkout must be its own repository root")
     if command(["git", "-C", str(path), "rev-parse", "HEAD"]) != expected:
         raise InstallError("Pinned checkout SHA mismatch")
-    if command(["git", "-C", str(path), "status", "--porcelain", "--untracked-files=no"]):
-        raise InstallError("Pinned checkout contains tracked modifications")
+    # Untracked Python files can shadow the pinned application modules. They
+    # must never survive the SHA gate, even when tracked files are pristine.
+    if command(["git", "-C", str(path), "status", "--porcelain",
+                "--untracked-files=all"]):
+        raise InstallError("Pinned checkout contains modifications or untracked files")
 
 
 def verify_runtime(expected_infra: str, expected_cka: str) -> bytes:
@@ -142,6 +148,28 @@ def preflight(infra_sha: str, cka_sha: str) -> bytes:
     return content
 
 
+def install_unit_exclusive(content: bytes, destination: Path = UNIT_DEST) -> None:
+    """Fully stage and sync the unit before atomically publishing it.
+
+    os.link refuses to replace a file installed by another operation; even
+    a failed/partial write cannot leave a truncated systemd unit behind.
+    """
+    fd, temporary = tempfile.mkstemp(prefix=".cka-factory-", dir=destination.parent)
+    stage = Path(temporary)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            os.fchmod(stream.fileno(), 0o644)
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            os.link(stage, destination, follow_symlinks=False)
+        except FileExistsError:
+            raise InstallError("Existing staging unit cannot be overwritten") from None
+    finally:
+        stage.unlink(missing_ok=True)
+
+
 def install(infra_sha: str, cka_sha: str, ack: str) -> None:
     if os.geteuid() != 0:
         raise InstallError("Root is required for manual staging installation")
@@ -160,15 +188,11 @@ def install(infra_sha: str, cka_sha: str, ack: str) -> None:
         os.chown(WORKSPACE, account.pw_uid, account.pw_gid)
         os.chmod(WORKSPACE, 0o700)
     verify_workspace(account)
-    # Exclusive creation prevents overwriting any existing systemd unit.
-    if not UNIT_DEST.exists():
-        fd = os.open(UNIT_DEST, os.O_WRONLY | os.O_CREAT | os.O_EXCL
-                     | getattr(os, "O_NOFOLLOW", 0), 0o644)
-        with os.fdopen(fd, "wb") as stream:
-            stream.write(content)
-    else:
-        if UNIT_DEST.read_bytes() != content:
-            raise InstallError("Unit changed during installation")
+    # Stage completely before publishing; never leave a partial systemd unit.
+    if not UNIT_DEST.exists() and not UNIT_DEST.is_symlink():
+        install_unit_exclusive(content, UNIT_DEST)
+    elif UNIT_DEST.is_symlink() or UNIT_DEST.read_bytes() != content:
+        raise InstallError("Unit changed during installation")
     print("CKA_STAGING_DRY_RUN_UNIT_INSTALLED_NOT_STARTED")
     print("Manual follow-up: systemctl daemon-reload then inspect unit; DO NOT enable a timer")
 
