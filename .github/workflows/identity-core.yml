@@ -1,0 +1,36 @@
+name: ShadowOps Identity · Go core isolation
+on:
+  pull_request:
+    paths:
+      - 'services/identity/**'
+      - '.github/workflows/identity-core.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'services/identity/**'
+      - '.github/workflows/identity-core.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: Isolated issuer core tests / Go vet / gofmt
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+          cache: false
+      - name: Reject unformatted Go
+        run: |
+          set -euo pipefail
+          test -z "$(gofmt -l services/identity/core/*.go)"
+      - name: Race-tested isolated identity core
+        working-directory: services/identity
+        run: go test -race -count=1 ./...
+      - name: Vet identity core
+        working-directory: services/identity
+        run: go vet ./...
