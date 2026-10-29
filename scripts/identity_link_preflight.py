@@ -66,7 +66,7 @@ def validate_plan(value: object, expected_environment: str) -> tuple[dict, froze
     for entry in entries:
         _check_fields(entry, {"source", "username", "subject", "link_review_ref"}, "Account")
         source = entry["source"]
-        if source not in SOURCES:
+        if not isinstance(source, str) or source not in SOURCES:
             raise PlanError("Unsupported legacy product")
         name = _username_key(entry["username"])
         subject = _subject(entry["subject"])
