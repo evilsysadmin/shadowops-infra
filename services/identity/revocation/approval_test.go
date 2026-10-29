@@ -16,15 +16,15 @@ func approvalTestKeys() (ed25519.PrivateKey, ed25519.PrivateKey) {
 
 func validTestSuspension(now time.Time) SuspensionApproval {
 	return SuspensionApproval{
-		Environment: "staging",
-		Action: SuspendAndRevokeAction,
-		Subject: "11111111-1111-4111-8111-111111111111",
+		Environment:            "staging",
+		Action:                 SuspendAndRevokeAction,
+		Subject:                "11111111-1111-4111-8111-111111111111",
 		ExpectedSessionVersion: 7,
-		ReviewIssue: "https://github.com/evilsysadmin/shadowops-infra/issues/287",
-		EvidenceSHA256: strings.Repeat("a", 64),
-		Nonce: strings.Repeat("b", 32),
-		IssuedAt: now.Unix(),
-		ExpiresAt: now.Add(5 * time.Minute).Unix(),
+		ReviewIssue:            "https://github.com/evilsysadmin/shadowops-infra/issues/287",
+		EvidenceSHA256:         strings.Repeat("a", 64),
+		Nonce:                  strings.Repeat("b", 32),
+		IssuedAt:               now.Unix(),
+		ExpiresAt:              now.Add(5 * time.Minute).Unix(),
 	}
 }
 
@@ -35,7 +35,7 @@ func signedTestSuspension(t *testing.T, a SuspensionApproval, op, sec ed25519.Pr
 		t.Fatal(err)
 	}
 	return SignedSuspension{
-		Approval: a,
+		Approval:          a,
 		OperatorSignature: ed25519.Sign(op, msg),
 		SecuritySignature: ed25519.Sign(sec, msg),
 	}
@@ -94,14 +94,16 @@ func TestApprovalBindsAllSecurityCriticalClaims(t *testing.T) {
 	signed := signedTestSuspension(t, validTestSuspension(now), op, sec)
 	mutations := map[string]func(*SuspensionApproval){
 		"environment": func(a *SuspensionApproval) { a.Environment = "production" },
-		"action": func(a *SuspensionApproval) { a.Action = "activate-account" },
-		"subject": func(a *SuspensionApproval) { a.Subject = "22222222-2222-4222-8222-222222222222" },
-		"version": func(a *SuspensionApproval) { a.ExpectedSessionVersion++ },
-		"review ticket": func(a *SuspensionApproval) { a.ReviewIssue = "https://github.com/evilsysadmin/shadowops-infra/issues/288" },
+		"action":      func(a *SuspensionApproval) { a.Action = "activate-account" },
+		"subject":     func(a *SuspensionApproval) { a.Subject = "22222222-2222-4222-8222-222222222222" },
+		"version":     func(a *SuspensionApproval) { a.ExpectedSessionVersion++ },
+		"review ticket": func(a *SuspensionApproval) {
+			a.ReviewIssue = "https://github.com/evilsysadmin/shadowops-infra/issues/288"
+		},
 		"evidence digest": func(a *SuspensionApproval) { a.EvidenceSHA256 = strings.Repeat("c", 64) },
-		"nonce": func(a *SuspensionApproval) { a.Nonce = strings.Repeat("d", 32) },
-		"issued at": func(a *SuspensionApproval) { a.IssuedAt-- },
-		"expires at": func(a *SuspensionApproval) { a.ExpiresAt-- },
+		"nonce":           func(a *SuspensionApproval) { a.Nonce = strings.Repeat("d", 32) },
+		"issued at":       func(a *SuspensionApproval) { a.IssuedAt-- },
+		"expires at":      func(a *SuspensionApproval) { a.ExpiresAt-- },
 	}
 	for name, mutate := range mutations {
 		t.Run(name, func(t *testing.T) {
@@ -128,25 +130,27 @@ func TestApprovalBindsAllSecurityCriticalClaims(t *testing.T) {
 func TestApprovalRejectsInvalidClaimsEvenIfResigned(t *testing.T) {
 	now := time.Unix(1800000000, 0).UTC()
 	cases := map[string]func(*SuspensionApproval){
-		"production": func(a *SuspensionApproval) { a.Environment = "production" },
+		"production":        func(a *SuspensionApproval) { a.Environment = "production" },
 		"empty environment": func(a *SuspensionApproval) { a.Environment = "" },
-		"unlisted action": func(a *SuspensionApproval) { a.Action = "issue-session" },
-		"wrong subject": func(a *SuspensionApproval) { a.Subject = "legacy-user" },
-		"uppercase uuid": func(a *SuspensionApproval) { a.Subject = strings.ToUpper(a.Subject) },
-		"zero version": func(a *SuspensionApproval) { a.ExpectedSessionVersion = 0 },
-		"negative version": func(a *SuspensionApproval) { a.ExpectedSessionVersion = -1 },
-		"overflow version": func(a *SuspensionApproval) { a.ExpectedSessionVersion = int64(^uint64(0) >> 1) },
-		"foreign ticket": func(a *SuspensionApproval) { a.ReviewIssue = "https://github.com/foreign/repo/issues/287" },
-		"unbounded ticket": func(a *SuspensionApproval) { a.ReviewIssue += "?token=secret" },
-		"malformed ticket": func(a *SuspensionApproval) { a.ReviewIssue = "http://github.com/evilsysadmin/shadowops-infra/issues/287" },
-		"empty evidence": func(a *SuspensionApproval) { a.EvidenceSHA256 = "" },
+		"unlisted action":   func(a *SuspensionApproval) { a.Action = "issue-session" },
+		"wrong subject":     func(a *SuspensionApproval) { a.Subject = "legacy-user" },
+		"uppercase uuid":    func(a *SuspensionApproval) { a.Subject = strings.ToUpper(a.Subject) },
+		"zero version":      func(a *SuspensionApproval) { a.ExpectedSessionVersion = 0 },
+		"negative version":  func(a *SuspensionApproval) { a.ExpectedSessionVersion = -1 },
+		"overflow version":  func(a *SuspensionApproval) { a.ExpectedSessionVersion = int64(^uint64(0) >> 1) },
+		"foreign ticket":    func(a *SuspensionApproval) { a.ReviewIssue = "https://github.com/foreign/repo/issues/287" },
+		"unbounded ticket":  func(a *SuspensionApproval) { a.ReviewIssue += "?token=secret" },
+		"malformed ticket": func(a *SuspensionApproval) {
+			a.ReviewIssue = "http://github.com/evilsysadmin/shadowops-infra/issues/287"
+		},
+		"empty evidence":     func(a *SuspensionApproval) { a.EvidenceSHA256 = "" },
 		"uppercase evidence": func(a *SuspensionApproval) { a.EvidenceSHA256 = strings.ToUpper(a.EvidenceSHA256) },
-		"bad nonce": func(a *SuspensionApproval) { a.Nonce = "deadbeef" },
-		"zero time": func(a *SuspensionApproval) { a.IssuedAt = 0 },
-		"negative validity": func(a *SuspensionApproval) { a.ExpiresAt = a.IssuedAt - 1 },
-		"zero validity": func(a *SuspensionApproval) { a.ExpiresAt = a.IssuedAt },
-		"too long": func(a *SuspensionApproval) { a.ExpiresAt++ },
-		"far future": func(a *SuspensionApproval) { a.ExpiresAt = 4102444801 },
+		"bad nonce":          func(a *SuspensionApproval) { a.Nonce = "deadbeef" },
+		"zero time":          func(a *SuspensionApproval) { a.IssuedAt = 0 },
+		"negative validity":  func(a *SuspensionApproval) { a.ExpiresAt = a.IssuedAt - 1 },
+		"zero validity":      func(a *SuspensionApproval) { a.ExpiresAt = a.IssuedAt },
+		"too long":           func(a *SuspensionApproval) { a.ExpiresAt++ },
+		"far future":         func(a *SuspensionApproval) { a.ExpiresAt = 4102444801 },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -177,15 +181,15 @@ func TestApprovalClockWindowAndCanonicalMessage(t *testing.T) {
 	}
 	signed := signedTestSuspension(t, a, op, sec)
 	for _, test := range []struct {
-		name string
-		when time.Time
+		name    string
+		when    time.Time
 		allowed bool
 	}{
-		{"within early skew", now.Add(-30*time.Second), true},
-		{"too early", now.Add(-31*time.Second), false},
-		{"valid", now.Add(2*time.Minute), true},
-		{"at expiration", now.Add(5*time.Minute), false},
-		{"after expiration", now.Add(6*time.Minute), false},
+		{"within early skew", now.Add(-30 * time.Second), true},
+		{"too early", now.Add(-31 * time.Second), false},
+		{"valid", now.Add(2 * time.Minute), true},
+		{"at expiration", now.Add(5 * time.Minute), false},
+		{"after expiration", now.Add(6 * time.Minute), false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			err := v.Verify(signed, test.when)
