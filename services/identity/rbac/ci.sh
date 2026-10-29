@@ -19,8 +19,8 @@ done
 
 # The replica set's internal keyfile is synthetic and disposable.
 openssl rand -base64 500 > "$key_dir/mongo-keyfile"
-sudo chown 999:999 "$key_dir/mongo-keyfile"
 chmod 400 "$key_dir/mongo-keyfile"
+sudo chown 999:999 "$key_dir/mongo-keyfile"
 chmod 755 "$key_dir"
 
 docker run -d --name identity-rbac-ci --network host \
