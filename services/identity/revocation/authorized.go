@@ -51,17 +51,17 @@ func NewAuthorizedStagingRevoker(ctx context.Context, client *mongo.Client, oper
 	journal := db.Collection(suspensionJournalCollection,
 		options.Collection().SetWriteConcern(writeconcern.Majority()).SetReadPreference(readpref.Primary()))
 	_, err = journal.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys: bson.D{{Key: "environment", Value: 1}, {Key: "action", Value: 1}, {Key: "nonce", Value: 1}},
+		Keys:    bson.D{{Key: "environment", Value: 1}, {Key: "action", Value: 1}, {Key: "nonce", Value: 1}},
 		Options: options.Index().SetName("staging_action_nonce_unique").SetUnique(true),
 	})
 	if err != nil {
 		return nil, ErrApprovalStore
 	}
 	return &AuthorizedStagingRevoker{
-		client: client,
+		client:   client,
 		accounts: db.Collection("pending_accounts"),
 		sessions: db.Collection("sessions"),
-		journal: journal,
+		journal:  journal,
 		verifier: verifier,
 	}, nil
 }
