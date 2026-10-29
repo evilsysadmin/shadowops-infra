@@ -86,8 +86,8 @@ func TestRecoveryCommitsNewSignersAndAuditWithoutChangingUserSessions(t *testing
 		t.Fatal("recovery journal missing or duplicate")
 	}
 	var event struct {
-		RevokedGeneration   int64  `bson:"revoked_generation"`
-		ActivatedGeneration int64  `bson:"activated_generation"`
+		RevokedGeneration    int64  `bson:"revoked_generation"`
+		ActivatedGeneration  int64  `bson:"activated_generation"`
 		PriorRetirementNonce string `bson:"prior_retirement_nonce"`
 	}
 	if err := db.Collection(retirementJournalCollection).FindOne(context.Background(),
@@ -202,15 +202,17 @@ func TestRecoveryFailClosedOnSignaturesKeysAndWindow(t *testing.T) {
 		t.Fatal("expired, correctly signed recovery accepted")
 	}
 	for name, modify := range map[string]func(*RecoveryStatement){
-		"production": func(v *RecoveryStatement) { v.Environment = "production" },
+		"production":   func(v *RecoveryStatement) { v.Environment = "production" },
 		"wrong action": func(v *RecoveryStatement) { v.Action = retirementAction },
-		"zero epoch": func(v *RecoveryStatement) { v.RevokedGeneration = 0 },
-		"bad hex": func(v *RecoveryStatement) { v.NewOperatorPublicKey = "abcd" },
-		"same key": func(v *RecoveryStatement) { v.NewSecurityPublicKey = v.NewOperatorPublicKey },
-		"old key reuse": func(v *RecoveryStatement) { v.NewOperatorPublicKey = hex.EncodeToString(previousOp.Public().(ed25519.PublicKey)) },
-		"early activation": func(v *RecoveryStatement) { v.NotBefore = v.IssuedAt - 1 },
+		"zero epoch":   func(v *RecoveryStatement) { v.RevokedGeneration = 0 },
+		"bad hex":      func(v *RecoveryStatement) { v.NewOperatorPublicKey = "abcd" },
+		"same key":     func(v *RecoveryStatement) { v.NewSecurityPublicKey = v.NewOperatorPublicKey },
+		"old key reuse": func(v *RecoveryStatement) {
+			v.NewOperatorPublicKey = hex.EncodeToString(previousOp.Public().(ed25519.PublicKey))
+		},
+		"early activation":   func(v *RecoveryStatement) { v.NotBefore = v.IssuedAt - 1 },
 		"unbounded lifetime": func(v *RecoveryStatement) { v.NotAfter = v.NotBefore + int64(maxRecoveredSignerLifetime.Seconds()) + 1 },
-		"zero window": func(v *RecoveryStatement) { v.NotAfter = v.NotBefore },
+		"zero window":        func(v *RecoveryStatement) { v.NotAfter = v.NotBefore },
 		"unbounded approval": func(v *RecoveryStatement) { v.ExpiresAt++ },
 	} {
 		t.Run(name, func(t *testing.T) {
