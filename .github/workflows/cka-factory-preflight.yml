@@ -5,6 +5,8 @@ on:
       - '.github/workflows/cka-factory-preflight.yml'
       - 'tests/test_cka_factory_preflight.py'
       - 'tests/test_cka_factory_service.py'
+      - 'tests/test_cka_factory_installer.py'
+      - 'host/install-cka-factory-staging.py'
       - 'host/cka-factory-staging.service'
       - 'docs/cka-factory-staging.md'
   push:
@@ -13,6 +15,8 @@ on:
       - '.github/workflows/cka-factory-preflight.yml'
       - 'tests/test_cka_factory_preflight.py'
       - 'tests/test_cka_factory_service.py'
+      - 'tests/test_cka_factory_installer.py'
+      - 'host/install-cka-factory-staging.py'
       - 'host/cka-factory-staging.service'
       - 'docs/cka-factory-staging.md'
   workflow_dispatch:
