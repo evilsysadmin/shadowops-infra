@@ -25,15 +25,25 @@ func TestMongoVersionGuardRejectsDisabledBumpedAndMalformedAccounts(t *testing.T
 		t.Fatal("production database accepted")
 	}
 	guard, err := NewVersionGuard(database)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	a, b := reviewKeys()
 	account, err := NewReviewStore(ctx, database, a.Public().(ed25519.PublicKey), b.Public().(ed25519.PublicKey))
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	reservation := Reservation{Subject: chessUUID, Source: "chess-studio", LegacyUsername: "Matthias", ReviewRef: reviewURL}
-	if err := account.ReservePending(ctx, reservation); err != nil { t.Fatal(err) }
+	if err := account.ReservePending(ctx, reservation); err != nil {
+		t.Fatal(err)
+	}
 	proof := signedReview(t, sampleReview(time.Now().UTC().Truncate(time.Second)), a, b)
-	if err := account.ReviewPending(ctx, proof); err != nil { t.Fatal(err) }
-	if err := account.StageDisabledCredential(ctx, proof, "synthetic-passphrase-2026"); err != nil { t.Fatal(err) }
+	if err := account.ReviewPending(ctx, proof); err != nil {
+		t.Fatal(err)
+	}
+	if err := account.StageDisabledCredential(ctx, proof, "synthetic-passphrase-2026"); err != nil {
+		t.Fatal(err)
+	}
 	if ver, eligible, err := guard.CurrentSessionVersion(ctx, "staging", chessUUID); err != nil || eligible || ver != 0 {
 		t.Fatal("staged credential counted as enabled", err)
 	}
@@ -43,22 +53,30 @@ func TestMongoVersionGuardRejectsDisabledBumpedAndMalformedAccounts(t *testing.T
 	if _, _, err := guard.CurrentSessionVersion(ctx, "staging", "Matthias"); !errors.Is(err, ErrInvalid) {
 		t.Fatal("username accepted instead of UUID")
 	}
-	if err := database.Collection("sessions").Drop(ctx); err != nil { t.Fatal(err) }
+	if err := database.Collection("sessions").Drop(ctx); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
 		c, done := context.WithTimeout(context.Background(), 10*time.Second)
 		defer done()
 		_ = database.Collection("sessions").Drop(c)
 	})
 	sessions, err := mongostore.New(ctx, database)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	secret := bytes.Repeat([]byte{0x72}, 32)
 	handle := "so1_" + base64.RawURLEncoding.EncodeToString(secret)
 	digest := sha256.Sum256(append([]byte("shadowops-session-v1:staging:"), secret...))
 	now := time.Now().UTC().Truncate(time.Second)
 	rec := session.Record{Digest: digest, Environment: "staging", Subject: chessUUID, IssuedAt: now, ExpiresAt: now.Add(session.Lifetime), SessionVersion: 1}
-	if err := sessions.Create(ctx, rec); err != nil { t.Fatal(err) }
+	if err := sessions.Create(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
 	validator, err := session.NewVersionedValidator("staging", sessions, guard)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := validator.Validate(ctx, handle); !errors.Is(err, session.ErrDenied) {
 		t.Fatal("disabled account session accepted", err)
 	}
@@ -69,7 +87,9 @@ func TestMongoVersionGuardRejectsDisabledBumpedAndMalformedAccounts(t *testing.T
 	filter := bson.D{{Key: "_id", Value: chessUUID}, {Key: "state", Value: disabledCredentialState}}
 	enable := bson.D{{Key: "$set", Value: bson.D{{Key: "state", Value: "active"}, {Key: "credentials_disabled", Value: false}}}}
 	r, err := accounts.UpdateOne(ctx, filter, enable)
-	if err != nil || r.ModifiedCount != 1 { t.Fatal("test-only active fixture failed", err) }
+	if err != nil || r.ModifiedCount != 1 {
+		t.Fatal("test-only active fixture failed", err)
+	}
 	if subject, err := validator.Validate(ctx, handle); err != nil || subject != chessUUID {
 		t.Fatal("matching session version was denied", err)
 	}
@@ -89,7 +109,9 @@ func TestMongoVersionGuardRejectsDisabledBumpedAndMalformedAccounts(t *testing.T
 		t.Fatal("old session survived version increment", err)
 	}
 	if _, err := accounts.UpdateOne(ctx, bson.D{{Key: "_id", Value: chessUUID}},
-		bson.D{{Key: "$set", Value: bson.D{{Key: "credentials_disabled", Value: true}}}}); err != nil { t.Fatal(err) }
+		bson.D{{Key: "$set", Value: bson.D{{Key: "credentials_disabled", Value: true}}}}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := validator.Validate(ctx, handle); !errors.Is(err, session.ErrDenied) {
 		t.Fatal("disabled account accepted", err)
 	}
