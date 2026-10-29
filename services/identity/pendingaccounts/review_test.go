@@ -29,7 +29,7 @@ func signedReview(t *testing.T, v ReviewStatement, a, b ed25519.PrivateKey) Sign
 	}
 	message := append([]byte(reviewDomain), payload...)
 	return SignedReview{
-		Statement: v,
+		Statement:  v,
 		SignatureA: ed25519.Sign(a, message),
 		SignatureB: ed25519.Sign(b, message),
 	}
@@ -38,15 +38,15 @@ func signedReview(t *testing.T, v ReviewStatement, a, b ed25519.PrivateKey) Sign
 func sampleReview(now time.Time) ReviewStatement {
 	evidence := sha256.Sum256([]byte("synthetic offline ownership dossier"))
 	return ReviewStatement{
-		Environment: "staging",
-		Subject: chessUUID,
-		Source: "chess-studio",
+		Environment:    "staging",
+		Subject:        chessUUID,
+		Source:         "chess-studio",
 		LegacyUsername: "Matthias",
-		ReviewRef: reviewURL,
+		ReviewRef:      reviewURL,
 		EvidenceSHA256: hex.EncodeToString(evidence[:]),
-		Nonce: "00112233445566778899aabbccddeeff",
-		ReviewedAt: now.Unix(),
-		ValidUntil: now.Add(5 * time.Minute).Unix(),
+		Nonce:          "00112233445566778899aabbccddeeff",
+		ReviewedAt:     now.Unix(),
+		ValidUntil:     now.Add(5 * time.Minute).Unix(),
 	}
 }
 
@@ -63,12 +63,12 @@ func TestSignedReviewRequiresTwoDistinctTrustedReviewers(t *testing.T) {
 	// A signature on the original statement cannot attest modified facts.
 	for name, change := range map[string]func(*ReviewStatement){
 		"other-environment": func(v *ReviewStatement) { v.Environment = "production" },
-		"other-subject": func(v *ReviewStatement) { v.Subject = chroniclesUUID },
-		"other-product": func(v *ReviewStatement) { v.Source = "chronicles" },
-		"other-username": func(v *ReviewStatement) { v.LegacyUsername = "Other" },
-		"other-review": func(v *ReviewStatement) { v.ReviewRef = "https://github.com/evilsysadmin/shadowops-infra/issues/288" },
-		"other-evidence": func(v *ReviewStatement) { v.EvidenceSHA256 = hex.EncodeToString(bytes.Repeat([]byte{0x41}, 32)) },
-		"other-nonce": func(v *ReviewStatement) { v.Nonce = "ffeeddccbbaa99887766554433221100" },
+		"other-subject":     func(v *ReviewStatement) { v.Subject = chroniclesUUID },
+		"other-product":     func(v *ReviewStatement) { v.Source = "chronicles" },
+		"other-username":    func(v *ReviewStatement) { v.LegacyUsername = "Other" },
+		"other-review":      func(v *ReviewStatement) { v.ReviewRef = "https://github.com/evilsysadmin/shadowops-infra/issues/288" },
+		"other-evidence":    func(v *ReviewStatement) { v.EvidenceSHA256 = hex.EncodeToString(bytes.Repeat([]byte{0x41}, 32)) },
+		"other-nonce":       func(v *ReviewStatement) { v.Nonce = "ffeeddccbbaa99887766554433221100" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			tampered := good
@@ -100,15 +100,21 @@ func TestSignedReviewRejectsExpiredUnboundedOrMalformedProofs(t *testing.T) {
 	first, second := a.Public().(ed25519.PublicKey), b.Public().(ed25519.PublicKey)
 	base := sampleReview(now)
 	for name, change := range map[string]func(*ReviewStatement){
-		"expired": func(v *ReviewStatement) { v.ReviewedAt = now.Add(-20 * time.Minute).Unix(); v.ValidUntil = now.Add(-10 * time.Minute).Unix() },
+		"expired": func(v *ReviewStatement) {
+			v.ReviewedAt = now.Add(-20 * time.Minute).Unix()
+			v.ValidUntil = now.Add(-10 * time.Minute).Unix()
+		},
 		"unbounded": func(v *ReviewStatement) { v.ValidUntil = now.Add(24 * time.Hour).Unix() },
-		"future-review": func(v *ReviewStatement) { v.ReviewedAt = now.Add(10 * time.Minute).Unix(); v.ValidUntil = now.Add(11 * time.Minute).Unix() },
-		"wrong-issuer": func(v *ReviewStatement) { v.Environment = "production" },
+		"future-review": func(v *ReviewStatement) {
+			v.ReviewedAt = now.Add(10 * time.Minute).Unix()
+			v.ValidUntil = now.Add(11 * time.Minute).Unix()
+		},
+		"wrong-issuer":     func(v *ReviewStatement) { v.Environment = "production" },
 		"missing-evidence": func(v *ReviewStatement) { v.EvidenceSHA256 = "" },
 		"uppercase-digest": func(v *ReviewStatement) { v.EvidenceSHA256 = "ABCDEF" + v.EvidenceSHA256[6:] },
-		"missing-nonce": func(v *ReviewStatement) { v.Nonce = "" },
-		"non-uuid": func(v *ReviewStatement) { v.Subject = "Matthias" },
-		"non-review-url": func(v *ReviewStatement) { v.ReviewRef = "https://example.com/287" },
+		"missing-nonce":    func(v *ReviewStatement) { v.Nonce = "" },
+		"non-uuid":         func(v *ReviewStatement) { v.Subject = "Matthias" },
+		"non-review-url":   func(v *ReviewStatement) { v.ReviewRef = "https://example.com/287" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			v := base
