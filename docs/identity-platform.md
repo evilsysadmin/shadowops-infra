@@ -62,3 +62,21 @@ No carga ni transforma hashes, correos, sesiones, secretos ni privilegios. No ge
 - Un PR de Infra no muta producción. No retirar/revocar emisor legacy hasta probar rollback.
 
 **Source of truth machine-readable:** `config/identity/platform-contract.json`. Direcciones objetivo, no endpoints desplegados ni DNS confirmado.
+
+## Acceptance: one ShadowOps account, no repeated product registration
+
+The shared Identity goal means one central registration/login/recovery flow per
+environment. After signing in, the same person must enter Chess Studio,
+Chronicles and CKA without another registration or another product password.
+Each product may initialize its own idempotent profile keyed by the verified
+`(issuer, subject)`, but that is local application data, not a second identity
+account. Shared login never implies shared admin or Kubernetes permissions.
+
+End-to-end acceptance must demonstrate central registration (or explicitly
+verified legacy linking), one login reused across the three products, refresh,
+central logout/revocation rejected by each consumer, recovery, and negative
+cross-environment/cross-audience cases. Existing usernames must not silently
+merge identities or transfer saved games. Staging and production remain isolated.
+The legacy Chess/Chronicles flow remains available until the replacement has
+passed those journeys and rollback. Cryptographic PoCs, internal libraries and
+green unit tests alone do not establish that this user-visible goal is delivered.

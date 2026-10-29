@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"time"
@@ -151,7 +152,16 @@ func (s *CKAPoCSigner) IssuePoCToken(ctx context.Context, handle string) (string
 			Iat: now.Unix(), Nbf: now.Unix(), Exp: expires.Unix(),
 			Sv: rec.SessionVersion, Jti: base64.RawURLEncoding.EncodeToString(nonce[:]),
 		}
-		return nil, nil
+		// Register the exact token-to-session binding in the same transaction.
+		// Neither raw JWTs, raw JTIs nor opaque handles are persisted.
+		_, err = s.issuer.client.Database(stagingDatabase).Collection(appTokenCollection).InsertOne(tx, appTokenRecord{
+			ID: tokenDigest(signedClaims.Jti), Issuer: signedClaims.Iss, Audience: ckaAudience,
+			Subject: rec.Subject, SessionVersion: rec.SessionVersion,
+			SessionDigest: hex.EncodeToString(digest[:]),
+			IssuedAt:      time.Unix(signedClaims.Iat, 0).UTC(),
+			ExpiresAt:     time.Unix(signedClaims.Exp, 0).UTC(), Active: true,
+		})
+		return nil, err
 	}, txn)
 	if err != nil {
 		if errors.Is(err, ErrDenied) || errors.Is(err, mongo.ErrNoDocuments) {

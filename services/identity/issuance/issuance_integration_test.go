@@ -40,7 +40,7 @@ func replica(t *testing.T) (*mongo.Client, *mongo.Database) {
 		t.Fatal(err)
 	}
 	db := client.Database(stagingDatabase)
-	for _, name := range []string{"pending_accounts", "sessions"} {
+	for _, name := range []string{"pending_accounts", "sessions", appTokenCollection} {
 		if err := db.Collection(name).Drop(ctx); err != nil {
 			t.Fatal(err)
 		}
@@ -48,7 +48,7 @@ func replica(t *testing.T) (*mongo.Client, *mongo.Database) {
 	t.Cleanup(func() {
 		c, done := context.WithTimeout(context.Background(), 10*time.Second)
 		defer done()
-		for _, name := range []string{"pending_accounts", "sessions"} {
+		for _, name := range []string{"pending_accounts", "sessions", appTokenCollection} {
 			_ = db.Collection(name).Drop(c)
 		}
 		_ = client.Disconnect(c)
