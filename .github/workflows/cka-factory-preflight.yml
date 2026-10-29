@@ -4,12 +4,16 @@ on:
     paths:
       - '.github/workflows/cka-factory-preflight.yml'
       - 'tests/test_cka_factory_preflight.py'
+      - 'tests/test_cka_factory_service.py'
+      - 'host/cka-factory-staging.service'
       - 'docs/cka-factory-staging.md'
   push:
     branches: [main]
     paths:
       - '.github/workflows/cka-factory-preflight.yml'
       - 'tests/test_cka_factory_preflight.py'
+      - 'tests/test_cka_factory_service.py'
+      - 'host/cka-factory-staging.service'
       - 'docs/cka-factory-staging.md'
   workflow_dispatch:
     inputs:
@@ -30,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - run: python3 -m unittest discover -s tests -p test_cka_factory_preflight.py -v
+      - run: python3 -m unittest discover -s tests -p 'test_cka_factory*.py' -v
 
   preflight:
     name: Pin CKA source and prove OCI factory dry run (no OCI access)
@@ -80,8 +84,8 @@ jobs:
           CKA_SCENARIO_PROVIDER: workers-ai
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/cka-factory-preflight"
-          python -m cka_sim factory-run --count 1 --type deployment_scale > "$RUNNER_TEMP/cka-factory-preflight/plan.json"
+          mkdir -p "$RUNNER_TEMP/cka-factory-preflight/workspace"
+          python -m cka_sim factory-run --count 1 --type deployment_scale --workspace "$RUNNER_TEMP/cka-factory-preflight/workspace" > "$RUNNER_TEMP/cka-factory-preflight/plan.json"
           python - <<'PY'
           import json
           import os
@@ -91,6 +95,10 @@ jobs:
           assert plan["provider"] == "workers-ai"
           assert plan["planned"] == 1
           assert plan["generated"] == []
+          workspace = Path(os.environ["RUNNER_TEMP"]) / "cka-factory-preflight" / "workspace"
+          assert (workspace / ".local/factory.lock").is_file()
+          assert not (workspace / ".local/factory-budget.json").exists()
+          assert not (workspace / "scenarios/generated").exists()
           assert not Path(".local/factory-budget.json").exists()
           assert not Path("scenarios/generated").exists()
           PY
