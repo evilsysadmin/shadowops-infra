@@ -93,8 +93,9 @@ type StagingPolicyRetirer struct {
 	afterPolicyWrite func() error // synthetic rollback injection only
 }
 
-// NewStagingPolicyRetirer ensures the permanent unique journal index exists
-// BEFORE any transaction; no TTL or broad database selection is supported.
+// NewStagingPolicyRetirer verifies the preprovisioned permanent unique audit
+// index WITHOUT index creation. Only a separate, offline schema-maintenance
+// identity may call PrepareStagingAdministrativeIndexes.
 func NewStagingPolicyRetirer(ctx context.Context, client *mongo.Client, a, b ed25519.PublicKey) (*StagingPolicyRetirer, error) {
 	if ctx == nil || ctx.Err() != nil || client == nil ||
 		len(a) != ed25519.PublicKeySize || len(b) != ed25519.PublicKeySize ||
@@ -104,11 +105,7 @@ func NewStagingPolicyRetirer(ctx context.Context, client *mongo.Client, a, b ed2
 	db := client.Database(StagingDatabase)
 	journal := db.Collection(retirementJournalCollection,
 		options.Collection().SetWriteConcern(writeconcern.Majority()).SetReadPreference(readpref.Primary()))
-	_, err := journal.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys:    bson.D{{Key: "environment", Value: 1}, {Key: "action", Value: 1}, {Key: "nonce", Value: 1}},
-		Options: options.Index().SetName("policy_retirement_nonce_unique").SetUnique(true),
-	})
-	if err != nil {
+	if err := verifyStagingJournalIndex(ctx, journal, "policy_retirement_nonce_unique"); err != nil {
 		return nil, ErrRetirementStore
 	}
 	return &StagingPolicyRetirer{
