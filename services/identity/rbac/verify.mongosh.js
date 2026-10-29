@@ -2,6 +2,12 @@
 // Every connection below authenticates as a separate role: a root connection
 // is used ONLY to inspect the outcome of the least-privilege transaction.
 "use strict";
+function ensureWorked(result, label) {
+  if (!result || result.ok !== 1) throw new Error(label + ": " + tojson(result));
+}
+function ensureEqual(actual, expected, label) {
+  if (actual !== expected) throw new Error(label + ": expected " + expected + ", got " + actual);
+}
 
 const stagingName = "shadowops_identity_staging";
 const root = db.getSiblingDB(stagingName);
@@ -12,7 +18,7 @@ function roleDB(name, password) {
 }
 function commandWorked(label, database, command) {
   const result = database.runCommand(command);
-  assert.commandWorked(result, label);
+  ensureWorked(result, label);
   return result;
 }
 function denied(label, database, command) {
@@ -145,16 +151,16 @@ try {
   session.endSession();
 }
 
-assert.eq(root.admin_suspension_journal.countDocuments({}), 1,
+ensureEqual(root.admin_suspension_journal.countDocuments({}), 1,
   "suspension audit not committed");
-assert.eq(root.sessions.countDocuments({}), 0,
+ensureEqual(root.sessions.countDocuments({}), 0,
   "revoked session survived");
 const updated = root.pending_accounts.findOne({
   _id: "11111111-1111-4111-8111-111111111111",
 });
-assert.eq(updated.state, "credential-staged-disabled", "account not disabled");
-assert.eq(Number(updated.session_version), 2, "session version not fenced");
-assert.eq(Number(root.admin_signer_policy.findOne({
+ensureEqual(updated.state, "credential-staged-disabled", "account not disabled");
+ensureEqual(Number(updated.session_version), 2, "session version not fenced");
+ensureEqual(Number(root.admin_signer_policy.findOne({
   _id: "staging:suspend-and-revoke",
 }).use_fence), 1, "signer policy write did not commit");
 print("PASS authenticated MongoDB roles: narrow DDL + restricted transactional executor");
