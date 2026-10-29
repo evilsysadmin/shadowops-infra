@@ -46,6 +46,14 @@ class CkaPagesContracts(unittest.TestCase):
             self.assertIsNotNone(pages.dns_record())
         self.assertEqual(set(calls), {"GET"})
 
+    def test_github_expression_syntax_is_complete(self):
+        import re
+        workflow = (ROOT / ".github/workflows/cka-pages-preview.yml").read_text()
+        expressions = re.findall(r"\\$\\{\\{[^\\n]*", workflow)
+        self.assertGreaterEqual(len(expressions), 8)
+        for expression in expressions:
+            self.assertRegex(expression, r"\\$\\{\\{\\s*[^{}]+\\s*\\}\\}")
+
     def test_pipeline_uses_safe_build_and_source_guards(self):
         workflow = (ROOT / ".github/workflows/cka-pages-preview.yml").read_text()
         for text in ("npm run build:public", "npm run test:public", "cka-source/frontend/dist-public",
