@@ -4,6 +4,7 @@ package pendingaccounts
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"regexp"
 	"strings"
@@ -40,7 +41,11 @@ type Reservation struct {
 	ReviewRef      string
 }
 
-type Store struct{ accounts *mongo.Collection }
+type Store struct {
+	accounts  *mongo.Collection
+	reviewerA ed25519.PublicKey
+	reviewerB ed25519.PublicKey
+}
 
 type document struct {
 	Subject        string    `bson:"_id"`
