@@ -6,7 +6,6 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -136,22 +135,3 @@ func (s *Store) ReviewPending(ctx context.Context, signed SignedReview) error {
 	return nil
 }
 
-// IsReviewed only reports review metadata. It is deliberately NOT a login
-// predicate, not a user account record and not an authorization capability.
-func (s *Store) IsReviewed(ctx context.Context, subject string) (bool, error) {
-	if s == nil || s.accounts == nil || ctx == nil || ctx.Err() != nil || !subjectRe.MatchString(subject) {
-		return false, ErrInvalid
-	}
-	count, err := s.accounts.CountDocuments(ctx, bson.D{
-		{Key: "_id", Value: subject},
-		{Key: "environment", Value: "staging"},
-		{Key: "state", Value: reviewedState},
-	})
-	if err != nil {
-		return false, err
-	}
-	if count > 1 {
-		return false, errors.New("duplicate reviewed identity record")
-	}
-	return count == 1, nil
-}
