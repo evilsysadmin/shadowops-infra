@@ -17,10 +17,10 @@ func TestPythonPasswordParityCorpus(t *testing.T) {
 	}
 	var corpus struct {
 		Rows []struct {
-			Hash string `json:"hash"`
+			Hash   string `json:"hash"`
 			Checks []struct {
 				Candidate string `json:"candidate"`
-				OK bool `json:"ok"`
+				OK        bool   `json:"ok"`
 			} `json:"checks"`
 		} `json:"rows"`
 	}
@@ -35,7 +35,9 @@ func TestPythonPasswordParityCorpus(t *testing.T) {
 			if got != check.OK {
 				t.Errorf("Python parity mismatch for row %d check %d (hash type %.10s): got %v want %v", i, j, row.Hash, got, check.OK)
 			}
-			if got { approved++ }
+			if got {
+				approved++
+			}
 		}
 	}
 	if total != 197 || approved < 40 {
@@ -45,26 +47,38 @@ func TestPythonPasswordParityCorpus(t *testing.T) {
 
 func TestArgon2idEmissionCompatibleWithPython(t *testing.T) {
 	raw, err := os.ReadFile("testdata/python_password_corpus.json")
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	var corpus struct {
 		Rows []struct {
-			Hash string `json:"hash"`
-			Checks []struct { Candidate string `json:"candidate"` } `json:"checks"`
+			Hash   string `json:"hash"`
+			Checks []struct {
+				Candidate string `json:"candidate"`
+			} `json:"checks"`
 		} `json:"rows"`
 	}
-	if err := json.Unmarshal(raw, &corpus); err != nil { t.Fatal(err) }
+	if err := json.Unmarshal(raw, &corpus); err != nil {
+		t.Fatal(err)
+	}
 	matched := 0
 	for _, row := range corpus.Rows {
-		if !strings.HasPrefix(row.Hash, "$argon2id$v=19$m=19456,t=2,p=1$") || len(row.Checks) == 0 { continue }
+		if !strings.HasPrefix(row.Hash, "$argon2id$v=19$m=19456,t=2,p=1$") || len(row.Checks) == 0 {
+			continue
+		}
 		parts := strings.Split(row.Hash, "$")
 		salt, err := base64.RawStdEncoding.DecodeString(parts[4])
-		if err != nil { t.Fatal(err) }
+		if err != nil {
+			t.Fatal(err)
+		}
 		if got := encodeArgon2id(row.Checks[0].Candidate, salt); got != row.Hash {
 			t.Fatal("Argon2id output differs from Python corpus")
 		}
 		matched++
 	}
-	if matched < 5 { t.Fatalf("only %d Python hash vectors verified", matched) }
+	if matched < 5 {
+		t.Fatalf("only %d Python hash vectors verified", matched)
+	}
 	fresh, err := HashNew("ñandú-♞-2026")
 	if err != nil || !Verify("ñandú-♞-2026", fresh) || Verify("wrong", fresh) {
 		t.Fatal("new Argon2id hash cannot be safely verified")
@@ -81,7 +95,9 @@ func TestArgon2idEmissionCompatibleWithPython(t *testing.T) {
 
 func TestMaliciousPHCHashParametersRejectedBeforeKDF(t *testing.T) {
 	valid, err := HashNew("test")
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	tests := []string{
 		strings.Replace(valid, "m=19456", "m=4294967295", 1),
 		strings.Replace(valid, "t=2", "t=4294967295", 1),
@@ -100,7 +116,9 @@ func TestMaliciousPHCHashParametersRejectedBeforeKDF(t *testing.T) {
 		"$1$md5$test",
 	}
 	for i, hash := range tests {
-		if Verify("test", hash) { t.Errorf("accepted malicious hash vector %d", i) }
+		if Verify("test", hash) {
+			t.Errorf("accepted malicious hash vector %d", i)
+		}
 	}
 	if Verify(strings.Repeat("x", 4097), valid) {
 		t.Fatal("unbounded candidate accepted")
