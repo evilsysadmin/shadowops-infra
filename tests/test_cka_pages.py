@@ -47,12 +47,12 @@ class CkaPagesContracts(unittest.TestCase):
         self.assertEqual(set(calls), {"GET"})
 
     def test_github_expression_syntax_is_complete(self):
-        import re
         workflow = (ROOT / ".github/workflows/cka-pages-preview.yml").read_text()
-        expressions = re.findall(r"\\$\\{\\{[^\\n]*", workflow)
+        marker = "$" + "{{"
+        expressions = [line for line in workflow.splitlines() if marker in line]
         self.assertGreaterEqual(len(expressions), 8)
-        for expression in expressions:
-            self.assertRegex(expression, r"\\$\\{\\{\\s*[^{}]+\\s*\\}\\}")
+        for line in expressions:
+            self.assertEqual(line.count(marker), line.count("}}"), line)
 
     def test_pipeline_uses_safe_build_and_source_guards(self):
         workflow = (ROOT / ".github/workflows/cka-pages-preview.yml").read_text()
