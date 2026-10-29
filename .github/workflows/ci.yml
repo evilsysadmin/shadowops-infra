@@ -23,3 +23,6 @@ jobs:
 
       - name: ShadowOps legacy IdP JWKS audit contracts (offline)
         run: python3 -m unittest discover -s tests -p 'test_identity_legacy_audit.py' -v
+
+      - name: ShadowOps Identity signed-token cross-environment contract (offline)
+        run: node --test tests/identity-token-contract.test.mjs
