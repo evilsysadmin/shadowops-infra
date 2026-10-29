@@ -134,7 +134,7 @@ func TestApprovalRejectsInvalidClaimsEvenIfResigned(t *testing.T) {
 		"empty environment": func(a *SuspensionApproval) { a.Environment = "" },
 		"unlisted action":   func(a *SuspensionApproval) { a.Action = "issue-session" },
 		"wrong subject":     func(a *SuspensionApproval) { a.Subject = "legacy-user" },
-		"uppercase uuid":    func(a *SuspensionApproval) { a.Subject = strings.ToUpper(a.Subject) },
+		"uppercase uuid":    func(a *SuspensionApproval) { a.Subject = "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA" },
 		"zero version":      func(a *SuspensionApproval) { a.ExpectedSessionVersion = 0 },
 		"negative version":  func(a *SuspensionApproval) { a.ExpectedSessionVersion = -1 },
 		"overflow version":  func(a *SuspensionApproval) { a.ExpectedSessionVersion = int64(^uint64(0) >> 1) },
