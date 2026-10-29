@@ -1,7 +1,6 @@
 package revocation
 
 import (
-	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
