@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "status": "design-only-not-deployed",
+  "issue": "https://github.com/evilsysadmin/shadowops-infra/issues/287",
+  "source_of_truth": "shadowops-infra",
+  "implementation": "dedicated identity service (repository choice to be approved separately)",
+  "token_target": {
+    "algorithm": "EdDSA",
+    "ttl_seconds": 3600,
+    "required_claims": [
+      "iss",
+      "aud",
+      "sub",
+      "iat",
+      "nbf",
+      "exp"
+    ],
+    "public_keys_path": "/api/identity/jwks",
+    "subject_contract": "stable opaque identifier scoped to exactly one identity environment"
+  },
+  "production_policy": {
+    "no_dev_passwords": true,
+    "no_public_lab_auth_without_sso": true
+  },
+  "environments": {
+    "staging": {
+      "issuer": "https://id-staging.shadowops.dpdns.org",
+      "dns_host": "id-staging.shadowops.dpdns.org",
+      "database": "shadowops_identity_staging",
+      "database_role": "shadowops_identity_staging",
+      "signing_key_scope": "shadowops-identity-staging",
+      "cookie": {
+        "name": "shadowops_sso_staging",
+        "domain": null,
+        "path": "/api/identity",
+        "http_only": true,
+        "secure": true,
+        "same_site": "Lax"
+      },
+      "consumers": [
+        {
+          "audience": "chess-studio",
+          "origin": "https://staging.chess-studio.shadowops.dpdns.org",
+          "status": "candidate-origin-verify-before-rollout"
+        },
+        {
+          "audience": "chronicles",
+          "origin": "https://staging.chronicles.shadowops.dpdns.org",
+          "status": "existing-consumer-rebind-planned"
+        },
+        {
+          "audience": "cka-simulator",
+          "origin": "https://staging.cka.shadowops.dpdns.org",
+          "status": "proposed-not-deployed"
+        }
+      ]
+    },
+    "production": {
+      "issuer": "https://id.shadowops.dpdns.org",
+      "dns_host": "id.shadowops.dpdns.org",
+      "database": "shadowops_identity_production",
+      "database_role": "shadowops_identity_production",
+      "signing_key_scope": "shadowops-identity-production",
+      "cookie": {
+        "name": "shadowops_sso_production",
+        "domain": null,
+        "path": "/api/identity",
+        "http_only": true,
+        "secure": true,
+        "same_site": "Lax"
+      },
+      "consumers": [
+        {
+          "audience": "chess-studio",
+          "origin": "https://chess-studio.shadowops.dpdns.org",
+          "status": "candidate-origin-verify-before-rollout"
+        },
+        {
+          "audience": "chronicles",
+          "origin": "https://chronicles.shadowops.dpdns.org",
+          "status": "existing-consumer-rebind-planned"
+        },
+        {
+          "audience": "cka-simulator",
+          "origin": "https://cka.shadowops.dpdns.org",
+          "status": "static-preview-only"
+        }
+      ]
+    }
+  },
+  "cross_environment_trust": false,
+  "global_admin_impersonation": false,
+  "shared_user_database": false,
+  "shared_signing_keys": false,
+  "shared_cookie_scope": false,
+  "shared_authorization": false
+}
