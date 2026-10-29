@@ -1,0 +1,35 @@
+name: CKA public live release audit (read-only)
+on:
+  pull_request:
+    paths: ['.github/workflows/cka-live-audit.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  audit:
+    name: Verify CKA Pages push job and exact public release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      GH_TOKEN: ${{ github.token }
+    steps:
+      - name: Inspect latest main CKA publish run, without credentials
+        id: publish
+        run: |
+          set -euo pipefail
+          data="$(gh api 'repos/evilsysadmin/shadowops-infra/actions/workflows/cka-pages-preview.yml/runs?event=push&branch=main&per_page=5')"
+          echo "$data" | jq -r '.workflow_runs[:5][] | "CKA_PUBLISH_RUN id=\(.id) status=\(.status) conclusion=\(.conclusion) url=\(.html_url)"'
+          latest="$(echo "$data" | jq -r '.workflow_runs[0].id // empty')"
+          [[ "$latest" =~ ^[0-9]+$ ]] || { echo "CKA_PUBLISH_RUN_NOT_FOUND" >&2; exit 1; }
+          status="$(echo "$data" | jq -r '.workflow_runs[0].status')"
+          conclusion="$(echo "$data" | jq -r '.workflow_runs[0].conclusion')"
+          [[ "$status" == completed && "$conclusion" == success ]] || { echo "CKA_PUBLISH_NOT_VERIFIED $status $conclusion" >&2; exit 1; }
+      - name: Read public HTTPS release identity
+        run: |
+          set -euo pipefail
+          expected="$(gh api repos/evilsysadmin/cka-exam-simulator/commits/main --jq .sha)"
+          body="$(curl -fLsS --max-time 12 --retry 4 --retry-connrefused --retry-delay 6 https://cka.shadowops.dpdns.org/release.json)"
+          echo "$body" | jq -e --arg sha "$expected" '.application=="cka-exam-simulator" and .build==$sha and .mode=="static-readonly-preview"' >/dev/null
+          curl -fLsS --max-time 12 --retry 4 --retry-connrefused --retry-delay 6 https://cka.shadowops.dpdns.org/ | grep -Fq 'CKA // LAB'
+          echo "CKA_PUBLIC_RELEASE_AUDIT_OK $expected"
