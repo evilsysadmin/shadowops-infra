@@ -116,7 +116,7 @@ func (m *Manager) Issue(ctx context.Context, subject string) (string, error) {
 func (m *Manager) Validate(ctx context.Context, handle string) (string, error) {
  rec, err := m.validatedRecord(ctx, handle)
  if err != nil { return "", err }
- return rec, nil
+ return rec.Subject, nil
 }
 
 func (m *Manager) validatedRecord(ctx context.Context, handle string) (Record, error) {
@@ -137,7 +137,7 @@ func (m *Manager) validatedRecord(ctx context.Context, handle string) (Record, e
 		rec.ExpiresAt.Sub(rec.IssuedAt) > Lifetime || !now.Before(rec.ExpiresAt) {
 		return Record{}, ErrDenied
 	}
-	return rec.Subject, nil
+	return rec, nil
 }
 
 // Rotate invalidates the old handle and creates a new one with the SAME
