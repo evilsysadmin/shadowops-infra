@@ -18,19 +18,21 @@ import (
 
 const (
 	StagingDatabase = "shadowops_identity_staging"
-	collectionName = "sessions"
+	collectionName  = "sessions"
 )
+
 var ErrInvalidStore = errors.New("identity staging session store requires isolated Mongo database")
 
 type Store struct{ collection *mongo.Collection }
+
 var _ session.Store = (*Store)(nil)
 
 type document struct {
-	Digest string `bson:"digest"`
-	Environment string `bson:"environment"`
-	Subject string `bson:"subject"`
-	IssuedAt time.Time `bson:"issued_at"`
-	ExpiresAt time.Time `bson:"expires_at"`
+	Digest      string    `bson:"digest"`
+	Environment string    `bson:"environment"`
+	Subject     string    `bson:"subject"`
+	IssuedAt    time.Time `bson:"issued_at"`
+	ExpiresAt   time.Time `bson:"expires_at"`
 }
 
 func validRecord(r session.Record) bool {
@@ -83,8 +85,12 @@ func (s *Store) Get(ctx context.Context, environment string, digest [32]byte) (s
 		{Key: "environment", Value: environment},
 		{Key: "digest", Value: hex.EncodeToString(digest[:])},
 	}).Decode(&doc)
-	if errors.Is(err, mongo.ErrNoDocuments) { return session.Record{}, false, nil }
-	if err != nil { return session.Record{}, false, err }
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return session.Record{}, false, nil
+	}
+	if err != nil {
+		return session.Record{}, false, err
+	}
 	if doc.Environment != environment || doc.Digest != hex.EncodeToString(digest[:]) {
 		return session.Record{}, false, ErrInvalidStore
 	}
@@ -102,7 +108,7 @@ func (s *Store) Swap(ctx context.Context, environment string, old [32]byte, next
 	if s == nil || s.collection == nil || ctx == nil || ctx.Err() != nil ||
 		environment != "staging" || old == next.Digest || old == ([32]byte{}) ||
 		now.IsZero() || !validRecord(next) || next.Environment != environment ||
-		next.IssuedAt.After(now.Add(30*time.Second)) || !next.IssuedAt.After(now.Add(-time.Second)) ||
+		next.IssuedAt.After(now.Add(30 * time.Second)) || !next.IssuedAt.After(now.Add(-time.Second)) ||
 		!now.Before(next.ExpiresAt) {
 		return false, ErrInvalidStore
 	}
@@ -118,7 +124,9 @@ func (s *Store) Swap(ctx context.Context, environment string, old [32]byte, next
 		{Key: "issued_at", Value: next.IssuedAt.UTC()},
 	}}}
 	result, err := s.collection.UpdateOne(ctx, filter, change)
-	if err != nil { return false, err }
+	if err != nil {
+		return false, err
+	}
 	return result.ModifiedCount == 1, nil
 }
 
