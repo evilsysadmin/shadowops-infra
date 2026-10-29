@@ -27,7 +27,11 @@ jobs:
       - name: Reject unformatted Go
         run: |
           set -euo pipefail
-          test -z "$(gofmt -l services/identity/core/*.go services/identity/mongostore/*.go)"
+          files="$(gofmt -l services/identity/core/*.go services/identity/mongostore/*.go)"
+          if [[ -n "$files" ]]; then
+            for file in $files; do gofmt -d "$file"; done
+            exit 1
+          fi
       - name: Download pinned Mongo driver and dependencies
         working-directory: services/identity
         run: go mod download
