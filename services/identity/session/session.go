@@ -116,6 +116,8 @@ func (m *Manager) Issue(ctx context.Context, subject string) (string, error) {
 func (m *Manager) Validate(ctx context.Context, handle string) (string, error) {
  rec, err := m.validatedRecord(ctx, handle)
  if err != nil { return "", err }
+ // Never let the legacy storage-only API bypass account-version checks.
+ if rec.SessionVersion > 0 { return "", ErrDenied }
  return rec.Subject, nil
 }
 
@@ -160,6 +162,9 @@ func (m *Manager) Rotate(ctx context.Context, handle string) (string, error) {
 		rec.ExpiresAt.Sub(rec.IssuedAt) > Lifetime || !now.Before(rec.ExpiresAt) {
 		return "", ErrDenied
 	}
+	// Versioned sessions have no ordinary rotation pathway without a fresh
+	// authoritative account-state check and an atomic version-bound design.
+	if rec.SessionVersion > 0 { return "", ErrDenied }
 	nextHandle, nextDigest, err := m.newHandle()
 	if err != nil {
 		return "", err
