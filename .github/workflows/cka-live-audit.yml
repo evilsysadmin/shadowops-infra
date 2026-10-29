@@ -16,6 +16,7 @@ jobs:
     steps:
       - name: Inspect latest main CKA publish run, without credentials
         id: publish
+        continue-on-error: true
         run: |
           set -euo pipefail
           data="$(gh api 'repos/evilsysadmin/shadowops-infra/actions/workflows/cka-pages-preview.yml/runs?event=push&branch=main&per_page=5')"
@@ -28,6 +29,12 @@ jobs:
       - name: Read public HTTPS release identity
         run: |
           set -euo pipefail
+          echo "CKA_PUBLIC_DNS_PROBE"
+          getent ahostsv4 cka.shadowops.dpdns.org | head -1 || true
+          echo "CKA_PUBLIC_TLS_PROBE"
+          curl -sSIL --max-time 12 https://cka.shadowops.dpdns.org/ || true
+          echo "CKA_PAGES_DEV_TLS_PROBE"
+          curl -sSIL --max-time 12 https://cka-simulator.pages.dev/ || true
           expected="$(gh api repos/evilsysadmin/cka-exam-simulator/commits/main --jq .sha)"
           body="$(curl -fLsS --max-time 12 --retry 4 --retry-connrefused --retry-delay 6 https://cka.shadowops.dpdns.org/release.json)"
           echo "$body" | jq -e --arg sha "$expected" '.application=="cka-exam-simulator" and .build==$sha and .mode=="static-readonly-preview"' >/dev/null
