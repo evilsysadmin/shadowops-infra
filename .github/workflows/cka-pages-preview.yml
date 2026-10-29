@@ -9,8 +9,8 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: shadowops-cka-pages-preview
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'pull_request' && format('shadowops-cka-pages-pr-{0}', github.event.pull_request.number) || 'shadowops-cka-pages-preview' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   contracts:
     runs-on: ubuntu-24.04
