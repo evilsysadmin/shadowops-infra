@@ -15,16 +15,16 @@ import (
 // independent operator enrollment are required before an authorized mutation.
 const (
 	SuspendAndRevokeAction = "suspend-and-revoke"
-	approvalDomain = "shadowops-identity-admin-suspension-v1\n"
-	approvalLifetime = 5 * time.Minute
-	approvalClockSkew = 30 * time.Second
+	approvalDomain         = "shadowops-identity-admin-suspension-v1\n"
+	approvalLifetime       = 5 * time.Minute
+	approvalClockSkew      = 30 * time.Second
 )
 
 var (
 	ErrApprovalDenied = errors.New("staging identity administrative approval denied")
-	approvalIssue = regexp.MustCompile(`^https://github\.com/evilsysadmin/shadowops-infra/issues/[1-9][0-9]{0,8}$`)
-	approvalSHA256 = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	approvalNonce = regexp.MustCompile(`^[0-9a-f]{32}$`)
+	approvalIssue     = regexp.MustCompile(`^https://github\.com/evilsysadmin/shadowops-infra/issues/[1-9][0-9]{0,8}$`)
+	approvalSHA256    = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	approvalNonce     = regexp.MustCompile(`^[0-9a-f]{32}$`)
 )
 
 // SuspensionApproval describes ONE specifically scoped staging suspension.
@@ -32,21 +32,21 @@ var (
 // separate, pinned, independently controlled signing keys must be enrolled
 // by a trusted offline operator after reviewing evidence outside this repo.
 type SuspensionApproval struct {
-	Environment string `json:"environment"`
-	Action string `json:"action"`
-	Subject string `json:"subject"`
-	ExpectedSessionVersion int64 `json:"expected_session_version"`
-	ReviewIssue string `json:"review_issue"`
-	EvidenceSHA256 string `json:"evidence_sha256"`
-	Nonce string `json:"nonce"`
-	IssuedAt int64 `json:"issued_at"`
-	ExpiresAt int64 `json:"expires_at"`
+	Environment            string `json:"environment"`
+	Action                 string `json:"action"`
+	Subject                string `json:"subject"`
+	ExpectedSessionVersion int64  `json:"expected_session_version"`
+	ReviewIssue            string `json:"review_issue"`
+	EvidenceSHA256         string `json:"evidence_sha256"`
+	Nonce                  string `json:"nonce"`
+	IssuedAt               int64  `json:"issued_at"`
+	ExpiresAt              int64  `json:"expires_at"`
 }
 
 // SignedSuspension has explicitly ordered roles, preventing substitution of
 // an operator's signature for the independent security approver.
 type SignedSuspension struct {
-	Approval SuspensionApproval
+	Approval          SuspensionApproval
 	OperatorSignature []byte
 	SecuritySignature []byte
 }
