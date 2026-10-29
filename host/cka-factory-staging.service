@@ -1,0 +1,42 @@
+# ShadowOps CKA scenario factory · STAGING dry-run service candidate
+# Never enable or deploy automatically; requires separate host authorization.
+# No --execute, no secret access, no network, no HTTP listener, no timer.
+[Unit]
+Description=ShadowOps CKA staging Workers AI factory preflight (NO INFERENCE)
+Documentation=https://github.com/evilsysadmin/shadowops-infra/blob/main/docs/cka-factory-staging.md
+ConditionPathIsDirectory=/var/lib/shadowops/cka-factory-staging
+ConditionPathExists=/opt/shadowops/cka-factory-staging/venv/bin/python
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=shadowops-cka-factory
+Group=shadowops-cka-factory
+WorkingDirectory=/opt/shadowops/cka-factory-staging
+ExecStart=/opt/shadowops/cka-factory-staging/venv/bin/python -m cka_sim factory-run --workspace /var/lib/shadowops/cka-factory-staging --count 1 --type deployment_scale
+Environment=CKA_SCENARIO_PROVIDER=workers-ai
+UMask=0077
+ReadWritePaths=/var/lib/shadowops/cka-factory-staging
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+MemoryMax=256M
+TasksMax=32
+TimeoutStartSec=90

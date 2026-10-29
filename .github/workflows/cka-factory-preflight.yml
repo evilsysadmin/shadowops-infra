@@ -4,12 +4,16 @@ on:
     paths:
       - '.github/workflows/cka-factory-preflight.yml'
       - 'tests/test_cka_factory_preflight.py'
+      - 'tests/test_cka_factory_service.py'
+      - 'host/cka-factory-staging.service'
       - 'docs/cka-factory-staging.md'
   push:
     branches: [main]
     paths:
       - '.github/workflows/cka-factory-preflight.yml'
       - 'tests/test_cka_factory_preflight.py'
+      - 'tests/test_cka_factory_service.py'
+      - 'host/cka-factory-staging.service'
       - 'docs/cka-factory-staging.md'
   workflow_dispatch:
     inputs:
@@ -30,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - run: python3 -m unittest discover -s tests -p test_cka_factory_preflight.py -v
+      - run: python3 -m unittest discover -s tests -p 'test_cka_factory*.py' -v
 
   preflight:
     name: Pin CKA source and prove OCI factory dry run (no OCI access)

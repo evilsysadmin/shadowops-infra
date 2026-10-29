@@ -23,6 +23,45 @@ artifact `cka-factory-staging-preflight-<sha>` recording the immutable app SHA,
 mode `staging-source-preflight-only`, zero inference and **no OCI host touch**.
 PR/CI green alone is **not** proof this manual preflight was invoked.
 
+## Staging systemd dry-run candidate (not installed)
+
+[`host/cka-factory-staging.service`](../host/cka-factory-staging.service)
+is a **proposed manual one-shot unit**. It is intentionally **not** installed,
+enabled, triggered by a timer, started by GitHub Actions or provisioned through
+OCI Run Command. Its only `ExecStart` runs the pinned CKA `factory-run`
+CLI in **dry-run mode** using `--workspace
+/var/lib/shadowops/cka-factory-staging`; it has **no `--execute`**.
+
+Host prerequisites, to be separately approved before any manual installation:
+
+- Provision a dedicated system account `shadowops-cka-factory` with no login,
+  no sudo privileges, and access only to its own persistent workspace.
+  The root-owned application location
+  `/opt/shadowops/cka-factory-staging/venv/` must contain a verified
+  immutable-SHA installed backend, not a mutable editable checkout.
+- Preprovision `/var/lib/shadowops/cka-factory-staging` as an absolute,
+  real (non-symlink), persistent directory owned by that account, mode
+  `0700`. Ensure the rest of `/var/lib/shadowops` and all Chronicles/Chess
+  Studio directories remain untouched. The unit **does not** create or chown
+  shared parents.
+- If manually installed in an approved change window, the unit has
+  `ProtectSystem=strict`, a single `ReadWritePaths` exception, private
+  network namespace, `IPAddressDeny=any`, AF_UNIX-only sockets, dropped
+  capabilities, no elevated privileges, bounded memory/tasks and no
+  `[Install]` target. It is not a worker or service listening on any port.
+- The dry-run unit cannot access Cloudflare, read backend secrets, or
+  perform an inference. A *separate reviewed design and authorization* must
+  exist before introducing an inference-capable one-shot unit with outbound
+  HTTPS and restricted secret injection. Do not change this unit in place
+  to add `--execute` or credentials without another reviewed staging PR.
+- CI validates the unit **as a static contract** without invoking systemd.
+  Passing these tests cannot prove the unit has been installed or executed.
+
+The manual GitHub source preflight now uses an **ephemeral external workspace**
+with `factory-run --workspace ...` and checks the lock exists but budget/YAML
+have not been created. The preflight remains credential-free and cannot
+touch an OCI host.
+
 ## What remains to be deployed
 
 1. Establish the **dedicated staging OCI A1 owner, service account and durable
