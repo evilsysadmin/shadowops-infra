@@ -1,0 +1,39 @@
+name: ShadowOps Identity · Mongo session contract
+on:
+  pull_request:
+    paths:
+      - 'services/identity/**'
+      - '.github/workflows/identity-mongo.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'services/identity/**'
+      - '.github/workflows/identity-mongo.yml'
+permissions:
+  contents: read
+jobs:
+  mongo-integration:
+    name: MongoDB ephemeral session CAS / revocation integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    services:
+      mongo:
+        image: mongo:7.0
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ping:1})'"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+          cache: false
+      - name: Run integration against disposable localhost Mongo
+        working-directory: services/identity
+        env:
+          IDENTITY_MONGO_TEST_URL: mongodb://127.0.0.1:27017
+        run: go test -race -count=1 -v ./mongostore

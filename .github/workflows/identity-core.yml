@@ -27,7 +27,10 @@ jobs:
       - name: Reject unformatted Go
         run: |
           set -euo pipefail
-          test -z "$(gofmt -l services/identity/core/*.go)"
+          test -z "$(gofmt -l services/identity/core/*.go services/identity/mongostore/*.go)"
+      - name: Download pinned Mongo driver and dependencies
+        working-directory: services/identity
+        run: go mod download
       - name: Race-tested isolated identity core
         working-directory: services/identity
         run: go test -race -count=1 ./...
