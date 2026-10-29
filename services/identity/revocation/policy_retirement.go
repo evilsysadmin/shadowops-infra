@@ -20,15 +20,15 @@ import (
 )
 
 const (
-	retirementAction = "retire-signer-policy"
-	retirementDomain = "shadowops-identity-policy-retirement-v1\n"
+	retirementAction            = "retire-signer-policy"
+	retirementDomain            = "shadowops-identity-policy-retirement-v1\n"
 	retirementJournalCollection = "admin_signer_policy_events"
 )
 
 var (
-	ErrRetirementDenied = errors.New("identity offline signer policy retirement denied")
+	ErrRetirementDenied   = errors.New("identity offline signer policy retirement denied")
 	ErrRetirementConflict = errors.New("identity signer policy retirement conflict")
-	ErrRetirementStore = errors.New("identity signer policy retirement unavailable")
+	ErrRetirementStore    = errors.New("identity signer policy retirement unavailable")
 )
 
 // RetirementStatement identifies only the CURRENT staging signer policy and
@@ -36,20 +36,20 @@ var (
 // cannot be retired with an old signature. Both reviewing authorities must
 // separately inspect out-of-band evidence; an issue URL proves nothing.
 type RetirementStatement struct {
-	Environment string `json:"environment"`
-	Action string `json:"action"`
-	Generation int64 `json:"generation"`
+	Environment       string `json:"environment"`
+	Action            string `json:"action"`
+	Generation        int64  `json:"generation"`
 	OperatorKeySHA256 string `json:"operator_key_sha256"`
 	SecurityKeySHA256 string `json:"security_key_sha256"`
-	ReviewIssue string `json:"review_issue"`
-	EvidenceSHA256 string `json:"evidence_sha256"`
-	Nonce string `json:"nonce"`
-	IssuedAt int64 `json:"issued_at"`
-	ExpiresAt int64 `json:"expires_at"`
+	ReviewIssue       string `json:"review_issue"`
+	EvidenceSHA256    string `json:"evidence_sha256"`
+	Nonce             string `json:"nonce"`
+	IssuedAt          int64  `json:"issued_at"`
+	ExpiresAt         int64  `json:"expires_at"`
 }
 
 type SignedRetirement struct {
-	Statement RetirementStatement
+	Statement           RetirementStatement
 	AuthorityASignature []byte
 	AuthorityBSignature []byte
 }
@@ -84,9 +84,9 @@ func RetirementMessage(v RetirementStatement) ([]byte, error) {
 // kill switch. Governance keys must be independently enrolled and pinned by a
 // trusted operator. It never provisions them or handles actual user accounts.
 type StagingPolicyRetirer struct {
-	client *mongo.Client
-	policy *mongo.Collection
-	journal *mongo.Collection
+	client     *mongo.Client
+	policy     *mongo.Collection
+	journal    *mongo.Collection
 	authorityA ed25519.PublicKey
 	authorityB ed25519.PublicKey
 
@@ -105,16 +105,16 @@ func NewStagingPolicyRetirer(ctx context.Context, client *mongo.Client, a, b ed2
 	journal := db.Collection(retirementJournalCollection,
 		options.Collection().SetWriteConcern(writeconcern.Majority()).SetReadPreference(readpref.Primary()))
 	_, err := journal.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys: bson.D{{Key: "environment", Value: 1}, {Key: "action", Value: 1}, {Key: "nonce", Value: 1}},
+		Keys:    bson.D{{Key: "environment", Value: 1}, {Key: "action", Value: 1}, {Key: "nonce", Value: 1}},
 		Options: options.Index().SetName("policy_retirement_nonce_unique").SetUnique(true),
 	})
 	if err != nil {
 		return nil, ErrRetirementStore
 	}
 	return &StagingPolicyRetirer{
-		client: client,
-		policy: db.Collection(signerPolicyCollection),
-		journal: journal,
+		client:     client,
+		policy:     db.Collection(signerPolicyCollection),
+		journal:    journal,
 		authorityA: append(ed25519.PublicKey(nil), a...),
 		authorityB: append(ed25519.PublicKey(nil), b...),
 	}, nil
