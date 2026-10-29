@@ -80,3 +80,13 @@ merge identities or transfer saved games. Staging and production remain isolated
 The legacy Chess/Chronicles flow remains available until the replacement has
 passed those journeys and rollback. Cryptographic PoCs, internal libraries and
 green unit tests alone do not establish that this user-visible goal is delivered.
+
+### Shared-session milestone (internal staging library)
+
+The issuance/freshness library now recognizes the three configured application
+audiences over one central session, with a 3×3 wrong-audience rejection matrix.
+Central-session logout and rotation invalidate that session's tokens across the
+three products, while other browser sessions remain isolated. Existing CKA
+interfaces and registered-record layout stay compatible. This does not complete
+the user-visible acceptance above: browser registration/login, service transport
+and consumer wiring are still pending; the legacy logins remain untouched.

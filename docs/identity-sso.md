@@ -1,5 +1,18 @@
 # ShadowOps · cuenta única (SSO)
 
+> **Flujo heredado de Chess IdP.** Este documento describe la integración
+> existente Chess Studio → Chronicles. Para el servicio Identity independiente
+> y su aceptación de cuenta única, prevalece [identity-platform.md](identity-platform.md).
+> El nuevo proveedor usa un `sub` UUID; **no basta con cambiar la URL del emisor**:
+> los consumidores deben verificar ese identificador y aplicar un mapeo de datos
+> legacy cuya propiedad esté comprobada. Un mismo username no acredita que dos
+> cuentas pertenezcan a la misma persona. Las notas históricas de vinculación por
+> nombre de este documento no autorizan fusiones automáticas ni nuevos cutovers.
+> El cierre de cookie del flujo heredado tampoco prueba revocación inmediata de
+> sus JWT: la nueva biblioteca de Identity añade comprobación de vigencia por
+> operación, aún pendiente de conectar al transporte y a los productos.
+
+
 Una sola cuenta para Chess Studio, Chronicles y los juegos que vengan. Te registras una vez; entras una vez y estás dentro en todos.
 
 ## Decisión
