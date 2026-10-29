@@ -108,7 +108,7 @@ func (s *Store) Swap(ctx context.Context, environment string, old [32]byte, next
 	if s == nil || s.collection == nil || ctx == nil || ctx.Err() != nil ||
 		environment != "staging" || old == next.Digest || old == ([32]byte{}) ||
 		now.IsZero() || !validRecord(next) || next.Environment != environment ||
-		next.IssuedAt.After(now.Add(30 * time.Second)) || !next.IssuedAt.After(now.Add(-time.Second)) ||
+		next.IssuedAt.After(now.Add(30*time.Second)) || !next.IssuedAt.After(now.Add(-time.Second)) ||
 		!now.Before(next.ExpiresAt) {
 		return false, ErrInvalidStore
 	}
@@ -117,7 +117,7 @@ func (s *Store) Swap(ctx context.Context, environment string, old [32]byte, next
 		{Key: "digest", Value: hex.EncodeToString(old[:])},
 		{Key: "subject", Value: next.Subject},
 		{Key: "expires_at", Value: bson.D{{Key: "$eq", Value: next.ExpiresAt.UTC()}, {Key: "$gt", Value: now.UTC()}}},
-		{Key: "issued_at", Value: bson.D{{Key: "$lte", Value: now.Add(30*time.Second).UTC()}}},
+		{Key: "issued_at", Value: bson.D{{Key: "$lte", Value: now.Add(30 * time.Second).UTC()}}},
 	}
 	change := bson.D{{Key: "$set", Value: bson.D{
 		{Key: "digest", Value: hex.EncodeToString(next.Digest[:])},
