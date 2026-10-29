@@ -36,4 +36,4 @@ jobs:
         working-directory: services/identity
         env:
           IDENTITY_MONGO_TEST_URL: mongodb://127.0.0.1:27017
-        run: go test -race -count=1 -v ./mongostore
+        run: go test -race -count=1 -v ./mongostore ./pendingaccounts
