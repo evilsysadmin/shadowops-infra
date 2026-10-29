@@ -69,12 +69,9 @@ denied("schema maintainer cannot alter audit", maintenance, {
   update: adminJournal, updates: [{ q: {}, u: { $set: { modified: true } } }],
 });
 
-for (const spec of indexed) {
-  commandWorked("suspension can inspect preprovisioned audit index", runtime, {
-    listIndexes: spec.collection === adminJournal ? adminJournal : adminJournal,
-  });
-  break;
-}
+commandWorked("suspension can inspect preprovisioned audit index", runtime, {
+  listIndexes: adminJournal,
+});
 denied("runtime cannot create an index", runtime, {
   createIndexes: adminJournal,
   indexes: [{ key: { unauthorized: 1 }, name: "unsafe_runtime_ddl" }],
