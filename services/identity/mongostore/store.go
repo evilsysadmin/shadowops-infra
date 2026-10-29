@@ -28,12 +28,12 @@ type Store struct{ collection *mongo.Collection }
 var _ session.Store = (*Store)(nil)
 
 type document struct {
-	Digest      string    `bson:"digest"`
-	Environment string    `bson:"environment"`
-	Subject     string    `bson:"subject"`
-	IssuedAt    time.Time `bson:"issued_at"`
-	ExpiresAt   time.Time `bson:"expires_at"`
-	SessionVersion int64 `bson:"session_version"`
+	Digest         string    `bson:"digest"`
+	Environment    string    `bson:"environment"`
+	Subject        string    `bson:"subject"`
+	IssuedAt       time.Time `bson:"issued_at"`
+	ExpiresAt      time.Time `bson:"expires_at"`
+	SessionVersion int64     `bson:"session_version"`
 }
 
 func validRecord(r session.Record) bool {
