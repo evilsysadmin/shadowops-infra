@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	ckaAudience = "cka-simulator"
+	ckaAudience         = "cka-simulator"
 	ckaPoCTokenLifetime = 2 * time.Minute
 )
 
@@ -29,10 +29,10 @@ const (
 // interoperability, NOT current account authorization at a future time.
 // Product access needs an independent revocation check on every request.
 type CKAPoCSigner struct {
-	issuer *Issuer
+	issuer   *Issuer
 	identity *core.Core
-	private ed25519.PrivateKey
-	kid string
+	private  ed25519.PrivateKey
+	kid      string
 }
 
 // NewCKAPoCSigner must receive a real staging Issuer with an actual MongoDB
@@ -72,10 +72,10 @@ type ckaPOCClaims struct {
 	Iss string `json:"iss"`
 	Aud string `json:"aud"`
 	Sub string `json:"sub"`
-	Iat int64 `json:"iat"`
-	Nbf int64 `json:"nbf"`
-	Exp int64 `json:"exp"`
-	Sv int64 `json:"sv"`
+	Iat int64  `json:"iat"`
+	Nbf int64  `json:"nbf"`
+	Exp int64  `json:"exp"`
+	Sv  int64  `json:"sv"`
 	Jti string `json:"jti"`
 }
 
