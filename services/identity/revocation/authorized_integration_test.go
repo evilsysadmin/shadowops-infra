@@ -3,6 +3,8 @@ package revocation
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"strings"
 	"sync"
@@ -21,12 +23,33 @@ func authorizedFixture(t *testing.T) (*mongo.Database, *AuthorizedStagingRevoker
 	if err := db.Collection(suspensionJournalCollection).Drop(ctx); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.Collection(signerPolicyCollection).Drop(ctx); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
 		c, done := context.WithTimeout(context.Background(), 10*time.Second)
 		defer done()
 		_ = db.Collection(suspensionJournalCollection).Drop(c)
+		_ = db.Collection(signerPolicyCollection).Drop(c)
 	})
 	op, sec := approvalTestKeys()
+	opFingerprint := sha256.Sum256(op.Public().(ed25519.PublicKey))
+	secFingerprint := sha256.Sum256(sec.Public().(ed25519.PublicKey))
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	_, err := db.Collection(signerPolicyCollection).InsertOne(ctx, bson.D{
+		{Key: "_id", Value: signerPolicyID},
+		{Key: "environment", Value: "staging"},
+		{Key: "action", Value: SuspendAndRevokeAction},
+		{Key: "state", Value: "active"},
+		{Key: "generation", Value: int64(1)},
+		{Key: "operator_key_sha256", Value: hex.EncodeToString(opFingerprint[:])},
+		{Key: "security_key_sha256", Value: hex.EncodeToString(secFingerprint[:])},
+		{Key: "not_before", Value: now.Add(-time.Hour)},
+		{Key: "not_after", Value: now.Add(24 * time.Hour)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	r, err := NewAuthorizedStagingRevoker(ctx, client,
 		op.Public().(ed25519.PublicKey), sec.Public().(ed25519.PublicKey))
 	if err != nil {
