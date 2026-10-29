@@ -33,12 +33,13 @@ type document struct {
 	Subject     string    `bson:"subject"`
 	IssuedAt    time.Time `bson:"issued_at"`
 	ExpiresAt   time.Time `bson:"expires_at"`
+	SessionVersion int64 `bson:"session_version"`
 }
 
 func validRecord(r session.Record) bool {
 	return r.Environment == "staging" && r.Subject != "" &&
 		r.Digest != ([32]byte{}) && !r.IssuedAt.IsZero() && !r.ExpiresAt.IsZero() &&
-		r.ExpiresAt.After(r.IssuedAt) && r.ExpiresAt.Sub(r.IssuedAt) <= session.Lifetime
+		r.ExpiresAt.After(r.IssuedAt) && r.ExpiresAt.Sub(r.IssuedAt) <= session.Lifetime && r.SessionVersion >= 0
 }
 
 // New creates required unique/TTL indexes before returning a usable Store.
@@ -71,7 +72,7 @@ func (s *Store) Create(ctx context.Context, r session.Record) error {
 	}
 	_, err := s.collection.InsertOne(ctx, document{
 		Digest: hex.EncodeToString(r.Digest[:]), Environment: r.Environment,
-		Subject: r.Subject, IssuedAt: r.IssuedAt.UTC(), ExpiresAt: r.ExpiresAt.UTC(),
+		Subject: r.Subject, IssuedAt: r.IssuedAt.UTC(), ExpiresAt: r.ExpiresAt.UTC(), SessionVersion: r.SessionVersion,
 	})
 	return err
 }
@@ -96,7 +97,7 @@ func (s *Store) Get(ctx context.Context, environment string, digest [32]byte) (s
 	}
 	return session.Record{
 		Digest: digest, Environment: environment, Subject: doc.Subject,
-		IssuedAt: doc.IssuedAt.UTC(), ExpiresAt: doc.ExpiresAt.UTC(),
+		IssuedAt: doc.IssuedAt.UTC(), ExpiresAt: doc.ExpiresAt.UTC(), SessionVersion: doc.SessionVersion,
 	}, true, nil
 }
 
@@ -116,6 +117,7 @@ func (s *Store) Swap(ctx context.Context, environment string, old [32]byte, next
 		{Key: "environment", Value: environment},
 		{Key: "digest", Value: hex.EncodeToString(old[:])},
 		{Key: "subject", Value: next.Subject},
+		{Key: "session_version", Value: next.SessionVersion},
 		{Key: "expires_at", Value: bson.D{{Key: "$eq", Value: next.ExpiresAt.UTC()}, {Key: "$gt", Value: now.UTC()}}},
 		{Key: "issued_at", Value: bson.D{{Key: "$lte", Value: now.Add(30 * time.Second).UTC()}}},
 	}
