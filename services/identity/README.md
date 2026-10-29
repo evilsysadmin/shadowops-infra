@@ -40,3 +40,13 @@ The `session` Go package now defines an opaque-handle lifecycle and a **persiste
 **No persistent driver yet.** The only in-memory implementation lives in `session_test.go` and cannot be imported by deployed applications. The existing local HTTP bootstrap is still *unchanged*: `/readyz` returns 503, no login/refresh/logout/token routes, no new cookies, no user sessions and no deployment. Tests cover concurrent refresh, expiry, revocation, cross-environment isolation, malformed handles, fail-closed storage and strict UUIDv4 subjects using synthetic fixtures. Run `cd services/identity && go test -race ./... && go vet ./...`.
 
 The next PR must implement Mongo/Postgres with atomic `Swap`, unique digest indexes and explicit staging-only DB credentials plus integration tests; only after that should account migration, passwords/session-version revocation and HTTP flows be considered. Never use the test store as production persistence.
+
+## P0.2 persistent staging session adapter
+
+The `mongostore` Go package implements the `session.Store` interface against **exactly** `shadowops_identity_staging.sessions`. It refuses Mongo database names used by Chess Studio or production. The backend inserts only environment-separated digests (hex), subject UUIDs and timestamps — never raw session handles, passwords or keys.
+
+`New` requires Mongo index creation to succeed before accepting sessions: a unique compound index on `environment,digest`, TTL index on `expires_at`, and a subject index for account-wide revocation. All writes request majority acknowledgement. Rotation is a **single conditional UpdateOne**, replacing the unique digest in place and preserving absolute expiration, environment and subject. This means competing refreshes have one winner even across worker processes, and concurrent logout cannot resurrect a document. Manager validation checks expiry independently; TTL cleanup is only garbage collection, not authorization.
+
+The Mongo integration job uses an ephemeral `mongo:7` at 127.0.0.1; tests reject all other test URLs to avoid running destructive fixtures against shared databases. No live credentials are accepted. **The existing staging bootstrap is not wired to this adapter** and keeps `/readyz=503`; no login, user token, cookie or product access is enabled. The driver is staging-only by contract; production must receive distinct secrets, database role and a separately audited rollout.
+
+**Not yet solved:** account persistence/migration, password hashing/verification, logout HTTP, DB TLS/secret ownership, backup and restore, actual OCI deployment, CORS/CSRF, abuse controls and end-to-end staging login. Green integration CI is not a deployment approval.
