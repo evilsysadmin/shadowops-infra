@@ -34,6 +34,9 @@ type Record struct {
 	Subject string
 	IssuedAt time.Time
 	ExpiresAt time.Time
+	// SessionVersion is immutable for a session. Zero is legacy/unbound and
+	// is always rejected by the strict VersionedValidator.
+	SessionVersion int64
 }
 
 // Store is a contract for a future persistent backend. Swap MUST be a single
@@ -108,25 +111,35 @@ func (m *Manager) Issue(ctx context.Context, subject string) (string, error) {
 	return handle, nil
 }
 
+// Validate checks only the opaque session and its expiration; it MUST NOT be
+// used for user authorization without VersionedValidator's account guard.
 func (m *Manager) Validate(ctx context.Context, handle string) (string, error) {
-	if m == nil || ctx.Err() != nil {
-		return "", ErrDenied
+ rec, err := m.validatedRecord(ctx, handle)
+ if err != nil { return "", err }
+ // Never let the legacy storage-only API bypass account-version checks.
+ if rec.SessionVersion > 0 { return "", ErrDenied }
+ return rec.Subject, nil
+}
+
+func (m *Manager) validatedRecord(ctx context.Context, handle string) (Record, error) {
+	if m == nil || ctx == nil || ctx.Err() != nil {
+		return Record{}, ErrDenied
 	}
 	digest, ok := m.digest(handle)
 	if !ok {
-		return "", ErrDenied
+		return Record{}, ErrDenied
 	}
 	rec, exists, err := m.store.Get(ctx, m.environment, digest)
 	if err != nil {
-		return "", ErrStore
+		return Record{}, ErrStore
 	}
 	now := m.clock().UTC()
 	if !exists || rec.Digest != digest || rec.Environment != m.environment || !validSubject(rec.Subject) ||
 		rec.IssuedAt.After(now.Add(30*time.Second)) || !rec.IssuedAt.Before(rec.ExpiresAt) ||
 		rec.ExpiresAt.Sub(rec.IssuedAt) > Lifetime || !now.Before(rec.ExpiresAt) {
-		return "", ErrDenied
+		return Record{}, ErrDenied
 	}
-	return rec.Subject, nil
+	return rec, nil
 }
 
 // Rotate invalidates the old handle and creates a new one with the SAME
@@ -149,11 +162,14 @@ func (m *Manager) Rotate(ctx context.Context, handle string) (string, error) {
 		rec.ExpiresAt.Sub(rec.IssuedAt) > Lifetime || !now.Before(rec.ExpiresAt) {
 		return "", ErrDenied
 	}
+	// Versioned sessions have no ordinary rotation pathway without a fresh
+	// authoritative account-state check and an atomic version-bound design.
+	if rec.SessionVersion > 0 { return "", ErrDenied }
 	nextHandle, nextDigest, err := m.newHandle()
 	if err != nil {
 		return "", err
 	}
-	next := Record{Digest: nextDigest, Environment: m.environment, Subject: rec.Subject, IssuedAt: now, ExpiresAt: rec.ExpiresAt}
+	next := Record{Digest: nextDigest, Environment: m.environment, Subject: rec.Subject, IssuedAt: now, ExpiresAt: rec.ExpiresAt, SessionVersion: rec.SessionVersion}
 	swapped, err := m.store.Swap(ctx, m.environment, oldDigest, next, now)
 	if err != nil {
 		return "", ErrStore
