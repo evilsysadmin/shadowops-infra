@@ -59,6 +59,9 @@ func retirementFixture(t *testing.T) (*mongo.Database, *AuthorizedStagingRevoker
 	if err := db.Collection(retirementJournalCollection).Drop(ctx); err != nil {
 		t.Fatal(err)
 	}
+	if err := PrepareStagingAdministrativeIndexes(ctx, existing.client); err != nil {
+		t.Fatal("offline fixture indexes", err)
+	}
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
