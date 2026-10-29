@@ -1,0 +1,58 @@
+name: ShadowOps Identity · transactional revocation replica set
+on:
+  pull_request:
+    paths:
+      - 'services/identity/**'
+      - '.github/workflows/identity-replica.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'services/identity/**'
+      - '.github/workflows/identity-replica.yml'
+permissions:
+  contents: read
+jobs:
+  revocation:
+    name: Replica-set atomic suspension and session revocation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+          cache: false
+      - name: Start ephemeral localhost MongoDB replica set
+        run: |
+          set -euo pipefail
+          docker run -d --name identity-replica --network host mongo:7.0 \
+            --replSet identity-rs --bind_ip 127.0.0.1 --port 27018
+          for i in {1..45}; do
+            if docker exec identity-replica mongosh --quiet \
+              'mongodb://127.0.0.1:27018/?directConnection=true' \
+              --eval 'db.adminCommand({ping:1}).ok' 2>/dev/null | grep -qx '1'; then
+              break
+            fi
+            sleep 1
+          done
+          docker exec identity-replica mongosh --quiet \
+            'mongodb://127.0.0.1:27018/?directConnection=true' \
+            --eval 'rs.initiate({_id:"identity-rs", members:[{_id:0, host:"127.0.0.1:27018"}]})'
+          for i in {1..45}; do
+            if docker exec identity-replica mongosh --quiet \
+              'mongodb://127.0.0.1:27018/?directConnection=true' \
+              --eval 'db.hello().isWritablePrimary' 2>/dev/null | grep -qx 'true'; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs identity-replica --tail 50
+          exit 1
+      - name: Race-test transaction commit, rollback and contention
+        working-directory: services/identity
+        env:
+          IDENTITY_MONGO_REPLICA_TEST_URL: mongodb://127.0.0.1:27018/?replicaSet=identity-rs&directConnection=true
+        run: go test -race -count=1 -v ./revocation
+      - name: Remove test replica set
+        if: always()
+        run: docker rm -f identity-replica || true
