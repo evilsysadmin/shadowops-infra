@@ -16,7 +16,6 @@ jobs:
     steps:
       - name: Inspect latest main CKA publish run, without credentials
         id: publish
-        continue-on-error: true
         run: |
           set -euo pipefail
           data="$(gh api 'repos/evilsysadmin/shadowops-infra/actions/workflows/cka-pages-preview.yml/runs?event=push&branch=main&per_page=5')"
@@ -27,6 +26,7 @@ jobs:
           conclusion="$(echo "$data" | jq -r '.workflow_runs[0].conclusion')"
           [[ "$status" == completed && "$conclusion" == success ]] || { echo "CKA_PUBLISH_NOT_VERIFIED $status $conclusion" >&2; exit 1; }
       - name: Read public HTTPS release identity
+        if: always()
         run: |
           set -euo pipefail
           echo "CKA_PUBLIC_DNS_PROBE"
