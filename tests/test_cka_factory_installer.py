@@ -156,8 +156,13 @@ class TestCKAFactoryInstaller(unittest.TestCase):
         self.assertNotIn("pip install", script)
         self.assertNotIn("curl ", script)
         for workflow in (ROOT / ".github/workflows").glob("*.yml"):
-            self.assertNotIn("install-cka-factory-staging.py",
-                             workflow.read_text(), workflow.name)
+            for line in workflow.read_text().splitlines():
+                if "install-cka-factory-staging.py" in line:
+                    # A change to the installer should trigger CI, but Actions
+                    # must never CALL this root-operated host installer.
+                    self.assertEqual(line.strip(),
+                                     "- 'host/install-cka-factory-staging.py'",
+                                     workflow.name)
 
 
 if __name__ == "__main__":
