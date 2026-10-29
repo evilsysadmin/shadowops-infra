@@ -59,6 +59,9 @@ func bootstrapFixture(t *testing.T) (*mongo.Database, *StagingSignerBootstrapper
 			t.Fatal(err)
 		}
 	}
+	if err := PrepareStagingAdministrativeIndexes(ctx, client); err != nil {
+		t.Fatal("offline fixture indexes", err)
+	}
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
