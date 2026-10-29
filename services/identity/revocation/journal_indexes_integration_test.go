@@ -85,7 +85,7 @@ func TestAdministrativeJournalIndexCheckFailsClosedOnNonUniqueAndTTL(t *testing.
 	govA, govB := policyRetirementKeys()
 	suspension := db.Collection(suspensionJournalCollection)
 	_, err := suspension.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys: requiredJournalKeys(),
+		Keys:    requiredJournalKeys(),
 		Options: options.Index().SetName("staging_action_nonce_unique"),
 	})
 	if err != nil {
@@ -102,7 +102,7 @@ func TestAdministrativeJournalIndexCheckFailsClosedOnNonUniqueAndTTL(t *testing.
 		t.Fatal(err)
 	}
 	_, err = suspension.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys: bson.D{{Key: "executed_at", Value: 1}},
+		Keys:    bson.D{{Key: "executed_at", Value: 1}},
 		Options: options.Index().SetName("unsafe_audit_ttl").SetExpireAfterSeconds(3600),
 	})
 	if err != nil {
@@ -120,7 +120,7 @@ func TestAdministrativeJournalIndexCheckFailsClosedOnNonUniqueAndTTL(t *testing.
 	}
 	governance := db.Collection(retirementJournalCollection)
 	_, err = governance.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys: requiredJournalKeys(),
+		Keys:    requiredJournalKeys(),
 		Options: options.Index().SetName("policy_retirement_nonce_unique").SetUnique(true).SetSparse(true),
 	})
 	if err != nil {
