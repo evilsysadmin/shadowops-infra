@@ -31,10 +31,10 @@ var (
 )
 
 type Issuer struct {
-	client       *mongo.Client
-	accounts     *mongo.Collection
-	sessions     session.Store
-	afterFence       func() error // tests only: force transaction rollback
+	client            *mongo.Client
+	accounts          *mongo.Collection
+	sessions          session.Store
+	afterFence        func() error // tests only: force transaction rollback
 	beforeTransaction func() error // tests only: change credentials after first check
 }
 
