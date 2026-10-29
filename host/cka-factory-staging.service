@@ -1,6 +1,6 @@
 # ShadowOps CKA scenario factory · STAGING dry-run service candidate
 # Never enable or deploy automatically; requires separate host authorization.
-# No --execute, no secret access, no network, no HTTP listener, no timer.
+# Intentional dry-run only; no secret access, no network, no HTTP listener.
 [Unit]
 Description=ShadowOps CKA staging Workers AI factory preflight (NO INFERENCE)
 Documentation=https://github.com/evilsysadmin/shadowops-infra/blob/main/docs/cka-factory-staging.md

@@ -84,8 +84,8 @@ jobs:
           CKA_SCENARIO_PROVIDER: workers-ai
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/cka-factory-preflight"
-          python -m cka_sim factory-run --count 1 --type deployment_scale > "$RUNNER_TEMP/cka-factory-preflight/plan.json"
+          mkdir -p "$RUNNER_TEMP/cka-factory-preflight/workspace"
+          python -m cka_sim factory-run --count 1 --type deployment_scale --workspace "$RUNNER_TEMP/cka-factory-preflight/workspace" > "$RUNNER_TEMP/cka-factory-preflight/plan.json"
           python - <<'PY'
           import json
           import os
@@ -95,6 +95,10 @@ jobs:
           assert plan["provider"] == "workers-ai"
           assert plan["planned"] == 1
           assert plan["generated"] == []
+          workspace = Path(os.environ["RUNNER_TEMP"]) / "cka-factory-preflight" / "workspace"
+          assert (workspace / ".local/factory.lock").is_file()
+          assert not (workspace / ".local/factory-budget.json").exists()
+          assert not (workspace / "scenarios/generated").exists()
           assert not Path(".local/factory-budget.json").exists()
           assert not Path("scenarios/generated").exists()
           PY
