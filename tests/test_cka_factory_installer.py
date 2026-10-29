@@ -122,7 +122,8 @@ class TestCKAFactoryInstaller(unittest.TestCase):
 
     def test_checkout_mismatch_and_dirty_state_both_fail_closed(self):
         with patch.object(installer, "trusted"):
-            with patch.object(installer, "command", return_value="c" * 40):
+            with patch.object(installer, "command",
+                              side_effect=["/nonexistent", "c" * 40]):
                 with self.assertRaisesRegex(installer.InstallError, "SHA mismatch"):
                     installer.verify_checkout(Path("/nonexistent"), INFRA_SHA)
             with patch.object(installer, "command", side_effect=[
