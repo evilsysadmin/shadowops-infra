@@ -1,0 +1,24 @@
+name: ShadowOps Identity · authenticated audit RBAC
+on:
+  pull_request:
+    paths:
+      - 'services/identity/rbac/**'
+      - 'services/identity/revocation/**'
+      - '.github/workflows/identity-rbac.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'services/identity/rbac/**'
+      - 'services/identity/revocation/**'
+      - '.github/workflows/identity-rbac.yml'
+permissions:
+  contents: read
+jobs:
+  authenticated-rbac:
+    name: Ephemeral MongoDB 7 replica role and audit denial gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check authenticated MongoDB role boundaries and atomic allowed transaction
+        run: bash services/identity/rbac/ci.sh
