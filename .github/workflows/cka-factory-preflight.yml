@@ -1,0 +1,130 @@
+name: CKA Workers AI factory · staging source preflight (no inference)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/cka-factory-preflight.yml'
+      - 'tests/test_cka_factory_preflight.py'
+      - 'docs/cka-factory-staging.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cka-factory-preflight.yml'
+      - 'tests/test_cka_factory_preflight.py'
+      - 'docs/cka-factory-staging.md'
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'Optional exact 40-character CKA main SHA to verify'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: Verify credential-free handoff contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p test_cka_factory_preflight.py -v
+
+  preflight:
+    name: Pin CKA source and prove OCI factory dry run (no OCI access)
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    concurrency:
+      group: shadowops-cka-factory-staging-preflight
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Admit exact current CKA main source SHA
+        id: source
+        env:
+          REQUESTED_SHA: ${{ inputs.source_sha || '' }}
+        run: |
+          set -euo pipefail
+          main_sha="$(gh api repos/evilsysadmin/cka-exam-simulator/commits/main --jq .sha)"
+          [[ "$main_sha" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          if [[ -n "$REQUESTED_SHA" ]]; then
+            [[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ && "$REQUESTED_SHA" == "$main_sha" ]] || {
+              echo 'CKA_FACTORY_SOURCE_SUPERSEDED_OR_INVALID' >&2; exit 1;
+            }
+          fi
+          echo "sha=$main_sha" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: evilsysadmin/cka-exam-simulator
+          ref: ${{ steps.source.outputs.sha }}
+          path: cka-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install exact source as an editable Python package
+        run: python -m pip install --disable-pip-version-check -e ./cka-source
+      - name: Assert no-inference dry run without any Workers AI credentials
+        working-directory: cka-source
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ''
+          CLOUDFLARE_API_TOKEN: ''
+          CKA_SCENARIO_PROVIDER: workers-ai
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cka-factory-preflight"
+          python -m cka_sim factory-run --count 1 --type deployment_scale > "$RUNNER_TEMP/cka-factory-preflight/plan.json"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          plan = json.loads((Path(os.environ["RUNNER_TEMP"]) / "cka-factory-preflight" / "plan.json").read_text())
+          assert plan["status"] == "dry-run"
+          assert plan["provider"] == "workers-ai"
+          assert plan["planned"] == 1
+          assert plan["generated"] == []
+          assert not Path(".local/factory-budget.json").exists()
+          assert not Path("scenarios/generated").exists()
+          PY
+      - name: Revalidate SHA and issue a non-deployment receipt
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$(git -C cka-source rev-parse HEAD)" == "$SOURCE_SHA" ]] || exit 1
+          [[ "$(gh api repos/evilsysadmin/cka-exam-simulator/commits/main --jq .sha)" == "$SOURCE_SHA" ]] || {
+            echo 'CKA_FACTORY_SOURCE_SUPERSEDED' >&2; exit 1;
+          }
+          [[ "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" == "$GITHUB_SHA" ]] || {
+            echo 'CKA_FACTORY_INFRA_SOURCE_SUPERSEDED' >&2; exit 1;
+          }
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          path = Path(os.environ["RUNNER_TEMP"]) / "cka-factory-preflight" / "receipt.json"
+          path.write_text(json.dumps({
+              "application": "cka-exam-simulator",
+              "source_sha": os.environ["SOURCE_SHA"],
+              "mode": "staging-source-preflight-only",
+              "result": "dry-run-passed",
+              "inference_attempts": 0,
+              "oci_host_touched": False,
+              "production_changed": False
+          }, sort_keys=True) + "\n")
+          PY
+          echo "CKA_FACTORY_STAGING_PREFLIGHT_OK $SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cka-factory-staging-preflight-${{ steps.source.outputs.sha }}
+          path: ${{ runner.temp }}/cka-factory-preflight/receipt.json
+          if-no-files-found: error
+          retention-days: 14
