@@ -82,8 +82,17 @@ immutable checkouts and the Python runtime:
   provisioned with `python3 -m venv --copies`. Its installed `cka_sim`
   package must resolve its catalog root to the pinned CKA source checkout.
   A source-linked editable install is acceptable **only when the checkout
-  itself is root-owned, frozen and validated**: this is an import-root
-  compatibility gate, not a cryptographic wheel provenance certificate.
+  itself is root-owned, frozen and validated**. The installer now also
+  checks every entry within the virtual environment before importing it:
+  only root-owned, non-group/world-writable regular files/directories are
+  allowed (apart from Linux's standard `lib64 -> lib` compatibility link).
+  This includes scripts, `.pth`, Python sources and installed metadata.
+  The check is bounded to 80,000 entries and rejects external links and
+  special files. The interpreter must report the **exact** expected
+  `sys.prefix`, and `python -I -m pip check` must report no broken
+  requirements. Root-owned files can still contain malicious code; this
+  checks host integrity and dependency consistency, **not** a cryptographic
+  wheel provenance certificate or a dependency vulnerability scan.
 - Preprovision the SHARED parent directories `/var/lib/shadowops` and
   `/etc/systemd/system` with secure root ownership/permissions. The
   installer never creates or changes these parents or other products.
@@ -104,7 +113,8 @@ The read-only preflight checks SHA shape, exact Git repository root and
 HEAD for **both** checkouts, and a clean tracked tree **without nonignored
 untracked files** (including stray Python modules that could shadow imports).
 It also checks root ownership and unsafe write permissions (including
-ancestors), installed Python import-root identity, unchanged dry-run-only
+ancestors), every virtualenv file's safety, actual venv identity and dependency
+consistency, installed Python import-root identity, unchanged dry-run-only
 `systemd` policy, existing unit integrity and any preexisting workspace/account.
 Ignored files and the separately installed Python dependencies are NOT a
 cryptographic supply-chain attestation; the operator must independently
