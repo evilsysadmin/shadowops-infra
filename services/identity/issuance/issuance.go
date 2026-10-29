@@ -34,7 +34,8 @@ type Issuer struct {
 	client       *mongo.Client
 	accounts     *mongo.Collection
 	sessions     session.Store
-	afterFence   func() error // tests only: force transaction rollback
+	afterFence       func() error // tests only: force transaction rollback
+	beforeTransaction func() error // tests only: change credentials after first check
 }
 
 // NewStagingIssuer initializes the session indexes *before* any transaction.
@@ -106,6 +107,11 @@ func (i *Issuer) Issue(ctx context.Context, subject, candidate string) (string, 
 		SessionVersion: current.SessionVersion,
 	}
 
+	if i.beforeTransaction != nil {
+		if err := i.beforeTransaction(); err != nil {
+			return "", ErrStore
+		}
+	}
 	sess, err := i.client.StartSession()
 	if err != nil {
 		return "", ErrStore
