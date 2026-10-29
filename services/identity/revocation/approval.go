@@ -37,6 +37,7 @@ type SuspensionApproval struct {
 	Action                 string `json:"action"`
 	Subject                string `json:"subject"`
 	ExpectedSessionVersion int64  `json:"expected_session_version"`
+	PolicyGeneration       int64  `json:"policy_generation"`
 	ReviewIssue            string `json:"review_issue"`
 	EvidenceSHA256         string `json:"evidence_sha256"`
 	Nonce                  string `json:"nonce"`
@@ -72,12 +73,13 @@ func NewApprovalVerifier(operator, security ed25519.PublicKey) (*ApprovalVerifie
 
 // ApprovalMessage is the only canonical byte representation for signing.
 // Fixed Go struct field order, explicit domain separation and strict fields
-// prevent changing the environment, action, account, version or audit binding
+// prevent changing the environment, action, account, key-policy generation or audit binding
 // after either signature has been made.
 func ApprovalMessage(a SuspensionApproval) ([]byte, error) {
 	if a.Environment != "staging" || a.Action != SuspendAndRevokeAction ||
 		!subjectPattern.MatchString(a.Subject) ||
 		a.ExpectedSessionVersion <= 0 || a.ExpectedSessionVersion == math.MaxInt64 ||
+		a.PolicyGeneration <= 0 || a.PolicyGeneration == math.MaxInt64 ||
 		!approvalIssue.MatchString(a.ReviewIssue) ||
 		!approvalSHA256.MatchString(a.EvidenceSHA256) ||
 		!approvalNonce.MatchString(a.Nonce) ||
