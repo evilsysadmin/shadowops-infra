@@ -207,3 +207,36 @@ This is a **real authenticated Mongo privilege-enforcement regression test**, no
 **Critical revocation boundary:** revoking an account *after* a JWT has been minted **does not erase its cryptographic validity** until its short expiration. This token is intended only for a **local, explicitly synthetic** interoperability PoC, not access authorization. No public consumer, runner or service may rely on these JWTs alone to grant access. Before live CKA authentication, the consumer or a trusted auth gateway must check current session/account revocation (version or server-side token status) and per-product authorization; also implement session-bound login/logout/refresh, rate limiting, secure cookies, issuer/key rotation, independent secret management, least-privilege Mongo role and audited staging deployment. The existing `runtime.NewStagingHandler` still exposes **only /livez, /readyz=503 and /api/identity/jwks**, with no token or credential HTTP endpoint. The CKA static preview is unchanged.
 
 Ephemeral Mongo 7 integration tests prove valid version-bound synthetic session → publicly verifiable two-minute CKA token, no session mutation, wrong handles denied, invalid seed rejected, refreshed stale handle denied, account-version bump denied, rollback after account write and no new token after account suspension/deletion. Real accounts, production and OCI remain untouched.
+
+## Session-bound token freshness authority (staging, internal)
+
+The CKA PoC signer now commits a token-to-session binding in
+`staging_cka_tokens` in the same snapshot/majority transaction as its account
+fence. Its `_id` is a domain-separated SHA-256 of the canonical JTI; the record
+contains the source session digest, exact subject/version/issuer/audience and
+bounded issuance/expiry. No raw JWT, raw JTI, signing key or session handle is
+stored. Failed registration means no token is returned. MongoDB's unique `_id`
+prevents duplicate registration. Expiration is checked synchronously; TTL
+cleanup is not an authorization guarantee. Retention/housekeeping and deployed
+least-privilege roles remain operational prerequisites.
+
+`issuance.NewStagingCKAFreshness` constructs an independent checker without a
+signing key. `Check(ctx, subject, version, jti)` accepts only a canonical UUIDv4,
+positive int64 version and canonical 16-byte JTI. It checks the actual registry,
+source session and active account in one snapshot/majority transaction, making
+conditional fence writes to all three documents so refresh, session deletion,
+token deactivation and account suspension cannot be bypassed by a stale read-only
+snapshot. Missing records, malformed bindings, expiration, disabled credentials,
+store errors, cancellation and its two-second deadline produce no active
+evidence. A concurrent check may order **before** revocation; its evidence is a
+point-in-time observation, not a two-second authorization lease.
+
+The evidence fields match CKA's freshness contract: `issuer`, `subject`,
+`session_version`, `token_jti`, `checked_at`, `account_active`, `session_active`,
+`token_active`. A consumer must first verify JWT signature/issuer/audience/times
+and must invoke its trusted checker for every protected operation. This internal
+Go authority is **not yet a deployed provider**: no authenticated service
+transport, public login/token endpoint or CKA adapter is wired, and `/readyz`
+stays 503. Do not replace the missing provider with a browser field or fake
+callback, and do not enable lab access. The fixed CKA audience is intentional;
+other products need separately validated audience-bound integrations.
