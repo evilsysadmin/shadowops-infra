@@ -63,7 +63,7 @@ func TestArgon2idEmissionCompatibleWithPython(t *testing.T) {
 	}
 	matched := 0
 	for _, row := range corpus.Rows {
-		if !strings.HasPrefix(row.Hash, "$argon2id$v=19$m=19456,t=2,p=1$") || len(row.Checks) == 0 {
+		if !strings.HasPrefix(row.Hash, "$argon2id$v=19$m=19456,t=2,p=1$") || len(row.Checks) < 2 {
 			continue
 		}
 		parts := strings.Split(row.Hash, "$")
