@@ -44,6 +44,14 @@ La suite `scripts/identity-token-contract.mjs` + `tests/identity-token-contract.
 
 No existe modo de aceptar staging y production como un único `iss`. Cualquier compatibilidad temporal con el emisor legacy se diseña y valida explícitamente **sólo dentro del mismo entorno**; nunca se habilita automáticamente.
 
+## P0.1 · Preflight de cuentas legacy con UUID estable
+
+**Hallazgo verificado en el repositorio Chess Studio:** `backend-python/users_store.py` y `backend-go/internal/accountstore/store.go` usan Mongo `users._id = username`; las cuentas tienen `password_hash` y `session_version`. Por tanto, no podemos reemplazar `sub=username` por UUID sin una tabla de alias/migración que preserve las partidas y los permisos de cada juego.
+
+`scripts/identity_link_preflight.py` valida **offline** planes explícitos de vinculación de cuentas por entorno y producto. Sólo acepta `source`, `username`, `subject` (UUIDv4) y `link_review_ref` (ticket de revisión) por entrada; bloquea colisiones casefold/NFKC, duplicaciones internas, identidad UUID compartida entre staging y production, y fusionar cuentas de Chess y Chronicles sin una revisión explícita común. **Un mismo username en dos juegos NO vincula automáticamente las cuentas.** Cualquier ticket de revisión debe verificarse humanamente; su presencia no acredita propiedad.
+
+No carga ni transforma hashes, correos, sesiones, secretos ni privilegios. No genera UUIDs y **no realiza escrituras** en Mongo ni en sistemas SSO. La herramienta imprime exclusivamente cantidades agregadas. Si se usa con cuentas reales, los planes privados deben residir fuera de GitHub, CI, artefactos y logs, y borrarse de forma segura tras la ventana aprobada. En CI sólo se ejecutan fixtures sintéticos. La migración de cuentas y el backup/restore siguen pendientes.
+
 ## Gates de aceptación / amenazas principales
 
 - Cross-env token (incluyendo mismos nombres de usuario), wrong aud, tampered alg/kid, key rotation invalidada, expired/not-yet-valid, replay / session fixation -> rechazo.

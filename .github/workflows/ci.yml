@@ -26,3 +26,6 @@ jobs:
 
       - name: ShadowOps Identity signed-token cross-environment contract (offline)
         run: node --test tests/identity-token-contract.test.mjs
+
+      - name: ShadowOps Identity explicit account-link migration preflight (synthetic)
+        run: python3 -m unittest discover -s tests -p 'test_identity_link_preflight.py' -v
