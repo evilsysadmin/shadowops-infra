@@ -61,7 +61,7 @@ type SignedRecovery struct {
 }
 
 func decodeRecoveryPublicKey(value string) (ed25519.PublicKey, error) {
-	if !canonicalLowerHex(value, ed25519.PublicKeySize) {
+	if !approvalSHA256.MatchString(value) {
 		return nil, ErrRecoveryDenied
 	}
 	key, err := hex.DecodeString(value)
