@@ -1,6 +1,7 @@
 """Offline safety and behavioral tests for the manual CKA staging installer."""
 import importlib.util
 import os
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
@@ -43,9 +44,11 @@ class TestCKAFactoryInstaller(unittest.TestCase):
                 calls = []
                 def fake_run(args):
                     calls.append(args)
+                    if args[-2:] == ["rev-parse", "--show-toplevel"]:
+                        return str(source)
                     if args[-2:] == ["rev-parse", "HEAD"]:
-                        return INFRA_SHA if len(calls) <= 1 else CKA_SHA
-                    if args[-1] == "--untracked-files=no":
+                        return INFRA_SHA if len(calls) < 4 else CKA_SHA
+                    if args[-1] == "--untracked-files=all":
                         return ""
                     if args[0] == str(venv_bin / "python"):
                         return str(source)
@@ -54,7 +57,59 @@ class TestCKAFactoryInstaller(unittest.TestCase):
                     self.assertEqual(installer.verify_runtime(INFRA_SHA, CKA_SHA),
                                      DUMMY_UNIT)
                 self.assertTrue(trust.called)
-                self.assertEqual(len(calls), 5)
+                self.assertEqual(len(calls), 7)
+
+
+    def test_real_git_rejects_untracked_python_and_wrong_repository_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            root.mkdir()
+            def git(*args):
+                return subprocess.check_output(
+                    ["git", "-C", str(root), *args], text=True).strip()
+            subprocess.run(["git", "init", "-q", str(root)], check=True,
+                           capture_output=True)
+            (root / "main.py").write_text("print('safe')\n")
+            git("add", "main.py")
+            git("-c", "user.name=CI", "-c", "user.email=ci@example.invalid",
+                "commit", "-qm", "pinned")
+            sha = git("rev-parse", "HEAD")
+            with patch.object(installer, "trusted"):
+                installer.verify_checkout(root, sha)
+                (root / "injected_backend.py").write_text("print('untrusted')\n")
+                with self.assertRaisesRegex(installer.InstallError, "untracked"):
+                    installer.verify_checkout(root, sha)
+                (root / "injected_backend.py").unlink()
+                (root / "main.py").write_text("print('changed')\n")
+                with self.assertRaisesRegex(installer.InstallError, "modifications"):
+                    installer.verify_checkout(root, sha)
+                (root / "main.py").write_text("print('safe')\n")
+                nested = root / "subdirectory"
+                nested.mkdir()
+                with self.assertRaisesRegex(installer.InstallError, "repository root"):
+                    installer.verify_checkout(nested, sha)
+
+    def test_atomic_unit_publishes_complete_file_and_cleans_staging(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dest = root / "cka.service"
+            installer.install_unit_exclusive(DUMMY_UNIT, dest)
+            self.assertEqual(dest.read_bytes(), DUMMY_UNIT)
+            self.assertEqual(dest.stat().st_mode & 0o777, 0o644)
+            self.assertEqual([p.name for p in root.iterdir()], [dest.name])
+            with self.assertRaisesRegex(installer.InstallError, "cannot be overwritten"):
+                installer.install_unit_exclusive(b"other content", dest)
+            self.assertEqual(dest.read_bytes(), DUMMY_UNIT)
+            self.assertEqual([p.name for p in root.iterdir()], [dest.name])
+
+    def test_failed_unit_publication_leaves_no_partial_unit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "cka.service"
+            with patch.object(installer.os, "link", side_effect=OSError("disk fault")):
+                with self.assertRaises(OSError):
+                    installer.install_unit_exclusive(DUMMY_UNIT, dest)
+            self.assertFalse(dest.exists())
+            self.assertEqual(list(Path(tmp).iterdir()), [])
 
     def test_invalid_sha_fails_before_filesystem_or_process_calls(self):
         with patch.object(installer, "verify_checkout") as checkout:
@@ -70,8 +125,10 @@ class TestCKAFactoryInstaller(unittest.TestCase):
             with patch.object(installer, "command", return_value="c" * 40):
                 with self.assertRaisesRegex(installer.InstallError, "SHA mismatch"):
                     installer.verify_checkout(Path("/nonexistent"), INFRA_SHA)
-            with patch.object(installer, "command", side_effect=[INFRA_SHA, " M backend/cka_sim"]):
-                with self.assertRaisesRegex(installer.InstallError, "tracked modifications"):
+            with patch.object(installer, "command", side_effect=[
+                "/nonexistent", INFRA_SHA, " M backend/cka_sim"
+            ]):
+                with self.assertRaisesRegex(installer.InstallError, "modifications or untracked"):
                     installer.verify_checkout(Path("/nonexistent"), INFRA_SHA)
 
     def test_rejects_unauthorized_unit_content_and_existing_foreign_unit(self):

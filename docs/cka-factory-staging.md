@@ -100,13 +100,22 @@ python3 /opt/shadowops-infra/host/install-cka-factory-staging.py \
   --confirm INSTALL_CKA_DRY_RUN_STAGING_ONLY
 ```
 
-The read-only preflight checks SHA shape, actual Git HEAD for both checkouts,
-tracked-tree cleanliness, root ownership and unsafe write permissions
-(including ancestors), installed Python import-root identity, unchanged
-dry-run-only `systemd` policy, existing unit integrity and any preexisting
-workspace/account. The `install` action performs those checks BEFORE changes;
-then creates at most the non-login `shadowops-cka-factory` service account,
-private `0700` workspace and the exact CKA unit (exclusive no-overwrite).
+The read-only preflight checks SHA shape, exact Git repository root and
+HEAD for **both** checkouts, and a clean tracked tree **without nonignored
+untracked files** (including stray Python modules that could shadow imports).
+It also checks root ownership and unsafe write permissions (including
+ancestors), installed Python import-root identity, unchanged dry-run-only
+`systemd` policy, existing unit integrity and any preexisting workspace/account.
+Ignored files and the separately installed Python dependencies are NOT a
+cryptographic supply-chain attestation; the operator must independently
+verify that environment before using it on the host.
+
+The `install` action performs those checks BEFORE changes; then creates
+at most the non-login `shadowops-cka-factory` service account, private
+`0700` workspace and the exact CKA unit. Unit installation stages the
+complete content in the destination filesystem, fsyncs it and atomically
+hard-links it **without replacing any existing file**. Failed publication
+removes the temporary file rather than leaving a truncated systemd unit.
 It does NOT replace existing units, change shared service directories,
 contact OCI/Cloudflare, start or enable the service, execute Python
 inference, add a timer or run `daemon-reload`. Installation is designed
