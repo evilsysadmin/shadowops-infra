@@ -20,6 +20,7 @@ func validTestSuspension(now time.Time) SuspensionApproval {
 		Action:                 SuspendAndRevokeAction,
 		Subject:                "11111111-1111-4111-8111-111111111111",
 		ExpectedSessionVersion: 7,
+		PolicyGeneration:       1,
 		ReviewIssue:            "https://github.com/evilsysadmin/shadowops-infra/issues/287",
 		EvidenceSHA256:         strings.Repeat("a", 64),
 		Nonce:                  strings.Repeat("b", 32),
@@ -93,10 +94,11 @@ func TestApprovalBindsAllSecurityCriticalClaims(t *testing.T) {
 	now := time.Unix(1800000000, 0).UTC()
 	signed := signedTestSuspension(t, validTestSuspension(now), op, sec)
 	mutations := map[string]func(*SuspensionApproval){
-		"environment": func(a *SuspensionApproval) { a.Environment = "production" },
-		"action":      func(a *SuspensionApproval) { a.Action = "activate-account" },
-		"subject":     func(a *SuspensionApproval) { a.Subject = "22222222-2222-4222-8222-222222222222" },
-		"version":     func(a *SuspensionApproval) { a.ExpectedSessionVersion++ },
+		"environment":       func(a *SuspensionApproval) { a.Environment = "production" },
+		"action":            func(a *SuspensionApproval) { a.Action = "activate-account" },
+		"subject":           func(a *SuspensionApproval) { a.Subject = "22222222-2222-4222-8222-222222222222" },
+		"version":           func(a *SuspensionApproval) { a.ExpectedSessionVersion++ },
+		"policy generation": func(a *SuspensionApproval) { a.PolicyGeneration++ },
 		"review ticket": func(a *SuspensionApproval) {
 			a.ReviewIssue = "https://github.com/evilsysadmin/shadowops-infra/issues/288"
 		},
@@ -130,16 +132,18 @@ func TestApprovalBindsAllSecurityCriticalClaims(t *testing.T) {
 func TestApprovalRejectsInvalidClaimsEvenIfResigned(t *testing.T) {
 	now := time.Unix(1800000000, 0).UTC()
 	cases := map[string]func(*SuspensionApproval){
-		"production":        func(a *SuspensionApproval) { a.Environment = "production" },
-		"empty environment": func(a *SuspensionApproval) { a.Environment = "" },
-		"unlisted action":   func(a *SuspensionApproval) { a.Action = "issue-session" },
-		"wrong subject":     func(a *SuspensionApproval) { a.Subject = "legacy-user" },
-		"uppercase uuid":    func(a *SuspensionApproval) { a.Subject = "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA" },
-		"zero version":      func(a *SuspensionApproval) { a.ExpectedSessionVersion = 0 },
-		"negative version":  func(a *SuspensionApproval) { a.ExpectedSessionVersion = -1 },
-		"overflow version":  func(a *SuspensionApproval) { a.ExpectedSessionVersion = int64(^uint64(0) >> 1) },
-		"foreign ticket":    func(a *SuspensionApproval) { a.ReviewIssue = "https://github.com/foreign/repo/issues/287" },
-		"unbounded ticket":  func(a *SuspensionApproval) { a.ReviewIssue += "?token=secret" },
+		"production":                 func(a *SuspensionApproval) { a.Environment = "production" },
+		"empty environment":          func(a *SuspensionApproval) { a.Environment = "" },
+		"unlisted action":            func(a *SuspensionApproval) { a.Action = "issue-session" },
+		"wrong subject":              func(a *SuspensionApproval) { a.Subject = "legacy-user" },
+		"uppercase uuid":             func(a *SuspensionApproval) { a.Subject = "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA" },
+		"zero version":               func(a *SuspensionApproval) { a.ExpectedSessionVersion = 0 },
+		"zero policy generation":     func(a *SuspensionApproval) { a.PolicyGeneration = 0 },
+		"negative policy generation": func(a *SuspensionApproval) { a.PolicyGeneration = -1 },
+		"negative version":           func(a *SuspensionApproval) { a.ExpectedSessionVersion = -1 },
+		"overflow version":           func(a *SuspensionApproval) { a.ExpectedSessionVersion = int64(^uint64(0) >> 1) },
+		"foreign ticket":             func(a *SuspensionApproval) { a.ReviewIssue = "https://github.com/foreign/repo/issues/287" },
+		"unbounded ticket":           func(a *SuspensionApproval) { a.ReviewIssue += "?token=secret" },
 		"malformed ticket": func(a *SuspensionApproval) {
 			a.ReviewIssue = "http://github.com/evilsysadmin/shadowops-infra/issues/287"
 		},
