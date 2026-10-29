@@ -36,6 +36,14 @@ Separar **identidad** de **autorización por aplicación** y de **operación de 
 5. **P0.4** Producción con identidad, DB, keysets, secret stores y restore separados; despliegue manual por SHA validado y pruebas cross-environment negativas. Mantener Chess legacy activo hasta completar migración.
 6. **P0.5** Consumidores production uno a uno. CKA sólo después de esta plataforma y de su propio control de acceso a laboratorios.
 
+## P0.1 · Suite criptográfica de referencia antes de la extracción
+
+La suite `scripts/identity-token-contract.mjs` + `tests/identity-token-contract.test.mjs` valida **firmas Ed25519 reales en memoria** (Node `crypto`) contra el contrato `config/identity/platform-contract.json`. Falla para `iss` de otro entorno, `aud` de otra app, claves de otro entorno, firmas inválidas, tiempos caducados/futuros y `kid` desconocido; admite una rotación temporal con dos claves públicas del mismo emisor.
+
+**Es un harness contractual offline, NO un middleware productivo**: no canjea cookies, no crea cuentas, no acepta un IdP remoto, no equivale a completar OIDC y no concede permisos. En particular `assertConsumerActivated` deniega todo consumidor aún no acreditado, incluida la preview pública CKA. Los consumidores finales deberán aplicar estos mismos casos negativos en sus propias implementaciones y pasar pruebas de sesión reales antes de cambiar un solo login.
+
+No existe modo de aceptar staging y production como un único `iss`. Cualquier compatibilidad temporal con el emisor legacy se diseña y valida explícitamente **sólo dentro del mismo entorno**; nunca se habilita automáticamente.
+
 ## Gates de aceptación / amenazas principales
 
 - Cross-env token (incluyendo mismos nombres de usuario), wrong aud, tampered alg/kid, key rotation invalidada, expired/not-yet-valid, replay / session fixation -> rechazo.
