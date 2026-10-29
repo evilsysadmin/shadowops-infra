@@ -103,7 +103,7 @@ func TestKeyGenerationRetirementInvalidatesOldApprovalsEvenIfKeysReused(t *testi
 	}
 	var policy struct {
 		Generation int64 `bson:"generation"`
-		UseFence int64 `bson:"use_fence"`
+		UseFence   int64 `bson:"use_fence"`
 	}
 	if err := db.Collection(signerPolicyCollection).FindOne(context.Background(),
 		bson.D{{Key: "_id", Value: signerPolicyID}}).Decode(&policy); err != nil {
@@ -160,7 +160,9 @@ func TestPolicyWriteFenceRollsBackWithFailedSuspension(t *testing.T) {
 	if err := r.SuspendAndRevokeApproved(context.Background(), signed); !errors.Is(err, ErrApprovalStore) {
 		t.Fatal("expected rollback after policy write", err)
 	}
-	var policy struct { UseFence int64 `bson:"use_fence"` }
+	var policy struct {
+		UseFence int64 `bson:"use_fence"`
+	}
 	if err := db.Collection(signerPolicyCollection).FindOne(context.Background(),
 		bson.D{{Key: "_id", Value: signerPolicyID}}).Decode(&policy); err != nil {
 		t.Fatal(err)
