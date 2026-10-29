@@ -22,35 +22,35 @@ import (
 
 const (
 	StagingDatabase = "shadowops_identity_staging"
-	collectionName = "pending_accounts"
-	pendingState = "pending-review"
+	collectionName  = "pending_accounts"
+	pendingState    = "pending-review"
 )
 
 var (
-	ErrInvalid = errors.New("invalid identity staging account reservation")
+	ErrInvalid  = errors.New("invalid identity staging account reservation")
 	ErrConflict = errors.New("identity staging account reservation conflict")
-	subjectRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
-	reviewRe = regexp.MustCompile(`^https://github[.]com/evilsysadmin/shadowops-infra/issues/[1-9][0-9]*$`)
+	subjectRe   = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	reviewRe    = regexp.MustCompile(`^https://github[.]com/evilsysadmin/shadowops-infra/issues/[1-9][0-9]*$`)
 )
 
 type Reservation struct {
-	Subject string
-	Source string
+	Subject        string
+	Source         string
 	LegacyUsername string
-	ReviewRef string
+	ReviewRef      string
 }
 
-type Store struct { accounts *mongo.Collection }
+type Store struct{ accounts *mongo.Collection }
 
 type document struct {
-	Subject string `bson:"_id"`
-	Environment string `bson:"environment"`
-	State string `bson:"state"`
-	Source string `bson:"source"`
-	LegacyUsername string `bson:"legacy_username"`
-	AliasKey string `bson:"alias_key"`
-	ReviewRef string `bson:"review_ref"`
-	CreatedAt time.Time `bson:"created_at"`
+	Subject        string    `bson:"_id"`
+	Environment    string    `bson:"environment"`
+	State          string    `bson:"state"`
+	Source         string    `bson:"source"`
+	LegacyUsername string    `bson:"legacy_username"`
+	AliasKey       string    `bson:"alias_key"`
+	ReviewRef      string    `bson:"review_ref"`
+	CreatedAt      time.Time `bson:"created_at"`
 }
 
 // normalize matches the Python preflight's NFKC + casefold rule for common
@@ -61,10 +61,14 @@ func normalizedUsername(name string) (string, bool) {
 		return "", false
 	}
 	for _, r := range name {
-		if !unicode.IsPrint(r) { return "", false }
+		if !unicode.IsPrint(r) {
+			return "", false
+		}
 	}
 	key := cases.Fold().String(norm.NFKC.String(name))
-	if key == "" { return "", false }
+	if key == "" {
+		return "", false
+	}
 	return key, true
 }
 
@@ -91,7 +95,9 @@ func New(ctx context.Context, db *mongo.Database) (*Store, error) {
 		{Keys: bson.D{{Key: "review_ref", Value: 1}},
 			Options: options.Index().SetName("pending_review_reference")},
 	})
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	return &Store{accounts: col}, nil
 }
 
@@ -105,16 +111,18 @@ func (s *Store) ReservePending(ctx context.Context, r Reservation) error {
 		return ErrInvalid
 	}
 	_, err := s.accounts.InsertOne(ctx, document{
-		Subject: r.Subject,
-		Environment: "staging",
-		State: pendingState,
-		Source: r.Source,
+		Subject:        r.Subject,
+		Environment:    "staging",
+		State:          pendingState,
+		Source:         r.Source,
 		LegacyUsername: r.LegacyUsername,
-		AliasKey: key,
-		ReviewRef: r.ReviewRef,
-		CreatedAt: time.Now().UTC(),
+		AliasKey:       key,
+		ReviewRef:      r.ReviewRef,
+		CreatedAt:      time.Now().UTC(),
 	})
-	if mongo.IsDuplicateKeyError(err) { return ErrConflict }
+	if mongo.IsDuplicateKeyError(err) {
+		return ErrConflict
+	}
 	return err
 }
 
@@ -130,8 +138,12 @@ func (s *Store) FindPending(ctx context.Context, subject string) (Reservation, b
 		{Key: "environment", Value: "staging"},
 		{Key: "state", Value: pendingState},
 	}).Decode(&d)
-	if errors.Is(err, mongo.ErrNoDocuments) { return Reservation{}, false, nil }
-	if err != nil { return Reservation{}, false, err }
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return Reservation{}, false, nil
+	}
+	if err != nil {
+		return Reservation{}, false, err
+	}
 	r := Reservation{Subject: d.Subject, Source: d.Source, LegacyUsername: d.LegacyUsername, ReviewRef: d.ReviewRef}
 	key, ok := validReservation(r)
 	if !ok || d.AliasKey != key || d.Environment != "staging" || d.State != pendingState {
