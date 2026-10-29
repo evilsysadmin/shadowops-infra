@@ -17,3 +17,6 @@ jobs:
 
       - name: CKA public Pages/DNS owner contracts
         run: python3 -m unittest discover -s tests -p 'test_cka_pages.py' -v
+
+      - name: ShadowOps Identity P0 isolation contracts (no secrets/network)
+        run: python3 -m unittest discover -s tests -p 'test_identity_platform_contract.py' -v
