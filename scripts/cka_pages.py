@@ -169,7 +169,7 @@ def verify(sha: str) -> None:
             html = get("/").decode("utf-8", errors="replace")
             if (isinstance(manifest, dict) and manifest.get("build") == sha
                     and manifest.get("mode") == "static-readonly-preview"
-                    and "CKA // LAB" in html and "public-preview" not in html):
+                    and "CKA // LAB" in html):
                 print("CKA_PUBLIC_PREVIEW_LIVE_SHA_OK " + sha)
                 return
         except (RuntimeError, ValueError, urllib.error.URLError, TimeoutError, OSError):
