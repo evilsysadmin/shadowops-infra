@@ -52,7 +52,10 @@ jobs:
         working-directory: services/identity
         env:
           IDENTITY_MONGO_REPLICA_TEST_URL: mongodb://127.0.0.1:27018/?replicaSet=identity-rs&directConnection=true
-        run: go test -race -count=1 -v ./revocation
+        run: |
+          set -euo pipefail
+          go test -race -count=1 -v ./revocation
+          go test -race -count=1 -v ./issuance
       - name: Remove test replica set
         if: always()
         run: docker rm -f identity-replica || true
