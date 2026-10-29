@@ -10,9 +10,10 @@ import (
 	"time"
 )
 
-// The approval protocol is a pure, offline verifier. It is deliberately NOT
-// wired to SuspendAndRevoke: a transactional nonce/audit journal and actual
-// independent operator enrollment are required before an authorized mutation.
+// The approval verifier is pure and offline. It is never wired to the legacy
+// SuspendAndRevoke method; only AuthorizedStagingRevoker composes verification
+// with a durable journal and the atomic staging suspension. Independently
+// authorized signers and operator lifecycle remain prerequisites to real use.
 const (
 	SuspendAndRevokeAction = "suspend-and-revoke"
 	approvalDomain         = "shadowops-identity-admin-suspension-v1\n"
@@ -98,7 +99,7 @@ func ApprovalMessage(a SuspensionApproval) ([]byte, error) {
 // Verify proves that both *configured* authorities signed the exact same
 // short-lived staging suspension request. It DOES NOT consume the nonce,
 // authorize the underlying human, or perform account/session mutation.
-// Replays must be prevented by a future transactional command journal.
+// Only AuthorizedStagingRevoker consumes its nonce transactionally.
 func (v *ApprovalVerifier) Verify(s SignedSuspension, now time.Time) error {
 	if v == nil || len(v.operator) != ed25519.PublicKeySize ||
 		len(v.security) != ed25519.PublicKeySize ||
