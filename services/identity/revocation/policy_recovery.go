@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	recoveryAction = "recover-revoked-signers"
-	recoveryDomain = "shadowops-identity-signer-recovery-v1\n"
+	recoveryAction             = "recover-revoked-signers"
+	recoveryDomain             = "shadowops-identity-signer-recovery-v1\n"
 	maxRecoveredSignerLifetime = 30 * 24 * time.Hour
 )
 
@@ -53,11 +53,11 @@ type RecoveryStatement struct {
 }
 
 type SignedRecovery struct {
-	Statement            RecoveryStatement
-	AuthorityASignature  []byte
-	AuthorityBSignature  []byte
-	NewOperatorProof     []byte
-	NewSecurityProof     []byte
+	Statement           RecoveryStatement
+	AuthorityASignature []byte
+	AuthorityBSignature []byte
+	NewOperatorProof    []byte
+	NewSecurityProof    []byte
 }
 
 func decodeRecoveryPublicKey(value string) (ed25519.PublicKey, error) {
@@ -117,7 +117,7 @@ func RecoveryMessage(v RecoveryStatement) ([]byte, error) {
 // authorities and permanent journal as the emergency retirement primitive.
 // It does not enroll human identities or provision live signing credentials.
 type StagingPolicyRecoverer struct {
-	retirer *StagingPolicyRetirer
+	retirer          *StagingPolicyRetirer
 	afterPolicyWrite func() error // deterministic integration-test rollback only
 }
 
@@ -220,7 +220,7 @@ func (r *StagingPolicyRecoverer) Recover(ctx context.Context, signed SignedRecov
 		// retirement journal event is not a valid recovery source.
 		var previous struct {
 			ExecutedAt time.Time `bson:"executed_at"`
-			Nonce string `bson:"nonce"`
+			Nonce      string    `bson:"nonce"`
 		}
 		lookup := bson.D{
 			{Key: "environment", Value: "staging"},
