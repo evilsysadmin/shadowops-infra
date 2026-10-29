@@ -26,16 +26,16 @@ func retirementStatement(now time.Time, operator, security ed25519.PrivateKey) R
 	opHash := sha256.Sum256(operator.Public().(ed25519.PublicKey))
 	secHash := sha256.Sum256(security.Public().(ed25519.PublicKey))
 	return RetirementStatement{
-		Environment: "staging",
-		Action: retirementAction,
-		Generation: 1,
+		Environment:       "staging",
+		Action:            retirementAction,
+		Generation:        1,
 		OperatorKeySHA256: hex.EncodeToString(opHash[:]),
 		SecurityKeySHA256: hex.EncodeToString(secHash[:]),
-		ReviewIssue: "https://github.com/evilsysadmin/shadowops-infra/issues/287",
-		EvidenceSHA256: strings.Repeat("c", 64),
-		Nonce: strings.Repeat("a", 32),
-		IssuedAt: now.Unix(),
-		ExpiresAt: now.Add(5 * time.Minute).Unix(),
+		ReviewIssue:       "https://github.com/evilsysadmin/shadowops-infra/issues/287",
+		EvidenceSHA256:    strings.Repeat("c", 64),
+		Nonce:             strings.Repeat("a", 32),
+		IssuedAt:          now.Unix(),
+		ExpiresAt:         now.Add(5 * time.Minute).Unix(),
 	}
 }
 
@@ -46,7 +46,7 @@ func signRetirement(t *testing.T, v RetirementStatement, a, b ed25519.PrivateKey
 		t.Fatal(err)
 	}
 	return SignedRetirement{
-		Statement: v,
+		Statement:           v,
 		AuthorityASignature: ed25519.Sign(a, message),
 		AuthorityBSignature: ed25519.Sign(b, message),
 	}
@@ -86,8 +86,8 @@ func retirementJournalCount(t *testing.T, db *mongo.Database) int64 {
 func retirementPolicyState(t *testing.T, db *mongo.Database) (string, int64) {
 	t.Helper()
 	var doc struct {
-		State string `bson:"state"`
-		Generation int64 `bson:"generation"`
+		State      string `bson:"state"`
+		Generation int64  `bson:"generation"`
 	}
 	if err := db.Collection(signerPolicyCollection).FindOne(context.Background(),
 		bson.D{{Key: "_id", Value: signerPolicyID}}).Decode(&doc); err != nil {
@@ -154,21 +154,21 @@ func TestPolicyRetirementRejectsWrongSignersAndCriticalFields(t *testing.T) {
 		t.Fatal("governance roles could be swapped")
 	}
 	expired := valid.Statement
-	expired.IssuedAt = time.Now().Add(-15*time.Minute).Unix()
+	expired.IssuedAt = time.Now().Add(-15 * time.Minute).Unix()
 	expired.ExpiresAt = expired.IssuedAt + 300
 	if err := retirer.Retire(context.Background(), signRetirement(t, expired, a, b)); !errors.Is(err, ErrRetirementDenied) {
 		t.Fatal("expired valid signatures accepted")
 	}
 	cases := map[string]func(*RetirementStatement){
-		"production": func(s *RetirementStatement) { s.Environment = "production" },
-		"wrong action": func(s *RetirementStatement) { s.Action = "activate" },
+		"production":      func(s *RetirementStatement) { s.Environment = "production" },
+		"wrong action":    func(s *RetirementStatement) { s.Action = "activate" },
 		"zero generation": func(s *RetirementStatement) { s.Generation = 0 },
-		"bad operator": func(s *RetirementStatement) { s.OperatorKeySHA256 = "invalid" },
-		"same roles": func(s *RetirementStatement) { s.SecurityKeySHA256 = s.OperatorKeySHA256 },
-		"bad ticket": func(s *RetirementStatement) { s.ReviewIssue = "https://example.com/" },
-		"bad nonce": func(s *RetirementStatement) { s.Nonce = "" },
-		"bad evidence": func(s *RetirementStatement) { s.EvidenceSHA256 = "" },
-		"long expiry": func(s *RetirementStatement) { s.ExpiresAt++ },
+		"bad operator":    func(s *RetirementStatement) { s.OperatorKeySHA256 = "invalid" },
+		"same roles":      func(s *RetirementStatement) { s.SecurityKeySHA256 = s.OperatorKeySHA256 },
+		"bad ticket":      func(s *RetirementStatement) { s.ReviewIssue = "https://example.com/" },
+		"bad nonce":       func(s *RetirementStatement) { s.Nonce = "" },
+		"bad evidence":    func(s *RetirementStatement) { s.EvidenceSHA256 = "" },
+		"long expiry":     func(s *RetirementStatement) { s.ExpiresAt++ },
 	}
 	for label, change := range cases {
 		t.Run(label, func(t *testing.T) {
