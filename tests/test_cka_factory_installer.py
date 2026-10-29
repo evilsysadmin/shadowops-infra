@@ -1,6 +1,7 @@
 """Offline safety and behavioral tests for the manual CKA staging installer."""
 import importlib.util
 import os
+import stat
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -40,7 +41,8 @@ class TestCKAFactoryInstaller(unittest.TestCase):
                  patch.object(installer, "UNIT_SOURCE", origin), \
                  patch.object(installer, "UNIT_DEST", root / "unit-destination"), \
                  patch.object(installer, "WORKSPACE", root / "workspace"), \
-                 patch.object(installer, "trusted") as trust:
+                 patch.object(installer, "trusted") as trust, \
+                 patch.object(installer, "verify_venv_tree", return_value=50):
                 calls = []
                 def fake_run(args):
                     calls.append(args)
@@ -51,13 +53,17 @@ class TestCKAFactoryInstaller(unittest.TestCase):
                     if args[-1] == "--untracked-files=all":
                         return ""
                     if args[0] == str(venv_bin / "python"):
+                        if args[-1] == "import sys; print(sys.prefix)":
+                            return str(app / "venv")
+                        if args[-2:] == ["pip", "check"]:
+                            return "No broken requirements found."
                         return str(source)
                     return ""
                 with patch.object(installer, "command", side_effect=fake_run):
                     self.assertEqual(installer.verify_runtime(INFRA_SHA, CKA_SHA),
                                      DUMMY_UNIT)
                 self.assertTrue(trust.called)
-                self.assertEqual(len(calls), 7)
+                self.assertEqual(len(calls), 9)
 
 
     def test_real_git_rejects_untracked_python_and_wrong_repository_root(self):
@@ -147,7 +153,12 @@ class TestCKAFactoryInstaller(unittest.TestCase):
                  patch.object(installer, "UNIT_DEST", target), \
                  patch.object(installer, "WORKSPACE", root / "workspace"), \
                  patch.object(installer.os, "access", return_value=True), \
-                 patch.object(installer, "command", return_value=str(root)):
+                 patch.object(installer, "verify_venv_tree", return_value=50), \
+                 patch.object(installer, "command",
+                              side_effect=lambda args: (
+                                  "No broken requirements found." if args[-2:] == ["pip", "check"]
+                                  else str(root / "venv") if args[-1] == "import sys; print(sys.prefix)"
+                                  else str(root))):
                 with self.assertRaisesRegex(installer.InstallError, "policy changed"):
                     installer.verify_runtime(INFRA_SHA, CKA_SHA)
                 src.write_bytes(DUMMY_UNIT)
@@ -172,6 +183,73 @@ class TestCKAFactoryInstaller(unittest.TestCase):
                 root.chmod(0o700)
                 with self.assertRaisesRegex(installer.InstallError, "unsafe"):
                     installer.verify_workspace(ACCOUNT)
+
+    def test_python_runtime_tree_rejects_writable_and_foreign_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "venv"
+            package = root / "lib/python3.12/site-packages/a"
+            package.mkdir(parents=True)
+            module = package / "__init__.py"
+            module.write_text("version = 1\n")
+            self.assertGreater(installer.verify_venv_tree(root, expected_uid=os.getuid()), 0)
+            module.chmod(0o666)
+            with self.assertRaisesRegex(installer.InstallError, "permissions"):
+                installer.verify_venv_tree(root, expected_uid=os.getuid())
+            module.chmod(0o644)
+            with self.assertRaisesRegex(installer.InstallError, "owner"):
+                installer.verify_venv_tree(root, expected_uid=os.getuid() + 1)
+
+    def test_python_runtime_refuses_external_symlink_and_special_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "venv"
+            root.mkdir()
+            (root / "bin").mkdir()
+            (root / "lib").mkdir()
+            (root / "lib64").symlink_to("lib", target_is_directory=True)
+            (root / "bin/python").write_text("runtime")
+            installer.verify_venv_tree(root, expected_uid=os.getuid())
+            link = root / "bin/injected"
+            link.symlink_to("/tmp/unsafe")
+            with self.assertRaisesRegex(installer.InstallError, "symlink"):
+                installer.verify_venv_tree(root, expected_uid=os.getuid())
+            link.unlink()
+            special = root / "bin/fifo"
+            os.mkfifo(special)
+            try:
+                with self.assertRaisesRegex(installer.InstallError, "special file"):
+                    installer.verify_venv_tree(root, expected_uid=os.getuid())
+            finally:
+                special.unlink()
+
+    def test_python_runtime_inspection_has_bounded_size(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "venv"
+            root.mkdir()
+            for index in range(3):
+                (root / f"file-{index}").write_text("safe")
+            with self.assertRaisesRegex(installer.InstallError, "inspection limit"):
+                installer.verify_venv_tree(root, expected_uid=os.getuid(),
+                                           max_entries=2)
+
+    def test_python_runtime_preflight_rejects_wrong_venv_and_broken_dependencies(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            with patch.object(installer, "verify_checkout"), \
+                 patch.object(installer, "trusted"), \
+                 patch.object(installer, "verify_venv_tree", return_value=9), \
+                 patch.object(installer, "APP", root), \
+                 patch.object(installer, "SOURCE", source), \
+                 patch.object(installer, "PYTHON", root / "venv/bin/python"), \
+                 patch.object(installer.os, "access", return_value=True):
+                with patch.object(installer, "command", return_value="/other/venv"):
+                    with self.assertRaisesRegex(installer.InstallError, "not using"):
+                        installer.verify_runtime(INFRA_SHA, CKA_SHA)
+                with patch.object(installer, "command", side_effect=[
+                    str(root / "venv"), "conflicting-package requires missing-dependency"
+                ]):
+                    with self.assertRaisesRegex(installer.InstallError, "inconsistent"):
+                        installer.verify_runtime(INFRA_SHA, CKA_SHA)
 
     def test_manual_install_needs_root_and_exact_confirmation(self):
         with patch.object(installer.os, "geteuid", return_value=1000), \

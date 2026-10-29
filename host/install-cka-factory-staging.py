@@ -76,6 +76,49 @@ def verify_checkout(path: Path, expected: str) -> None:
         raise InstallError("Pinned checkout contains modifications or untracked files")
 
 
+def verify_venv_tree(venv: Path, *, expected_uid: int = 0, max_entries: int = 80000) -> int:
+    """Reject writable, foreign-owned or redirected runtime dependencies.
+
+    Inspect the entire venv before importing its Python code. Only the
+    standard Linux venv lib64 -> lib compatibility symlink is accepted.
+    This is filesystem integrity, NOT a signed dependency provenance proof.
+    """
+    if not venv.is_dir() or venv.is_symlink():
+        raise InstallError("Python venv must be a real directory")
+    entries = 0
+    pending = [venv]
+    while pending:
+        directory = pending.pop()
+        try:
+            with os.scandir(directory) as listing:
+                children = list(listing)
+        except OSError:
+            raise InstallError("Cannot inspect installed Python runtime") from None
+        for child in children:
+            entries += 1
+            if entries > max_entries:
+                raise InstallError("Python runtime exceeds inspection limit")
+            try:
+                meta = child.stat(follow_symlinks=False)
+            except OSError:
+                raise InstallError("Cannot inspect installed Python runtime") from None
+            if child.is_symlink():
+                # venv creates lib64 -> lib on some Linux distributions.
+                if (Path(directory) == venv and child.name == "lib64"
+                        and os.readlink(child.path) == "lib"):
+                    continue
+                raise InstallError("Python runtime contains unsafe symlink")
+            if meta.st_uid != expected_uid or meta.st_mode & 0o022:
+                raise InstallError("Python runtime has unsafe owner or write permissions")
+            if stat.S_ISDIR(meta.st_mode):
+                pending.append(Path(child.path))
+            elif not stat.S_ISREG(meta.st_mode):
+                raise InstallError("Python runtime contains unsafe special file")
+    if entries == 0:
+        raise InstallError("Python runtime is empty")
+    return entries
+
+
 def verify_runtime(expected_infra: str, expected_cka: str) -> bytes:
     if not SHA.fullmatch(expected_infra) or not SHA.fullmatch(expected_cka):
         raise InstallError("Two exact lowercase 40-hex SHAs are required")
@@ -88,6 +131,14 @@ def verify_runtime(expected_infra: str, expected_cka: str) -> bytes:
     trusted(PYTHON)
     if not os.access(PYTHON, os.X_OK):
         raise InstallError("Pinned Python runtime is not executable")
+    # The interpreter must be part of this venv, not an unrelated Python that
+    # happens to import the pinned checkout through its global environment.
+    verify_venv_tree(APP / "venv")
+    python_prefix = command([str(PYTHON), "-I", "-c", "import sys; print(sys.prefix)"])
+    if python_prefix != str(APP / "venv"):
+        raise InstallError("Python interpreter is not using the staging venv")
+    if command([str(PYTHON), "-I", "-m", "pip", "check"]) != "No broken requirements found.":
+        raise InstallError("Python dependency requirements are inconsistent")
     # A root-owned read-only editable install is permitted only if it resolves
     # to the exact SHA-pinned CKA source tree (the catalog uses ROOT from here).
     resolved = command([str(PYTHON), "-I", "-c",
