@@ -1,159 +1,22 @@
 package issuance
 
-import (
-	"context"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/hex"
-	"errors"
-	"time"
+import "context"
 
-	"github.com/evilsysadmin/shadowops-infra/services/identity/session"
-	"go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
-	"go.mongodb.org/mongo-driver/v2/mongo/readconcern"
-	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
-	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
-)
-
-const appTokenCollection = "staging_cka_tokens"
-const stagingIssuerURL = "https://id-staging.shadowops.dpdns.org"
-const freshnessDeadline = 2 * time.Second
-
-type appTokenRecord struct {
-	ID             string    `bson:"_id"`
-	Issuer         string    `bson:"issuer"`
-	Audience       string    `bson:"audience"`
-	Subject        string    `bson:"subject"`
-	SessionVersion int64     `bson:"session_version"`
-	SessionDigest  string    `bson:"session_digest"`
-	IssuedAt       time.Time `bson:"issued_at"`
-	ExpiresAt      time.Time `bson:"expires_at"`
-	Active         bool      `bson:"active"`
-}
-
-func tokenDigest(jti string) string {
-	digest := sha256.Sum256([]byte("shadowops-app-token-v1:staging:cka-simulator:" + jti))
-	return hex.EncodeToString(digest[:])
-}
-
-// SessionFreshnessEvidence matches the CKA consumer's strictly bound evidence.
-// It is a point-in-time observation, NOT an authorization lease or a JWT verifier.
-// No HTTP route publishes this type. A future transport must authenticate the
-// calling service and bind its fixed issuer/audience independently of the user.
-type SessionFreshnessEvidence struct {
-	Issuer         string `json:"issuer"`
-	Subject        string `json:"subject"`
-	SessionVersion int64  `json:"session_version"`
-	TokenJTI       string `json:"token_jti"`
-	CheckedAt      int64  `json:"checked_at"`
-	AccountActive  bool   `json:"account_active"`
-	SessionActive  bool   `json:"session_active"`
-	TokenActive    bool   `json:"token_active"`
-}
-
-// StagingCKAFreshness requires no signing key. It is an internal, staging-only
-// authority for the existing CKA PoC, not an enabled login or lab access path.
-// The caller MUST first verify the JWT's signature, issuer, audience and times.
-type StagingCKAFreshness struct {
-	client   *mongo.Client
-	accounts *mongo.Collection
-	sessions session.Store
-}
+// StagingCKAFreshness preserves the original CKA evidence shape and audience.
+type StagingCKAFreshness struct{ app *StagingAppFreshness }
 
 func NewStagingCKAFreshness(issuer *Issuer) (*StagingCKAFreshness, error) {
-	if issuer == nil || issuer.client == nil || issuer.accounts == nil || issuer.sessions == nil {
-		return nil, ErrDenied
-	}
-	return &StagingCKAFreshness{client: issuer.client, accounts: issuer.accounts, sessions: issuer.sessions}, nil
-}
-
-// Check validates a committed JTI binding and fences the exact account, session
-// and token documents in one snapshot/majority transaction. Refresh, logout,
-// account suspension and token deactivation conflict with these same documents.
-// After any of those operations completes, a new check cannot report active.
-// A concurrent check can order before revocation; its evidence is never a promise
-// about future requests. Consumers must recheck every protected operation.
-func (c *StagingCKAFreshness) Check(ctx context.Context, subject string, version int64, jti string) (SessionFreshnessEvidence, error) {
-	deny := SessionFreshnessEvidence{}
-	if c == nil || c.client == nil || c.accounts == nil || c.sessions == nil || ctx == nil || ctx.Err() != nil ||
-		!uuidV4.MatchString(subject) || version <= 0 || len(jti) != 22 {
-		return deny, ErrDenied
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(jti)
-	if err != nil || len(raw) != 16 || base64.RawURLEncoding.EncodeToString(raw) != jti {
-		return deny, ErrDenied
-	}
-	ctx, cancel := context.WithTimeout(ctx, freshnessDeadline)
-	defer cancel()
-	sess, err := c.client.StartSession()
+	app, err := NewStagingAppFreshness(issuer, CKASimulator)
 	if err != nil {
-		return deny, ErrStore
+		return nil, err
 	}
-	defer sess.EndSession(context.Background())
-	txn := options.Transaction().SetReadConcern(readconcern.Snapshot()).SetWriteConcern(writeconcern.Majority()).SetReadPreference(readpref.Primary())
-	var checked time.Time
-	var expires time.Time
-	_, err = sess.WithTransaction(ctx, func(tx context.Context) (any, error) {
-		checked = time.Now().UTC()
-		var record appTokenRecord
-		tokens := c.client.Database(stagingDatabase).Collection(appTokenCollection)
-		if err := tokens.FindOne(tx, bson.D{{Key: "_id", Value: tokenDigest(jti)}}).Decode(&record); err != nil {
-			return nil, err
-		}
-		if record.Issuer != stagingIssuerURL || record.Audience != ckaAudience || record.Subject != subject ||
-			record.SessionVersion != version || !record.Active || record.IssuedAt.After(checked) ||
-			!checked.Before(record.ExpiresAt) || !record.IssuedAt.Before(record.ExpiresAt) ||
-			record.ExpiresAt.Sub(record.IssuedAt) > ckaPoCTokenLifetime {
-			return nil, ErrDenied
-		}
-		digestBytes, err := hex.DecodeString(record.SessionDigest)
-		if err != nil || len(digestBytes) != 32 || hex.EncodeToString(digestBytes) != record.SessionDigest {
-			return nil, ErrDenied
-		}
-		var digest [32]byte
-		copy(digest[:], digestBytes)
-		rec, exists, err := c.sessions.Get(tx, "staging", digest)
-		if err != nil {
-			return nil, err
-		}
-		if !exists || rec.Subject != subject || rec.SessionVersion != version || rec.Environment != "staging" || rec.Digest != digest ||
-			!rec.IssuedAt.Before(rec.ExpiresAt) || rec.IssuedAt.After(checked.Add(30*time.Second)) ||
-			rec.ExpiresAt.Sub(rec.IssuedAt) > session.Lifetime || !checked.Before(rec.ExpiresAt) || record.ExpiresAt.After(rec.ExpiresAt) {
-			return nil, ErrDenied
-		}
-		// Real writes prevent a stale read-only snapshot from bypassing a completed
-		// account suspension, source-session deletion/rotation, or token deactivation.
-		fences := []struct {
-			col    *mongo.Collection
-			filter bson.D
-		}{
-			{c.accounts, bson.D{{Key: "_id", Value: subject}, {Key: "environment", Value: "staging"}, {Key: "state", Value: "active"}, {Key: "credentials_disabled", Value: false}, {Key: "session_version", Value: version}}},
-			{c.client.Database(stagingDatabase).Collection("sessions"), bson.D{{Key: "environment", Value: "staging"}, {Key: "digest", Value: record.SessionDigest}, {Key: "subject", Value: subject}, {Key: "session_version", Value: version}, {Key: "expires_at", Value: bson.D{{Key: "$gt", Value: checked}}}}},
-			{tokens, bson.D{{Key: "_id", Value: record.ID}, {Key: "active", Value: true}}},
-		}
-		for _, fence := range fences {
-			result, err := fence.col.UpdateOne(tx, fence.filter, bson.D{{Key: "$inc", Value: bson.D{{Key: "freshness_fence", Value: int64(1)}}}})
-			if err != nil {
-				return nil, err
-			}
-			if result.ModifiedCount != 1 {
-				return nil, ErrDenied
-			}
-		}
-		expires = record.ExpiresAt
-		return nil, nil
-	}, txn)
-	if err != nil {
-		if errors.Is(err, ErrDenied) || errors.Is(err, mongo.ErrNoDocuments) {
-			return deny, ErrDenied
-		}
-		return deny, ErrStore
-	}
-	now := time.Now().UTC()
-	if ctx.Err() != nil || now.Sub(checked) > freshnessDeadline || !now.Before(expires) {
-		return deny, ErrStore
-	}
-	return SessionFreshnessEvidence{Issuer: stagingIssuerURL, Subject: subject, SessionVersion: version, TokenJTI: jti, CheckedAt: checked.Unix(), AccountActive: true, SessionActive: true, TokenActive: true}, nil
+	return &StagingCKAFreshness{app: app}, nil
 }
+func (c *StagingCKAFreshness) Check(ctx context.Context, sub string, version int64, jti string) (SessionFreshnessEvidence, error) {
+	if c == nil || c.app == nil {
+		return SessionFreshnessEvidence{}, ErrDenied
+	}
+	evidence, err := c.app.Check(ctx, sub, version, jti)
+	return evidence.SessionFreshnessEvidence, err
+}
+func tokenDigest(jti string) string { return tokenDigestFor(CKASimulator, jti) }

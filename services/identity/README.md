@@ -240,3 +240,40 @@ transport, public login/token endpoint or CKA adapter is wired, and `/readyz`
 stays 503. Do not replace the missing provider with a browser field or fake
 callback, and do not enable lab access. The fixed CKA audience is intentional;
 other products need separately validated audience-bound integrations.
+
+## One central session for Chess Studio, Chronicles and CKA
+
+`NewStagingAppSigner(issuer, seed, application)` and
+`NewStagingAppFreshness(issuer, application)` bind a trusted service instance to
+exactly one registered audience: `ChessStudio` (`chess-studio`), `Chronicles`
+(`chronicles`) or `CKASimulator` (`cka-simulator`). There is no default, wildcard,
+user-selected signing audience or product role. All three issue tokens from the
+same existing central account/session and derive the same staging issuer/JWKS
+when configured with the same central key. Each JWT has its own JTI and one
+explicit audience. The common freshness evidence also carries the configured
+`audience`, which the consuming service must match independently.
+
+Token registry keys include the audience, so all six wrong-audience combinations
+in the three-product matrix fail. The original `staging_cka_tokens` collection
+name and CKA digest namespace are deliberately retained for staged-data
+compatibility; its records now support all three explicit audiences. The old
+`NewCKAPoCSigner`/`IssuePoCToken` and `NewStagingCKAFreshness` APIs remain fixed-CKA
+adapters, with the exact original eight-field CKA evidence shape. No automatic
+record migration or fallback to an unregistered token is introduced.
+
+`Issuer.Logout(ctx, handle)` deletes one central session with majority write
+concern. On their next freshness check, **all three** application tokens bound
+to it are rejected. Repeating logout is idempotent, and another browser's session
+is unaffected. Refresh rotates the common source session and invalidates all
+old bound application tokens; the refreshed handle can issue new tokens for all
+three. Account suspension applies to every application and browser session.
+
+Disposable Mongo integration proves one account and one password authentication
+can produce three correctly signed audience-bound JWTs without creating another
+account/session per product. It checks the full 3×3 freshness matrix, central
+logout, another browser's isolation, refresh, account suspension and the existing
+CKA adapters. This is an internal session/token library milestone, **not browser
+SSO yet**: central registration/login UI, secure cookie/CSRF/rate-limit flows,
+trusted service transport, consumer adapters and actual per-product profile/data
+migration remain required. No public HTTP route, real user, application login
+cutover, laboratory capability or deployment is enabled by these APIs.
