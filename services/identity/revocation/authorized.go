@@ -16,7 +16,11 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
 )
 
-const suspensionJournalCollection = "admin_suspension_journal"
+const (
+	suspensionJournalCollection = "admin_suspension_journal"
+	signerPolicyCollection      = "admin_signer_policy"
+	signerPolicyID              = "staging:suspend-and-revoke"
+)
 
 var ErrApprovalStore = errors.New("identity approval journal unavailable")
 
@@ -29,6 +33,7 @@ type AuthorizedStagingRevoker struct {
 	accounts *mongo.Collection
 	sessions *mongo.Collection
 	journal  *mongo.Collection
+	policy   *mongo.Collection
 	verifier *ApprovalVerifier
 
 	afterAccountWrite  func() error // tests only: force rollback after account write
@@ -62,6 +67,7 @@ func NewAuthorizedStagingRevoker(ctx context.Context, client *mongo.Client, oper
 		accounts: db.Collection("pending_accounts"),
 		sessions: db.Collection("sessions"),
 		journal:  journal,
+		policy:   db.Collection(signerPolicyCollection),
 		verifier: verifier,
 	}, nil
 }
@@ -73,7 +79,7 @@ func NewAuthorizedStagingRevoker(ctx context.Context, client *mongo.Client, oper
 // of those effects. Never return success before majority commit.
 func (r *AuthorizedStagingRevoker) SuspendAndRevokeApproved(ctx context.Context, signed SignedSuspension) error {
 	if r == nil || r.client == nil || r.accounts == nil || r.sessions == nil ||
-		r.journal == nil || r.verifier == nil || ctx == nil || ctx.Err() != nil {
+		r.journal == nil || r.policy == nil || r.verifier == nil || ctx == nil || ctx.Err() != nil {
 		return ErrApprovalDenied
 	}
 	if err := r.verifier.Verify(signed, time.Now().UTC()); err != nil {
@@ -103,6 +109,39 @@ func (r *AuthorizedStagingRevoker) SuspendAndRevokeApproved(ctx context.Context,
 		if err := r.verifier.Verify(signed, now); err != nil {
 			return nil, ErrApprovalDenied
 		}
+		// Match the operator/security keys and signed policy generation against
+		// the CURRENT staging policy in the SAME transaction as suspension.
+		// A real write on this document conflicts with concurrent key retirement
+		// or rotation, so a cached old signer cannot authorize after revocation.
+		signedAt := time.Unix(a.IssuedAt, 0).UTC()
+		cutoff := signedAt
+		if now.Before(cutoff) {
+			cutoff = now
+		}
+		expiresAfter := signedAt
+		if now.After(expiresAfter) {
+			expiresAfter = now
+		}
+		policyFilter := bson.D{
+			{Key: "_id", Value: signerPolicyID},
+			{Key: "environment", Value: "staging"},
+			{Key: "action", Value: SuspendAndRevokeAction},
+			{Key: "state", Value: "active"},
+			{Key: "generation", Value: a.PolicyGeneration},
+			{Key: "operator_key_sha256", Value: hex.EncodeToString(opKeyHash[:])},
+			{Key: "security_key_sha256", Value: hex.EncodeToString(securityKeyHash[:])},
+			{Key: "not_before", Value: bson.D{{Key: "$lte", Value: cutoff}}},
+			{Key: "not_after", Value: bson.D{{Key: "$gt", Value: expiresAfter}}},
+		}
+		fenced, err := r.policy.UpdateOne(tx, policyFilter,
+			bson.D{{Key: "$inc", Value: bson.D{{Key: "use_fence", Value: int64(1)}}}})
+		if err != nil {
+			return nil, err
+		}
+		if fenced.ModifiedCount != 1 {
+			return nil, ErrApprovalDenied
+		}
+
 		filter := bson.D{
 			{Key: "_id", Value: a.Subject},
 			{Key: "environment", Value: "staging"},
@@ -151,6 +190,7 @@ func (r *AuthorizedStagingRevoker) SuspendAndRevokeApproved(ctx context.Context,
 			{Key: "nonce", Value: a.Nonce},
 			{Key: "subject", Value: a.Subject},
 			{Key: "expected_session_version", Value: a.ExpectedSessionVersion},
+			{Key: "signer_policy_generation", Value: a.PolicyGeneration},
 			{Key: "review_issue", Value: a.ReviewIssue},
 			{Key: "evidence_sha256", Value: a.EvidenceSHA256},
 			{Key: "approval_sha256", Value: hex.EncodeToString(approvalHash[:])},
