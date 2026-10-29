@@ -82,6 +82,7 @@ class IdentityLinkPreflightTests(unittest.TestCase):
             "11111111-1111-1111-8111-111111111111")), "staging"))
         denied(lambda: validate_plan(plan("staging", row("chess-studio", " ", U1)), "staging"))
         denied(lambda: validate_plan(plan("staging", row("unknown", "alice", U1)), "staging"))
+        denied(lambda: validate_plan(plan("staging", row(["chess-studio"], "alice", U1)), "staging"))
 
     def test_rejects_extra_fields_containing_email_password_or_hashes(self):
         for extra in ("password_hash", "email", "jwt_secret", "roles"):
