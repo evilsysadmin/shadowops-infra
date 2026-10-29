@@ -43,7 +43,7 @@ func PrepareStagingAdministrativeIndexes(ctx context.Context, client *mongo.Clie
 	db := client.Database(StagingDatabase)
 	for _, spec := range administrativeJournals {
 		_, err := db.Collection(spec.collection).Indexes().CreateOne(ctx, mongo.IndexModel{
-			Keys: requiredJournalKeys(),
+			Keys:    requiredJournalKeys(),
 			Options: options.Index().SetName(spec.name).SetUnique(true),
 		})
 		if err != nil {
