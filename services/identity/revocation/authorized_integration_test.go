@@ -26,6 +26,9 @@ func authorizedFixture(t *testing.T) (*mongo.Database, *AuthorizedStagingRevoker
 	if err := db.Collection(signerPolicyCollection).Drop(ctx); err != nil {
 		t.Fatal(err)
 	}
+	if err := PrepareStagingAdministrativeIndexes(ctx, client); err != nil {
+		t.Fatal("offline fixture indexes", err)
+	}
 	t.Cleanup(func() {
 		c, done := context.WithTimeout(context.Background(), 10*time.Second)
 		defer done()
