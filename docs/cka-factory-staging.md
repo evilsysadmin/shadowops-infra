@@ -62,6 +62,62 @@ with `factory-run --workspace ...` and checks the lock exists but budget/YAML
 have not been created. The preflight remains credential-free and cannot
 touch an OCI host.
 
+## Manual exact-SHA installer candidate (not executed)
+
+[`host/install-cka-factory-staging.py`](../host/install-cka-factory-staging.py)
+is a **root-operated host-side installer only**. No GitHub Actions workflow
+calls it, and it is never invoked by the CKA frontend, OCI Run Command or
+the source preflight. It cannot fetch code, build a package, install
+dependencies, supply credentials, invoke inference, or start/enable services.
+
+Before running it, an operator must independently stage TWO root-owned clean
+immutable checkouts and the Python runtime:
+
+- `/opt/shadowops-infra` checked out at the exact approved Infra SHA.
+- `/opt/shadowops/cka-factory-staging/source` checked out at the exact
+  approved CKA SHA. Its parents, git metadata and tracked source files
+  must not be writable by non-root users.
+- `/opt/shadowops/cka-factory-staging/venv/bin/python` is already a
+  root-owned non-symlink executable, from a Python virtual environment
+  provisioned with `python3 -m venv --copies`. Its installed `cka_sim`
+  package must resolve its catalog root to the pinned CKA source checkout.
+  A source-linked editable install is acceptable **only when the checkout
+  itself is root-owned, frozen and validated**: this is an import-root
+  compatibility gate, not a cryptographic wheel provenance certificate.
+- Preprovision the SHARED parent directories `/var/lib/shadowops` and
+  `/etc/systemd/system` with secure root ownership/permissions. The
+  installer never creates or changes these parents or other products.
+
+From a separately authorized interactive **root** shell on the trusted A1:
+
+```bash
+python3 /opt/shadowops-infra/host/install-cka-factory-staging.py \
+  preflight <EXACT_INFRA_SHA> <EXACT_CKA_SHA>
+
+# Only after independent review and approval of the manual host change:
+python3 /opt/shadowops-infra/host/install-cka-factory-staging.py \
+  install <EXACT_INFRA_SHA> <EXACT_CKA_SHA> \
+  --confirm INSTALL_CKA_DRY_RUN_STAGING_ONLY
+```
+
+The read-only preflight checks SHA shape, actual Git HEAD for both checkouts,
+tracked-tree cleanliness, root ownership and unsafe write permissions
+(including ancestors), installed Python import-root identity, unchanged
+dry-run-only `systemd` policy, existing unit integrity and any preexisting
+workspace/account. The `install` action performs those checks BEFORE changes;
+then creates at most the non-login `shadowops-cka-factory` service account,
+private `0700` workspace and the exact CKA unit (exclusive no-overwrite).
+It does NOT replace existing units, change shared service directories,
+contact OCI/Cloudflare, start or enable the service, execute Python
+inference, add a timer or run `daemon-reload`. Installation is designed
+to be idempotent after a valid first installation.
+
+After explicit approval, a human operator may separately run
+`systemctl daemon-reload`, inspect the installed unit and manually start
+the **network-isolated dry-run** service. No automatic host installation or
+smoke execution is provided by CI. If provisioning the runtime or operator
+identity is not independently verified, do not run the install action.
+
 ## What remains to be deployed
 
 1. Establish the **dedicated staging OCI A1 owner, service account and durable
