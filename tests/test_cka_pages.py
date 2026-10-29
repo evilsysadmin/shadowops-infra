@@ -54,6 +54,31 @@ class CkaPagesContracts(unittest.TestCase):
         for line in expressions:
             self.assertEqual(line.count(marker), line.count("}}"), line)
 
+    def test_live_verifier_accepts_vite_preview_bundle_filename(self):
+        import json
+
+        class Response:
+            status = 200
+            def __init__(self, data):
+                self.data = data
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self, limit):
+                return self.data[:limit]
+
+        sha = "a" * 40
+        def fake_urlopen(req, **kwargs):
+            if req.full_url.endswith("/release.json"):
+                body = {"application": "cka-exam-simulator",
+                        "mode": "static-readonly-preview", "build": sha}
+                return Response(json.dumps(body).encode())
+            return Response(b'<title>CKA // LAB</title><script src="/assets/public-preview-abc123.js"></script>')
+
+        with patch.object(pages.urllib.request, "urlopen", side_effect=fake_urlopen):
+            pages.verify(sha)
+
     def test_pipeline_uses_safe_build_and_source_guards(self):
         workflow = (ROOT / ".github/workflows/cka-pages-preview.yml").read_text()
         for text in ("npm run build:public", "npm run test:public", "cka-source/frontend/dist-public",
