@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     env:
-      GH_TOKEN: ${{ github.token }
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Inspect latest main CKA publish run, without credentials
         id: publish
