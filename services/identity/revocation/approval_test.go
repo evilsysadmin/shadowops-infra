@@ -20,6 +20,7 @@ func validTestSuspension(now time.Time) SuspensionApproval {
 		Action:                 SuspendAndRevokeAction,
 		Subject:                "11111111-1111-4111-8111-111111111111",
 		ExpectedSessionVersion: 7,
+		PolicyGeneration:       1,
 		ReviewIssue:            "https://github.com/evilsysadmin/shadowops-infra/issues/287",
 		EvidenceSHA256:         strings.Repeat("a", 64),
 		Nonce:                  strings.Repeat("b", 32),
@@ -96,7 +97,8 @@ func TestApprovalBindsAllSecurityCriticalClaims(t *testing.T) {
 		"environment": func(a *SuspensionApproval) { a.Environment = "production" },
 		"action":      func(a *SuspensionApproval) { a.Action = "activate-account" },
 		"subject":     func(a *SuspensionApproval) { a.Subject = "22222222-2222-4222-8222-222222222222" },
-		"version":     func(a *SuspensionApproval) { a.ExpectedSessionVersion++ },
+		"version":           func(a *SuspensionApproval) { a.ExpectedSessionVersion++ },
+		"policy generation": func(a *SuspensionApproval) { a.PolicyGeneration++ },
 		"review ticket": func(a *SuspensionApproval) {
 			a.ReviewIssue = "https://github.com/evilsysadmin/shadowops-infra/issues/288"
 		},
@@ -135,7 +137,9 @@ func TestApprovalRejectsInvalidClaimsEvenIfResigned(t *testing.T) {
 		"unlisted action":   func(a *SuspensionApproval) { a.Action = "issue-session" },
 		"wrong subject":     func(a *SuspensionApproval) { a.Subject = "legacy-user" },
 		"uppercase uuid":    func(a *SuspensionApproval) { a.Subject = "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA" },
-		"zero version":      func(a *SuspensionApproval) { a.ExpectedSessionVersion = 0 },
+		"zero version":             func(a *SuspensionApproval) { a.ExpectedSessionVersion = 0 },
+		"zero policy generation":   func(a *SuspensionApproval) { a.PolicyGeneration = 0 },
+		"negative policy generation": func(a *SuspensionApproval) { a.PolicyGeneration = -1 },
 		"negative version":  func(a *SuspensionApproval) { a.ExpectedSessionVersion = -1 },
 		"overflow version":  func(a *SuspensionApproval) { a.ExpectedSessionVersion = int64(^uint64(0) >> 1) },
 		"foreign ticket":    func(a *SuspensionApproval) { a.ReviewIssue = "https://github.com/foreign/repo/issues/287" },
