@@ -20,3 +20,6 @@ jobs:
 
       - name: ShadowOps Identity P0 isolation contracts (no secrets/network)
         run: python3 -m unittest discover -s tests -p 'test_identity_platform_contract.py' -v
+
+      - name: ShadowOps legacy IdP JWKS audit contracts (offline)
+        run: python3 -m unittest discover -s tests -p 'test_identity_legacy_audit.py' -v

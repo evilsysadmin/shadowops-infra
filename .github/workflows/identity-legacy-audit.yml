@@ -1,0 +1,19 @@
+name: ShadowOps Identity · legacy JWKS separation audit
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: shadowops-identity-readonly-audit
+  cancel-in-progress: false
+jobs:
+  compare-legacy-jwks:
+    name: Read-only legacy IdP staging/production public key separation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Offline audit contracts
+        run: python3 -m unittest discover -s tests -p 'test_identity_legacy_audit.py' -v
+      - name: Read existing staging and production public JWKS
+        run: python3 scripts/identity_legacy_audit.py
