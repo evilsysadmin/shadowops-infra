@@ -19,15 +19,15 @@ import (
 )
 
 const (
-	bootstrapAction = "bootstrap-staging-signers"
-	bootstrapDomain = "shadowops-identity-signer-bootstrap-v1\n"
+	bootstrapAction  = "bootstrap-staging-signers"
+	bootstrapDomain  = "shadowops-identity-signer-bootstrap-v1\n"
 	bootstrapEventID = "staging:bootstrap-signer-policy"
 )
 
 var (
-	ErrBootstrapDenied = errors.New("offline staging signer bootstrap denied")
+	ErrBootstrapDenied   = errors.New("offline staging signer bootstrap denied")
 	ErrBootstrapConflict = errors.New("staging signer bootstrap already completed or policy exists")
-	ErrBootstrapStore = errors.New("staging signer bootstrap store unavailable")
+	ErrBootstrapStore    = errors.New("staging signer bootstrap store unavailable")
 )
 
 // BootstrapStatement requests ONE first-generation staging administrative
@@ -86,7 +86,7 @@ func BootstrapMessage(v BootstrapStatement) ([]byte, error) {
 // The caller must pin governance keys independently outside MongoDB, vet
 // reviewers, isolate DB write privileges and retain/offsite-backup the audit.
 type StagingSignerBootstrapper struct {
-	governance *StagingPolicyRetirer
+	governance       *StagingPolicyRetirer
 	afterPolicyWrite func() error // synthetic rollback injection only
 }
 
