@@ -42,7 +42,7 @@ type Reservation struct {
 }
 
 type Store struct {
-	accounts   *mongo.Collection
+	accounts  *mongo.Collection
 	reviewerA ed25519.PublicKey
 	reviewerB ed25519.PublicKey
 }
