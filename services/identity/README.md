@@ -1,12 +1,19 @@
 # ShadowOps Identity · standalone Go signing core (P0)
 
+**Current status:** staging account/session/token primitives and an opt-in
+[HTTPS browser session transport](websession/README.md) are implemented and
+tested with synthetic Mongo fixtures. The `cmd/staging` bootstrap remains
+health/JWKS-only and not ready. Central registration/login UI and product
+integration are still pending; no new Identity endpoint is deployed. The P0
+sections below record successive milestones and their limitations at the time.
+
 Tracking: [ShadowOps Identity P0 #287](https://github.com/evilsysadmin/shadowops-infra/issues/287).
 
 This directory is a **temporary extraction workspace in Infra**, pending creation of the dedicated `evilsysadmin/shadowops-identity` repository. It is an independently buildable Go module without a dependency on Chess Studio, Chronicles, MongoDB or other products.
 
 The initial `core` package supports strict `staging` and `production` issuer identities, Ed25519 signing keys supplied by an explicit caller, public JWKS, and a **synthetic probe** signed JWT. Its audience is always `shadowops-identity-probe`, its subject is a random `probe:` identifier, and the validity is 120 seconds. The caller cannot set an application audience or actual user subject. A staging token is rejected by the production verifier even when key material is accidentally reused (and the separation validator explicitly rejects reused keys). No signing seed is checked in, and `New` never derives one from Chess Studio's `JWT_SECRET`.
 
-## Deliberate limitations
+## Initial cryptographic core limitations
 
 - **NO account registration, password verification, sessions, login, refresh, logout, user access tokens or authorization.**
 - **NO HTTP server, DNS name, published container, database, secret store connection or deployment.**

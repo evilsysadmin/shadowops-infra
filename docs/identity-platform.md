@@ -90,3 +90,19 @@ three products, while other browser sessions remain isolated. Existing CKA
 interfaces and registered-record layout stay compatible. This does not complete
 the user-visible acceptance above: browser registration/login, service transport
 and consumer wiring are still pending; the legacy logins remain untouched.
+
+### Browser transport milestone (opt-in, unpublished staging)
+
+`services/identity/websession` now exposes HTTPS login, per-origin token
+exchange, refresh and central logout over the real Mongo issuer. Synthetic
+TLS + replica-set tests exercise one cookie across the three audiences and
+revocation/rotation. The new host's staging cookie uses the `__Host-` prefix,
+Secure, HttpOnly, SameSite=Lax, Path=/ and no Domain, superseding its earlier
+design-only name/path. The legacy Chess IdP cookie and all product logins stay
+unchanged. See [the transport contract](../services/identity/websession/README.md).
+
+This is not central account enrollment or an application login cutover. The
+transport currently takes an active central UUID and password; it never activates
+pending legacy accounts or resolves their usernames. Registration/login UI,
+verified data linking, trusted freshness transport and consumer adapters remain
+required. The bootstrap still returns `/readyz=503`; no endpoint is published.
