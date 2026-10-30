@@ -41,14 +41,17 @@ class ReleaseTests(unittest.TestCase):
 
  def test_inspection_reads_fixed_host_history_without_submitting_a_command(self):
   private='mongodb://private:secret@database/'
-  rows=[SimpleNamespace(display_name='other-release',instance_id='host',lifecycle_state='FAILED',content=SimpleNamespace(text=private)),SimpleNamespace(display_name='identity-staging-admitted-release',instance_id='host',lifecycle_state='FAILED',content=SimpleNamespace(text=private+'\nIDENTITY_STAGING_DEPLOY_BLOCKED type=DeployError'))]
+  rows=[SimpleNamespace(display_name='other-release',instance_id='host'),SimpleNamespace(display_name='identity-staging-admitted-release',instance_id='host',instance_agent_command_id='fixture-command')]
   calls=[]
-  client=SimpleNamespace(list_instance_agent_command_executions=lambda **kwargs:calls.append(kwargs) or SimpleNamespace(data=rows))
+  details=[]
+  full=SimpleNamespace(lifecycle_state='FAILED',content=SimpleNamespace(text=private+'\nIDENTITY_STAGING_DEPLOY_BLOCKED type=DeployError',exit_code=1))
+  client=SimpleNamespace(list_instance_agent_command_executions=lambda **kwargs:calls.append(kwargs) or SimpleNamespace(data=rows),get_instance_agent_command_execution=lambda **kwargs:details.append(kwargs) or SimpleNamespace(data=full))
   sdk=SimpleNamespace(compute_instance_agent=SimpleNamespace(ComputeInstanceAgentClient=lambda config:client))
   with patch.object(release,'resolve_existing_host',return_value=('compartment','host')):
    output=release.inspect_previous(sdk,{})
   self.assertEqual(calls,[dict(compartment_id='compartment',instance_id='host',limit=25,sort_by='TIMECREATED',sort_order='DESC')])
-  self.assertEqual(output,'IDENTITY_STAGING_PREVIOUS_RELEASE status=FAILED reason=IDENTITY_STAGING_DEPLOY_BLOCKED type=DeployError')
+  self.assertEqual(details,[dict(instance_agent_command_id='fixture-command',instance_id='host')])
+  self.assertEqual(output,'IDENTITY_STAGING_PREVIOUS_RELEASE status=FAILED exit=1 lines=2 reason=IDENTITY_STAGING_DEPLOY_BLOCKED type=DeployError')
   self.assertNotIn(private,output)
 
 

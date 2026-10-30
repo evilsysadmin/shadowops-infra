@@ -57,11 +57,18 @@ def inspect_previous(sdk,config):
     for row in rows:
         if getattr(row,'display_name','') != 'identity-staging-admitted-release' or getattr(row,'instance_id','') != instance:
             continue
-        state=str(getattr(row,'lifecycle_state','')).upper()
+        command_id=getattr(row,'instance_agent_command_id','')
+        if not command_id:
+            raise ReleaseError('Missing previous command reference')
+        execution=client.get_instance_agent_command_execution(instance_agent_command_id=command_id,instance_id=instance).data
+        state=str(getattr(execution,'lifecycle_state','')).upper()
         if state not in {'SUCCEEDED','FAILED','TIMED_OUT','CANCELED','ACCEPTED','IN_PROGRESS'}:
             state='UNKNOWN'
-        output=str(getattr(getattr(row,'content',None),'text','') or '')
-        return 'IDENTITY_STAGING_PREVIOUS_RELEASE status='+state+' reason='+failure_reason(output)
+        content=getattr(execution,'content',None)
+        output=str(getattr(content,'text','') or '')
+        code=getattr(content,'exit_code',None)
+        code=str(code) if type(code) is int and -255 <= code <= 255 else 'missing'
+        return 'IDENTITY_STAGING_PREVIOUS_RELEASE status='+state+' exit='+code+' lines='+str(len(output.splitlines()))+' reason='+failure_reason(output)
     raise ReleaseError('No recent Identity release receipt on the adopted host')
 
 
