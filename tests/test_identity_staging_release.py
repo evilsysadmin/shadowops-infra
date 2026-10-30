@@ -32,5 +32,24 @@ class ReleaseTests(unittest.TestCase):
    with self.assertRaises(release.ReleaseError):release.execute(None,{},'latest',SHA)
    inspect.assert_not_called()
 
+ def test_host_failure_exposes_only_fixed_marker_and_state(self):
+  private='mongodb://private:secret@database/'
+  content=SimpleNamespace(text=private+'\nIDENTITY_STAGING_DEPLOY_BLOCKED type=DeployError',exit_code=1)
+  with self.assertRaises(release.ReleaseError) as error:release.receipt('FAILED',content,DIGEST,SHA)
+  self.assertIn('status=FAILED reason=IDENTITY_STAGING_DEPLOY_BLOCKED type=DeployError',str(error.exception))
+  self.assertNotIn(private,str(error.exception))
+
+ def test_inspection_reads_fixed_host_history_without_submitting_a_command(self):
+  private='mongodb://private:secret@database/'
+  rows=[SimpleNamespace(display_name='other-release',instance_id='host',lifecycle_state='FAILED',content=SimpleNamespace(text=private)),SimpleNamespace(display_name='identity-staging-admitted-release',instance_id='host',lifecycle_state='FAILED',content=SimpleNamespace(text=private+'\nIDENTITY_STAGING_DEPLOY_BLOCKED type=DeployError'))]
+  calls=[]
+  client=SimpleNamespace(list_instance_agent_command_executions=lambda **kwargs:calls.append(kwargs) or SimpleNamespace(data=rows))
+  sdk=SimpleNamespace(compute_instance_agent=SimpleNamespace(ComputeInstanceAgentClient=lambda config:client))
+  with patch.object(release,'resolve_existing_host',return_value=('compartment','host')):
+   output=release.inspect_previous(sdk,{})
+  self.assertEqual(calls,[dict(compartment_id='compartment',instance_id='host',limit=25,sort_by='TIMECREATED',sort_order='DESC')])
+  self.assertEqual(output,'IDENTITY_STAGING_PREVIOUS_RELEASE status=FAILED reason=IDENTITY_STAGING_DEPLOY_BLOCKED type=DeployError')
+  self.assertNotIn(private,output)
+
 
 if __name__=='__main__':unittest.main()

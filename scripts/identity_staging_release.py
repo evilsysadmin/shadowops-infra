@@ -24,12 +24,45 @@ def command_for(digest,sha,vault):
     return 'set -eu\ntest -x '+WRAPPER+'\nsudo --non-interactive '+WRAPPER+' deploy '+digest+' '+sha+' '+vault+'\n'
 
 
+def failure_reason(output):
+    marker = next((line for line in output.splitlines() if re.fullmatch(r'IDENTITY_STAGING_DEPLOY_BLOCKED type=[A-Za-z]{1,40}',line)),None)
+    if marker:
+        return marker
+    if re.fullmatch(r'IDENTITY_STAGING_SERVICE_STARTED source_sha=[a-f0-9]{40} digest=sha256:[a-f0-9]{64}',output.strip()):
+        return 'startup-receipt'
+    if 'sudo:' in output:
+        return 'wrapper-permission-denied'
+    if 'ModuleNotFoundError:' in output or 'ImportError:' in output:
+        return 'wrapper-import-failed'
+    return 'no-wrapper-receipt'
+
+
 def receipt(status,content,digest,sha):
     expected='IDENTITY_STAGING_SERVICE_STARTED source_sha='+sha+' digest='+digest
     output=str(getattr(content,'text','') or '').strip()
     if status != 'SUCCEEDED' or getattr(content,'exit_code',None) != 0 or output != expected:
-        raise ReleaseError('Installed Identity wrapper did not return the admitted startup receipt')
+        reason = failure_reason(output)
+        state = status if status in {'SUCCEEDED','FAILED','TIMED_OUT','CANCELED'} else 'UNKNOWN'
+        raise ReleaseError('status='+state+' reason='+reason)
     return expected
+
+
+def inspect_previous(sdk,config):
+    compartment,instance=resolve_existing_host(sdk,config)
+    client=sdk.compute_instance_agent.ComputeInstanceAgentClient(config)
+    # Read only the latest bounded execution page on the adopted host. No new
+    # command is submitted; command IDs, private output and other jobs stay private.
+    rows=client.list_instance_agent_command_executions(compartment_id=compartment,instance_id=instance,
+        limit=25,sort_by='TIMECREATED',sort_order='DESC').data
+    for row in rows:
+        if getattr(row,'display_name','') != 'identity-staging-admitted-release' or getattr(row,'instance_id','') != instance:
+            continue
+        state=str(getattr(row,'lifecycle_state','')).upper()
+        if state not in {'SUCCEEDED','FAILED','TIMED_OUT','CANCELED','ACCEPTED','IN_PROGRESS'}:
+            state='UNKNOWN'
+        output=str(getattr(getattr(row,'content',None),'text','') or '')
+        return 'IDENTITY_STAGING_PREVIOUS_RELEASE status='+state+' reason='+failure_reason(output)
+    raise ReleaseError('No recent Identity release receipt on the adopted host')
 
 
 def execute(sdk,config,digest,sha,pause=time.sleep,clock=time.monotonic):
@@ -61,9 +94,16 @@ def execute(sdk,config,digest,sha,pause=time.sleep,clock=time.monotonic):
 def main():
     try:
         import oci
-        print(execute(oci,config_from_env(oci,os.environ),os.environ.get('ADMITTED_DIGEST',''),os.environ.get('ADMITTED_SHA','')))
+        config=config_from_env(oci,os.environ)
+        if sys.argv[1:]==['inspect']:
+            print(inspect_previous(oci,config))
+        elif sys.argv[1:]:
+            raise ReleaseError('Invalid release operation')
+        else:
+            print(execute(oci,config,os.environ.get('ADMITTED_DIGEST',''),os.environ.get('ADMITTED_SHA','')))
     except Exception as exc:
-        print('IDENTITY_STAGING_RELEASE_BLOCKED type='+type(exc).__name__,file=sys.stderr)
+        detail = ' '+str(exc) if isinstance(exc,ReleaseError) else ''
+        print('IDENTITY_STAGING_RELEASE_BLOCKED type='+type(exc).__name__+detail,file=sys.stderr)
         return 1
     return 0
 
