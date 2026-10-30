@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acceder · ShadowOps</title>
+  <link rel="stylesheet" href="/assets/login.css">
+  <script src="/assets/login.js" defer></script>
+</head>
+<body data-return-url="{{.ReturnURL}}">
+  <main>
+    <a class="brand" href="{{.ReturnURL}}">SHADOWOPS <span>STAGING</span></a>
+    <h1>Una cuenta para tus proyectos</h1>
+    <p>Continúa a <strong>{{.Application}}</strong> con tu cuenta ShadowOps.</p>
+    <nav aria-label="Acceso a tu cuenta">
+      <button type="button" data-mode="login" aria-pressed="true">Entrar</button>
+      <button type="button" data-mode="register" aria-pressed="false">Crear cuenta</button>
+      <button type="button" data-mode="recover" aria-pressed="false">Recuperar</button>
+    </nav>
+    <form id="access-form">
+      <label for="username">Usuario ShadowOps</label>
+      <input id="username" name="username" autocomplete="username" required minlength="3" maxlength="32" pattern="[a-zA-Z][a-zA-Z0-9_]{2,31}" aria-describedby="username-hint">
+      <small id="username-hint">De 3 a 32 letras, números o guiones bajos; empieza por una letra.</small>
+      <div id="recovery-field" hidden>
+        <label for="recovery">Código de recuperación</label>
+        <input id="recovery" name="recovery" autocomplete="off" spellcheck="false" maxlength="48">
+      </div>
+      <label id="password-label" for="password">Contraseña</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required maxlength="4096">
+      <p id="mode-hint"></p>
+      <button class="primary" id="submit" type="submit">Entrar y continuar</button>
+    </form>
+    <section id="backup" hidden aria-labelledby="backup-title">
+      <h2 id="backup-title">Guarda tu código de recuperación</h2>
+      <p>Guárdalo en tu gestor de contraseñas. Te permitirá recuperar el acceso si olvidas tu contraseña. Se muestra una sola vez.</p>
+      <code id="backup-code"></code>
+      <button class="primary" id="backup-done" type="button">Lo he guardado. Iniciar sesión</button>
+    </section>
+    <p id="status" role="status" aria-live="polite"></p>
+    <a class="return-link" href="{{.ReturnURL}}">Volver a {{.Application}}</a>
+    <noscript>Activa JavaScript para iniciar sesión.</noscript>
+  </main>
+</body>
+</html>

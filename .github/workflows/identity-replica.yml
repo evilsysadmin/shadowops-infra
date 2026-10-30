@@ -57,6 +57,28 @@ jobs:
           go test -race -count=1 -v ./revocation
           go test -race -count=1 -v ./issuance
           go test -race -count=1 -v ./websession
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install isolated browser test tools
+        run: |
+          npm install --prefix "$RUNNER_TEMP/identity-browser-tools" --no-audit --no-fund playwright@1.55.0
+          "$RUNNER_TEMP/identity-browser-tools/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Real Chromium central account journey on desktop and mobile
+        working-directory: services/identity
+        env:
+          IDENTITY_MONGO_REPLICA_TEST_URL: mongodb://127.0.0.1:27018/?replicaSet=identity-rs&directConnection=true
+          IDENTITY_BROWSER_TEST: '1'
+          IDENTITY_BROWSER_ARTIFACTS: ${{ runner.temp }}/identity-browser-artifacts
+          NODE_PATH: ${{ runner.temp }}/identity-browser-tools/node_modules
+        run: go test -race -count=1 -v ./websession -run '^TestChromiumCentralAccountJourney$'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: identity-login-desktop-mobile
+          path: ${{ runner.temp }}/identity-browser-artifacts
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Remove test replica set
         if: always()
         run: docker rm -f identity-replica || true

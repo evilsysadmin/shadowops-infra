@@ -1,10 +1,10 @@
 # ShadowOps Identity · standalone Go signing core (P0)
 
 **Current status:** staging account/session/token primitives and an opt-in
-[HTTPS browser session transport](websession/README.md) are implemented and
-tested with synthetic Mongo fixtures. The `cmd/staging` bootstrap remains
-health/JWKS-only and not ready. Central registration/login UI and product
-integration are still pending; no new Identity endpoint is deployed. The P0
+[central signup/login/recovery page](websession/README.md) are implemented,
+with native username accounts and real Chromium/Mongo tests. The `cmd/staging`
+bootstrap remains health/JWKS-only and not ready. Trusted backend transport,
+product integration and deployment are still pending. The P0
 sections below record successive milestones and their limitations at the time.
 
 Tracking: [ShadowOps Identity P0 #287](https://github.com/evilsysadmin/shadowops-infra/issues/287).
