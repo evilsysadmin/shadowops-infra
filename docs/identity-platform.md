@@ -106,3 +106,15 @@ transport currently takes an active central UUID and password; it never activate
 pending legacy accounts or resolves their usernames. Registration/login UI,
 verified data linking, trusted freshness transport and consumer adapters remain
 required. The bootstrap still returns `/readyz=503`; no endpoint is published.
+
+### Central account entry (local browser preview)
+
+The opt-in `NewStagingBrowserHandler` adds new native central accounts,
+username/password login, one-time backup-code recovery and an embedded Spanish
+login/signup/recovery page. It returns only to pinned product origins, without
+tokens in URLs. New registration never claims or activates legacy names/data.
+Recovery rotates its proof and revokes all browser/application sessions in one
+Mongo transaction. Actual Chromium desktop/mobile tests cover this central UI
+and cross-origin cookie reuse by three **synthetic** product pages. This is not
+an actual Chronicles login cutover: backend freshness transport, consumer profile
+binding and staging runtime/deployment remain outstanding.

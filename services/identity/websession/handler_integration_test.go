@@ -37,6 +37,10 @@ type fixture struct {
 }
 
 func setup(t *testing.T) *fixture {
+	return setupMode(t, false)
+}
+
+func setupMode(t *testing.T, browser bool) *fixture {
 	t.Helper()
 	uri := os.Getenv("IDENTITY_MONGO_REPLICA_TEST_URL")
 	if uri == "" {
@@ -87,6 +91,9 @@ func setup(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	h, err := NewStagingHandler(issuer, bytes.Repeat([]byte{0x66}, ed25519.SeedSize))
+	if browser {
+		h, err = NewStagingBrowserHandler(ctx, issuer, bytes.Repeat([]byte{0x66}, ed25519.SeedSize))
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,10 +196,95 @@ func (f *fixture) appClaims(t *testing.T, web *http.Client, origin string) claim
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	var c claims
-	if err != nil || json.Unmarshal(payload, &c) != nil || c.Issuer != StagingOrigin || c.Subject != testSubject || c.Aud != string(consumers[origin]) || c.Version != 1 || c.JTI == "" || c.Expires <= time.Now().Unix() || c.Expires-c.Issued > 120 || c.NBF > time.Now().Unix() {
+	if err != nil || json.Unmarshal(payload, &c) != nil || c.Issuer != StagingOrigin || c.Subject == "" || (f.h.native == nil && c.Subject != testSubject) || c.Aud != string(consumers[origin]) || c.Version != 1 || c.JTI == "" || c.Expires <= time.Now().Unix() || c.Expires-c.Issued > 120 || c.NBF > time.Now().Unix() {
 		t.Fatal("token did not retain central identity and origin-bound audience")
 	}
 	return c
+}
+
+func TestHTTPSNativeSignupLoginAndRecoveryUseCentralName(t *testing.T) {
+	f := setupMode(t, true)
+	const login = `{"username":"central_player","password":"correct-synthetic-password-2026"}`
+	product := "https://staging.chronicles.shadowops.dpdns.org"
+	f.request(t, f.web, "/api/identity/register", product, login, 403)
+	f.request(t, f.web, "/api/identity/register", StagingOrigin, `{"username":"central_player","password":"short"}`, 401)
+	headers, body := f.request(t, f.web, "/api/identity/register", StagingOrigin, login, 201)
+	var recovery struct {
+		Code string `json:"recoveryCode"`
+	}
+	if json.Unmarshal(body, &recovery) != nil || len(recovery.Code) != 48 || headers.Get("Set-Cookie") != "" {
+		t.Fatal("registration did not return a single backup code without a session")
+	}
+	f.request(t, f.web, "/api/identity/register", StagingOrigin, login, 409)
+	f.request(t, f.web, "/api/identity/login", StagingOrigin, `{"subject":"`+testSubject+`","password":"`+testPassword+`"}`, 401)
+	f.request(t, f.web, "/api/identity/login", StagingOrigin, login, 204)
+	var old []claims
+	var subject string
+	for origin := range consumers {
+		c := f.appClaims(t, f.web, origin)
+		if c.Subject == testSubject || (subject != "" && c.Subject != subject) {
+			t.Fatal("native signup claimed another account or changed identity per product")
+		}
+		subject = c.Subject
+		old = append(old, c)
+	}
+	for collection, want := range map[string]int64{"pending_accounts": 2, "sessions": 1} {
+		count, err := f.db.Collection(collection).CountDocuments(context.Background(), bson.D{})
+		if err != nil || count != want {
+			t.Fatal("native login created another account/session per product", err)
+		}
+	}
+	payload, _ := json.Marshal(map[string]string{"username": "central_player", "password": "replacement-central-password", "recoveryCode": recovery.Code})
+	f.request(t, f.web, "/api/identity/recover", product, string(payload), 403)
+	_, data := f.request(t, f.web, "/api/identity/recover", StagingOrigin, string(payload), 200)
+	var next struct {
+		Code string `json:"recoveryCode"`
+	}
+	if json.Unmarshal(data, &next) != nil || len(next.Code) != 48 || next.Code == recovery.Code {
+		t.Fatal("HTTP recovery did not rotate its backup code")
+	}
+	for _, c := range old {
+		f.fresh(t, c, false)
+	}
+	f.request(t, f.web, "/api/identity/token", product, "{}", 401)
+	f.request(t, f.web, "/api/identity/login", StagingOrigin, login, 401)
+	f.request(t, f.web, "/api/identity/recover", StagingOrigin, string(payload), 401)
+	f.request(t, f.web, "/api/identity/login", StagingOrigin, `{"username":"CENTRAL_PLAYER","password":"replacement-central-password"}`, 204)
+}
+
+func TestHTTPSLoginPagePinsReturnTargetAndServesOnlyOwnAssets(t *testing.T) {
+	f := setupMode(t, true)
+	for _, tc := range []struct {
+		path string
+		want int
+	}{
+		{"/login?app=chronicles", 200}, {"/login?app=chess-studio", 200}, {"/login?app=cka-simulator", 200},
+		{"/login?app=chronicles&returnTo=https://evil.example", 400},
+		{"/login?app=chronicles&app=cka-simulator", 400}, {"/login?app=https://evil.example", 400},
+		{"/login", 400}, {"/assets/login.js", 200}, {"/assets/login.css", 200},
+		{"/assets/../issuance/native_accounts.go", 404},
+	} {
+		r, err := http.NewRequest("GET", f.server.URL+tc.path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Host = stagingHost
+		response, err := f.web.Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := io.ReadAll(response.Body)
+		response.Body.Close()
+		if err != nil || response.StatusCode != tc.want || response.Header.Get("Set-Cookie") != "" {
+			t.Fatal("login page target/status/cookie mismatch", tc.path, response.StatusCode, err)
+		}
+		if tc.want == 200 && !strings.Contains(response.Header.Get("Content-Security-Policy"), "frame-ancestors 'none'") {
+			t.Fatal("login page/assets missing CSP")
+		}
+		if tc.path == "/login?app=chronicles" && !strings.Contains(string(data), `data-return-url="https://staging.chronicles.shadowops.dpdns.org/?shadowops=central"`) {
+			t.Fatal("login return target was not the pinned Chronicles origin")
+		}
+	}
 }
 
 func (f *fixture) fresh(t *testing.T, c claims, want bool) {

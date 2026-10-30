@@ -33,6 +33,7 @@ var consumers = map[string]issuance.Application{
 
 type Handler struct {
 	issuer  *issuance.Issuer
+	native  *issuance.NativeAccounts
 	signers map[issuance.Application]*issuance.StagingAppSigner
 	public  []byte
 	limits  limiter
@@ -61,6 +62,20 @@ func NewStagingHandler(issuer *issuance.Issuer, seed []byte) (*Handler, error) {
 	return h, nil
 }
 
+// NewStagingBrowserHandler enables NEW central account enrollment and the
+// user-facing login page. It never activates or resolves legacy reservations.
+func NewStagingBrowserHandler(ctx context.Context, issuer *issuance.Issuer, seed []byte) (*Handler, error) {
+	h, err := NewStagingHandler(issuer, seed)
+	if err != nil {
+		return nil, err
+	}
+	h.native, err = issuance.NewStagingNativeAccounts(ctx, issuer)
+	if err != nil {
+		return nil, err
+	}
+	return h, nil
+}
+
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -68,6 +83,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Vary", "Origin")
 	if r.TLS == nil || r.Host != stagingHost {
 		http.Error(w, "staging HTTPS identity host required", http.StatusForbidden)
+		return
+	}
+	if h.native != nil && h.page(w, r) {
 		return
 	}
 	if r.URL.Path == "/api/identity/jwks" && r.Method == http.MethodGet {
@@ -79,7 +97,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "browser SSO rollout not provisioned", http.StatusServiceUnavailable)
 		return
 	}
-	if !sessionPath(r.URL.Path) {
+	credential := credentialPath(r.URL.Path)
+	if !sessionPath(r.URL.Path) || (h.native == nil && credential && r.URL.Path != "/api/identity/login") {
 		http.NotFound(w, r)
 		return
 	}
@@ -89,7 +108,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	app, product := consumers[origin]
 	if len(r.Header.Values("Origin")) != 1 || (origin != StagingOrigin && !product) ||
 		r.Header.Get("Sec-Fetch-Site") == "cross-site" ||
-		(r.URL.Path == "/api/identity/login" && origin != StagingOrigin) ||
+		(credential && origin != StagingOrigin) ||
 		(r.URL.Path == "/api/identity/token" && !product) {
 		http.Error(w, "origin denied", http.StatusForbidden)
 		return
@@ -117,7 +136,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	peer, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil || net.ParseIP(peer) == nil || !h.limits.allow(peer, r.URL.Path == "/api/identity/login", time.Now()) {
+	if err != nil || net.ParseIP(peer) == nil || !h.limits.allow(peer, credential, time.Now()) {
 		w.Header().Set("Retry-After", "60")
 		http.Error(w, "request limit", http.StatusTooManyRequests)
 		return
@@ -129,10 +148,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	if r.URL.Path == "/api/identity/login" {
+	if credential {
 		var body struct {
-			Subject  string `json:"subject"`
-			Password string `json:"password"`
+			Subject      string `json:"subject"`
+			Username     string `json:"username"`
+			Password     string `json:"password"`
+			RecoveryCode string `json:"recoveryCode"`
 		}
 		if !decode(w, r, &body) {
 			return
@@ -145,7 +166,41 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "request limit", http.StatusTooManyRequests)
 			return
 		}
-		handle, err := h.issuer.Issue(ctx, body.Subject, body.Password)
+		var handle string
+		var err error
+		if h.native == nil {
+			if body.Username != "" || body.RecoveryCode != "" {
+				failure(w, issuance.ErrDenied)
+				return
+			}
+			handle, err = h.issuer.Issue(ctx, body.Subject, body.Password)
+		} else {
+			if body.Subject != "" || (body.RecoveryCode != "" && r.URL.Path != "/api/identity/recover") {
+				failure(w, issuance.ErrDenied)
+				return
+			}
+			if r.URL.Path != "/api/identity/login" {
+				var code string
+				status := http.StatusOK
+				if r.URL.Path == "/api/identity/register" {
+					code, err = h.native.Register(ctx, body.Username, body.Password)
+					status = http.StatusCreated
+				} else {
+					code, err = h.native.Recover(ctx, body.Username, body.RecoveryCode, body.Password)
+				}
+				if err != nil {
+					failure(w, err)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(status)
+				_ = json.NewEncoder(w).Encode(struct {
+					RecoveryCode string `json:"recoveryCode"`
+				}{RecoveryCode: code})
+				return
+			}
+			handle, err = h.native.Login(ctx, body.Username, body.Password)
+		}
 		if err != nil {
 			failure(w, err)
 			return
@@ -196,10 +251,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func sessionPath(path string) bool {
 	switch path {
-	case "/api/identity/login", "/api/identity/token", "/api/identity/refresh", "/api/identity/logout":
+	case "/api/identity/login", "/api/identity/register", "/api/identity/recover", "/api/identity/token", "/api/identity/refresh", "/api/identity/logout":
 		return true
 	}
 	return false
+}
+
+func credentialPath(path string) bool {
+	return path == "/api/identity/login" || path == "/api/identity/register" || path == "/api/identity/recover"
 }
 
 func decode(w http.ResponseWriter, r *http.Request, target any) bool {
@@ -245,7 +304,9 @@ func setCookie(w http.ResponseWriter, value string, clear bool) {
 }
 
 func failure(w http.ResponseWriter, err error) {
-	if errors.Is(err, issuance.ErrDenied) {
+	if errors.Is(err, issuance.ErrNameUnavailable) {
+		http.Error(w, "central account name unavailable", http.StatusConflict)
+	} else if errors.Is(err, issuance.ErrDenied) {
 		http.Error(w, "authentication denied", http.StatusUnauthorized)
 	} else {
 		http.Error(w, "identity unavailable", http.StatusServiceUnavailable)
