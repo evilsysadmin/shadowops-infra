@@ -49,7 +49,7 @@ KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 BUNDLE_KEYS = frozenset({"MONGO_URL", "JWT_SECRET", "INVITE_CODE", "TUNNEL_TOKEN"})
 # Present only once provisioning copies Chess Studio's staging Resend key into
 # the bundle; with it, password recovery by email turns on.
-OPTIONAL_BUNDLE_KEYS = frozenset({"RESEND_API_KEY"})
+OPTIONAL_BUNDLE_KEYS = frozenset({"RESEND_API_KEY", "SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL"})
 PUBLIC_ORIGIN = "https://staging.chronicles.shadowops.dpdns.org"
 # Non-secret runtime contract, versioned here rather than in Vault.
 STATIC_API_ENV = (
@@ -198,13 +198,34 @@ def write_private(path: Path, content: str) -> None:
 
 def write_runtime(values: Mapping[str, str], runtime: Path = RUNTIME, target: Target = STAGING) -> None:
     resend = values.get("RESEND_API_KEY")
+    central = values.get("SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL")
+    if central and (target.name != "staging" or not re.fullmatch(r"soc1_[A-Za-z0-9_-]{43}", central)):
+        raise ReleaseError("Central Identity requires the dedicated staging consumer credential")
     api_rows = [("MONGO_URL", values["MONGO_URL"]), ("JWT_SECRET", values["JWT_SECRET"]),
                 ("INVITE_CODE", values["INVITE_CODE"]), *target.static_env,
-                ("ENABLE_EMAIL_RECOVERY", "true" if resend else "false")]
+                ("ENABLE_EMAIL_RECOVERY", "true" if resend else "false"),
+                ("ENABLE_SHADOWOPS_IDENTITY", "true" if central else "false")]
     if resend:
         api_rows.append(("RESEND_API_KEY", resend))
+    if central:
+        api_rows.append(("SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL", central))
     write_private(runtime / API_ENV.name, env_lines(api_rows))
     write_private(runtime / TUNNEL_ENV.name, env_lines([("TUNNEL_TOKEN", values["TUNNEL_TOKEN"])]))
+
+
+def verify_identity_backup(path: Path = Path('/var/lib/shadowops/identity-staging/last-backup.json'), *, require_root: bool = True) -> None:
+    if require_root:
+        check_root_file(path)
+    try:
+        if path.is_symlink() or path.stat().st_size > 4096:
+            raise ValueError('unsafe receipt')
+        receipt = json.loads(path.read_text())
+        created = datetime.fromisoformat(receipt['created_at'])
+        age = (datetime.now(timezone.utc) - created).total_seconds()
+        if receipt.get('schema') != 1 or receipt.get('environment') != 'staging' or not 0 <= age <= 26 * 3600 or type(receipt.get('encrypted_bytes')) is not int or receipt['encrypted_bytes'] <= 0 or not re.fullmatch(r'[a-f0-9]{64}',receipt.get('sha256','')):
+            raise ValueError('invalid receipt')
+    except (ValueError,TypeError,KeyError,OSError):
+        raise ReleaseError('A recent verified Identity staging backup is required') from None
 
 
 def _common_hardening(service: dict, user: str) -> bool:
@@ -235,8 +256,9 @@ def _env_ok(service: dict, path: Path, keys: frozenset[str],
 
 
 API_ENV_KEYS = frozenset({"MONGO_URL", "JWT_SECRET", "INVITE_CODE", "ENABLE_EMAIL_RECOVERY",
+                          "ENABLE_SHADOWOPS_IDENTITY",
                           *(k for k, _ in STATIC_API_ENV)})
-API_ENV_OPTIONAL_KEYS = frozenset({"RESEND_API_KEY"})
+API_ENV_OPTIONAL_KEYS = frozenset({"RESEND_API_KEY", "SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL"})
 TUNNEL_ENV_KEYS = frozenset({"TUNNEL_TOKEN"})
 
 
@@ -361,7 +383,10 @@ def deploy(
             guard(runner)
         except SharedHostError as exc:
             raise ReleaseError("Shared A1 ownership guard rejected host state") from exc
-        write_runtime(bundle_reader(vault_id, runner, target), runtime, target)
+        bundle = bundle_reader(vault_id, runner, target)
+        if require_root and target.name == 'staging' and bundle.get('SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL'):
+            verify_identity_backup()
+        write_runtime(bundle, runtime, target)
         config_text = checked_run(runner, fixed_compose_args("config", "--format", "json", target=target),
                                   values, output=True, target=target)
         try:

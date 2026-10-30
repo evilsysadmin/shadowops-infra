@@ -17,6 +17,7 @@ on:
       - 'tests/test_chronicles_api_before_pages.py'
       - 'scripts/shared_a1_host_guard.py'
       - 'tests/test_chronicles_api_host_deploy.py'
+      - 'tests/test_chronicles_identity_activation.py'
       - 'tests/test_chronicles_api_cd_workflow.py'
       - 'scripts/chronicles_source_ci.py'
       - 'scripts/chronicles_production_admission.py'
@@ -55,6 +56,11 @@ on:
         description: provision only — copy Chess Studio's staging Resend key into the bundle (password recovery by email). Needs the bootstrapped wrapper that accepts it.
         type: boolean
         default: false
+      central_identity:
+        description: Staging provision only — preserve, enable or disable the verified central Identity consumer
+        type: choice
+        options: [preserve, enable, disable]
+        default: preserve
 
 permissions:
   contents: read
@@ -69,6 +75,7 @@ jobs:
         with:
           persist-credentials: false
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_host_deploy.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_identity_activation.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_cd_workflow.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_before_pages.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_source_ci.py' -v
@@ -107,6 +114,7 @@ jobs:
       CHRONICLES_STAGING_JWT_SECRET: ${{ secrets.CHRONICLES_STAGING_JWT_SECRET }}
       CHRONICLES_STAGING_INVITE_CODE: ${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}
       CHRONICLES_EMAIL_RECOVERY: ${{ inputs.email_recovery }}
+      CHRONICLES_CENTRAL_IDENTITY: ${{ inputs.central_identity || 'preserve' }}
       CHRONICLES_PRODUCTION_MONGO_URL: ${{ secrets.CHRONICLES_PRODUCTION_MONGO_URL }}
       CHRONICLES_PRODUCTION_JWT_SECRET: ${{ secrets.CHRONICLES_PRODUCTION_JWT_SECRET }}
       CHRONICLES_PRODUCTION_INVITE_CODE: ${{ secrets.CHRONICLES_PRODUCTION_INVITE_CODE }}

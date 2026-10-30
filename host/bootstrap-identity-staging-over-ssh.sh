@@ -24,5 +24,5 @@ else
 fi
 [[ "$(git -C "$repo" rev-parse origin/main)" == "$expected" ]] || exit 65
 git -C "$repo" checkout --detach "$expected"
-exec "$repo/host/install-identity-staging.sh" "$expected"
+exec "$repo/host/install-shared-identity-staging.sh" "$expected"
 REMOTE

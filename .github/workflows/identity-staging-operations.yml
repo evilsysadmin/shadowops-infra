@@ -19,7 +19,7 @@ on:
     inputs:
       action:
         type: choice
-        options: [provision, deploy, inspect]
+        options: [provision, deploy, inspect, backup]
         required: true
         description: Provision custody/tunnel/DNS, or deploy an admitted image through the installed staging wrapper
       source_sha:
@@ -36,8 +36,11 @@ jobs:
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
+      - run: python3 -m pip install --disable-pip-version-check 'oci==2.185.2'
       - run: python3 -m unittest discover -s tests -p 'test_identity_staging_*.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_identity_activation.py' -v
       - run: bash -n host/install-identity-staging.sh && bash -n host/bootstrap-identity-staging-over-ssh.sh
+      - run: bash -n host/install-shared-identity-staging.sh
       - run: sudo visudo -cf host/identity-staging.sudoers
       - name: Real isolated image + Mongo TLS persistence journey
         if: github.event_name != 'workflow_dispatch' || inputs.action != 'inspect'
@@ -168,3 +171,28 @@ jobs:
       - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
       - name: Read only the sanitized previous Identity release receipt
         run: python scripts/identity_staging_release.py inspect
+  backup:
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'backup' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    environment: staging
+    concurrency:
+      group: shadowops-oci-host-operations
+      cancel-in-progress: false
+    env:
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Run only the fixed staging backup wrapper; never transfer plaintext
+        run: python scripts/identity_staging_release.py backup

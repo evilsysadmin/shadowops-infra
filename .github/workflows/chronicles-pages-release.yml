@@ -283,6 +283,7 @@ jobs:
         env:
           # Iteración 2: API propia de Chronicles (cuentas y partidas propias).
           VITE_API_URL: https://chronicles-api-staging.shadowops.dpdns.org/api
+          VITE_SHADOWOPS_IDENTITY: ${{ vars.CHRONICLES_CENTRAL_IDENTITY_STAGING == 'enabled' && 'central-staging' || '' }}
           VITE_BUILD_SHA: ${{ steps.source.outputs.sha }}
           CHRONICLES_DEPLOY_BASE: /
         run: |

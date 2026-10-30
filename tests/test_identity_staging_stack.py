@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'scripts'))
 from identity_staging_bundle import generate,service_config
+import identity_staging_backup as backup
 spec=importlib.util.spec_from_file_location('identity_host_stack',ROOT/'host/identity-staging-deploy.py')
 host=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(host)
@@ -135,6 +136,29 @@ print('REAL_IMAGE_ACCOUNT_SESSION_AND_REVOCATION_OK');
       time.sleep(1)
     docker('start',identity);healthy()
     self.assertIn('REAL_IMAGE_ACCOUNT_SESSION_AND_REVOCATION_OK',shell(node.replace('REGISTER','false')))
+    # Capture an actual active session in an encrypted snapshot, revoke it,
+    # then restore into an empty disposable database. Restoration must not
+    # resurrect that cookie/JWT or the account's old password.
+    keep=node.replace('REGISTER','false').replace("await call('/api/identity/logout',{},origin,cookie,null,204);\nawait call('/api/identity/freshness',proof,null,null,credential,401);", "print('FIXTURE_PROOF='+JSON.stringify({cookie,proof}));")
+    proof_output=shell(keep)
+    saved=json.loads(next(line[len('FIXTURE_PROOF='):] for line in proof_output.splitlines() if line.startswith('FIXTURE_PROOF=')))
+    snapshot=json.loads(shell(backup.export_script(bundle['mongo_root_password'])))
+    encrypted=backup.encrypt_snapshot(snapshot,bundle['backup_key'])
+    restored=backup.decrypt_snapshot(encrypted,bundle['backup_key'])
+    prefix=node.split('if (REGISTER)')[0]
+    ending="})().catch(error => { print('REAL_IMAGE_REQUEST_FAILED ' + error.message); quit(1); });"
+    shell(prefix+"await call('/api/identity/logout',{},origin,"+json.dumps(saved['cookie'])+",null,204);\n"+ending)
+    with self.assertRaises(AssertionError):shell(backup.restore_script(bundle['mongo_root_password'],restored))
+    unchanged=json.loads(shell(backup.export_script(bundle['mongo_root_password'])))
+    self.assertEqual(unchanged['collections']['pending_accounts'],snapshot['collections']['pending_accounts'])
+    docker('stop',identity)
+    # Only this test's newly created private Mongo is modified; no host port exists.
+    shell('const a=db.getSiblingDB("admin"); a.auth("identity_root",'+json.dumps(bundle['mongo_root_password'])+'); for (const c of ["pending_accounts","sessions","staging_cka_tokens"]) db.getSiblingDB("shadowops_identity_staging").getCollection(c).deleteMany({});')
+    self.assertIn('IDENTITY_STAGING_QUARANTINE_RESTORE_OK',shell(backup.restore_script(bundle['mongo_root_password'],restored)))
+    docker('start',identity);healthy()
+    shell(prefix+"await call('/api/identity/login',credentials,central,null,null,401);\n"+
+        "await call('/api/identity/token',{},origin,"+json.dumps(saved['cookie'])+",null,401);\n"+
+        "await call('/api/identity/freshness',"+json.dumps(saved['proof'])+",null,null,credential,401);\n"+ending)
     self.assertEqual(json.loads(docker('inspect','--format','{{json .HostConfig.PortBindings}}',mongo)),{})
     self.assertEqual(json.loads(docker('inspect','--format','{{json .HostConfig.PortBindings}}',identity)),{})
   finally:
