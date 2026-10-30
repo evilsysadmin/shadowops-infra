@@ -56,7 +56,9 @@ credentials and unavailable Mongo. Desktop/mobile captures are taken before
 entering credentials or displaying backup codes. Product pages in the Chromium
 fixture are **synthetic consumers**, not the actual games.
 
-No endpoint is deployed and no existing product trusts this handler. Trusted
-backend freshness transport, real product profile adapters, standalone runtime
+The opt-in [trusted freshness transport](FRESHNESS-TRANSPORT.md) adds an
+authenticated backend RPC with fixed per-application credentials. No endpoint
+is deployed and no existing product trusts this handler. Consumer wiring,
+real product profile adapters, standalone runtime
 and deployment/rollback remain required. `/readyz` remains 503. The actual
 staging Chronicles login is not switched by adding this page.
