@@ -40,6 +40,10 @@ def failure_reason(output):
 def receipt(status,content,digest,sha):
     expected='IDENTITY_STAGING_SERVICE_STARTED source_sha='+sha+' digest='+digest
     output=str(getattr(content,'text','') or '').strip()
+    if status == 'SUCCEEDED' and getattr(content,'exit_code',None) == 0 and not output:
+        # OCI can omit command text. This acknowledges transport completion
+        # only: the caller must still prove live HTTPS readiness and exact SHA.
+        return 'IDENTITY_STAGING_COMMAND_COMPLETED source_sha='+sha+' digest='+digest+' public_verification=required'
     if status != 'SUCCEEDED' or getattr(content,'exit_code',None) != 0 or output != expected:
         reason = failure_reason(output)
         state = status if status in {'SUCCEEDED','FAILED','TIMED_OUT','CANCELED'} else 'UNKNOWN'
