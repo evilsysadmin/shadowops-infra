@@ -50,6 +50,10 @@ The manual Actions deploy first verifies the exact source checks, protected-main
 ancestry, arm64 manifest and build attestation, then invokes only the installed
 Identity wrapper through OCI Run Command. It logs only a sanitized
 startup receipt; its local state explicitly says `public_login_verified=false`.
+OCI may report exit zero while omitting command text. That case records only
+`COMMAND_COMPLETED`, never `SERVICE_STARTED`; the separate mandatory HTTPS
+readiness and exact source-SHA checks must still pass for the release job to
+succeed. Missing/failed exit status and nonempty mismatched receipts remain denied.
 The Mongo bootstrap initializes only an empty replica through the localhost
 exception; retries authenticate existing users and cannot reset live passwords.
 An incorrect root or application password stops the deployment.

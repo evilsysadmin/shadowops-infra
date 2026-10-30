@@ -12,6 +12,12 @@ VAULT='ocid1.vault.oc1.eu.exampleidentifier'
 
 
 class ReleaseTests(unittest.TestCase):
+ def test_omitted_success_output_requires_independent_public_verification(self):
+  result=release.receipt('SUCCEEDED',SimpleNamespace(text=None,exit_code=0),DIGEST,SHA)
+  self.assertEqual(result,'IDENTITY_STAGING_COMMAND_COMPLETED source_sha='+SHA+' digest='+DIGEST+' public_verification=required')
+  self.assertNotIn('SERVICE_STARTED',result)
+  for state,code in [('FAILED',0),('SUCCEEDED',1),('SUCCEEDED',None)]:
+   with self.assertRaises(release.ReleaseError):release.receipt(state,SimpleNamespace(text=None,exit_code=code),DIGEST,SHA)
  def test_exact_fixed_wrapper_request(self):
   command=release.command_for(DIGEST,SHA,VAULT)
   self.assertEqual(command,'set -eu\ntest -x /usr/local/sbin/shadowops-identity-staging\nsudo --non-interactive /usr/local/sbin/shadowops-identity-staging deploy '+DIGEST+' '+SHA+' '+VAULT+'\n')
