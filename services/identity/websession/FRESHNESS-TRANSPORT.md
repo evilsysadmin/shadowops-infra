@@ -12,6 +12,8 @@ independently generated 256-bit credential (`soc1_` plus canonical base64url of
 32 random bytes). At least one application must be configured. Unknown apps,
 malformed credentials or the same credential shared across apps are rejected
 at construction. Only domain-separated credential digests remain in the handler.
+The configured service also limits browser origins and login return targets to
+these explicitly registered consumers; unconfigured candidate apps stay off.
 Provision them through separate per-environment/per-application server secret
 stores; never put them in Vite/browser configuration, URLs, logs or Git. Each
 consumer needs only its own credential, public JWKS and HTTPS endpoint, never

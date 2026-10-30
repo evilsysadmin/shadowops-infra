@@ -90,6 +90,52 @@ func TestTrustedFreshnessTransportBindsCallerToAudienceAndChecksLogout(t *testin
 
 func testSeedForService() []byte { return bytes.Repeat([]byte{0x66}, 32) }
 
+func TestServiceExposesOnlyExplicitlyRegisteredConsumerOriginsAndReturnTargets(t *testing.T) {
+	f := setup(t)
+	cookie := f.login(t, f.web)
+	key := testCredentials()[issuance.Chronicles]
+	service, err := NewStagingServiceHandler(t.Context(), f.issuer, testSeedForService(), ConsumerCredentials{issuance.Chronicles: key})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewTLSServer(service)
+	defer server.Close()
+	for _, tc := range []struct {
+		app  string
+		want int
+	}{{"chronicles", 200}, {"chess-studio", 400}, {"cka-simulator", 400}} {
+		r, _ := http.NewRequest("GET", server.URL+"/login?app="+tc.app, nil)
+		r.Host = stagingHost
+		response, err := server.Client().Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != tc.want {
+			t.Fatal("unregistered login return target enabled", tc.app, response.StatusCode)
+		}
+	}
+	for origin, app := range consumers {
+		r, _ := http.NewRequest("POST", server.URL+"/api/identity/token", strings.NewReader("{}"))
+		r.Host = stagingHost
+		r.Header.Set("Origin", origin)
+		r.Header.Set("Content-Type", "application/json")
+		r.AddCookie(cookie)
+		response, err := server.Client().Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		want := 403
+		if app == issuance.Chronicles {
+			want = 200
+		}
+		if response.StatusCode != want {
+			t.Fatal("unregistered consumer could mint a browser token", app, response.StatusCode)
+		}
+	}
+}
+
 func TestTrustedFreshnessDeniesUserProofsInjectionAndUnavailableStore(t *testing.T) {
 	f := setup(t)
 	cookie := f.login(t, f.web)

@@ -53,6 +53,12 @@ func NewStagingServiceHandler(ctx context.Context, issuer *issuance.Issuer, seed
 	if err != nil {
 		return nil, err
 	}
+	// Activate only explicitly registered consumers. Candidate origins and
+	// login return targets for other projects remain unavailable.
+	s.browser.enabled = make(map[issuance.Application]bool)
+	for app := range credentials {
+		s.browser.enabled[app] = true
+	}
 	return s, nil
 }
 

@@ -1,5 +1,5 @@
-// Package issuance provides an offline-only, staging-bound credential check
-// and atomic Mongo session issuance. No login HTTP endpoint uses this package.
+// Package issuance provides staging-bound credentials, atomic Mongo sessions
+// and per-application tokens. HTTP authentication/CSRF/limits live in websession.
 package issuance
 
 import (
@@ -61,14 +61,14 @@ type account struct {
 	SessionVersion    int64  `bson:"session_version"`
 }
 
-// Issue authenticates against the *existing* staged credential for a test-only
+// Issue authenticates against the *existing* staged credential for an eligible
 // active account. Password KDF is outside the transaction; the transaction
 // compares the same hash + both versions and writes the account document to
 // conflict with a simultaneous SuspendAndRevoke transaction. The raw handle
 // is returned ONLY after a majority-committed account fence + session insert.
 //
-// WARNING: no HTTP/login/rate-limit/claimant enrollment is wired to this;
-// the only active accounts currently available are synthetic CI fixtures.
+// Callers must apply the protected transport's abuse controls. This primitive
+// never activates a legacy reservation or assigns application privileges.
 func (i *Issuer) Issue(ctx context.Context, subject, candidate string) (string, error) {
 	if i == nil || i.client == nil || i.accounts == nil || i.sessions == nil ||
 		ctx == nil || ctx.Err() != nil || !uuidV4.MatchString(subject) ||

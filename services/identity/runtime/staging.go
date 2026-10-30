@@ -1,5 +1,5 @@
-// Package runtime contains a deliberately incomplete, localhost-only
-// staging Identity preview. It has no authentication or account management.
+// Package runtime hosts a configured staging TLS service and the older
+// localhost-only health/JWKS bootstrap. Both refuse production configuration.
 package runtime
 
 import (
