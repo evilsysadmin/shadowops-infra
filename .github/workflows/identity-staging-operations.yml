@@ -40,6 +40,7 @@ jobs:
       - run: bash -n host/install-identity-staging.sh && bash -n host/bootstrap-identity-staging-over-ssh.sh
       - run: sudo visudo -cf host/identity-staging.sudoers
       - name: Real isolated image + Mongo TLS persistence journey
+        if: github.event_name != 'workflow_dispatch' || inputs.action != 'inspect'
         env:
           IDENTITY_STACK_TEST: '1'
         run: python3 -m unittest discover -s tests -p 'test_identity_staging_stack.py' -v
