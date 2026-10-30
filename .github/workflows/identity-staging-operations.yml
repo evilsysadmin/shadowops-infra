@@ -19,9 +19,13 @@ on:
     inputs:
       action:
         type: choice
-        options: [provision]
+        options: [provision, deploy]
         required: true
-        description: Create the independent staging Vault custody and HTTPS tunnel/DNS; never starts a service or switches login
+        description: Provision custody/tunnel/DNS, or deploy an admitted image through the installed staging wrapper
+      source_sha:
+        type: string
+        required: false
+        description: Deploy only — exact protected Infra main SHA with a published Identity image
 permissions:
   contents: read
 jobs:
@@ -34,13 +38,14 @@ jobs:
           persist-credentials: false
       - run: python3 -m unittest discover -s tests -p 'test_identity_staging_*.py' -v
       - run: bash -n host/install-identity-staging.sh && bash -n host/bootstrap-identity-staging-over-ssh.sh
+      - run: sudo visudo -cf host/identity-staging.sudoers
       - name: Real isolated image + Mongo TLS persistence journey
         env:
           IDENTITY_STACK_TEST: '1'
         run: python3 -m unittest discover -s tests -p 'test_identity_staging_stack.py' -v
   provision:
     needs: contracts
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'provision' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: staging
@@ -65,3 +70,79 @@ jobs:
       - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
       - name: Preserve existing keys; provision only Identity staging resources
         run: python scripts/identity_staging_provision.py
+  admit:
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      digest: ${{ steps.admission.outputs.digest }}
+      source_sha: ${{ steps.admission.outputs.source_sha }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REQUESTED_SHA: ${{ inputs.source_sha }}
+      IMAGE: ghcr.io/evilsysadmin/shadowops-identity
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v4
+      - name: Admit only protected source and the exact signed arm64 image
+        id: admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$REQUESTED_SHA"
+          [[ "$sha" =~ ^[a-f0-9]{40}$ ]] || exit 64
+          status="$(gh api "repos/$GITHUB_REPOSITORY/compare/${sha}...main" --jq .status)"
+          [[ "$status" == identical || "$status" == ahead ]] || exit 65
+          gh api "repos/$GITHUB_REPOSITORY/commits/$sha/check-runs?per_page=100" \
+            | python3 -c 'import json,sys;c=json.load(sys.stdin)["check_runs"];required={"Authenticated TLS runtime and least-privilege Mongo gate","Isolated issuer core tests / Go vet / gofmt","MongoDB ephemeral session CAS / revocation integration","Replica-set atomic suspension and session revocation","Publish SHA-pinned Identity staging image"};good={x["name"] for x in c if x["status"]=="completed" and x["conclusion"]=="success" and x["app"]["slug"]=="github-actions"};assert required <= good'
+          manifest="$(docker buildx imagetools inspect "${IMAGE}:staging-${sha}" --format '{{json .Manifest}}')"
+          digest="$(printf '%s' "$manifest" | python3 -c 'import json,sys;print(json.load(sys.stdin)["digest"])')"
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 66
+          printf '%s' "$manifest" | python3 -c 'import json,sys;m=json.load(sys.stdin);assert any(x.get("platform",{}).get("os")=="linux" and x.get("platform",{}).get("architecture")=="arm64" for x in m.get("manifests",[]))'
+          gh attestation verify "oci://${IMAGE}@${digest}" \
+            --owner evilsysadmin \
+            --signer-workflow evilsysadmin/shadowops-infra/.github/workflows/identity-service.yml \
+            --source-ref refs/heads/main --source-digest "$sha" >/dev/null
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$sha" >> "$GITHUB_OUTPUT"
+  deploy:
+    needs: admit
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: staging
+    concurrency:
+      group: shadowops-oci-host-operations
+      cancel-in-progress: false
+    env:
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+      ADMITTED_DIGEST: ${{ needs.admit.outputs.digest }}
+      ADMITTED_SHA: ${{ needs.admit.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Invoke only the installed Identity staging wrapper
+        run: python scripts/identity_staging_release.py
+      - name: Verify public readiness and exact runtime source receipt
+        env:
+          EXPECTED_SHA: ${{ needs.admit.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 12 --retry-all-errors --retry-delay 5 --max-time 10 https://id-staging.shadowops.dpdns.org/readyz >/dev/null
+          curl -fsS --max-time 10 https://id-staging.shadowops.dpdns.org/api/identity/release \
+            | python3 -c 'import json,os,sys;r=json.load(sys.stdin);assert r=={"service":"shadowops-identity","environment":"staging","source_sha":os.environ["EXPECTED_SHA"]}'

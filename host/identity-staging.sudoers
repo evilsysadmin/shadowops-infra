@@ -1,0 +1,4 @@
+# Only the fixed root-owned Identity staging wrapper; never Docker or a shell.
+# The wrapper validates exactly: deploy sha256:<64hex> <40hex SHA> ocid1.vault.<...>
+Cmnd_Alias SHADOWOPS_IDENTITY_STAGING = /usr/local/sbin/shadowops-identity-staging deploy *
+ocarun ALL=(root) NOPASSWD: SHADOWOPS_IDENTITY_STAGING

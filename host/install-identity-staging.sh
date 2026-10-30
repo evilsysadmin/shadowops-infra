@@ -10,13 +10,15 @@ for path in /opt "$repo" "$repo/.git" "$repo/host" "$repo/scripts"; do
 done
 [[ "$(git -C "$repo" rev-parse HEAD)" == "$expected" ]] || exit 65
 [[ -z "$(git -C "$repo" status --porcelain --untracked-files=no)" ]] || exit 65
-for file in host/identity-staging-deploy.py scripts/identity_staging_bundle.py \
+for file in host/identity-staging-deploy.py host/identity-staging.sudoers scripts/identity_staging_bundle.py \
             scripts/shared_a1_host_guard.py compose.identity.staging.yaml; do
   source="$repo/$file"
   [[ -f "$source" && ! -L "$source" && "$(stat -c %u "$source")" == 0 ]] || exit 66
   (( (8#$(stat -c %a "$source") & 8#022) == 0 )) || exit 66
 done
+visudo -cf "$repo/host/identity-staging.sudoers" >/dev/null
 for destination in /etc/shadowops/identity-staging /var/lib/shadowops/identity-staging \
+                   /etc/sudoers.d/105-shadowops-identity-staging \
                    /usr/local/sbin/shadowops-identity-staging /usr/local/lib/shadowops/identity_staging_bundle.py; do
   [[ ! -L "$destination" ]] || exit 66
 done
@@ -32,5 +34,7 @@ install -o root -g root -m 0644 "$repo/compose.identity.staging.yaml" /etc/shado
 install -o root -g root -m 0644 "$repo/scripts/identity_staging_bundle.py" /usr/local/lib/shadowops/identity_staging_bundle.py
 install -o root -g root -m 0644 "$repo/scripts/shared_a1_host_guard.py" /usr/local/lib/shadowops/shared_a1_host_guard.py
 install -o root -g root -m 0755 "$repo/host/identity-staging-deploy.py" /usr/local/sbin/shadowops-identity-staging
-# No OCI-agent sudo policy is installed by this first staging bootstrap.
+# Delegate only this argument-validating staging wrapper after policy exists.
+install -o root -g root -m 0440 "$repo/host/identity-staging.sudoers" /etc/sudoers.d/105-shadowops-identity-staging
+visudo -cf /etc/sudoers.d/105-shadowops-identity-staging >/dev/null
 printf '%s\n' IDENTITY_STAGING_OPERATOR_WRAPPER_INSTALLED
