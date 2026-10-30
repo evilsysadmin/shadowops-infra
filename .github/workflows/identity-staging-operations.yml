@@ -1,0 +1,67 @@
+name: ShadowOps Identity · isolated staging operational handoff
+on:
+  pull_request:
+    paths:
+      - 'compose.identity.staging.yaml'
+      - 'host/*identity-staging*'
+      - 'scripts/identity_staging_*.py'
+      - 'tests/test_identity_staging_*.py'
+      - '.github/workflows/identity-staging-operations.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'compose.identity.staging.yaml'
+      - 'host/*identity-staging*'
+      - 'scripts/identity_staging_*.py'
+      - 'tests/test_identity_staging_*.py'
+      - '.github/workflows/identity-staging-operations.yml'
+  workflow_dispatch:
+    inputs:
+      action:
+        type: choice
+        options: [provision]
+        required: true
+        description: Create the independent staging Vault custody and HTTPS tunnel/DNS; never starts a service or switches login
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_identity_staging_*.py' -v
+      - run: bash -n host/install-identity-staging.sh && bash -n host/bootstrap-identity-staging-over-ssh.sh
+      - name: Real isolated image + Mongo TLS persistence journey
+        env:
+          IDENTITY_STACK_TEST: '1'
+        run: python3 -m unittest discover -s tests -p 'test_identity_staging_stack.py' -v
+  provision:
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: staging
+    concurrency:
+      group: shadowops-oci-host-operations
+      cancel-in-progress: false
+    env:
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Preserve existing keys; provision only Identity staging resources
+        run: python scripts/identity_staging_provision.py

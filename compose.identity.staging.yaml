@@ -1,0 +1,81 @@
+# Infra-owned isolated staging IdP. No product/production DB or public Mongo port.
+name: shadowops-identity-staging
+services:
+  identity-mongo:
+    image: mongo@sha256:8bb4442761a63a8dda452744082cdac9644b429807eb977b42324a63cef59ca4
+    platform: linux/arm64
+    user: "999:999"
+    entrypoint: ["mongod"]
+    command: ["--replSet", "identity-staging-rs", "--bind_ip_all", "--wiredTigerCacheSizeGB", "0.25", "--keyFile", "/run/identity/replica.key", "--tlsMode", "requireTLS", "--tlsCertificateKeyFile", "/run/identity/mongo.pem", "--tlsCAFile", "/run/identity/ca.pem", "--tlsAllowConnectionsWithoutCertificates"]
+    restart: unless-stopped
+    read_only: true
+    init: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    mem_limit: 768m
+    cpus: 0.75
+    volumes:
+      - identity-data:/data/db
+      - /etc/shadowops/identity-staging/mongo:/run/identity:ro
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=32m,uid=999,gid=999"]
+    networks: [database]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--norc", "--tls", "--tlsCAFile", "/run/identity/ca.pem", "mongodb://127.0.0.1:27017/?directConnection=true", "--eval", "if (!db.hello().isWritablePrimary) quit(1)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 4
+
+  identity:
+    image: ghcr.io/evilsysadmin/shadowops-identity@${IDENTITY_IMAGE_DIGEST:?Require an admitted immutable Identity image digest}
+    platform: linux/arm64
+    user: "65532:65532"
+    restart: unless-stopped
+    read_only: true
+    init: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 0.75
+    volumes:
+      - /etc/shadowops/identity-staging/service.json:/run/secrets/identity-staging.json:ro
+    networks: [database, origin]
+    depends_on:
+      identity-mongo:
+        condition: service_healthy
+
+  identity-tunnel:
+    image: cloudflare/cloudflared@sha256:b269e8abd07a5bf6f3f4be65d5050b2174eca89c56a0241a8ff32a16aec454e4
+    platform: linux/arm64
+    user: "65532:65532"
+    command: ["tunnel", "--no-autoupdate", "--metrics", "127.0.0.1:20241", "run"]
+    restart: unless-stopped
+    read_only: true
+    init: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.25
+    env_file: [/etc/shadowops/identity-staging/tunnel.env]
+    volumes:
+      - /etc/shadowops/identity-staging/ca.pem:/run/identity/ca.pem:ro
+    networks: [origin, tunnel-egress]
+    depends_on:
+      identity:
+        condition: service_healthy
+
+volumes:
+  identity-data:
+    name: shadowops-identity-staging-data
+networks:
+  database:
+    name: shadowops-identity-staging-database
+    internal: true
+  origin:
+    name: shadowops-identity-staging-origin
+    internal: true
+  tunnel-egress:
+    name: shadowops-identity-staging-tunnel-egress
