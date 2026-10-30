@@ -11,6 +11,8 @@ done
 [[ "$(git -C "$repo" rev-parse HEAD)" == "$expected" ]] || exit 65
 [[ -z "$(git -C "$repo" status --porcelain --untracked-files=no)" ]] || exit 65
 for file in host/identity-staging-deploy.py host/identity-staging.sudoers scripts/identity_staging_bundle.py \
+            host/identity-staging-backup.py scripts/identity_staging_backup.py \
+            host/identity-staging-backup.service host/identity-staging-backup.timer \
             scripts/shared_a1_host_guard.py compose.identity.staging.yaml; do
   source="$repo/$file"
   [[ -f "$source" && ! -L "$source" && "$(stat -c %u "$source")" == 0 ]] || exit 66
@@ -18,6 +20,10 @@ for file in host/identity-staging-deploy.py host/identity-staging.sudoers script
 done
 visudo -cf "$repo/host/identity-staging.sudoers" >/dev/null
 for destination in /etc/shadowops/identity-staging /var/lib/shadowops/identity-staging \
+                   /usr/local/sbin/shadowops-identity-staging-backup \
+                   /usr/local/lib/shadowops/identity_staging_backup.py \
+                   /etc/systemd/system/shadowops-identity-staging-backup.service \
+                   /etc/systemd/system/shadowops-identity-staging-backup.timer \
                    /etc/sudoers.d/105-shadowops-identity-staging \
                    /usr/local/sbin/shadowops-identity-staging /usr/local/lib/shadowops/identity_staging_bundle.py; do
   [[ ! -L "$destination" ]] || exit 66
@@ -34,6 +40,12 @@ install -o root -g root -m 0644 "$repo/compose.identity.staging.yaml" /etc/shado
 install -o root -g root -m 0644 "$repo/scripts/identity_staging_bundle.py" /usr/local/lib/shadowops/identity_staging_bundle.py
 install -o root -g root -m 0644 "$repo/scripts/shared_a1_host_guard.py" /usr/local/lib/shadowops/shared_a1_host_guard.py
 install -o root -g root -m 0755 "$repo/host/identity-staging-deploy.py" /usr/local/sbin/shadowops-identity-staging
+install -o root -g root -m 0644 "$repo/scripts/identity_staging_backup.py" /usr/local/lib/shadowops/identity_staging_backup.py
+install -o root -g root -m 0755 "$repo/host/identity-staging-backup.py" /usr/local/sbin/shadowops-identity-staging-backup
+install -o root -g root -m 0644 "$repo/host/identity-staging-backup.service" /etc/systemd/system/shadowops-identity-staging-backup.service
+install -o root -g root -m 0644 "$repo/host/identity-staging-backup.timer" /etc/systemd/system/shadowops-identity-staging-backup.timer
+systemctl daemon-reload
+systemctl enable --now shadowops-identity-staging-backup.timer
 # Delegate only this argument-validating staging wrapper after policy exists.
 install -o root -g root -m 0440 "$repo/host/identity-staging.sudoers" /etc/sudoers.d/105-shadowops-identity-staging
 visudo -cf /etc/sudoers.d/105-shadowops-identity-staging >/dev/null

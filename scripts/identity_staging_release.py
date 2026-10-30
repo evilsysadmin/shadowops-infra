@@ -102,11 +102,44 @@ def execute(sdk,config,digest,sha,pause=time.sleep,clock=time.monotonic):
     raise ReleaseError('Identity staging release timed out')
 
 
+
+def execute_backup(sdk,config,pause=time.sleep,clock=time.monotonic):
+    inspect(sdk,config)
+    compartment,instance=resolve_existing_host(sdk,config)
+    vault,_,_=resolve_vault(sdk,config,compartment)
+    if not VAULT.fullmatch(vault):raise ReleaseError('Invalid fixed backup custody')
+    wrapper='/usr/local/sbin/shadowops-identity-staging-backup'
+    command='set -eu\ntest -x '+wrapper+'\nsudo --non-interactive '+wrapper+' backup '+vault+'\n'
+    models=sdk.compute_instance_agent.models
+    details=models.CreateInstanceAgentCommandDetails(compartment_id=compartment,
+        execution_time_out_in_seconds=300,target=models.InstanceAgentCommandTarget(instance_id=instance),
+        content=models.InstanceAgentCommandContent(source=models.InstanceAgentCommandSourceViaTextDetails(text=command),
+            output=models.InstanceAgentCommandOutputViaTextDetails(output_type='TEXT')),
+        display_name='identity-staging-encrypted-backup')
+    client=sdk.compute_instance_agent.ComputeInstanceAgentClient(config)
+    created=client.create_instance_agent_command(create_instance_agent_command_details=details).data
+    if not getattr(created,'id',None):raise ReleaseError('Missing backup command reference')
+    deadline=clock()+480
+    while clock()<deadline:
+        execution=client.get_instance_agent_command_execution(instance_agent_command_id=created.id,instance_id=instance).data
+        state=str(getattr(execution,'lifecycle_state','')).upper()
+        if state in {'SUCCEEDED','FAILED','TIMED_OUT','CANCELED'}:
+            content=getattr(execution,'content',None)
+            if state!='SUCCEEDED' or getattr(content,'exit_code',None)!=0:
+                raise ReleaseError('Fixed encrypted backup did not complete')
+            # OCI may omit stdout. Native activation independently requires the
+            # fresh root-owned last-backup.json written only after encryption.
+            return 'IDENTITY_STAGING_BACKUP_COMMAND_COMPLETED activation_receipt=required'
+        pause(3)
+    raise ReleaseError('Identity backup timed out')
+
 def main():
     try:
         import oci
         config=config_from_env(oci,os.environ)
-        if sys.argv[1:]==['inspect']:
+        if sys.argv[1:]==['backup']:
+            print(execute_backup(oci,config))
+        elif sys.argv[1:]==['inspect']:
             print(inspect_previous(oci,config))
         elif sys.argv[1:]:
             raise ReleaseError('Invalid release operation')

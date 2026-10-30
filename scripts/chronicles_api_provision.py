@@ -53,7 +53,7 @@ BUNDLE_KEYS = ("MONGO_URL", "JWT_SECRET", "INVITE_CODE", "TUNNEL_TOKEN")
 # Password recovery by email reuses Chess Studio's staging Resend key, read
 # from the same Vault by name. Opt-in per dispatch: the A1 wrapper must
 # already accept it (installed by the operator bootstrap).
-OPTIONAL_BUNDLE_KEYS = ("RESEND_API_KEY",)
+OPTIONAL_BUNDLE_KEYS = ("RESEND_API_KEY", "SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL")
 RESEND_SECRET_NAME = "chess-studio-staging-resend-api-key"
 _PREFIX = "CHRONICLES_" + ENVIRONMENT.upper() + "_"
 GITHUB_SECRETS = {
@@ -257,6 +257,9 @@ def upsert_bundle(oci: Any, config: dict, compartment_id: str, vault_id: str, ke
 def provision(env: Mapping[str, str], oci: Any, cf: Cloudflare) -> list[str]:
     from oci_control_plane import config_from_env, resolve_existing_host
 
+    central_mode = env.get("CHRONICLES_CENTRAL_IDENTITY", "preserve") or "preserve"
+    if central_mode not in {"preserve", "enable", "disable"} or (central_mode == "enable" and ENVIRONMENT != "staging"):
+        raise ProvisionError("Central Identity activation is staging-only")
     values = read_inputs(env)
     tunnel_id = ensure_tunnel(cf)
     configure_tunnel(cf, tunnel_id)
@@ -265,6 +268,9 @@ def provision(env: Mapping[str, str], oci: Any, cf: Cloudflare) -> list[str]:
     config = config_from_env(oci, env)
     compartment_id, _instance = resolve_existing_host(oci, config)
     vault_id, key_id, compartment_id = resolve_vault(oci, config, compartment_id)
+    central = central_credential(central_mode, oci, config, vault_id, compartment_id)
+    if central:
+        values["SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL"] = central
     recovery = str(env.get("CHRONICLES_EMAIL_RECOVERY", "")).strip().lower() == "true"
     if recovery:
         values["RESEND_API_KEY"] = read_vault_secret(oci, config, vault_id, RESEND_SECRET_NAME)
@@ -272,6 +278,46 @@ def provision(env: Mapping[str, str], oci: Any, cf: Cloudflare) -> list[str]:
     return [f"CHRONICLES_API_TUNNEL_OK name={TUNNEL_NAME}",
             f"CHRONICLES_API_DNS_OK hostname={HOSTNAME} state={dns}",
             f"CHRONICLES_API_VAULT_BUNDLE_OK name={SECRET_NAME} state={secret} email_recovery={str(recovery).lower()}"]
+
+
+def central_credential(mode: str, sdk: Any, config: dict, vault_id: str, compartment_id: str) -> str | None:
+    """Copy only the pilot's independent service proof; never send the IdP bundle to the API."""
+    if mode == "disable" or ENVIRONMENT != "staging":
+        return None
+    if mode == "enable":
+        from identity_staging_provision import load_existing
+        operator = load_existing(sdk, config, vault_id, compartment_id)
+        if operator is None:
+            raise ProvisionError("Identity staging custody is not provisioned")
+        return operator["consumers"]["chronicles"]
+    try:
+        rows = sdk.pagination.list_call_get_all_results(sdk.vault.VaultsClient(config).list_secrets,
+            compartment_id, vault_id=vault_id, name=SECRET_NAME).data
+    except Exception:
+        raise ProvisionError("Existing Chronicles Identity custody could not be inspected") from None
+    if not rows:
+        return None
+    if len(rows) != 1 or str(rows[0].lifecycle_state).upper() != "ACTIVE":
+        raise ProvisionError("Existing Chronicles custody is not available")
+    try:
+        bundle = sdk.secrets.SecretsClient(config).get_secret_bundle_by_name(secret_name=SECRET_NAME,
+            vault_id=vault_id, stage="CURRENT").data
+        raw = base64.b64decode(bundle.secret_bundle_content.content, validate=True)
+        if len(raw) > 24000:
+            raise ValueError("oversize")
+        values = {}
+        for line in raw.decode().splitlines():
+            key, separator, value = line.partition("=")
+            if not separator or key in values:
+                raise ValueError("invalid bundle")
+            values[key] = value
+        render_bundle(values)
+        credential = values.get("SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL")
+        if credential is not None and not re.fullmatch(r"soc1_[A-Za-z0-9_-]{43}", credential):
+            raise ValueError("invalid service credential")
+        return credential
+    except Exception:
+        raise ProvisionError("Existing Chronicles Identity configuration could not be preserved") from None
 
 
 def self_test() -> None:

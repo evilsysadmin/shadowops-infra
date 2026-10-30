@@ -62,3 +62,15 @@ class ReleaseTests(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
+
+class BackupReleaseTests(unittest.TestCase):
+ def test_backup_invokes_only_fixed_wrapper_on_adopted_host_without_secret_payload(self):
+  captured=[]
+  def model(**kwargs):return SimpleNamespace(**kwargs)
+  client=SimpleNamespace(create_instance_agent_command=lambda **kwargs:captured.append(kwargs['create_instance_agent_command_details']) or SimpleNamespace(data=SimpleNamespace(id='fixture')),get_instance_agent_command_execution=lambda **kwargs:SimpleNamespace(data=SimpleNamespace(lifecycle_state='SUCCEEDED',content=SimpleNamespace(exit_code=0,text=None))))
+  models=SimpleNamespace(**{name:model for name in ['CreateInstanceAgentCommandDetails','InstanceAgentCommandTarget','InstanceAgentCommandContent','InstanceAgentCommandSourceViaTextDetails','InstanceAgentCommandOutputViaTextDetails']})
+  sdk=SimpleNamespace(compute_instance_agent=SimpleNamespace(models=models,ComputeInstanceAgentClient=lambda config:client))
+  with patch.object(release,'inspect'),patch.object(release,'resolve_existing_host',return_value=('compartment','host')),patch.object(release,'resolve_vault',return_value=(VAULT,'key','compartment')):
+   self.assertEqual(release.execute_backup(sdk,{}),'IDENTITY_STAGING_BACKUP_COMMAND_COMPLETED activation_receipt=required')
+  self.assertEqual(captured[0].target.instance_id,'host')
+  self.assertEqual(captured[0].content.source.text,'set -eu\ntest -x /usr/local/sbin/shadowops-identity-staging-backup\nsudo --non-interactive /usr/local/sbin/shadowops-identity-staging-backup backup '+VAULT+'\n')
