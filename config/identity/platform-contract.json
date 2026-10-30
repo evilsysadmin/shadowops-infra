@@ -30,9 +30,9 @@
       "database_role": "shadowops_identity_staging",
       "signing_key_scope": "shadowops-identity-staging",
       "cookie": {
-        "name": "shadowops_sso_staging",
+        "name": "__Host-shadowops_sso_staging",
         "domain": null,
-        "path": "/api/identity",
+        "path": "/",
         "http_only": true,
         "secure": true,
         "same_site": "Lax"

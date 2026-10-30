@@ -27,7 +27,7 @@ jobs:
       - name: Reject unformatted Go
         run: |
           set -euo pipefail
-          files="$(gofmt -l services/identity/core/*.go services/identity/mongostore/*.go services/identity/password/*.go services/identity/pendingaccounts/*.go services/identity/revocation/*.go services/identity/issuance/*.go)"
+          files="$(gofmt -l services/identity/core/*.go services/identity/mongostore/*.go services/identity/password/*.go services/identity/pendingaccounts/*.go services/identity/revocation/*.go services/identity/issuance/*.go services/identity/websession/*.go)"
           if [[ -n "$files" ]]; then
             for file in $files; do gofmt -d "$file"; done
             exit 1

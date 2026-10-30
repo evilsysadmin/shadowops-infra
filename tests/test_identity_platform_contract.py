@@ -52,7 +52,11 @@ class IdentityPlatformContractTests(unittest.TestCase):
             self.assertIsNone(cookie["domain"], "No cookie Domain attr: host-only scope")
             self.assertTrue(cookie["http_only"] and cookie["secure"])
             self.assertEqual(cookie["same_site"], "Lax")
-            self.assertEqual(cookie["path"], "/api/identity")
+        # The new staging host uses the browser-enforced __Host- protection
+        # against sibling-subdomain cookie planting. That prefix requires /.
+        self.assertTrue(self.stage["cookie"]["name"].startswith("__Host-"))
+        self.assertEqual(self.stage["cookie"]["path"], "/")
+        self.assertEqual(self.prod["cookie"]["path"], "/api/identity")
 
     def test_issuer_urls_properly_scoped_and_https(self):
         for env in (self.stage, self.prod):
