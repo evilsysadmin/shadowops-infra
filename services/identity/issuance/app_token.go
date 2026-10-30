@@ -26,7 +26,8 @@ const (
 
 // StagingAppSigner is an internal, session-bound staging JWT bridge for one
 // trusted configured application. It grants no application roles.
-// No HTTP endpoint constructs it. Consumers must validate issuer, signature,
+// HTTP callers bind the application through trusted origin configuration.
+// Consumers must validate issuer, signature,
 // audience and freshness on every protected operation, with their own permissions.
 type StagingAppSigner struct {
 	application Application
@@ -171,7 +172,8 @@ func (s *StagingAppSigner) IssueToken(ctx context.Context, handle string) (strin
 		return "", ErrStore
 	}
 	// Sign only after the majority transaction commits. No secret is
-	// written to MongoDB, HTTP, logs or the repository.
+	// written to MongoDB, logs or the repository. Only the short JWT is
+	// returned to the authenticated application transport.
 	head, err := json.Marshal(struct {
 		Alg string `json:"alg"`
 		Typ string `json:"typ"`

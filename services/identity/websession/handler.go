@@ -35,6 +35,7 @@ type Handler struct {
 	issuer  *issuance.Issuer
 	native  *issuance.NativeAccounts
 	signers map[issuance.Application]*issuance.StagingAppSigner
+	enabled map[issuance.Application]bool
 	public  []byte
 	limits  limiter
 	kdf     chan struct{}
@@ -45,13 +46,14 @@ type Handler struct {
 // Origins are pinned here; an audience/subject from a token request is never
 // trusted. No registration, legacy activation or authorization is performed.
 func NewStagingHandler(issuer *issuance.Issuer, seed []byte) (*Handler, error) {
-	h := &Handler{issuer: issuer, signers: make(map[issuance.Application]*issuance.StagingAppSigner), kdf: make(chan struct{}, 2)}
+	h := &Handler{issuer: issuer, signers: make(map[issuance.Application]*issuance.StagingAppSigner), enabled: make(map[issuance.Application]bool), kdf: make(chan struct{}, 2)}
 	for _, app := range consumers {
 		signer, err := issuance.NewStagingAppSigner(issuer, seed, app)
 		if err != nil {
 			return nil, issuance.ErrDenied
 		}
 		h.signers[app] = signer
+		h.enabled[app] = true
 		if h.public == nil {
 			h.public, err = signer.JWKS()
 			if err != nil {
@@ -106,6 +108,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// including login CSRF. Fetch Metadata and SameSite are defense in depth.
 	origin := r.Header.Get("Origin")
 	app, product := consumers[origin]
+	if h.enabled != nil && !h.enabled[app] {
+		product = false
+	}
 	if len(r.Header.Values("Origin")) != 1 || (origin != StagingOrigin && !product) ||
 		r.Header.Get("Sec-Fetch-Site") == "cross-site" ||
 		(credential && origin != StagingOrigin) ||

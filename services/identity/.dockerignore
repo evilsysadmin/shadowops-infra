@@ -1,0 +1,9 @@
+.git
+.env*
+**/node_modules
+**/*.log
+**/*.png
+**/*.test
+**/*.pem
+**/*.key
+*runtime*.json

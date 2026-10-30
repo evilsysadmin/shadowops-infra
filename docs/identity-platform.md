@@ -118,3 +118,17 @@ Mongo transaction. Actual Chromium desktop/mobile tests cover this central UI
 and cross-origin cookie reuse by three **synthetic** product pages. This is not
 an actual Chronicles login cutover: backend freshness transport, consumer profile
 binding and staging runtime/deployment remain outstanding.
+
+### Configured staging runtime (source/image handoff)
+
+`cmd/service-staging` now connects the browser and freshness flows to a private
+staging bundle, direct TLS and a narrowly authorized, authenticated Mongo replica
+set. Startup verifies actual effective privileges and rejects admin, overbroad
+or incomplete roles. CI exercises the real TLS/SCRAM startup/account journey and
+builds/scans both architectures before protected-main image publication. See
+[the runtime contract](../services/identity/runtime/README.md).
+
+Chronicles consumer source is merged in
+[Chronicles #944](https://github.com/evilsysadmin/chronicles-of-matthias/pull/944),
+with backend/frontend opt-in disabled by default. This is not an active DNS,
+provisioned database, deployed service or completed public browser journey.

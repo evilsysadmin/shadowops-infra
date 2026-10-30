@@ -1,10 +1,11 @@
 # ShadowOps Identity · standalone Go signing core (P0)
 
-**Current status:** staging account/session/token primitives and an opt-in
-[central signup/login/recovery page](websession/README.md) are implemented,
-with native username accounts and real Chromium/Mongo tests. The `cmd/staging`
-bootstrap remains health/JWKS-only and not ready. Trusted backend transport,
-product integration and deployment are still pending. The P0
+**Current status:** native accounts, browser signup/login/recovery and trusted
+freshness transport are implemented. Chronicles has an opt-in consumer in its
+own repository. The [configured staging TLS service](runtime/README.md) and
+SHA-pinned container build now wire those components over a narrowly authorized
+Mongo replica set. Nothing is deployed or enabled in existing product logins by
+these source changes. The older `cmd/staging` stays health/JWKS-only. The P0
 sections below record successive milestones and their limitations at the time.
 
 Tracking: [ShadowOps Identity P0 #287](https://github.com/evilsysadmin/shadowops-infra/issues/287).

@@ -59,6 +59,8 @@ fixture are **synthetic consumers**, not the actual games.
 The opt-in [trusted freshness transport](FRESHNESS-TRANSPORT.md) adds an
 authenticated backend RPC with fixed per-application credentials. No endpoint
 is deployed and no existing product trusts this handler. Consumer wiring,
-real product profile adapters, standalone runtime
-and deployment/rollback remain required. `/readyz` remains 503. The actual
-staging Chronicles login is not switched by adding this page.
+real product rollout and deployment/rollback remain required. The low-level
+handlers and old bootstrap keep `/readyz=503`; the explicitly configured
+[TLS runtime](../runtime/README.md) adds readiness after authenticated startup.
+Chronicles has its own opt-in adapter, still disabled in deployment. The actual
+staging login is not switched by adding this page.

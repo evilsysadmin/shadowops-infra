@@ -47,8 +47,8 @@ func newStagingHandle() (string, [32]byte, error) {
 }
 
 // Refresh rotates an existing version-bound staging handle exactly once.
-// It is an OFFLINE primitive: no HTTP, cookies, claimant authentication, or
-// privilege assignment exists. Account eligibility and session version are
+// HTTP cookies and CSRF/rate limits belong to the separate transport; this
+// primitive assigns no privileges. Account eligibility and session version are
 // checked by a transactional write to the same account document modified by
 // SuspendAndRevoke. Session CAS and the account fence commit together, so
 // a refresh racing suspension cannot resurrect a session after revocation.
