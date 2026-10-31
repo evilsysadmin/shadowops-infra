@@ -32,6 +32,9 @@ Use `cka-account-staging.yml` from protected Infra main, environment staging.
 Its contracts run on PR/main with no provider credentials. Operational actions
 are deliberate manual dispatches; merges alone perform no cloud mutation.
 
+A read-only `admit` action verifies source CI, both image architectures and
+exact-source attestation without OCI/Cloudflare credentials or mutations.
+
 1. `inspect` verifies the installed fixed account policy. Identity provisioning
    itself repeats this capability gate before enabling CKA or changing custody.
 2. Run `identity-staging-operations.yml`, action `backup`; require success.

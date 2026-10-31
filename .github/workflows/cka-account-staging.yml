@@ -10,7 +10,7 @@ on:
       action:
         type: choice
         required: true
-        options: [inspect, provision, deploy, pages, disable]
+        options: [admit, inspect, provision, deploy, pages, disable]
         description: Fixed CKA account staging only; install reviewed operator policy before provisioning
 permissions:
   contents: read
@@ -30,7 +30,7 @@ jobs:
       - run: sudo visudo -cf host/cka-account-staging.sudoers
   admit:
     needs: contracts
-    if: github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy' || inputs.action == 'pages') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy' || inputs.action == 'pages' || inputs.action == 'admit') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -65,7 +65,7 @@ jobs:
           echo "CKA_ACCOUNT_SOURCE_ADMITTED sha=$sha digest=$digest"
   operate:
     needs: [contracts, admit]
-    if: always() && needs.contracts.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.action != 'pages' && (inputs.action != 'deploy' || needs.admit.result == 'success') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: always() && needs.contracts.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.action != 'pages' && inputs.action != 'admit' && (inputs.action != 'deploy' || needs.admit.result == 'success') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     environment: staging
