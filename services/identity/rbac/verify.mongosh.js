@@ -350,8 +350,10 @@ try {
 } finally {
   roleSession.endSession();
 }
-ensureEqual(root.admin_role_change_journal.countDocuments({}), 1,
-  "role change must append exactly one journal event");
+ensureEqual(root.admin_role_change_journal.countDocuments({ action: "set-role" }), 1,
+  "role change must append exactly one role-change event");
+ensureEqual(root.admin_role_change_journal.countDocuments({}), 2,
+  "bootstrap genesis and role change must both remain in the audit journal");
 ensureEqual(root.sessions.countDocuments({ subject: roleSubject }), 0,
   "role change left session live");
 ensureEqual(root.staging_cka_tokens.countDocuments({ subject: roleSubject, active: true }), 0,
