@@ -291,7 +291,7 @@ func TestRoleExecutorNeedsPreexistingPermanentUniqueJournal(t *testing.T) {
 	// MongoDB refuses TTL on compound indexes. Add an independent TTL
 	// index instead: ANY expiring audit index must block this executor.
 	_, err = db.Collection(roleJournal).Indexes().CreateOne(context.Background(), mongo.IndexModel{
-		Keys: bson.D{{Key: "executed_at", Value: int32(1)}},
+		Keys:    bson.D{{Key: "executed_at", Value: int32(1)}},
 		Options: options.Index().SetName("unsafe_audit_ttl").SetExpireAfterSeconds(60),
 	})
 	if err != nil {
