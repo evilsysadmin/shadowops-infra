@@ -1,0 +1,57 @@
+# Execute only against the dedicated, inspected rootless lab daemon.
+# Kubernetes is bootstrapped separately; neither service receives Docker authority.
+name: shadowops-cka-lab-staging
+services:
+  cka-lab:
+    image: ghcr.io/evilsysadmin/cka-lab-staging@${CKA_LAB_IMAGE_DIGEST:?Require admitted immutable CKA lab image}
+    platform: linux/arm64
+    # UID 0 maps to the non-login lab user, inside its rootless user namespace.
+    user: "0:0"
+    restart: unless-stopped
+    read_only: true
+    init: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    sysctls:
+      net.ipv4.ip_forward: "0"
+      net.ipv6.conf.all.forwarding: "0"
+    pids_limit: 64
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: 0.1
+    volumes:
+      - /var/lib/shadowops-cka-lab-staging/runtime/config/lab.json:/run/secrets/cka-lab-staging.json:ro
+      - /var/lib/shadowops-cka-lab-staging/runtime/cluster/controller.yaml:/run/secrets/cka-lab-admin.yaml:ro
+      - /var/lib/shadowops-cka-lab-staging/runtime/controller-state:/var/lib/cka-lab
+    networks: [origin, cluster, identity-egress]
+    tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=32m"]
+  cka-lab-tunnel:
+    image: cloudflare/cloudflared@sha256:b269e8abd07a5bf6f3f4be65d5050b2174eca89c56a0241a8ff32a16aec454e4
+    platform: linux/arm64
+    user: "65532:65532"
+    command: ["tunnel", "--no-autoupdate", "--metrics", "127.0.0.1:20243", "run"]
+    restart: unless-stopped
+    read_only: true
+    init: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 32
+    mem_limit: 128m
+    memswap_limit: 128m
+    cpus: 0.05
+    env_file: [/var/lib/shadowops-cka-lab-staging/runtime/config/tunnel.env]
+    networks: [origin, tunnel-egress]
+    depends_on:
+      cka-lab:
+        condition: service_healthy
+networks:
+  origin:
+    name: shadowops-cka-lab-staging-origin
+    internal: true
+  cluster:
+    name: shadowops-cka-lab-staging-cluster
+    external: true
+  identity-egress:
+    name: shadowops-cka-lab-staging-identity-egress
+  tunnel-egress:
+    name: shadowops-cka-lab-staging-tunnel-egress

@@ -1,10 +1,10 @@
 name: CKA labs · shared A1 Compose preflight
 on:
   pull_request:
-    paths: ['scripts/cka_lab_*.py','host/*cka-lab*','host/vendor/*','deploy/Dockerfile.cka-lab-proof','tests/test_cka_lab*.py','docs/cka-lab-staging.md','.github/workflows/cka-lab-staging.yml']
+    paths: ['scripts/cka_lab_*.py','host/*cka-lab*','host/vendor/*','deploy/Dockerfile.cka-lab-proof','tests/test_cka_lab*.py','compose.cka-lab.staging.yaml','docs/cka-lab-staging.md','.github/workflows/cka-lab-staging.yml']
   push:
     branches: [main]
-    paths: ['scripts/cka_lab_*.py','host/*cka-lab*','host/vendor/*','deploy/Dockerfile.cka-lab-proof','tests/test_cka_lab*.py','docs/cka-lab-staging.md','.github/workflows/cka-lab-staging.yml']
+    paths: ['scripts/cka_lab_*.py','host/*cka-lab*','host/vendor/*','deploy/Dockerfile.cka-lab-proof','tests/test_cka_lab*.py','compose.cka-lab.staging.yaml','docs/cka-lab-staging.md','.github/workflows/cka-lab-staging.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -18,6 +18,10 @@ jobs:
           persist-credentials: false
       - run: python3 -m unittest discover -s tests -p 'test_cka_lab*.py' -v
       - run: sh -n host/vendor/dockerd-rootless.sh
+      - name: Validate the actual Compose file without resolving private runtime files
+        env:
+          CKA_LAB_IMAGE_DIGEST: sha256:0000000000000000000000000000000000000000000000000000000000000000
+        run: docker compose -f compose.cka-lab.staging.yaml config --no-env-resolution --quiet
       - run: sudo visudo --check --file host/cka-lab-rootless.sudoers
       - name: Verify the actual user unit without starting it
         run: |
@@ -27,6 +31,8 @@ jobs:
     name: Real rootless Docker cgroup enforcement (disposable CI only)
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    env:
+      DOCKERD_ROOTLESS_ROOTLESSKIT_DETACH_NETNS: 'false'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,7 +43,7 @@ jobs:
           cka_runner_uid="$(id -u)"
           cka_runner_user="$(id -un)"
           sudo apt-get update -qq
-          sudo apt-get install --yes --no-install-recommends dbus-user-session
+          sudo apt-get install --yes --no-install-recommends dbus-user-session fuse-overlayfs
           sudo install -d -m 0755 "/etc/systemd/system/user@${cka_runner_uid}.service.d"
           printf '[Service]\nDelegate=cpu cpuset io memory pids\n' > "$RUNNER_TEMP/cka-delegate.conf"
           sudo install -m 0644 "$RUNNER_TEMP/cka-delegate.conf" "/etc/systemd/system/user@${cka_runner_uid}.service.d/cka-delegate.conf"
@@ -58,7 +64,7 @@ jobs:
           version: v29.9.2
           rootless: true
           set-host: true
-          daemon-config: '{"exec-opts":["native.cgroupdriver=systemd"],"default-runtime":"cka-rootless-runc","runtimes":{"cka-rootless-runc":{"path":"/usr/local/libexec/cka-lab-staging/runc-rootless.sh"}}}'
+          daemon-config: '{"storage-driver":"fuse-overlayfs","features":{"containerd-snapshotter":false},"exec-opts":["native.cgroupdriver=systemd"],"default-runtime":"cka-rootless-runc","runtimes":{"cka-rootless-runc":{"path":"/usr/local/libexec/cka-lab-staging/runc-rootless.sh"}}}'
       - name: Pin the test wrapper to the downloaded engine runtime
         run: |
           cka_runner_uid="$(id -u)"
