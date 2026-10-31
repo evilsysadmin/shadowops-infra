@@ -31,6 +31,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Establish the disposable runner user session and delegated cgroups
+        run: |
+          set -euo pipefail
+          cka_runner_uid="$(id -u)"
+          cka_runner_user="$(id -un)"
+          sudo apt-get update -qq
+          sudo apt-get install --yes --no-install-recommends dbus-user-session
+          sudo install -d -m 0755 "/etc/systemd/system/user@${cka_runner_uid}.service.d"
+          printf '[Service]\nDelegate=cpu cpuset io memory pids\n' > "$RUNNER_TEMP/cka-delegate.conf"
+          sudo install -m 0644 "$RUNNER_TEMP/cka-delegate.conf" "/etc/systemd/system/user@${cka_runner_uid}.service.d/cka-delegate.conf"
+          sudo systemctl daemon-reload
+          sudo loginctl enable-linger "$cka_runner_user"
+          sudo systemctl restart "user@${cka_runner_uid}.service"
+          test -S "/run/user/${cka_runner_uid}/bus"
+          printf 'XDG_RUNTIME_DIR=/run/user/%s\nDBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%s/bus\n' "$cka_runner_uid" "$cka_runner_uid" >> "$GITHUB_ENV"
       - name: Set up a separate disposable rootless daemon
         uses: docker/setup-docker-action@v4
         with:

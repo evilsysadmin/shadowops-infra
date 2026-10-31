@@ -6,6 +6,8 @@ ConditionUser=shadowops-cka-lab
 Type=notify
 NotifyAccess=all
 Environment=PATH=/usr/sbin:/usr/bin:/sbin:/bin
+Environment=XDG_RUNTIME_DIR=%t
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=%t/bus
 Environment=DOCKERD=/usr/bin/dockerd
 Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_NET=slirp4netns
 Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_DISABLE_HOST_LOOPBACK=true
