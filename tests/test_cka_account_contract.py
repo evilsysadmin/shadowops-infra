@@ -129,6 +129,25 @@ class CommandTests(unittest.TestCase):
         for state,code,text in [('FAILED',0,''),('SUCCEEDED',None,''),('SUCCEEDED',1,''),('SUCCEEDED',0,'unexpected private output')]:
             with self.assertRaises(contract.AccountError):release.receipt(state,SimpleNamespace(exit_code=code,text=text),'deploy',DIGEST,SHA)
 
+    def test_public_verifier_identifies_its_client_without_credentials(self):
+        requests=[]
+        class Response:
+            status=200
+            def __enter__(self):return self
+            def __exit__(self,*_):pass
+            def read(self,limit):return json.dumps({'application':'cka-exam-simulator','build':SHA,'mode':'account-only-staging'}).encode()
+        def open(request,**kwargs):
+            requests.append(request)
+            self.assertEqual(request.get_header('User-agent'),'ShadowOps-CKA-Account-Verify/1')
+            self.assertIsNone(request.get_header('Authorization'))
+            return Response()
+        with patch.object(verify.urllib.request,'build_opener',return_value=SimpleNamespace(open=open)):
+            # Stop after the first request: inspect emitted transport headers,
+            # then use the existing real response-contract tests below.
+            times=iter([0,999])
+            with self.assertRaises(contract.AccountError):verify.verify(SHA,clock=lambda:next(times),pause=lambda _:None)
+        self.assertTrue(requests)
+
     def test_public_proof_requires_exact_source_and_absent_privileged_routes(self):
         def response(path):
             if path=='/api/account/release':return 200,json.dumps({'application':'cka-exam-simulator','build':SHA,'mode':'account-only-staging'}).encode()
