@@ -1,0 +1,8 @@
+dockerd-rootless.sh is copied without modification from Moby docker-v29.9.2:
+https://github.com/moby/moby/blob/docker-v29.9.2/contrib/dockerd-rootless.sh
+Git blob: c5ea79a395729e5644d6b4c8635790c78609210f
+SHA-256: 200203633806081a401e60aefdf68a8fa73fc7dc80aa854c52a69d47710a3488
+License: Apache-2.0, reproduced in MOBY-LICENSE.
+
+Only this reviewed local copy is installed. The operator installer never pipes
+a downloaded script into a shell and never replaces the existing Docker engine.

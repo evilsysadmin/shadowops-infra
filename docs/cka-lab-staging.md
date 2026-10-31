@@ -78,3 +78,51 @@ verified cleanup after expiry/restart, candidate RBAC/admission/network isolatio
 and all three curated exercises failing initially then passing after real repair.
 Verify the actual staging browser journey and that logout denies further lab
 operations. Deployment and rollback remain Infra-owned.
+
+## First operator installation: rootless runtime only
+
+The actual [shared-host preflight](https://github.com/evilsysadmin/shadowops-infra/actions/runs/41225557143)
+observed 4,095 MiB available memory, 25,904 MiB free disk, cgroup v2 and user
+namespaces. It also proved `operator_sudo=false`, no lab wrapper and missing
+rootless helpers. Actions cannot install this first policy through the existing
+product wrappers. The host observation is a snapshot, not a reservation.
+
+From the existing clean root-owned protected Infra checkout on the A1:
+
+```bash
+cd /opt/shadowops-infra
+sudo git fetch origin main
+cka_runtime_sha="$(sudo git rev-parse origin/main)"
+sudo git checkout --detach "$cka_runtime_sha"
+sudo python3 -I host/install-cka-lab-staging.py preflight "$cka_runtime_sha"
+sudo python3 -I host/install-cka-lab-staging.py install "$cka_runtime_sha"
+```
+
+The installer rechecks exact source bytes, root ownership including Git
+metadata, clean protected-main identity, architecture, cgroup/user namespaces and
+actual headroom before mutation. It installs only missing UID-map/rootless
+network/FUSE/user-D-Bus prerequisites from the existing OS package sources.
+It never replaces or restarts the shared Docker engine.
+
+The new non-login `shadowops-cka-lab` user has no privileged group membership.
+Its rootless daemon runs through a user systemd unit. Per-user root-owned
+drop-ins cap the entire user slice at 55% CPU, 2,816 MiB memory, zero swap and
+1,024 tasks. Its data/home live on a dedicated 8 GiB loop filesystem inside
+the existing boot disk; no extra OCI volume is allocated. Host-loopback access
+from the rootless network is disabled. Only the reviewed vendored Moby launcher
+is executed as this user; no downloaded installer is piped into a shell.
+
+The installer refuses foreign users, subordinate-map collisions, symlinks,
+user-writable policy ancestors, different existing policy bytes and foreign
+mounts. Root never traverses user-writable home contents to enable the unit:
+that small operation is executed as the unprivileged runtime user.
+
+Final marker: `CKA_LAB_ROOTLESS_RUNTIME_INSTALLED ... labs_enabled=false`.
+The fixed `/usr/local/sbin/shadowops-cka-lab-staging inspect` independently
+checks installed policy hashes, the exact loop backing file, live cgroup values
+and the actual daemon's rootless identity/systemd driver. The OCI agent receives
+only this inspection command, never generic sudo, Docker, install or shell access.
+
+This step starts the empty bounded rootless daemon only. Kubernetes, controller
+images, credentials, tunnel routes and public labs are not installed or enabled
+by this bootstrap. Do not use an inspection marker as browser acceptance.

@@ -1,0 +1,2 @@
+# Observe only the reviewed dedicated-user runtime. No Docker/shell/install sudo.
+ocarun ALL=(root) NOPASSWD: /usr/local/sbin/shadowops-cka-lab-staging inspect
