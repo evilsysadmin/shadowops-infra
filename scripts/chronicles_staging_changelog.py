@@ -45,6 +45,8 @@ def github_get(path: str, token: str) -> dict:
             result = json.load(response)
     except (urllib.error.URLError, TimeoutError, ValueError) as exc:
         raise ChangelogError("GitHub read failed") from exc
+    if isinstance(result, list):
+        return {"_items": result}
     if not isinstance(result, dict):
         raise ChangelogError("Malformed GitHub response")
     return result
