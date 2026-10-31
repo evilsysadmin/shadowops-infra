@@ -88,20 +88,24 @@ class StagingConvergenceContracts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             gh = root / "gh"
-            gh.write_text(
-                "#!/bin/sh\\n"
-                "count=0; test -f \\"$GH_COUNTER\\" && count=$(cat \\"$GH_COUNTER\\")\\n"
-                "count=$((count+1)); printf '%s' \\"$count\\" > \\"$GH_COUNTER\\"\\n"
-                "if [ \\"$count\\" -eq 1 ]; then printf '%s\\n' \\"$FAKE_BEFORE\\"; else printf '%s\\n' \\"$FAKE_AFTER\\"; fi\\n"
-            )
+            gh.write_text("""#!/bin/sh
+count=0
+if [ -f "$GH_COUNTER" ]; then count=$(cat "$GH_COUNTER"); fi
+count=$((count+1))
+printf '%s' "$count" > "$GH_COUNTER"
+if [ "$count" -eq 1 ]; then
+  printf '%s' "$FAKE_BEFORE"
+else
+  printf '%s' "$FAKE_AFTER"
+fi
+""")
             gh.chmod(0o755)
             python = root / "python"
-            python.write_text(
-                "#!/bin/sh\\n"
-                "if [ \\"$1\\" != scripts/oci_host_probe.py ] || [ \\"$2\\" != wrapper ]; then exit 99; fi\\n"
-                "printf '%s\\n' \\"$FAKE_VERDICT\\"\\n"
-                "exit \\"${FAKE_PROBE_EXIT:-0}\\"\\n"
-            )
+            python.write_text("""#!/bin/sh
+if [ "$1" != scripts/oci_host_probe.py ] || [ "$2" != wrapper ]; then exit 99; fi
+printf '%s' "$FAKE_VERDICT"
+exit "${FAKE_PROBE_EXIT:-0}"
+""")
             python.chmod(0o755)
             for before, verdict, after, exit_code, accepted in (
                 (sha, "CHRONICLES_API_WRAPPER_CURRENT", sha, "0", True),
@@ -111,7 +115,7 @@ class StagingConvergenceContracts(unittest.TestCase):
                 (sha, "CHRONICLES_API_WRAPPER_UNSAFE", sha, "1", False),
                 (sha, "CHRONICLES_API_WRAPPER_CURRENT", "b" * 40, "0", False),
                 (sha, "CHRONICLES_API_WRAPPER_CURRENT", sha, "1", False),
-                (sha, "bogus\\nCHRONICLES_API_WRAPPER_CURRENT", sha, "0", False),
+                (sha, "bogus\nCHRONICLES_API_WRAPPER_CURRENT", sha, "0", False),
             ):
                 with self.subTest(before=before, verdict=verdict, after=after, exit_code=exit_code):
                     counter = root / "counter"
