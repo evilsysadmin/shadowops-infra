@@ -112,8 +112,13 @@ A scoped admin grant requires all of the following **before enabling**:
    central session that `/api/auth/me` returns `isAdmin:true` for the
    approved profile only; verify the `/api/chronicles/admin/users` census
    endpoint for the owner and an unrelated account (403), and confirm
-   the in-game panel. The job's existing public smoke does not authenticate
-   as the private admin, so it is **not proof** that the grant is active.
+   the in-game panel. The deployment smoke additionally authenticates
+   as a fresh throwaway **ordinary** account and verifies that
+   `/api/auth/me` reports `isAdmin:false` and
+   `/api/chronicles/admin/users` returns **403**, deleting the account
+   even if the check fails. This guards against accidental broad grants,
+   but it cannot authenticate as the approved owner: **a passing smoke is
+   not proof that their grant is active**.
    Check the exact running image SHA and runtime before closing the incident.
 
 The one-dispatch run **fails visibly** if the Chronicles source SHA is

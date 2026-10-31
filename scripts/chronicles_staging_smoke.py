@@ -81,6 +81,16 @@ def smoke(env: Mapping[str, str], opener: Callable = urllib.request.urlopen) -> 
     if not client.token:
         raise SmokeError("register: no session token")
     try:
+        # Staging must never promote a freshly registered ordinary account
+        # while activating a reviewed central-only administrator.
+        me = client.expect("ordinary session", "GET", "/auth/me")
+        if me.get("isAdmin") is not False:
+            raise SmokeError("ordinary session has unexpected administrator privileges")
+        roster_status, _ = client.call("GET", "/chronicles/admin/users")
+        if roster_status != 403:
+            raise SmokeError(f"ordinary account admin roster: HTTP {roster_status}, expected 403")
+        print("ok admin boundary: ordinary account denied")
+
         created = client.expect("create run", "POST", "/chronicles/runs", {})
         run_id = str(created.get("runId") or created.get("run", {}).get("runId") or "")
         if not run_id:
@@ -119,7 +129,8 @@ def _world(boot: dict) -> tuple[int, str]:
 
 
 def self_test() -> None:
-    state = {"version": 1, "flags": {}, "deleted": False, "auth": []}
+    state = {"version": 1, "flags": {}, "deleted": False, "auth": [],
+             "admin": False, "roster_open": False, "me_missing": False}
 
     class Response:
         def __init__(self, status: int, body: dict):
@@ -143,6 +154,11 @@ def self_test() -> None:
         if path == "/auth/register":
             assert body["inviteCode"] == "code"
             return Response(200, {"token": "t", "username": body["username"]})
+        if path == "/auth/me":
+            return Response(200, {} if state["me_missing"] else {"isAdmin": state["admin"]})
+        if path == "/chronicles/admin/users":
+            return Response(200 if state["roster_open"] else 403,
+                            {"users": [{"username": "private"}]} if state["roster_open"] else {})
         if path == "/chronicles/runs":
             return Response(201, {"run": {"runId": "r1"}})
         if path.endswith("/bootstrap"):
@@ -162,6 +178,20 @@ def self_test() -> None:
 
     assert smoke({"INVITE_CODE": "code"}, opener).startswith(MARKER)
     assert state["deleted"] and state["auth"][-1] == "Bearer t"
+
+    # If an unrelated player can become admin, view the roster or if the
+    # /auth/me contract stops reporting privileges, fail and clean up.
+    for flag in ("admin", "roster_open", "me_missing"):
+        state.update(version=1, flags={}, deleted=False)
+        state[flag] = True
+        try:
+            smoke({"INVITE_CODE": "code"}, opener)
+        except SmokeError as error:
+            assert ("admin" in str(error).lower() or "administrator" in str(error).lower())
+        else:
+            raise AssertionError(f"unsafe {flag} state passed admin boundary")
+        assert state["deleted"], f"account not deleted on {flag} failure"
+        state[flag] = False
 
     # A failing step still deletes the account.
     state.update(version=1, flags={}, deleted=False)
