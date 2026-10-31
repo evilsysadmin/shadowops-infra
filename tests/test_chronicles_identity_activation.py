@@ -130,6 +130,60 @@ class ActivationTests(unittest.TestCase):
    with self.subTest(change=sorted(change)),self.assertRaises(provision.ProvisionError):
     provision.provision(change,None,None)
 
+ def test_untrusted_grant_fails_before_cloudflare_or_vault_writes(self):
+  valid='shadowops:staging:11111111-1111-4111-8111-111111111111'
+  for label, credential, grant, expected in [
+      ('bad preserved grant',SOC,None,provision.ProvisionError('unapproved grant')),
+      ('no central consumer',None,valid,provision.ProvisionError('missing consumer')),
+      ('missing recovery key',SOC,valid,provision.ProvisionError('recovery secret unavailable')),
+  ]:
+   with self.subTest(label=label):
+    with (patch.object(provision,'read_inputs',return_value=dict(BASE)),
+          patch('oci_control_plane.config_from_env',return_value={}),
+          patch('oci_control_plane.resolve_existing_host',return_value=('compartment','instance')),
+          patch.object(provision,'resolve_vault',return_value=('vault','key','compartment')),
+          patch.object(provision,'central_credential',return_value=credential),
+          patch.object(provision,'central_admin_profile',side_effect=expected if grant is None else None,return_value=grant),
+          patch.object(provision,'read_vault_secret',side_effect=provision.ProvisionError('recovery secret unavailable')) as recovery,
+          patch.object(provision,'ensure_tunnel') as tunnel,
+          patch.object(provision,'configure_tunnel') as configure,
+          patch.object(provision,'tunnel_token') as token,
+          patch.object(provision,'ensure_dns') as dns,
+          patch.object(provision,'upsert_bundle') as write):
+     env={'CHRONICLES_EMAIL_RECOVERY':'true'} if label=='missing recovery key' else {}
+     with self.assertRaises(provision.ProvisionError):
+      provision.provision(env,None,None)
+     for operation in (tunnel,configure,token,dns,write):
+      operation.assert_not_called()
+     if label=='missing recovery key':
+      recovery.assert_called_once()
+
+ def test_successful_grant_preflight_reads_all_custody_before_cloudflare_writes(self):
+  from unittest.mock import Mock
+  trace=[]
+  def tracked(name,value):
+   return Mock(side_effect=lambda *args,**kwargs:(trace.append(name),value)[1])
+  valid='shadowops:staging:11111111-1111-4111-8111-111111111111'
+  with (patch.object(provision,'read_inputs',return_value={
+            'MONGO_URL':BASE['MONGO_URL'],'JWT_SECRET':BASE['JWT_SECRET'],'INVITE_CODE':BASE['INVITE_CODE']}),
+        patch('oci_control_plane.config_from_env',return_value={}),
+        patch('oci_control_plane.resolve_existing_host',return_value=('compartment','instance')),
+        patch.object(provision,'resolve_vault',tracked('vault',('vault','key','compartment'))),
+        patch.object(provision,'central_credential',tracked('identity',SOC)),
+        patch.object(provision,'central_admin_profile',tracked('grant',valid)),
+        patch.object(provision,'read_vault_secret',tracked('recovery','re_fixture')),
+        patch.object(provision,'ensure_tunnel',tracked('tunnel','tid')),
+        patch.object(provision,'configure_tunnel',tracked('configure',None)),
+        patch.object(provision,'tunnel_token',tracked('token','t'*80)),
+        patch.object(provision,'ensure_dns',tracked('dns','unchanged')),
+        patch.object(provision,'upsert_bundle',tracked('write','updated')) as saved):
+   markers=provision.provision({'CHRONICLES_EMAIL_RECOVERY':'true'},None,None)
+   self.assertEqual(trace,['vault','identity','grant','recovery','tunnel','configure','token','dns','write'])
+   self.assertTrue(any('CHRONICLES_API_VAULT_BUNDLE_OK' in marker for marker in markers))
+   bundle=saved.call_args.args[-1].decode()
+   self.assertIn('ADMIN_USERNAMES='+valid+'\\n',bundle)
+   self.assertIn('SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL='+SOC+'\\n',bundle)
+
  def test_cross_environment_enable_is_denied_before_cloud_mutation(self):
   with patch.object(provision,'ENVIRONMENT','production'),self.assertRaises(provision.ProvisionError):
    provision.provision({'CHRONICLES_CENTRAL_IDENTITY':'enable'},None,None)
