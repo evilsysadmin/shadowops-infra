@@ -63,6 +63,30 @@ No carga ni transforma hashes, correos, sesiones, secretos ni privilegios. No ge
 
 **Source of truth machine-readable:** `config/identity/platform-contract.json`. Direcciones objetivo, no endpoints desplegados ni DNS confirmado.
 
+## ShadowOps Identity account roles (staging, additive contract)
+
+The central account has exactly one platform role: `user` (default) or
+`admin`. Newly registered accounts are **always** persisted with
+`role=user`; older records without a role are interpreted as `user`.
+Invalid or noncanonical role strings fail closed. No user-supplied registration
+field, display alias, same-name legacy login, frontend flag or unsigned token
+may elevate the role.
+
+`admin` represents **Identity platform administration**, not a wildcard
+that grants game, Kubernetes, cloud, tenant or billing privileges. Each
+product remains responsible for its own scoped grants after authenticating
+the immutable `(iss, sub, aud)`. A central `admin` grant must use an
+audited, operator-approved, immutable subject and require a separate
+privileged workflow; this first contract **does not expose** a self-service
+grant endpoint, mutate existing accounts, add JWT role claims or grant an
+operator account implicitly.
+
+For the missing Chronicles staging panel, the already implemented product
+allowlist `shadowops:staging:<UUIDv4>` remains the controlled path to
+restore access to a verified owner. This central roles vocabulary is not
+that grant and does not close Chronicles issue #1029. Production remains
+unmodified.
+
 ## Acceptance: one ShadowOps account, no repeated product registration
 
 The shared Identity goal means one central registration/login/recovery flow per
