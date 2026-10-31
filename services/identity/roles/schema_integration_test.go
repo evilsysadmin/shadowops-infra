@@ -56,20 +56,24 @@ func TestRoleJournalSchemaOwnerPreparesPermanentUniqueIndex(t *testing.T) {
 	}
 }
 
-func TestRoleJournalSchemaRejectsMissingCollectionAndUnsafeExistingIndex(t *testing.T) {
+func TestRoleJournalSchemaBootstrapsNewCollectionAndRejectsUnsafeIndexes(t *testing.T) {
 	t.Run("missing collection", func(t *testing.T) {
 		client, db := roleReplica(t)
-		if err := PrepareStagingRoleJournalIndex(context.Background(), client); !errors.Is(err, ErrRoleStore) {
-			t.Fatal("missing journal collection should be denied", err)
+		ctx := context.Background()
+		// MongoDB 7 may report an empty listIndexes for a missing namespace;
+		// the first createIndex then bootstraps that exact journal.
+		if err := PrepareStagingRoleJournalIndex(ctx, client); err != nil {
+			t.Fatal("initial staging journal bootstrap failed", err)
 		}
-		names, err := db.ListCollectionNames(context.Background(), bson.D{})
+		if err := verifyRoleJournal(ctx, db.Collection(roleJournal)); err != nil {
+			t.Fatal("new journal is missing its permanent unique index", err)
+		}
+		names, err := db.ListCollectionNames(ctx, bson.D{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, name := range names {
-			if name == roleJournal {
-				t.Fatal("schema owner unexpectedly created missing collection")
-			}
+		if len(names) != 1 || names[0] != roleJournal {
+			t.Fatalf("schema owner created unintended collections: %v", names)
 		}
 	})
 	t.Run("wrong index", func(t *testing.T) {
