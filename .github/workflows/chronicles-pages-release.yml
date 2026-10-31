@@ -83,6 +83,7 @@ jobs:
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_verified_receipt.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_staging_changelog.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_manifest_wait.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_entry_preflight.py' -v
       - run: python3 scripts/chronicles_pages.py self-test
 
   staging-candidate:
@@ -234,10 +235,45 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
+      - name: Skip obsolete Pages generation before both checkouts
+        id: entry_freshness
+        shell: bash
+        env:
+          ADMITTED_SHA: ${{ needs.staging-candidate.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          # Cheap read-only optimization: the protected-main owner admission and
+          # just-in-time mutation guards remain mandatory for current SHAs.
+          [[ "$GITHUB_REPOSITORY" == 'evilsysadmin/shadowops-infra' &&
+             "$GITHUB_REF" == 'refs/heads/main' &&
+             "$GITHUB_EVENT_NAME" =~ ^(push|schedule|workflow_dispatch)$ ]] || {
+            echo 'CHRONICLES_PAGES_INVALID_ENTRY_CONTEXT' >&2
+            exit 64
+          }
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ && "$ADMITTED_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo 'CHRONICLES_PAGES_INVALID_ENTRY_SHA' >&2
+            exit 64
+          }
+          owner_main="$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)"
+          source_main="$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)"
+          [[ "$owner_main" =~ ^[0-9a-f]{40}$ && "$source_main" =~ ^[0-9a-f]{40}$ ]] || {
+            echo 'CHRONICLES_PAGES_UNVERIFIABLE_MAIN_SHA' >&2
+            exit 65
+          }
+          if [[ "$owner_main" != "$GITHUB_SHA" || "$source_main" != "$ADMITTED_SHA" ]]; then
+            echo "CHRONICLES_PAGES_OBSOLETE_ENTRY owner=$GITHUB_SHA current_owner=$owner_main admitted=$ADMITTED_SHA current_source=$source_main"
+            echo '::notice title=Chronicles Pages superseded::A newer protected main exists. Skipping obsolete checkout, build and publish.'
+            printf '**State: superseded before checkout.** No build, Pages mutation or verified receipt was produced.\n' >> "$GITHUB_STEP_SUMMARY"
+            echo 'fresh=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo 'fresh=true' >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
+        if: steps.entry_freshness.outputs.fresh == 'true'
         with:
           persist-credentials: false
       - name: Checkout exact source repository (never run its deployment workflows)
+        if: steps.entry_freshness.outputs.fresh == 'true'
         uses: actions/checkout@v4
         with:
           repository: evilsysadmin/chronicles-of-matthias
@@ -245,12 +281,14 @@ jobs:
           path: chronicles-source
           persist-credentials: false
       - name: Resolve immutable source SHA
+        if: steps.entry_freshness.outputs.fresh == 'true'
         id: source
         shell: bash
         run: |
           set -euo pipefail
           echo "sha=$(git -C chronicles-source rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Check whether exact SHA is already publicly deployed
+        if: steps.entry_freshness.outputs.fresh == 'true'
         id: live
         shell: bash
         env:
@@ -271,10 +309,12 @@ jobs:
             echo 'already_published=false' >> "$GITHUB_OUTPUT"
           fi
       - name: Require protected mains and single Pages owner before any mutations
+        if: steps.entry_freshness.outputs.fresh == 'true'
         env:
           CHRONICLES_SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: python3 scripts/pages_owner_admission.py
       - name: Prepare pinned Node.js for the Chronicles frontend
+        if: steps.entry_freshness.outputs.fresh == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -282,6 +322,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: chronicles-source/frontend/package-lock.json
       - name: Build the game against its own API
+        if: steps.entry_freshness.outputs.fresh == 'true'
         # The public browser compares live HTML entrypoint assets with the
         # exact local dist/index.html. Even a smoke-only retry needs this
         # build; skipping it makes verification fail with ENOENT.
@@ -312,7 +353,7 @@ jobs:
           grep -lFq '/chronicles/runs' dist/assets/*.js
           grep -lFq 'chronicles-api-staging.shadowops.dpdns.org' dist/assets/*.js
       - name: Assemble static root
-        if: steps.live.outputs.already_published != 'true'
+        if: steps.entry_freshness.outputs.fresh == 'true' && (steps.live.outputs.already_published != 'true')
         shell: bash
         run: |
           set -euo pipefail
@@ -321,15 +362,16 @@ jobs:
           cp -a chronicles-source/frontend/dist/. "$root/"
           grep -q 'Chronicles of Matthias' "$root/index.html"
       - name: Require Cloudflare credentials in Infra, not the game repository
+        if: steps.entry_freshness.outputs.fresh == 'true'
         shell: bash
         run: |
           set -euo pipefail
           [[ -n "${CLOUDFLARE_API_TOKEN:-}" && -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]]
       - name: Reject foreign hostname ownership before any mutations
-        if: steps.live.outputs.already_published != 'true'
+        if: steps.entry_freshness.outputs.fresh == 'true' && (steps.live.outputs.already_published != 'true')
         run: python3 scripts/chronicles_pages.py preflight
       - name: Skip superseded source before Pages mutations
-        if: steps.live.outputs.already_published != 'true'
+        if: steps.entry_freshness.outputs.fresh == 'true' && (steps.live.outputs.already_published != 'true')
         id: source_pre_publish
         shell: bash
         env:
@@ -355,10 +397,10 @@ jobs:
           fi
           echo 'fresh=true' >> "$GITHUB_OUTPUT"
       - name: Reconcile independent Chronicles Pages project
-        if: steps.live.outputs.already_published != 'true' && steps.source_pre_publish.outputs.fresh == 'true'
+        if: steps.entry_freshness.outputs.fresh == 'true' && (steps.live.outputs.already_published != 'true' && steps.source_pre_publish.outputs.fresh == 'true')
         run: python3 scripts/chronicles_pages.py project
       - name: Publish exact source SHA to the isolated Pages project
-        if: steps.live.outputs.already_published != 'true' && steps.source_pre_publish.outputs.fresh == 'true'
+        if: steps.entry_freshness.outputs.fresh == 'true' && (steps.live.outputs.already_published != 'true' && steps.source_pre_publish.outputs.fresh == 'true')
         id: deploy
         shell: bash
         env:
@@ -387,13 +429,13 @@ jobs:
             --commit-dirty=false
           echo 'published=true' >> "$GITHUB_OUTPUT"
       - name: Reconcile the exact domain without overwriting other DNS
-        if: steps.deploy.outputs.published == 'true'
+        if: steps.entry_freshness.outputs.fresh == 'true' && (steps.deploy.outputs.published == 'true')
         run: python3 scripts/chronicles_pages.py domain
       - name: Prove the public game build at root
-        if: steps.live.outputs.already_published == 'true' || steps.deploy.outputs.published == 'true'
+        if: steps.entry_freshness.outputs.fresh == 'true' && (steps.live.outputs.already_published == 'true' || steps.deploy.outputs.published == 'true')
         run: python3 scripts/chronicles_pages.py verify
       - name: Prove the public update manifest serves the exact SHA
-        if: steps.live.outputs.already_published == 'true' || steps.deploy.outputs.published == 'true'
+        if: steps.entry_freshness.outputs.fresh == 'true' && (steps.live.outputs.already_published == 'true' || steps.deploy.outputs.published == 'true')
         env:
           EXPECTED_SHA: ${{ steps.source.outputs.sha }}
         shell: bash
@@ -403,7 +445,7 @@ jobs:
           # The helper preserves strict public HTTPS/JSON/exact-SHA checks.
           python3 scripts/chronicles_pages_manifest_wait.py
       - name: Verify lockfile-pinned Playwright browser harness
-        if: steps.live.outputs.already_published == 'true' || steps.deploy.outputs.published == 'true'
+        if: steps.entry_freshness.outputs.fresh == 'true' && (steps.live.outputs.already_published == 'true' || steps.deploy.outputs.published == 'true')
         id: playwright
         working-directory: chronicles-source/frontend
         shell: bash
@@ -419,13 +461,13 @@ jobs:
           }
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
       - name: Cache exact Chromium browser binaries
-        if: steps.live.outputs.already_published == 'true' || steps.deploy.outputs.published == 'true'
+        if: steps.entry_freshness.outputs.fresh == 'true' && (steps.live.outputs.already_published == 'true' || steps.deploy.outputs.published == 'true')
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: chronicles-chromium-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
       - name: Real public browser smoke (desktop, mobile, login, update deferral)
-        if: steps.live.outputs.already_published == 'true' || steps.deploy.outputs.published == 'true'
+        if: steps.entry_freshness.outputs.fresh == 'true' && (steps.live.outputs.already_published == 'true' || steps.deploy.outputs.published == 'true')
         working-directory: chronicles-source/frontend
         env:
           CHRONICLES_SOURCE_SHA: ${{ steps.source.outputs.sha }}
@@ -452,7 +494,7 @@ jobs:
           printf 'CHRONICLES_PUBLIC_SMOKE_RESULTS public=%s journey=%s\\n' "$public_rc" "$journey_rc"
           (( public_rc == 0 && journey_rc == 0 ))
       - name: Preserve public-browser screenshots as deployment evidence
-        if: always() && (steps.live.outputs.already_published == 'true' || steps.deploy.outputs.published == 'true')
+        if: steps.entry_freshness.outputs.fresh == 'true' && (always() && (steps.live.outputs.already_published == 'true' || steps.deploy.outputs.published == 'true'))
         uses: actions/upload-artifact@v4
         with:
           name: chronicles-public-browser-${{ needs.staging-candidate.outputs.source_sha }}
@@ -462,7 +504,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
       - name: Reject superseded source before writing verified receipt
-        if: steps.live.outputs.already_published == 'true' || steps.deploy.outputs.published == 'true'
+        if: steps.entry_freshness.outputs.fresh == 'true' && (steps.live.outputs.already_published == 'true' || steps.deploy.outputs.published == 'true')
         id: source_freshness
         shell: bash
         env:
@@ -488,14 +530,14 @@ jobs:
           fi
           echo 'fresh=true' >> "$GITHUB_OUTPUT"
       - name: Summarize verified staging changes (informational, no deploy authority)
-        if: steps.source_freshness.outputs.fresh == 'true'
+        if: steps.entry_freshness.outputs.fresh == 'true' && (steps.source_freshness.outputs.fresh == 'true')
         continue-on-error: true
         shell: bash
         env:
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: python3 scripts/chronicles_staging_changelog.py "$SOURCE_SHA"
       - name: Record the verified Chronicles Pages source generation
-        if: steps.source_freshness.outputs.fresh == 'true'
+        if: steps.entry_freshness.outputs.fresh == 'true' && (steps.source_freshness.outputs.fresh == 'true')
         shell: bash
         env:
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
@@ -536,7 +578,7 @@ jobs:
           pathlib.Path("verified-pages/evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
           PY
       - name: Save verified Pages receipt for idempotent hourly sync
-        if: steps.source_freshness.outputs.fresh == 'true'
+        if: steps.entry_freshness.outputs.fresh == 'true' && (steps.source_freshness.outputs.fresh == 'true')
         uses: actions/upload-artifact@v4
         with:
           name: chronicles-pages-staging-${{ steps.source.outputs.sha }}
@@ -545,7 +587,7 @@ jobs:
       # Human-facing copy in the run's Artifacts list. The trusted exact-SHA
       # receipt above remains the only evidence used by deploy admission.
       - name: Publish readable staging release notes (HTML and Markdown)
-        if: steps.source_freshness.outputs.fresh == 'true'
+        if: steps.entry_freshness.outputs.fresh == 'true' && (steps.source_freshness.outputs.fresh == 'true')
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
