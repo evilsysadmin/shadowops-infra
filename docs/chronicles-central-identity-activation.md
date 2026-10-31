@@ -77,6 +77,14 @@ A scoped admin grant requires all of the following **before enabling**:
 3. The new root-owned `host/chronicles-api-deploy.py` policy must be installed
    through the existing reviewed host bootstrap. Older installed wrappers
    intentionally reject the new Vault bundle key.
+   The grant-enabled provision workflow **also checks the installed wrapper**
+   non-privileged via OCI, compares its exact hash to the protected Infra
+   checkout and rechecks Infra main before allowing any Cloudflare/Vault
+   mutation. An absent, unsafe, outdated wrapper, untrusted probe result or
+   superseded main **fails closed**. This automatic guard runs only for
+   `staging` + `central_admin=enable`; normal provisioning and production
+   are unaffected. A manual read-only `oci-host-probe.yml` run remains
+   available as an earlier diagnostic.
 4. Manually dispatch `chronicles-api-staging.yml`, action `provision`,
    `environment=staging`, `central_identity=preserve` (or `enable` after
    its usual backup prerequisites) and **`central_admin=enable`**.
