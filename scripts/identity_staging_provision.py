@@ -8,7 +8,7 @@ import os
 import urllib.parse
 
 from chronicles_api_provision import Cloudflare, ProvisionError, UUID_RE, resolve_vault
-from identity_staging_bundle import HOST, BundleError, generate, validate
+from identity_staging_bundle import HOST, BundleError, generate, validate, enable_cka
 from oci_control_plane import config_from_env, resolve_existing_host
 
 TUNNEL_NAME = 'identity-staging'
@@ -101,18 +101,28 @@ def store(sdk, config, compartment, vault, key, bundle):
 
 
 def provision(sdk, env, cf):
+    mode = env.get('IDENTITY_STAGING_CKA', 'preserve')
+    if mode not in {'preserve', 'enable'}:
+        raise ProvisionError('Invalid CKA consumer opt-in')
     config = config_from_env(sdk, env)
     compartment, _ = resolve_existing_host(sdk, config)
     vault, key, _ = resolve_vault(sdk, config, compartment)
+    if mode == 'enable':
+        from cka_account_release import execute
+        execute(sdk, config, 'inspect')  # Exit-zero fixed root capability gate before any mutation.
     existing = load_existing(sdk, config, vault, compartment)  # fail before mutation on invalid custody
+    if mode == 'enable' and existing is None:
+        raise ProvisionError('CKA activation requires existing independent Identity custody')
     tunnel = ensure_tunnel(cf)
     zone, target, dns_exists = dns_plan(cf, tunnel)
     token = cf.call('GET', f'/accounts/{cf.account}/cfd_tunnel/{tunnel}/token')
     old_token = existing['tunnel_token'] if existing else None
     bundle = dict(existing) if existing else generate(token)
     bundle['tunnel_token'] = token
+    if mode == 'enable':
+        bundle = enable_cka(bundle)
     validate(bundle)
-    if existing is None or token != old_token:
+    if existing is None or token != old_token or bundle['consumers'] != existing['consumers']:
         store(sdk, config, compartment, vault, key, bundle)
     cf.call('PUT', f'/accounts/{cf.account}/cfd_tunnel/{tunnel}/configurations', desired_ingress())
     if not dns_exists:

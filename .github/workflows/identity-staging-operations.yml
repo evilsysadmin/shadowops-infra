@@ -22,6 +22,11 @@ on:
         options: [provision, deploy, inspect, backup]
         required: true
         description: Provision custody/tunnel/DNS, or deploy an admitted image through the installed staging wrapper
+      cka_consumer:
+        type: choice
+        options: [preserve, enable]
+        default: preserve
+        description: Provision only; explicitly add an independent CKA staging consumer after installing updated root policy
       source_sha:
         type: string
         required: false
@@ -57,6 +62,7 @@ jobs:
       group: shadowops-oci-host-operations
       cancel-in-progress: false
     env:
+      IDENTITY_STAGING_CKA: ${{ inputs.cka_consumer || 'preserve' }}
       OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
       OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
       OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}

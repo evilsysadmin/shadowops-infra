@@ -41,7 +41,10 @@ services:
     cpus: 0.75
     volumes:
       - /etc/shadowops/identity-staging/service.json:/run/secrets/identity-staging.json:ro
-    networks: [database, origin]
+    networks:
+      database: {}
+      origin:
+        aliases: [id-staging.shadowops.dpdns.org]
     depends_on:
       identity-mongo:
         condition: service_healthy
