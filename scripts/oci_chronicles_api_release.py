@@ -93,6 +93,62 @@ def observed_lifecycle_timing(submitted: float, first_active: float | None,
             + f"active={duration(first_active, completed)}")
 
 
+
+# Summary contents are assembled exclusively from local, fixed-format
+# controller timings plus the strictly admitted host timing. Never interpolate
+# arbitrary OCI stdout, command IDs, Vault IDs, digests or failure reasons.
+PHASE_LINE = re.compile(
+    r"CHRONICLES_API_OCI_PHASE_SECONDS preflight=[0-9]{1,5} dispatch=[0-9]{1,5} execution=[0-9]{1,5}"
+)
+LIFECYCLE_LINE = re.compile(
+    r"CHRONICLES_API_OCI_LIFECYCLE_OBSERVED_SECONDS pre_active=[0-9]{1,5} active=[0-9]{1,5}"
+)
+
+
+def timing_summary(phase: str, lifecycle: str = "", host: str = "",
+                   *, verified: bool) -> str:
+    """Render only finite validated lines; optional host timing is not guessed."""
+    if not PHASE_LINE.fullmatch(phase):
+        return ""
+    if lifecycle and not LIFECYCLE_LINE.fullmatch(lifecycle):
+        return ""
+    if host and not HOST_TIMING.fullmatch(host):
+        return ""
+    result = [
+        "### Chronicles API · OCI deployment timing",
+        "",
+        "- Verified wrapper smoke: " + ("yes" if verified else "no"),
+        "- Controller phases: " + "`" + phase + "`",
+        "- OCI lifecycle observation: " + (
+            "`" + lifecycle + "`" if lifecycle
+            else "not observed; no queue/active split inferred"),
+        "- Installed wrapper phases: " + (
+            "`" + host + "`" if host
+            else "not reported (does not prove the wrapper is outdated)"),
+        "",
+        "OCI lifecycle durations are measured at polling boundaries, not exact "
+        "server queue or Docker runtime.",
+        "",
+    ]
+    return "\n".join(result)
+
+
+def append_timing_summary(phase: str, lifecycle: str = "", host: str = "",
+                          *, verified: bool, path: str | None = None) -> None:
+    """Optional Actions UX only: summary write failures never alter admission."""
+    destination = os.environ.get("GITHUB_STEP_SUMMARY", "") if path is None else path
+    if not destination:
+        return
+    summary = timing_summary(phase, lifecycle, host, verified=verified)
+    if not summary:
+        return
+    try:
+        with open(destination, "a", encoding="utf-8") as output:
+            output.write(summary)
+    except OSError:
+        # Diagnostic formatting must not make a verified deployment fail.
+        pass
+
 def execute(
     sdk: Any, config: dict[str, str], digest: str, environment: str = "staging", *,
     pause=time.sleep, clock=time.monotonic
@@ -142,18 +198,21 @@ def execute(
             result = getattr(execution, "content", None)
             stdout = str(getattr(result, "text", "") or "").strip()
             last = stdout.splitlines()[-1] if stdout else ""
+            phase = phase_timing(started, prepared, submitted, completed)
             if (status != "SUCCEEDED" or getattr(result, "exit_code", None) != 0
                     or last != marker + digest):
                 # Never echo Oracle's raw remote output: only the wrapper's own
                 # bounded reason line, matched strictly.
                 reason = next((line for line in stdout.splitlines() if BLOCKED.fullmatch(line)), "")
-                print(phase_timing(started, prepared, submitted, completed), flush=True)
+                print(phase, flush=True)
+                append_timing_summary(phase, lifecycle, verified=False)
                 raise InventoryError("Chronicles API root-wrapper smoke did not succeed"
                                      + (" | " + reason if reason else f" | status={status}"))
             timing = trusted_host_timing(stdout)
             if timing:
                 print(timing, flush=True)
-            print(phase_timing(started, prepared, submitted, completed), flush=True)
+            print(phase, flush=True)
+            append_timing_summary(phase, lifecycle, timing, verified=True)
             print(marker + digest)
             return last
         pause(3)

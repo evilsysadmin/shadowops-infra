@@ -227,6 +227,16 @@ updated wrapper and successful smoke, reports guard, Vault, Compose, image
 pull, startup and health phases. Do not attribute a long OCI lifecycle
 to Docker until that host-phase evidence is available.
 
+When a real OCI command reaches a terminal result, the controller also
+appends an **OCI deployment timing** section to that job's GitHub Actions
+Summary. It includes only allowlisted controller/lifecycle timing lines,
+and the fixed-format host phase line if the installed wrapper reported one
+on a fully verified successful smoke. Terminal failures are labelled
+**not verified**; never mistake their timings for successful deployment.
+The summary has no OCI stdout, command IDs, Vault identifiers, image digests
+or runtime credentials. An unavailable job summary does not block or
+retroactively validate the deploy.
+
 The staging Chromium download cache is keyed to the resolved Playwright
 version. Compare warm-cache browser smoke against the above cold baseline
 before claiming an improvement; both browser journeys remain mandatory.
