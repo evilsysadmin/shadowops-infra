@@ -1,10 +1,10 @@
 name: CKA labs · shared A1 Compose preflight
 on:
   pull_request:
-    paths: ['scripts/cka_lab_*.py','host/*cka-lab*','host/vendor/*','tests/test_cka_lab*.py','docs/cka-lab-staging.md','.github/workflows/cka-lab-staging.yml']
+    paths: ['scripts/cka_lab_*.py','host/*cka-lab*','host/vendor/*','deploy/Dockerfile.cka-lab-proof','tests/test_cka_lab*.py','compose.cka-lab.staging.yaml','docs/cka-lab-staging.md','.github/workflows/cka-lab-staging.yml']
   push:
     branches: [main]
-    paths: ['scripts/cka_lab_*.py','host/*cka-lab*','host/vendor/*','tests/test_cka_lab*.py','docs/cka-lab-staging.md','.github/workflows/cka-lab-staging.yml']
+    paths: ['scripts/cka_lab_*.py','host/*cka-lab*','host/vendor/*','deploy/Dockerfile.cka-lab-proof','tests/test_cka_lab*.py','compose.cka-lab.staging.yaml','docs/cka-lab-staging.md','.github/workflows/cka-lab-staging.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -18,6 +18,13 @@ jobs:
           persist-credentials: false
       - run: python3 -m unittest discover -s tests -p 'test_cka_lab*.py' -v
       - run: sh -n host/vendor/dockerd-rootless.sh
+      - name: Validate the actual Compose file without resolving private runtime files
+        env:
+          CKA_LAB_IMAGE_DIGEST: sha256:0000000000000000000000000000000000000000000000000000000000000000
+        run: |
+          sudo install -d -m 0755 /var/lib/shadowops-cka-lab-staging/runtime/config
+          sudo install -m 0644 /dev/null /var/lib/shadowops-cka-lab-staging/runtime/config/tunnel.env
+          docker compose -f compose.cka-lab.staging.yaml config --no-env-resolution --quiet
       - run: sudo visudo --check --file host/cka-lab-rootless.sudoers
       - name: Verify the actual user unit without starting it
         run: |
@@ -26,7 +33,9 @@ jobs:
   rootless-proof:
     name: Real rootless Docker cgroup enforcement (disposable CI only)
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 25
+    env:
+      DOCKERD_ROOTLESS_ROOTLESSKIT_DETACH_NETNS: 'false'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,7 +46,7 @@ jobs:
           cka_runner_uid="$(id -u)"
           cka_runner_user="$(id -un)"
           sudo apt-get update -qq
-          sudo apt-get install --yes --no-install-recommends dbus-user-session
+          sudo apt-get install --yes --no-install-recommends dbus-user-session fuse-overlayfs
           sudo install -d -m 0755 "/etc/systemd/system/user@${cka_runner_uid}.service.d"
           printf '[Service]\nDelegate=cpu cpuset io memory pids\n' > "$RUNNER_TEMP/cka-delegate.conf"
           sudo install -m 0644 "$RUNNER_TEMP/cka-delegate.conf" "/etc/systemd/system/user@${cka_runner_uid}.service.d/cka-delegate.conf"
@@ -58,7 +67,7 @@ jobs:
           version: v29.9.2
           rootless: true
           set-host: true
-          daemon-config: '{"exec-opts":["native.cgroupdriver=systemd"],"default-runtime":"cka-rootless-runc","runtimes":{"cka-rootless-runc":{"path":"/usr/local/libexec/cka-lab-staging/runc-rootless.sh"}}}'
+          daemon-config: '{"storage-driver":"fuse-overlayfs","features":{"containerd-snapshotter":false},"exec-opts":["native.cgroupdriver=systemd"],"default-runtime":"cka-rootless-runc","runtimes":{"cka-rootless-runc":{"path":"/usr/local/libexec/cka-lab-staging/runc-rootless.sh"}}}'
       - name: Pin the test wrapper to the downloaded engine runtime
         run: |
           cka_runner_uid="$(id -u)"
@@ -78,6 +87,55 @@ jobs:
           assert result.returncode == 0 and result.stdout.strip() == policy.PROOF_MARKER, result.stderr
           print(policy.PROOF_MARKER)
           PY
+      - name: Install the reviewed kind binary and pinned kubectl for disposable CI
+        uses: helm/kind-action@v1.14.0
+        with:
+          install_only: true
+          version: v0.31.0
+          kubectl_version: v1.35.0
+      - name: Verify the exact kind release bytes before execution
+        run: |
+          printf '%s  %s\n' eb244cbafcc157dff60cf68693c14c9a75c4e6e6fedaf9cd71c58117cb93e3fa "$(command -v kind)" | sha256sum --check
+      - name: Create the bounded private Kubernetes cluster in the rootless daemon
+        run: |
+          PYTHONPATH=scripts python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          from cka_lab_cluster import bootstrap
+          result = bootstrap(Path(os.environ["RUNNER_TEMP"]) / "cka-rootless-cluster")
+          print("CKA_LAB_CLUSTER_PREPARED " + json.dumps(result, sort_keys=True))
+          PY
+      - name: Checkout the reviewed CKA lease and candidate driver contract
+        uses: actions/checkout@v4
+        with:
+          repository: evilsysadmin/cka-exam-simulator
+          ref: f5362874b83a51b8c4c9f06cf547cd91073de692
+          path: .cka-contract
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: .cka-contract/go/go.mod
+          cache-dependency-path: .cka-contract/go/go.mod
+      - name: Build the real journal helper and install the scenario engine
+        run: |
+          cd .cka-contract/go
+          CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/cka-rootless-lease" ./cmd/cka-lease-stdio
+          cd ..
+          cp "$RUNNER_TEMP/cka-rootless-lease" cka-lease-stdio
+          cp "$(command -v kubectl)" kubectl
+      - name: Prove all curated repairs with actual rootless node limits
+        env:
+          CKA_SCENARIO_SOURCE_ROOT: ${{ github.workspace }}/.cka-contract
+        run: python3 scripts/cka_lab_cluster_smoke.py
+      - name: Diagnose only the disposable cluster on failure
+        if: failure()
+        run: docker logs --tail 120 cka-lab-staging-control-plane || true
+      - name: Remove only the disposable lab cluster
+        if: always()
+        run: |
+          if command -v kind >/dev/null 2>&1; then
+            KIND_EXPERIMENTAL_PROVIDER=docker kind delete cluster --name cka-lab-staging || true
+          fi
   preflight:
     name: Observe shared host without workload changes
     needs: contracts

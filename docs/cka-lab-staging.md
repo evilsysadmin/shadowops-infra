@@ -126,3 +126,76 @@ only this inspection command, never generic sudo, Docker, install or shell acces
 This step starts the empty bounded rootless daemon only. Kubernetes, controller
 images, credentials, tunnel routes and public labs are not installed or enabled
 by this bootstrap. Do not use an inspection marker as browser acceptance.
+
+## Rootless Kubernetes bootstrap under review
+
+`scripts/cka_lab_cluster.py` creates only the fixed `cka-lab-staging` cluster
+inside the dedicated rootless daemon. It refuses existing containers, bridges
+and state, requires cgroup v2/systemd, pins kind v0.31.0 and Kubernetes v1.35.0
+by the upstream node-image digest, and creates a separate internal IPv4 Docker
+bridge. The API stays inside that bridge; no host API or application port is published.
+
+After kind initialization, the node is capped at 2 GiB RAM, zero swap, 40% CPU
+and 768 tasks. The encompassing user slice limits apply during bootstrap too.
+The only host bind is kind's read-only `/lib/modules`; writable node data is
+an anonymous volume in the bounded rootless data filesystem. Controller and
+tunnel must never receive this daemon's Docker socket. Both curated workload and
+network-probe images are pinned and preloaded; candidate pods cannot pull them
+over an external route.
+
+CI uses a disposable rootless daemon to run this actual bootstrap, checks the
+node's live cgroup files, and exercises all curated scenarios through the real
+Go journal and candidate driver. A restricted probe Pod must fail TCP connections
+to a public positive-control destination and OCI metadata. The external host
+first proves the public destination is reachable. This is an additional network
+gate, not a claim of multi-user or production acceptance.
+
+A bootstrap receipt always says `labs_enabled=false`. This PR does not execute
+bootstrap on the A1, configure Identity or start a public controller/tunnel.
+The runtime user can provision the checksum-pinned kind binary into its private
+bounded home without installing any host-wide tool. The node restarts with the
+rootless daemon; controller restart closes and reaps previous leases. Never run this against host Docker
+or reuse the developer cluster.
+
+
+## Private Compose deployment contract
+
+`compose.cka-lab.staging.yaml` contains the separate controller and tunnel.
+It requires an admitted immutable `cka-lab-staging` image digest. Never execute
+it against the host Docker daemon. The controller receives only the lab
+kubeconfig, its own CKA service credential/JWKS/pilot UUID configuration and its
+durable lease directory. It has no Docker socket, host paths outside the private
+runtime, developer API, inference code or route to another product's Docker
+network. Both IP forwarding sysctls are disabled on the controller.
+
+The node/controller/tunnel CPU limits sum to 55%; memory caps sum to 2,432 MiB,
+leaving 384 MiB of the 2,816 MiB user slice for the runtime. The whole slice still
+bounds all processes, including helper/subprocess overhead. Controller UID 0 is
+inside the rootless namespace and maps to the non-login lab user, so it can read
+that user's private 0600 files; all capabilities are dropped and privilege
+escalation is disabled. It is not host root.
+
+After the first rootless operator installation, from protected Infra source:
+
+```bash
+sudo -u shadowops-cka-lab python3 /opt/shadowops-infra/scripts/cka_lab_cluster.py install-tools
+sudo -u shadowops-cka-lab python3 /opt/shadowops-infra/scripts/cka_lab_cluster.py bootstrap
+```
+
+These prepare only the fixed cluster. The second command refuses existing
+containers/state instead of adopting or deleting them. Failed bootstrap keeps
+its private state for diagnosis. No public application port, identity enrolment
+or tunnel is created by these commands.
+
+The node entrypoint needs a fixed Docker-host DNS alias on an internal network.
+The private bootstrap supplies that alias and kind's documented endpoint-label
+override only to the pinned node run. The resulting API endpoint is the real
+container-network endpoint. No external network or fake successful probe is
+substituted. The FUSE image preload uses containerd's local importer and confirms
+the resulting CRI configuration digest against the original digest-pinned pull.
+
+Activation still needs: the operator's freshly verified pilot UUID, a private
+configuration copied from the existing CKA consumer credentials without IdP
+signing keys, an admitted image, the lab tunnel/DNS route, real A1 scenario and
+isolation receipts, and the dedicated `lab-staging` browser release. Neither the
+existing account service nor the account-only Pages build activates labs.
