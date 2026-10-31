@@ -12,6 +12,8 @@ on:
       - 'host/bootstrap-chronicles-api-over-ssh.sh'
       - 'scripts/chronicles_api_provision.py'
       - 'scripts/oci_chronicles_api_release.py'
+      - 'scripts/oci_control_plane.py'
+      - 'tests/test_oci_control_plane.py'
       - 'scripts/chronicles_staging_smoke.py'
       - 'scripts/chronicles_api_before_pages.py'
       - 'tests/test_chronicles_api_before_pages.py'

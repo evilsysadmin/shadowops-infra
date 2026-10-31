@@ -83,7 +83,13 @@ def resolve_existing_host(sdk: Any, config: dict[str, str]) -> tuple[str, str]:
     return str(compartment.id), str(instance.id)
 
 
-def inspect(sdk: Any, config: dict[str, str]) -> dict[str, str]:
+def verified_run_command_host(sdk: Any, config: dict[str, str]) -> tuple[str, str]:
+    """Return ONLY the fixed A1 after both inventory and plugin admission.
+
+    Release callers need the two already-validated IDs. Re-resolving them
+    after inspect() repeats two OCI list requests without improving trust.
+    Do not accept caller-supplied IDs or skip the independent plugin check.
+    """
     compartment_id, instance_id = resolve_existing_host(sdk, config)
     agent = sdk.compute_instance_agent.PluginClient(config)
     response = agent.get_instance_agent_plugin(
@@ -95,6 +101,12 @@ def inspect(sdk: Any, config: dict[str, str]) -> dict[str, str]:
     status = str(getattr(response, "status", "UNKNOWN") or "UNKNOWN").upper()
     if status != "RUNNING":
         raise InventoryError("OCI Run Command plugin not healthy")
+    return compartment_id, instance_id
+
+
+def inspect(sdk: Any, config: dict[str, str]) -> dict[str, str]:
+    """Read-only status of the same strictly admitted existing host."""
+    verified_run_command_host(sdk, config)
     return {
         "region": config["region"],
         "instance": INSTANCE,
