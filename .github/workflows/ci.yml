@@ -29,3 +29,40 @@ jobs:
 
       - name: ShadowOps Identity explicit account-link migration preflight (synthetic)
         run: python3 -m unittest discover -s tests -p 'test_identity_link_preflight.py' -v
+      # The original standalone policy workflows duplicated checkout + Node setup
+      # on every PR and Infra main push. Keep all of their test files here.
+      # Do not combine with deployment workflows: this job is offline/read-only.
+      - name: Chronicles source admission, attestation and required-checks contracts
+        run: |
+          node --test \
+            tests/accreditation.test.mjs \
+            tests/chronicles-policy.test.mjs \
+            tests/attestation.test.mjs \
+            tests/github-evidence.test.mjs \
+            tests/inspect-main-protection.test.mjs \
+            tests/live-staging-admission-workflow.test.mjs \
+            tests/release-admission.test.mjs \
+            tests/staging-candidate-cli.test.mjs \
+            tests/required-checks.test.mjs
+
+      - name: Chronicles deployment state, lock, ledger and receipt contracts
+        run: |
+          node --test \
+            tests/deployment-state.test.mjs \
+            tests/chronicles-production-scheduler.test.mjs \
+            tests/release-ledger.test.mjs \
+            tests/release-lock.test.mjs \
+            tests/staging-receipt.test.mjs
+
+      - name: Chronicles authenticated staging smoke (synthetic, no live credentials)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts -p test_staging_read_smoke.py -v
+          if python3 scripts/staging_read_smoke.py --run-id fixture-run --expected-map crypt >/dev/null 2>&1; then
+            echo "ERROR: smoke accepted absent token-file configuration" >&2
+            exit 1
+          fi
+
+      - name: Protect consolidated Chronicles CI coverage
+        run: python3 -m unittest discover -s tests -p 'test_chronicles_ci_consolidation.py' -v
