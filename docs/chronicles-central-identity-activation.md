@@ -85,18 +85,45 @@ A scoped admin grant requires all of the following **before enabling**:
    `staging` + `central_admin=enable`; normal provisioning and production
    are unaffected. A manual read-only `oci-host-probe.yml` run remains
    available as an earlier diagnostic.
-4. Manually dispatch `chronicles-api-staging.yml`, action `provision`,
-   `environment=staging`, `central_identity=preserve` (or `enable` after
-   its usual backup prerequisites) and **`central_admin=enable`**.
-   This copies only the validated profile key into the private Chronicles
-   Vault bundle as `ADMIN_USERNAMES`; it does not touch Identity's roles,
-   passwords or central credentials. The provision action must not print it.
-5. Deploy the admitted Chronicles API through its owner workflow, then verify
-   with a real newly authenticated central session that `/api/auth/me`
-   returns `isAdmin:true` for the approved profile only; also verify the
-   `/api/chronicles/admin/users` census endpoint for the owner and an
-   unrelated account (403), and confirm the in-game menu. Check the exact
-   running image SHA and deployed runtime before closing the incident.
+4. **Preferred one-dispatch operation:** in `chronicles-api-staging.yml`
+   choose `action=grant-admin`, `environment=staging`,
+   `central_identity=preserve` (or `enable` only after the usual
+   Identity backup prerequisites). Select `main` and leave `source_sha`
+   empty to use the admitted, current Chronicles source. This action
+   **overrides** `central_admin` to `enable` and ignores `only_if_new`,
+   so the granted profile is copied only to the private Chronicles Vault
+   bundle and the already-signed Chronicles API is **re-deployed even for
+   an unchanged source SHA**. The action also **preserves** an existing
+   password-recovery `RESEND_API_KEY` (or leaves it absent) rather than
+   silently changing the `email_recovery` setting; inability to read its
+   previous state fails before cloud mutation. Provision must succeed
+   before image admission;
+   a failed preflight/secret, unsupported environment or failed provision
+   **cannot start deploy**. The same root-owned wrapper check, protected
+   environment, source CI, image attestation, OCI freshness and public
+   staging smoke apply as in the independent operations. Production is
+   not an allowed grant target.
+5. If needed for recovery or rollback, the original two-dispatch sequence
+   still works: `action=provision`, `environment=staging`,
+   `central_admin=enable`, then `action=deploy`. The one-dispatch action
+   is an operator convenience, **not** permission to skip the independent
+   identity-ownership approval or protected secret in steps 1 and 2.
+6. After the deployment finishes, verify with a **real newly authenticated**
+   central session that `/api/auth/me` returns `isAdmin:true` for the
+   approved profile only; verify the `/api/chronicles/admin/users` census
+   endpoint for the owner and an unrelated account (403), and confirm
+   the in-game panel. The job's existing public smoke does not authenticate
+   as the private admin, so it is **not proof** that the grant is active.
+   Check the exact running image SHA and runtime before closing the incident.
+
+The one-dispatch run **fails visibly** if the Chronicles source SHA is
+superseded between admission and OCI deploy; automated deploys continue
+to skip obsolete generations. If provisioning succeeds but admission or
+deploy fails, the reviewed Vault configuration may be staged without a
+successful rollout: retry the controlled `action=deploy` (after
+verifying the current source), or explicitly revoke via
+`action=provision` + `central_admin=disable` and redeploy. Never
+declare the role active on the strength of a successful Vault write alone.
 
 The default `central_admin=preserve` retains an **already reviewed** grant
 across ordinary reprovisioning. `central_admin=disable` removes it from the

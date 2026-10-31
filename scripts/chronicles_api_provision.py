@@ -283,9 +283,24 @@ def provision(env: Mapping[str, str], oci: Any, cf: Cloudflare) -> list[str]:
         raise ProvisionError("Cannot preserve central admin without an active Identity consumer")
     if admin_profile and central:
         values["ADMIN_USERNAMES"] = admin_profile
-    recovery = str(env.get("CHRONICLES_EMAIL_RECOVERY", "")).strip().lower() == "true"
-    if recovery:
-        values["RESEND_API_KEY"] = read_vault_secret(oci, config, vault_id, RESEND_SECRET_NAME)
+    recovery_mode = str(env.get("CHRONICLES_EMAIL_RECOVERY", "")).strip().lower()
+    if recovery_mode == "preserve":
+        if ENVIRONMENT != "staging" or admin_mode != "enable":
+            raise ProvisionError("Preserving email recovery is only allowed for a reviewed staging admin grant")
+        previous = existing_chronicles_bundle(oci, config, vault_id, compartment_id)
+        recovery_key = previous.get("RESEND_API_KEY")
+        if recovery_key is not None:
+            if (not recovery_key or any(ch in recovery_key for ch in "'\x00\r\n") or
+                    len(recovery_key) > 4096):
+                raise ProvisionError("Existing email recovery could not be preserved")
+            values["RESEND_API_KEY"] = recovery_key
+        recovery = recovery_key is not None
+    else:
+        if recovery_mode not in {"", "true", "false"}:
+            raise ProvisionError("Invalid email recovery mode")
+        recovery = recovery_mode == "true"
+        if recovery:
+            values["RESEND_API_KEY"] = read_vault_secret(oci, config, vault_id, RESEND_SECRET_NAME)
 
     # Only mutate cloud resources after the existing Identity/role configuration
     # and optional recovery key have passed validation.

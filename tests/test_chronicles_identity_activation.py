@@ -184,6 +184,59 @@ class ActivationTests(unittest.TestCase):
    self.assertIn('ADMIN_USERNAMES='+valid+'\n',bundle)
    self.assertIn('SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL='+SOC+'\n',bundle)
 
+ def test_grant_preserves_existing_email_recovery_without_unrelated_changes(self):
+  valid='shadowops:staging:11111111-1111-4111-8111-111111111111'
+  for previous, should_fail in [
+      ({'RESEND_API_KEY':'re_existing_valid_key'},False),
+      ({},False),
+      ({'RESEND_API_KEY':"re_malformed'key"},True),
+      ({'RESEND_API_KEY':'re_embedded\nnewline'},True),
+  ]:
+   with self.subTest(previous=bool(previous),should_fail=should_fail):
+    with (patch.object(provision,'read_inputs',return_value=dict(BASE)),
+          patch('oci_control_plane.config_from_env',return_value={}),
+          patch('oci_control_plane.resolve_existing_host',return_value=('compartment','instance')),
+          patch.object(provision,'resolve_vault',return_value=('vault','key','compartment')),
+          patch.object(provision,'central_credential',return_value=SOC),
+          patch.object(provision,'central_admin_profile',return_value=valid),
+          patch.object(provision,'existing_chronicles_bundle',return_value=previous) as existing,
+          patch.object(provision,'read_vault_secret') as resend,
+          patch.object(provision,'ensure_tunnel',return_value='tid') as tunnel,
+          patch.object(provision,'configure_tunnel') as configure,
+          patch.object(provision,'tunnel_token',return_value='t'*80) as token,
+          patch.object(provision,'ensure_dns',return_value='unchanged') as dns,
+          patch.object(provision,'upsert_bundle',return_value='updated') as write):
+     env={'CHRONICLES_CENTRAL_ADMIN':'enable','CHRONICLES_EMAIL_RECOVERY':'preserve',
+          'CHRONICLES_STAGING_CENTRAL_ADMIN_PROFILE':valid}
+     if should_fail:
+      with self.assertRaises(provision.ProvisionError):
+       provision.provision(env,None,None)
+      for effect in (tunnel,configure,token,dns,write):
+       effect.assert_not_called()
+     else:
+      provision.provision(env,None,None)
+      rendered=write.call_args.args[-1].decode()
+      self.assertIn('ADMIN_USERNAMES='+valid+'\n',rendered)
+      self.assertIn('SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL='+SOC+'\n',rendered)
+      if 'RESEND_API_KEY' in previous:
+       self.assertIn('RESEND_API_KEY='+previous['RESEND_API_KEY']+'\n',rendered)
+      else:
+       self.assertNotIn('RESEND_API_KEY=',rendered)
+     existing.assert_called_once()
+     resend.assert_not_called()
+
+ def test_recovery_preserve_is_not_an_unreviewed_general_provision_mode(self):
+  with (patch.object(provision,'read_inputs',return_value=dict(BASE)),
+        patch('oci_control_plane.config_from_env',return_value={}),
+        patch('oci_control_plane.resolve_existing_host',return_value=('compartment','instance')),
+        patch.object(provision,'resolve_vault',return_value=('vault','key','compartment')),
+        patch.object(provision,'central_credential',return_value=SOC),
+        patch.object(provision,'central_admin_profile',return_value=None),
+        patch.object(provision,'ensure_tunnel') as tunnel):
+   with self.assertRaises(provision.ProvisionError):
+    provision.provision({'CHRONICLES_EMAIL_RECOVERY':'preserve'},None,None)
+   tunnel.assert_not_called()
+
  def test_cross_environment_enable_is_denied_before_cloud_mutation(self):
   with patch.object(provision,'ENVIRONMENT','production'),self.assertRaises(provision.ProvisionError):
    provision.provision({'CHRONICLES_CENTRAL_IDENTITY':'enable'},None,None)

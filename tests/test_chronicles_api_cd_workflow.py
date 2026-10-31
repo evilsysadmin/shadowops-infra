@@ -61,6 +61,114 @@ class StagingConvergenceContracts(unittest.TestCase):
         self.assertNotIn("CHRONICLES_STAGING_CENTRAL_ADMIN_PROFILE",
                          self.workflow["jobs"]["deploy"].get("env", {}))
 
+    def test_single_dispatch_admin_grant_provisions_then_deploys_only_in_staging(self):
+        inputs = self.workflow["on"]["workflow_dispatch"]["inputs"]
+        self.assertEqual(inputs["action"]["options"], ["provision", "deploy", "grant-admin"])
+        provision = self.workflow["jobs"]["provision"]
+        self.assertIn("inputs.action == 'provision'", provision["if"])
+        self.assertIn("inputs.action == 'grant-admin' && inputs.environment == 'staging'", provision["if"])
+        self.assertIn("refs/heads/main", provision["if"])
+        self.assertIn("evilsysadmin/shadowops-infra", provision["if"])
+        self.assertEqual(provision["environment"]["name"], "${{ inputs.environment }}")
+        self.assertIn("inputs.action == 'grant-admin' && 'enable'",
+                      provision["env"]["CHRONICLES_CENTRAL_ADMIN"])
+        self.assertIn("inputs.central_admin || 'preserve'",
+                      provision["env"]["CHRONICLES_CENTRAL_ADMIN"])
+        self.assertIn("secrets.CHRONICLES_STAGING_CENTRAL_ADMIN_PROFILE",
+                      provision["env"]["CHRONICLES_STAGING_CENTRAL_ADMIN_PROFILE"])
+        guard = next(step for step in provision["steps"]
+                     if step.get("name") == "Require current root-owned OCI wrapper before granting central admin")
+        self.assertIn("inputs.action == 'grant-admin'", guard["if"])
+        self.assertLess(provision["steps"].index(guard),
+                        next(i for i, step in enumerate(provision["steps"]
+                                                       ) if step.get("name", "").startswith("Provision (")))
+
+        admit = self.workflow["jobs"]["admit"]
+        self.assertEqual(admit["needs"], ["contracts", "provision"])
+        self.assertIn("always()", admit["if"])
+        self.assertIn("needs.contracts.result == 'success'", admit["if"])
+        self.assertIn("inputs.action == 'grant-admin' && inputs.environment == 'staging'", admit["if"])
+        self.assertIn("needs.provision.result == 'success'", admit["if"])
+        self.assertIn("inputs.action == 'deploy'", admit["if"])
+        self.assertIn("github.event_name == 'schedule'", admit["if"])
+        self.assertIn("github.event_name == 'push'", admit["if"])
+        self.assertIn("refs/heads/main", admit["if"])
+        self.assertIn("evilsysadmin/shadowops-infra", admit["if"])
+        self.assertEqual(self.workflow["jobs"]["deploy"]["needs"], "admit")
+        self.assertIn("needs.admit.outputs.deploy_needed", self.workflow["jobs"]["deploy"]["if"])
+        self.assertNotIn("CHRONICLES_STAGING_CENTRAL_ADMIN_PROFILE",
+                         self.workflow["jobs"]["deploy"].get("env", {}))
+
+    def test_admin_grant_production_is_a_hard_failure_not_a_skipped_success(self):
+        contracts = self.workflow["jobs"]["contracts"]
+        guard = next(step for step in contracts["steps"]
+                     if step.get("name") == "Reject administrative grant outside staging")
+        self.assertEqual(
+            guard["if"],
+            "github.event_name == 'workflow_dispatch' && inputs.action == 'grant-admin' && inputs.environment != 'staging'")
+        self.assertIn("CHRONICLES_ADMIN_GRANT_BLOCKED staging-only", guard["run"])
+        self.assertIn("exit 65", guard["run"])
+        self.assertLess(contracts["steps"].index(guard), next(
+            i for i, step in enumerate(contracts["steps"])
+            if "test_chronicles_api_host_deploy.py" in str(step.get("run", ""))))
+
+    def test_admin_grant_forces_redeploy_and_disallows_silent_stale_skip(self):
+        admit = self.workflow["jobs"]["admit"]
+        self.assertIn("inputs.action == 'grant-admin' && 'false'",
+                      admit["env"]["ONLY_IF_NEW"])
+        selection = next(step["run"] for step in admit["steps"]
+                         if step.get("id") == "candidate")
+        self.assertIn('GITHUB_EVENT_NAME', selection)
+        self.assertIn("ONLY_IF_NEW", selection)
+        deploy = self.workflow["jobs"]["deploy"]
+        preflight = next(step for step in deploy["steps"]
+                         if step.get("id") == "staging_preflight")
+        late = next(step for step in deploy["steps"]
+                    if step.get("id") == "staging_freshness")
+        for guard in (preflight, late):
+            self.assertEqual(guard["env"]["GRANT_ADMIN"], "${{ inputs.action == 'grant-admin' }}")
+            self.assertIn('if [[ "${GRANT_ADMIN:-false}" == \'true\' ]]; then', guard["run"])
+            self.assertIn("CHRONICLES_ADMIN_GRANT_DEPLOY_BLOCKED", guard["run"])
+            self.assertIn("exit 65", guard["run"])
+        self.assertIn("CHRONICLES_OCI_STALE_SOURCE_PRECHECK_SKIPPED", preflight["run"])
+        self.assertIn("CHRONICLES_OCI_STALE_SOURCE_SKIPPED", late["run"])
+
+    def test_grant_admin_stale_source_fails_before_any_deployment(self):
+        steps = self.workflow["jobs"]["deploy"]["steps"]
+        guards = [next(step["run"] for step in steps if step.get("id") == guard_id)
+                  for guard_id in ("staging_preflight", "staging_freshness")]
+        sha = "a" * 40
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            gh = root / "gh"
+            gh.write_text('#!/bin/sh\n'
+                          'printf "%s\\n" "$FAKE_MAIN_SHA"\n')
+            gh.chmod(0o755)
+            for guard in guards:
+                for grant_admin, expected_code, expected_output in (
+                    ("true", 65, ""),
+                    ("false", 0, "fresh=false"),
+                ):
+                    with self.subTest(grant_admin=grant_admin, guard=guard[:40]):
+                        output = root / "output"
+                        summary = root / "summary"
+                        output.write_text("")
+                        summary.write_text("")
+                        env = dict(os.environ,
+                                   PATH=f"{root}{os.pathsep}{os.environ.get('PATH', '')}",
+                                   GRANT_ADMIN=grant_admin, ADMITTED_SHA=sha,
+                                   FAKE_MAIN_SHA="b" * 40,
+                                   GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(summary))
+                        result = subprocess.run(["bash", "-c", guard], env=env,
+                                                capture_output=True, text=True, check=False)
+                        self.assertEqual(result.returncode, expected_code, result.stderr)
+                        self.assertEqual(output.read_text().strip(), expected_output)
+                        if grant_admin == "true":
+                            self.assertIn("CHRONICLES_ADMIN_GRANT_DEPLOY_BLOCKED", result.stderr)
+                            self.assertNotIn("SKIPPED", result.stdout)
+                        else:
+                            self.assertIn("STALE_SOURCE", result.stdout)
+
     def test_admin_grant_checks_live_installed_wrapper_before_any_cloud_mutation(self):
         provision = self.workflow["jobs"]["provision"]
         steps = provision["steps"]
@@ -70,7 +178,7 @@ class StagingConvergenceContracts(unittest.TestCase):
         self.assertIn(guard, by_name)
         self.assertLess(steps.index(by_name[guard]), steps.index(by_name[update]))
         self.assertEqual(by_name[guard]["if"],
-                         "inputs.environment == 'staging' && inputs.central_admin == 'enable'")
+                         "inputs.environment == 'staging' && (inputs.central_admin == 'enable' || inputs.action == 'grant-admin')")
         command = by_name[guard]["run"]
         self.assertEqual(by_name[guard]["env"]["GH_TOKEN"], "${{ github.token }}")
         self.assertIn("scripts/oci_host_probe.py wrapper", command)

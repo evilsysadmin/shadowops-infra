@@ -43,9 +43,9 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: provision = tunnel + DNS + Vault bundle; deploy = run an admitted image on the A1
+        description: provision = Vault/DNS; deploy = admitted API image; grant-admin = reviewed staging grant + deploy
         type: choice
-        options: [provision, deploy]
+        options: [provision, deploy, grant-admin]
         required: true
       environment:
         description: Target environment
@@ -87,6 +87,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Reject administrative grant outside staging
+        if: github.event_name == 'workflow_dispatch' && inputs.action == 'grant-admin' && inputs.environment != 'staging'
+        run: |
+          echo 'CHRONICLES_ADMIN_GRANT_BLOCKED staging-only' >&2
+          exit 65
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_host_deploy.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_wrapper_check.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_identity_activation.py' -v
@@ -108,7 +113,11 @@ jobs:
       group: shadowops-oci-host-operations
       cancel-in-progress: false
     needs: contracts
-    if: github.event_name == 'workflow_dispatch' && inputs.action == 'provision' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.action == 'provision' || (inputs.action == 'grant-admin' && inputs.environment == 'staging')) &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'evilsysadmin/shadowops-infra'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment:
@@ -125,9 +134,9 @@ jobs:
       CHRONICLES_STAGING_MONGO_URL: ${{ secrets.CHRONICLES_STAGING_MONGO_URL }}
       CHRONICLES_STAGING_JWT_SECRET: ${{ secrets.CHRONICLES_STAGING_JWT_SECRET }}
       CHRONICLES_STAGING_INVITE_CODE: ${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}
-      CHRONICLES_EMAIL_RECOVERY: ${{ inputs.email_recovery }}
+      CHRONICLES_EMAIL_RECOVERY: ${{ inputs.action == 'grant-admin' && 'preserve' || inputs.email_recovery }}
       CHRONICLES_CENTRAL_IDENTITY: ${{ inputs.central_identity || 'preserve' }}
-      CHRONICLES_CENTRAL_ADMIN: ${{ inputs.central_admin || 'preserve' }}
+      CHRONICLES_CENTRAL_ADMIN: ${{ inputs.action == 'grant-admin' && 'enable' || inputs.central_admin || 'preserve' }}
       CHRONICLES_STAGING_CENTRAL_ADMIN_PROFILE: ${{ secrets.CHRONICLES_STAGING_CENTRAL_ADMIN_PROFILE }}
       CHRONICLES_PRODUCTION_MONGO_URL: ${{ secrets.CHRONICLES_PRODUCTION_MONGO_URL }}
       CHRONICLES_PRODUCTION_JWT_SECRET: ${{ secrets.CHRONICLES_PRODUCTION_JWT_SECRET }}
@@ -141,7 +150,7 @@ jobs:
           python-version: '3.13'
       - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
       - name: Require current root-owned OCI wrapper before granting central admin
-        if: inputs.environment == 'staging' && inputs.central_admin == 'enable'
+        if: inputs.environment == 'staging' && (inputs.central_admin == 'enable' || inputs.action == 'grant-admin')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -172,10 +181,17 @@ jobs:
 
   admit:
     name: Admit the signed Chronicles API image (no OCI secrets)
-    needs: contracts
+    needs: [contracts, provision]
+    # The provision job is intentionally skipped for ordinary deploy/push/schedule.
+    # always() keeps those existing paths live; grant-admin instead requires a
+    # successful protected staging provision before ANY image admission/deploy.
     if: >-
+      always() && needs.contracts.result == 'success' &&
       (github.event_name == 'schedule' || github.event_name == 'push' ||
-       (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy')) &&
+       (github.event_name == 'workflow_dispatch' &&
+        (inputs.action == 'deploy' ||
+         (inputs.action == 'grant-admin' && inputs.environment == 'staging' &&
+          needs.provision.result == 'success')))) &&
       github.ref == 'refs/heads/main' &&
       github.repository == 'evilsysadmin/shadowops-infra'
     runs-on: ubuntu-24.04
@@ -191,7 +207,8 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       REQUESTED_SHA: ${{ inputs.source_sha }}
-      ONLY_IF_NEW: ${{ inputs.only_if_new || 'false' }}
+      # A grant must always redeploy even if the source SHA was already verified.
+      ONLY_IF_NEW: ${{ inputs.action == 'grant-admin' && 'false' || inputs.only_if_new || 'false' }}
       IMAGE: ghcr.io/evilsysadmin/chronicles-api
     steps:
       - uses: actions/checkout@v4
@@ -309,6 +326,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ADMITTED_SHA: ${{ needs.admit.outputs.source_sha }}
+          GRANT_ADMIN: ${{ inputs.action == 'grant-admin' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -322,6 +340,10 @@ jobs:
             exit 65
           }
           if [[ "$ADMITTED_SHA" != "$current" ]]; then
+            if [[ "${GRANT_ADMIN:-false}" == 'true' ]]; then
+              echo 'CHRONICLES_ADMIN_GRANT_DEPLOY_BLOCKED superseded-source' >&2
+              exit 65
+            fi
             echo "CHRONICLES_OCI_STALE_SOURCE_PRECHECK_SKIPPED sha=$ADMITTED_SHA"
             echo '::notice title=Chronicles staging superseded::Skipping OCI SDK setup because the source is no longer main.'
             echo 'fresh=false' >> "$GITHUB_OUTPUT"
@@ -347,6 +369,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ADMITTED_SHA: ${{ needs.admit.outputs.source_sha }}
+          GRANT_ADMIN: ${{ inputs.action == 'grant-admin' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -362,6 +385,10 @@ jobs:
             exit 65
           }
           if [[ "$ADMITTED_SHA" != "$current" ]]; then
+            if [[ "${GRANT_ADMIN:-false}" == 'true' ]]; then
+              echo 'CHRONICLES_ADMIN_GRANT_DEPLOY_BLOCKED superseded-source' >&2
+              exit 65
+            fi
             echo "CHRONICLES_OCI_STALE_SOURCE_SKIPPED sha=$ADMITTED_SHA"
             echo '::notice title=Chronicles API staging superseded::The admitted source is no longer main; no OCI mutation or verified receipt will run.'
             echo 'fresh=false' >> "$GITHUB_OUTPUT"
