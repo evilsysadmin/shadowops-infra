@@ -80,6 +80,21 @@ class HostTests(unittest.TestCase):
         for change in [{'Internal':False},{'Name':'other'},{'Labels':{}}]:
             with self.assertRaises(contract.AccountError):host.verify_identity_network([{**good,**change}])
 
+    def test_redeploy_recreates_processes_to_reload_atomic_secret_files(self):
+        calls=[]
+        def run(args,**kwargs):
+            calls.append(args)
+            if args[:3]==['docker','network','inspect']:
+                return json.dumps([{'Name':'shadowops-identity-staging-origin','Internal':True,'Labels':{'com.docker.compose.project':'shadowops-identity-staging'}}])
+            if args[0]==host.SDK:return base64.b64encode(json.dumps(BUNDLE).encode()).decode()
+            if 'config' in args:return json.dumps(document())
+            return ''
+        with patch.object(host,'verify_policy',return_value='c'*40),patch.object(host,'fresh_backup'),patch.object(host,'verify_shared_a1_containers'),patch.object(host,'verify_existing'),patch.object(host,'run',side_effect=run),patch.object(host,'private'),patch('builtins.print'):
+            host.deploy(DIGEST,SHA,VAULT)
+        up=next(args for args in calls if 'up' in args)
+        self.assertIn('--force-recreate',up)
+        self.assertFalse(any('down' in args or 'rm' in args for args in calls))
+
     def test_stopped_or_running_foreign_containers_cannot_be_adopted(self):
         row={'Labels':{'com.docker.compose.project':contract.PROJECT,'com.docker.compose.service':'cka-account'},
              'Bindings':{},'Privileged':False,'NetworkMode':'private','Mounts':[{'Type':'bind','RW':False,'Source':str(host.ROOT/'account.json'),'Destination':'/run/secrets/cka-account-staging.json'}]}

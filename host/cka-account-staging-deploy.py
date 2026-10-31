@@ -195,7 +195,7 @@ def deploy(digest,sha,vault):
     compose_policy(json.loads(run(cmd+['config','--format','json'],env=env)),digest)
     # No host ports, Docker socket, persistent volumes or lab credentials exist.
     run(cmd+['pull'],env=env,timeout=240)
-    run(cmd+['up','-d','--wait','--wait-timeout','150'],env=env,timeout=180)
+    run(cmd+['up','-d','--force-recreate','--wait','--wait-timeout','150'],env=env,timeout=180)
     run(cmd+['exec','-T','--user','65532:65532','cka-account','python','-c',SMOKE,sha],env=env,timeout=30)
     verify_shared_a1_containers();verify_existing()
     private(STATE/'release.json',json.dumps({'schema':1,'environment':'staging','source_sha':sha,
