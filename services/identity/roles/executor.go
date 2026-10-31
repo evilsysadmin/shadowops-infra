@@ -18,15 +18,15 @@ import (
 )
 
 const (
-	roleDatabase = "shadowops_identity_staging"
-	roleJournal = "admin_role_change_journal"
-	rolePolicy = "admin_signer_policy"
-	rolePolicyID = "staging:set-role"
+	roleDatabase     = "shadowops_identity_staging"
+	roleJournal      = "admin_role_change_journal"
+	rolePolicy       = "admin_signer_policy"
+	rolePolicyID     = "staging:set-role"
 	roleJournalIndex = "staging_role_nonce_unique"
 )
 
 var (
-	ErrRoleStore = errors.New("staging role transaction or audit unavailable")
+	ErrRoleStore    = errors.New("staging role transaction or audit unavailable")
 	ErrRoleConflict = errors.New("staging role change conflict")
 )
 
@@ -35,14 +35,14 @@ var (
 // must not be the public service's credentials. Its constructor refuses
 // unprovisioned or expiring audit indexes; it does not create any DDL.
 type StagingRoleExecutor struct {
-	client *mongo.Client
-	accounts *mongo.Collection
-	sessions *mongo.Collection
-	tokens *mongo.Collection
-	journal *mongo.Collection
-	policy *mongo.Collection
-	verifier *ApprovalVerifier
-	afterAccountWrite func() error // test-only fault injection
+	client             *mongo.Client
+	accounts           *mongo.Collection
+	sessions           *mongo.Collection
+	tokens             *mongo.Collection
+	journal            *mongo.Collection
+	policy             *mongo.Collection
+	verifier           *ApprovalVerifier
+	afterAccountWrite  func() error // test-only fault injection
 	afterSessionDelete func() error // test-only fault injection
 }
 
@@ -62,12 +62,12 @@ func verifyRoleJournal(ctx context.Context, journal *mongo.Collection) error {
 		return ErrRoleStore
 	}
 	var indexes []struct {
-		Name string `bson:"name"`
-		Key bson.D `bson:"key"`
-		Unique bool `bson:"unique"`
-		Sparse bool `bson:"sparse"`
+		Name    string   `bson:"name"`
+		Key     bson.D   `bson:"key"`
+		Unique  bool     `bson:"unique"`
+		Sparse  bool     `bson:"sparse"`
 		Partial bson.Raw `bson:"partialFilterExpression"`
-		TTL *int64 `bson:"expireAfterSeconds"`
+		TTL     *int64   `bson:"expireAfterSeconds"`
 	}
 	if err := cursor.All(ctx, &indexes); err != nil {
 		return ErrRoleStore
@@ -145,9 +145,13 @@ func (r *StagingRoleExecutor) ApplyApprovedRoleChange(ctx context.Context, signe
 		}
 		signedAt := time.Unix(a.IssuedAt, 0).UTC()
 		cutoff := signedAt
-		if now.Before(cutoff) { cutoff = now }
+		if now.Before(cutoff) {
+			cutoff = now
+		}
 		expiresAfter := signedAt
-		if now.After(expiresAfter) { expiresAfter = now }
+		if now.After(expiresAfter) {
+			expiresAfter = now
+		}
 		policyFilter := bson.D{
 			{Key: "_id", Value: rolePolicyID}, {Key: "environment", Value: "staging"},
 			{Key: "action", Value: SetRoleAction}, {Key: "state", Value: "active"},
@@ -158,8 +162,12 @@ func (r *StagingRoleExecutor) ApplyApprovedRoleChange(ctx context.Context, signe
 			{Key: "not_after", Value: bson.D{{Key: "$gt", Value: expiresAfter}}},
 		}
 		policyWrite, err := r.policy.UpdateOne(tx, policyFilter, bson.D{{Key: "$inc", Value: bson.D{{Key: "use_fence", Value: int64(1)}}}})
-		if err != nil { return nil, err }
-		if policyWrite.ModifiedCount != 1 { return nil, ErrRoleApprovalDenied }
+		if err != nil {
+			return nil, err
+		}
+		if policyWrite.ModifiedCount != 1 {
+			return nil, ErrRoleApprovalDenied
+		}
 
 		filter := bson.D{
 			{Key: "_id", Value: a.Subject}, {Key: "environment", Value: "staging"},
@@ -180,16 +188,26 @@ func (r *StagingRoleExecutor) ApplyApprovedRoleChange(ctx context.Context, signe
 			{Key: "$set", Value: bson.D{{Key: "role", Value: string(a.To)}}},
 			{Key: "$inc", Value: bson.D{{Key: "session_version", Value: int64(1)}}},
 		})
-		if err != nil { return nil, err }
-		if result.ModifiedCount != 1 { return nil, ErrRoleConflict }
+		if err != nil {
+			return nil, err
+		}
+		if result.ModifiedCount != 1 {
+			return nil, ErrRoleConflict
+		}
 		if r.afterAccountWrite != nil {
-			if err := r.afterAccountWrite(); err != nil { return nil, err }
+			if err := r.afterAccountWrite(); err != nil {
+				return nil, err
+			}
 		}
 		if _, err := r.sessions.DeleteMany(tx, bson.D{
 			{Key: "environment", Value: "staging"}, {Key: "subject", Value: a.Subject},
-		}); err != nil { return nil, err }
+		}); err != nil {
+			return nil, err
+		}
 		if r.afterSessionDelete != nil {
-			if err := r.afterSessionDelete(); err != nil { return nil, err }
+			if err := r.afterSessionDelete(); err != nil {
+				return nil, err
+			}
 		}
 		if _, err := r.tokens.UpdateMany(tx, bson.D{
 			{Key: "subject", Value: a.Subject}, {Key: "active", Value: true},
@@ -212,8 +230,14 @@ func (r *StagingRoleExecutor) ApplyApprovedRoleChange(ctx context.Context, signe
 		})
 		return nil, err
 	}, txn)
-	if err == nil { return nil }
-	if errors.Is(err, ErrRoleConflict) || mongo.IsDuplicateKeyError(err) { return ErrRoleConflict }
-	if errors.Is(err, ErrRoleApprovalDenied) { return ErrRoleApprovalDenied }
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, ErrRoleConflict) || mongo.IsDuplicateKeyError(err) {
+		return ErrRoleConflict
+	}
+	if errors.Is(err, ErrRoleApprovalDenied) {
+		return ErrRoleApprovalDenied
+	}
 	return ErrRoleStore
 }
