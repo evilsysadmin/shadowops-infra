@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import base64
 import importlib.util
+import io
 import json
 import pathlib
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -152,6 +154,48 @@ class ChroniclesApiHostDeployTests(unittest.TestCase):
         config["services"]["chronicles-tunnel"]["environment"]["MONGO_URL"] = "leak"
         with tempfile.TemporaryDirectory() as tmp, self.assertRaises(api.ReleaseError):
             run_deploy(Runner(config=config), tmp)
+
+    def test_host_phase_timing_is_bounded_and_never_contains_secrets(self):
+        self.assertEqual(
+            api.host_phase_timing((0, 2, 5, 9, 14, 30, 34, 70, 75, 76)),
+            "CHRONICLES_API_OCI_HOST_PHASE_SECONDS guard=2 vault=3 runtime=4 "
+            "compose=5 pull=16 recheck=4 up=36 smoke=5 receipt=1",
+        )
+        self.assertEqual(
+            api.host_phase_timing((10, 9, 8, 7, 6, 5, 4, 3, 2, 1)),
+            "CHRONICLES_API_OCI_HOST_PHASE_SECONDS guard=0 vault=0 runtime=0 "
+            "compose=0 pull=0 recheck=0 up=0 smoke=0 receipt=0",
+        )
+        self.assertNotIn(DIGEST, api.host_phase_timing(tuple(range(10))))
+        self.assertNotIn(VAULT, api.host_phase_timing(tuple(range(10))))
+        with self.assertRaises(ValueError):
+            api.host_phase_timing((0, 1))
+
+    def test_success_emits_one_fixed_timing_line_before_existing_marker(self):
+        runner = Runner()
+        fake_clock = iter((0, 2, 5, 9, 14, 30, 34, 70, 75, 76))
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp, redirect_stdout(output):
+            result = api.deploy(DIGEST, VAULT, runner=runner, guard=lambda _r: None,
+                                smoke=lambda: None, state=pathlib.Path(tmp, "state"),
+                                runtime=pathlib.Path(tmp, "runtime"), require_root=False,
+                                clock=lambda: next(fake_clock))
+            # Mirror main()'s final marker print, relied on by OCI admission.
+            print(result)
+        lines = output.getvalue().splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(lines[-1], api.STAGING.marker + " digest=" + DIGEST)
+        self.assertEqual(lines[0], api.host_phase_timing(
+            (0, 2, 5, 9, 14, 30, 34, 70, 75, 76)))
+        self.assertNotIn(SECRETS["MONGO_URL"], output.getvalue())
+        self.assertNotIn(VAULT, output.getvalue())
+
+    def test_failure_emits_no_success_timing_or_receipt(self):
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp, redirect_stdout(output):
+            with self.assertRaises(api.ReleaseError):
+                run_deploy(Runner(fail_at="up"), tmp)
+        self.assertEqual(output.getvalue(), "")
 
     def test_failed_docker_step_does_not_record_a_verified_release(self):
         with tempfile.TemporaryDirectory() as tmp:
