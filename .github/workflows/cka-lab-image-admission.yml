@@ -1,0 +1,54 @@
+name: CKA labs · signed image admission (read-only)
+on:
+  pull_request:
+    paths:
+      - 'scripts/cka_lab_image_admission.mjs'
+      - 'tests/cka_lab_image_admission.test.mjs'
+      - 'docs/cka-lab-staging.md'
+      - '.github/workflows/cka-lab-image-admission.yml'
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'Exact 40-character protected CKA main commit (not a branch or tag)'
+        required: true
+        type: string
+      image_digest:
+        description: 'Published immutable multiarch GHCR digest (sha256:...)'
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate immutable admission and fail-closed boundaries offline
+        run: node --test tests/cka_lab_image_admission.test.mjs
+  verify-image:
+    name: Verify CKA protected-main CI, multiarch digest and signed source
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      packages: read
+      actions: read
+      attestations: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CKA_SOURCE_SHA: ${{ inputs.source_sha }}
+      CKA_IMAGE_DIGEST: ${{ inputs.image_digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - name: Refuse superseded Infra source before contacting GitHub registry
+        run: test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+      - name: Admit exact signed immutable CKA image without deployment
+        run: node scripts/cka_lab_image_admission.mjs "$CKA_SOURCE_SHA" "$CKA_IMAGE_DIGEST"
