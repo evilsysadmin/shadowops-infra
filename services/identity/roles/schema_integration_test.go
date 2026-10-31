@@ -99,7 +99,7 @@ func TestRoleJournalSchemaRejectsMissingCollectionAndUnsafeExistingIndex(t *test
 			t.Fatal(err)
 		}
 		_, err := db.Collection(roleJournal).Indexes().CreateOne(ctx, mongo.IndexModel{
-			Keys: bson.D{{Key: "executed_at", Value: int32(1)}},
+			Keys:    bson.D{{Key: "executed_at", Value: int32(1)}},
 			Options: options.Index().SetName("unsafe_retention").SetExpireAfterSeconds(60),
 		})
 		if err != nil {
@@ -113,7 +113,9 @@ func TestRoleJournalSchemaRejectsMissingCollectionAndUnsafeExistingIndex(t *test
 		if err != nil {
 			t.Fatal(err)
 		}
-		var entries []struct { Name string `bson:"name"` }
+		var entries []struct {
+			Name string `bson:"name"`
+		}
 		if err := cursor.All(ctx, &entries); err != nil {
 			t.Fatal(err)
 		}
