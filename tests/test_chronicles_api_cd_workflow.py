@@ -99,6 +99,19 @@ class StagingConvergenceContracts(unittest.TestCase):
         self.assertNotIn("CHRONICLES_STAGING_CENTRAL_ADMIN_PROFILE",
                          self.workflow["jobs"]["deploy"].get("env", {}))
 
+    def test_admin_grant_production_is_a_hard_failure_not_a_skipped_success(self):
+        contracts = self.workflow["jobs"]["contracts"]
+        guard = next(step for step in contracts["steps"]
+                     if step.get("name") == "Reject administrative grant outside staging")
+        self.assertEqual(
+            guard["if"],
+            "github.event_name == 'workflow_dispatch' && inputs.action == 'grant-admin' && inputs.environment != 'staging'")
+        self.assertIn("CHRONICLES_ADMIN_GRANT_BLOCKED staging-only", guard["run"])
+        self.assertIn("exit 65", guard["run"])
+        self.assertLess(contracts["steps"].index(guard), next(
+            i for i, step in enumerate(contracts["steps"])
+            if "test_chronicles_api_host_deploy.py" in str(step.get("run", ""))))
+
     def test_admin_grant_forces_redeploy_and_disallows_silent_stale_skip(self):
         admit = self.workflow["jobs"]["admit"]
         self.assertIn("inputs.action == 'grant-admin' && 'false'",
