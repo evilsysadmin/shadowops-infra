@@ -23,6 +23,22 @@ VAULT = re.compile(r"^ocid1\.vault\.[A-Za-z0-9._-]{10,200}$")
 MARKER = "CHRONICLES_API_OCI_STAGING_SMOKE_OK digest="
 BLOCKED = re.compile(r"^CHRONICLES_API_OCI_DEPLOY_BLOCKED type=[A-Za-z]{1,40} reason=[A-Za-z0-9 ,./:()'_-]{0,120}$")
 TERMINAL = {"SUCCEEDED", "FAILED", "TIMED_OUT", "CANCELED"}
+HOST_TIMING_PREFIX = "CHRONICLES_API_OCI_HOST_PHASE_SECONDS "
+HOST_TIMING_FIELDS = ("guard", "vault", "runtime", "compose", "pull", "recheck", "up", "smoke", "receipt")
+HOST_TIMING = re.compile(
+    "^" + HOST_TIMING_PREFIX +
+    " ".join(field + r"=(?:0|[1-9][0-9]{0,4})" for field in HOST_TIMING_FIELDS) + "$"
+)
+
+
+def trusted_host_timing(remote_output: str) -> str:
+    """Allowlist one bounded fixed-format timing line; never echo remote logs."""
+    candidates = [line for line in remote_output.splitlines()
+                  if line.startswith(HOST_TIMING_PREFIX)]
+    if len(candidates) == 1 and HOST_TIMING.fullmatch(candidates[0]):
+        return candidates[0]
+    return ""
+
 
 
 ENVIRONMENTS = ("staging", "production")
@@ -111,6 +127,9 @@ def execute(
                 reason = next((line for line in stdout.splitlines() if BLOCKED.fullmatch(line)), "")
                 raise InventoryError("Chronicles API root-wrapper smoke did not succeed"
                                      + (" | " + reason if reason else f" | status={status}"))
+            timing = trusted_host_timing(stdout)
+            if timing:
+                print(timing, flush=True)
             print(phase_timing(started, prepared, submitted, clock()), flush=True)
             print(marker + digest)
             return last

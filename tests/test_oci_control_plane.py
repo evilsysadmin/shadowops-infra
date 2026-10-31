@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace as NS
+from contextlib import redirect_stdout
+import io
 import os
 import sys
 import unittest
@@ -72,6 +74,8 @@ class TestOCIInventory(unittest.TestCase):
         digest = "sha256:" + "a" * 64
         vault = "ocid1.vault.oc1.eu-frankfurt-1.abcdefghijkl"
         marker = release.marker_for("staging") + digest
+        timing = ("CHRONICLES_API_OCI_HOST_PHASE_SECONDS guard=2 vault=3 runtime=4 "
+                  "compose=5 pull=16 recheck=4 up=36 smoke=5 receipt=1")
         commands = []
 
         class Agent:
@@ -82,7 +86,8 @@ class TestOCIInventory(unittest.TestCase):
             def get_instance_agent_command_execution(self, **kwargs):
                 commands.append(kwargs)
                 return NS(data=NS(lifecycle_state="SUCCEEDED",
-                                  content=NS(text=marker + "\n", exit_code=0)))
+                                  content=NS(text="SECRET_INTERNAL_LOG\n" + timing + "\n" + marker + "\n",
+                                             exit_code=0)))
 
         sdk.compute_instance_agent.models = NS(
             InstanceAgentCommandSourceViaTextDetails=lambda **kw: NS(**kw),
@@ -92,11 +97,15 @@ class TestOCIInventory(unittest.TestCase):
             CreateInstanceAgentCommandDetails=lambda **kw: NS(**kw),
         )
         sdk.compute_instance_agent.ComputeInstanceAgentClient = lambda cfg: Agent()
+        stdout = io.StringIO()
         with patch("chronicles_api_provision.resolve_vault",
-                   return_value=(vault, None, None)):
+                   return_value=(vault, None, None)), redirect_stdout(stdout):
             actual = release.execute(sdk, config, digest, pause=lambda _: None,
                                      clock=lambda: 100.0)
         self.assertEqual(actual, marker)
+        self.assertIn(timing + "\n", stdout.getvalue())
+        self.assertNotIn("SECRET_INTERNAL_LOG", stdout.getvalue())
+        self.assertEqual(stdout.getvalue().splitlines()[-1], marker)
         self.assertEqual([name for name, _ in sdk.observed],
                          ["validate", "list", "list", "plugin"])
         self.assertEqual(len(commands), 2, "Only one create and one poll allowed")
@@ -117,6 +126,24 @@ class TestOCIInventory(unittest.TestCase):
                 release.execute(sdk, cp.config_from_env(sdk, ENV), "sha256:" + "a" * 64)
         self.assertEqual([name for name, _ in sdk.observed],
                          ["validate", "list", "list", "plugin"])
+
+    def test_oci_only_exposes_verified_host_timings_after_success(self):
+        import oci_chronicles_api_release as release
+        sample = ("CHRONICLES_API_OCI_HOST_PHASE_SECONDS guard=2 vault=3 runtime=4 "
+                  "compose=5 pull=16 recheck=4 up=36 smoke=5 receipt=1")
+        self.assertEqual(release.trusted_host_timing("secret line\n" + sample + "\n"),
+                         sample)
+        for body in (
+            "secret line\n",
+            sample + "\n" + sample,
+            sample + " VAULT_ID=sensitive",
+            sample.replace("pull=16", "pull=-16"),
+            sample.replace("pull=16", "pull=012"),
+            sample.replace("pull=16", "pull=100000"),
+            sample.replace("receipt=1", "receipt=1 SECRET=abc"),
+        ):
+            with self.subTest(body=body[:40]):
+                self.assertEqual(release.trusted_host_timing(body), "")
 
     def test_missing_credential_never_calls_sdk(self):
         sdk = FakeSDK()

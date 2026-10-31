@@ -22,6 +22,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Mapping
@@ -356,13 +357,29 @@ def private_dir(path: Path, *, require_root: bool) -> None:
         raise ReleaseError("Private directory must remain root-only")
 
 
+HOST_PHASE_NAMES = ("guard", "vault", "runtime", "compose", "pull", "recheck", "up", "smoke", "receipt")
+
+
+def host_phase_timing(stamps: tuple[float, ...]) -> str:
+    """Fixed labels and bounded integers only; never emit command or secret data."""
+    if len(stamps) != len(HOST_PHASE_NAMES) + 1:
+        raise ValueError("Invalid host timing checkpoints")
+    values = (min(99999, max(0, int(end - start)))
+              for start, end in zip(stamps, stamps[1:]))
+    return "CHRONICLES_API_OCI_HOST_PHASE_SECONDS " + " ".join(
+        f"{label}={seconds}" for label, seconds in zip(HOST_PHASE_NAMES, values)
+    )
+
+
 def deploy(
     digest: str, vault_id: str, environment: str = "staging", *, runner: Callable = subprocess.run,
     guard: Callable = verify_shared_a1_containers, smoke: Callable | None = None,
     bundle_reader: Callable = read_bundle, state: Path | None = None, runtime: Path | None = None,
     policy: Path | None = None, require_root: bool = True,
+    clock: Callable[[], float] = time.monotonic,
 ) -> str:
     validate_request("deploy", digest, vault_id, environment)
+    stamps = [clock()]
     target = TARGETS[environment]
     state = state or target.state
     runtime = runtime or target.runtime
@@ -383,10 +400,13 @@ def deploy(
             guard(runner)
         except SharedHostError as exc:
             raise ReleaseError("Shared A1 ownership guard rejected host state") from exc
+        stamps.append(clock())
         bundle = bundle_reader(vault_id, runner, target)
         if require_root and target.name == 'staging' and bundle.get('SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL'):
             verify_identity_backup()
+        stamps.append(clock())
         write_runtime(bundle, runtime, target)
+        stamps.append(clock())
         config_text = checked_run(runner, fixed_compose_args("config", "--format", "json", target=target),
                                   values, output=True, target=target)
         try:
@@ -394,18 +414,27 @@ def deploy(
         except ValueError as exc:
             raise ReleaseError("Compose configuration returned invalid JSON") from exc
         assert_compose(config, digest, target)
+        stamps.append(clock())
         checked_run(runner, fixed_compose_args("pull", API, TUNNEL, target=target), values, target=target)
+        stamps.append(clock())
         try:
             guard(runner)
         except SharedHostError as exc:
             raise ReleaseError("Shared A1 changed during admission") from exc
+        stamps.append(clock())
         (state / "last-verified-api.json").unlink(missing_ok=True)
         checked_run(runner, fixed_compose_args(
             "up", "--detach", "--wait", "--wait-timeout", "150", "--no-build",
             "--pull", "never", "--remove-orphans", API, TUNNEL, target=target,
         ), values, target=target)
+        stamps.append(clock())
         smoke()
+        stamps.append(clock())
         persist_receipt(state, digest, target)
+        stamps.append(clock())
+    # Output stays bounded and has no secrets. The exact success marker must
+    # remain the FINAL stdout line for OCI receipt admission.
+    print(host_phase_timing(tuple(stamps)), flush=True)
     return target.marker + " digest=" + digest
 
 
