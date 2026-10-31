@@ -181,8 +181,8 @@ class ActivationTests(unittest.TestCase):
    self.assertEqual(trace,['vault','identity','grant','recovery','tunnel','configure','token','dns','write'])
    self.assertTrue(any('CHRONICLES_API_VAULT_BUNDLE_OK' in marker for marker in markers))
    bundle=saved.call_args.args[-1].decode()
-   self.assertIn('ADMIN_USERNAMES='+valid+'\\n',bundle)
-   self.assertIn('SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL='+SOC+'\\n',bundle)
+   self.assertIn('ADMIN_USERNAMES='+valid+'\n',bundle)
+   self.assertIn('SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL='+SOC+'\n',bundle)
 
  def test_cross_environment_enable_is_denied_before_cloud_mutation(self):
   with patch.object(provision,'ENVIRONMENT','production'),self.assertRaises(provision.ProvisionError):
