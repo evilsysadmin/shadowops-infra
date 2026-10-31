@@ -19,6 +19,8 @@ on:
       - 'tests/test_chronicles_public_browser_workflow.py'
       - 'scripts/chronicles_api_before_pages.py'
       - 'scripts/chronicles_pages_verified_receipt.py'
+      - 'scripts/chronicles_staging_changelog.py'
+      - 'tests/test_chronicles_staging_changelog.py'
       - 'scripts/chronicles_pages_manifest_wait.py'
       - 'tests/test_chronicles_pages_manifest_wait.py'
       - 'tests/test_chronicles_pages_verified_receipt.py'
@@ -79,6 +81,7 @@ jobs:
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_public_browser_workflow.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_before_pages.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_verified_receipt.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_staging_changelog.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_manifest_wait.py' -v
       - run: python3 scripts/chronicles_pages.py self-test
 
@@ -481,6 +484,13 @@ jobs:
             exit 0
           fi
           echo 'fresh=true' >> "$GITHUB_OUTPUT"
+      - name: Summarize verified staging changes (informational, no deploy authority)
+        if: steps.source_freshness.outputs.fresh == 'true'
+        continue-on-error: true
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: python3 scripts/chronicles_staging_changelog.py "$SOURCE_SHA"
       - name: Record the verified Chronicles Pages source generation
         if: steps.source_freshness.outputs.fresh == 'true'
         shell: bash
@@ -512,6 +522,14 @@ jobs:
               "public_browser_smoke_passed": True,
               "workflow_run": os.environ["GITHUB_SERVER_URL"] + "/" + os.environ["GITHUB_REPOSITORY"] + "/actions/runs/" + os.environ["GITHUB_RUN_ID"],
           }
+          # Changelog enrichment is optional: never fail an otherwise verified
+          # release because GitHub history lookup is temporarily unavailable.
+          changes_file = pathlib.Path("verified-pages/changes.json")
+          if changes_file.is_file():
+              try:
+                  evidence["changes"] = json.loads(changes_file.read_text())
+              except (OSError, json.JSONDecodeError):
+                  pass
           pathlib.Path("verified-pages/evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
           PY
       - name: Save verified Pages receipt for idempotent hourly sync

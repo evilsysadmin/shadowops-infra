@@ -44,6 +44,30 @@ do not follow its historical instructions as if they describe today's pipeline.
 A green PR, skipped deployment job, successful dispatch, or historical
 artifact alone does **not** establish current public staging readiness.
 
+## Qué ha cambiado en staging
+
+Cada Pages release **verificada** añade a su [GitHub Actions job summary](https://github.com/evilsysadmin/shadowops-infra/actions/workflows/chronicles-pages-release.yml)
+la sección *Chronicles staging · cambios de esta release*. El generador
+`scripts/chronicles_staging_changelog.py` solo se ejecuta después de los
+smokes y del guard de freshness. Usa las evidencias de Pages previamente
+verificadas, compara el SHA anterior contra el nuevo en el repositorio fuente
+y enlaza las PR fusionadas asociadas a los commits. El artefacto
+`chronicles-pages-staging-<SHA>` incluye `changes.json` y referencia esos
+mismos datos desde `evidence.json`, cuando están disponibles.
+
+La detección de historial tiene límites explícitos: receipts de Actions
+caducan a los 90 días, la búsqueda de baseline examina como máximo
+800 artefactos recientes y el detalle de commits se limita a 60 entradas.
+La ausencia de baseline, los cambios de historia no lineales y las
+consultas incompletas se indican sin fabricar novedades. La misma
+generación reverificada aparece como **sin cambios nuevos**.
+
+**El changelog es informativo, no es un gate de despliegue ni prueba de
+release por sí solo.** Una incidencia de lectura en GitHub no debe romper
+los smokes ni impedir guardar un recibo realmente verificado. Para saber
+qué está sirviendo el entorno ahora, contrastar siempre `release.json`,
+`/api/release` y los recibos de API/Pages exact-SHA.
+
 ## Recovery without unnecessary mutations
 
 - **Nothing new:** verified Pages receipt **plus matching public** manifest
