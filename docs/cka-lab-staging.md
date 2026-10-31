@@ -1,53 +1,80 @@
-# CKA staging lab pilot
+# CKA staging lab pilot on the shared A1
 
-The requested first candidate is the central ShadowOps account `evilsysadmin`.
-This is an intended pilot restriction, not an active lab authorization. Bind
-the eventual allowlist to its freshly verified Identity subject UUID; never
-trust a username, GitHub identity, request parameter or signature alone.
+The owner selected Docker Compose on the existing A1 for the initial restricted
+pilot, with no new VM, paid fallback, host resize or change to the other products.
+This supersedes the earlier dedicated-runner requirement for this staging pilot.
+Production and untrusted multi-user laboratories still need their own reviewed
+isolation and capacity decision.
 
-The existing A1 runs Identity, Chronicles and shared account services. Student
-workloads must run on a separate runner VM. The public CKA account service
-must retain its existing isolation: no Docker socket, administrator kubeconfig
-or lab execution imports. The local development API stays loopback-only.
+The first candidate is the central ShadowOps account `evilsysadmin`. Bind its
+allowlist to the freshly verified Identity UUID; a username or browser parameter
+is never a lab authorization.
+
+## Separate Compose project, same physical host
+
+The proposed project is `shadowops-cka-lab-staging`. The existing
+`shadowops-cka-account-staging` service remains account-only: no Docker socket,
+administrator kubeconfig or lab imports. Keep Identity and Chronicles containers,
+networks, credentials and persistent volumes unchanged.
+
+Kubernetes must run inside a dedicated unprivileged runtime/user namespace on
+the shared host. Do not silently substitute a privileged node on the host Docker
+daemon when rootless prerequisites fail. The lab controller may hold only the
+lab cluster's credentials, never host Docker authority. Candidate commands use
+their namespace-scoped Kubernetes identity; no credential reaches the browser.
+The existing local development API remains loopback-only and is not the staging API.
+
+Start with one active lease globally, a fixed CPU/memory envelope, durable
+owner-bound lease state, expiration/restart cleanup, restricted pod admission,
+resource quotas and no route from candidate pods to host services or metadata.
+Only curated exercises may be prepared. Grading must read real Kubernetes state.
+
+## Measure before installing or starting
+
+`scripts/cka_lab_host_preflight.py` submits one fixed nonprivileged observation
+to the adopted A1 through OCI Run Command. It reads available/total memory,
+CPU/load, available disk, cgroup v2/user namespaces, rootless helper availability
+and whether the fixed lab wrapper exists. `sudo -l` observes current policy;
+no root command is executed and the rules themselves are never printed.
+
+The minimum candidate headroom is 3 GiB available memory and 12 GiB free disk.
+That permits budgeting up to 2 GiB for the cluster, 256 MiB for the controller
+and 128 MiB for the tunnel, with reserve; these are proposed limits, not measured
+workload requirements or a current resource reservation. CPU limits, real cgroup
+delegation and a bounded private disk must also be verified before activation.
+Repeat the observation immediately before deployment.
+
+PRs run offline behavior tests only. A protected-main push or manual dispatch of
+`cka-lab-staging.yml` runs the observation with Infra's existing OCI credentials.
+Output is a strictly validated aggregate receipt, never raw remote stdout,
+host identifiers, sudo rules or credentials. Missing OCI stdout is missing
+evidence, even when the execution exits successfully. Green CI does not install
+the runtime, add privilege, start Kubernetes or enable a public lab.
+
+A first reviewed operator installation must establish the dedicated runtime and
+fixed argument-validating lab wrapper. Existing product wrappers cannot install
+it or be used to obtain a root shell. The observation reports existing authority
+without granting any.
 
 ## Always Free only
 
-The owner explicitly requires Always Free capacity only. The fixed runner
-candidate is A1 Flex with 1 OCPU, 6 GiB RAM and a 50 GiB boot volume, in the
-tenancy's home region. No paid fallback, shared-host lab, resize or automatic
-allocation is authorized by a capacity report.
+No extra compute allocation is part of this pilot. The earlier read-only
+`cka_lab_free_capacity.py` tenancy inventory remains available for capacity
+planning; its separate-VM projection is not the selected deployment topology.
+[Actual inventory run](https://github.com/evilsysadmin/shadowops-infra/actions/runs/41223478612)
+observed 1 OCPU, 6 GiB RAM and 50 GiB of boot/block storage in use across three
+home-region compartments, with no dedicated runner.
 
 The [current Oracle Always Free documentation](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm)
-specifies a conservative total A1 envelope of 2 OCPUs / 12 GiB (1,500 OCPU-hours
-and 9,000 GB-hours per month), plus 200 GiB combined boot/block storage.
-Do not assume the historical 4 OCPU / 24 GiB allowance.
+specifies a conservative A1 envelope of 2 OCPUs / 12 GiB and 200 GiB combined
+boot/block storage. It is not an instruction to allocate that capacity.
 
-`scripts/cka_lab_free_capacity.py` observes root and all nondeleted compartments,
-all home-region availability domains, A1 VM/container consumption and detached
-boot/block volumes. Stopped/terminating resources still count conservatively.
-Missing permissions, incomplete results, unknown A1 shapes, ambiguous identities
-and a non-home region stop the preflight. Logs contain aggregate capacity only.
-The fixed existing runner, if present, must match its size and compartment and
-is not counted as a second allocation.
+## Activation acceptance
 
-This read-only check emits `CKA_ALWAYS_FREE_CAPACITY` and reports capacity fit;
-it does not create a VM, prove current-month billing or host availability, inspect
-image licensing, configure network services, or enable labs. A future allocator
-must repeat the checks immediately before creation and validate those remaining
-free-only conditions. The original shared-host inventory alone is insufficient.
-
-The existing OCI inventory workflow now also reports read-only capacity in the
-adopted `chess-studio-staging` compartment, and whether a distinct nonterminated
-instance named `cka-lab-staging` exists. It prints CPU/memory and lifecycle only;
-no instance identifiers, IP addresses, user data or credentials. PRs run offline
-tests; credential-backed observation runs only on trusted Infra main. This
-inventory does not grant access, run a remote command or allocate compute.
-Absence is scoped to that compartment; it does not establish tenancy-wide
-availability, quotas, price or Always Free eligibility.
-
-Before an Internet lab pilot: verify dedicated compute, durable owner-bound
-leases, one active session globally, bounded TTL and resource quotas, cleanup
-after expiry/restart, candidate-scoped Kubernetes permissions and admission,
-fresh account authorization per operation, an audited restricted terminal, and
-real-kind fail/repair/pass plus isolation tests. Deployments remain Infra-owned.
-The three curated scenarios need those checks before enabling prepare/grade.
+Before enabling prepare/terminal/grade: verify actual host headroom and enforced
+limits, the installed runtime policy, fresh Identity authorization on each
+operation, pilot UUID binding, durable capacity-one leases, bounded TTL and
+verified cleanup after expiry/restart, candidate RBAC/admission/network isolation,
+and all three curated exercises failing initially then passing after real repair.
+Verify the actual staging browser journey and that logout denies further lab
+operations. Deployment and rollback remain Infra-owned.

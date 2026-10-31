@@ -1,0 +1,47 @@
+name: CKA labs · shared A1 Compose preflight
+on:
+  pull_request:
+    paths: ['scripts/cka_lab_host_preflight.py','tests/test_cka_lab_host_preflight.py','docs/cka-lab-staging.md','.github/workflows/cka-lab-staging.yml']
+  push:
+    branches: [main]
+    paths: ['scripts/cka_lab_host_preflight.py','tests/test_cka_lab_host_preflight.py','docs/cka-lab-staging.md','.github/workflows/cka-lab-staging.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_cka_lab*.py' -v
+  preflight:
+    name: Observe shared host without workload changes
+    needs: contracts
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: shadowops-oci-host-operations
+      cancel-in-progress: false
+    env:
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Refuse superseded source before submitting the fixed read-only command
+        run: test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+      - name: Observe actual resource headroom and rootless prerequisites
+        run: python scripts/cka_lab_host_preflight.py
