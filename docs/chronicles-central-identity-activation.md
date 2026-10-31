@@ -93,7 +93,11 @@ A scoped admin grant requires all of the following **before enabling**:
    **overrides** `central_admin` to `enable` and ignores `only_if_new`,
    so the granted profile is copied only to the private Chronicles Vault
    bundle and the already-signed Chronicles API is **re-deployed even for
-   an unchanged source SHA**. Provision must succeed before image admission;
+   an unchanged source SHA**. The action also **preserves** an existing
+   password-recovery `RESEND_API_KEY` (or leaves it absent) rather than
+   silently changing the `email_recovery` setting; inability to read its
+   previous state fails before cloud mutation. Provision must succeed
+   before image admission;
    a failed preflight/secret, unsupported environment or failed provision
    **cannot start deploy**. The same root-owned wrapper check, protected
    environment, source CI, image attestation, OCI freshness and public
