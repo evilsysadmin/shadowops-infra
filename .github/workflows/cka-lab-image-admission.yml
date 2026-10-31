@@ -52,3 +52,28 @@ jobs:
         run: test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
       - name: Admit exact signed immutable CKA image without deployment
         run: node scripts/cka_lab_image_admission.mjs "$CKA_SOURCE_SHA" "$CKA_IMAGE_DIGEST"
+
+  verify-known-publication:
+    name: Prove existing signed CKA ARM64 image against live GitHub and GHCR
+    needs: contracts
+    # This is a read-only positive control for the currently published artifact.
+    # It does not admit a future release or mutate staging.
+    if: github.event_name == 'pull_request' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      packages: read
+      actions: read
+      attestations: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      FIXTURE_SOURCE_SHA: 3a25f0f321b7f86592401ff58f34bc95ae860afc
+      FIXTURE_IMAGE_DIGEST: sha256:6cca45d5a81874e8706fb667afb7677c694a6779c9c9bb06b250ceac41addae1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - name: Verify published CKA image with real public signature and source CI
+        run: node scripts/cka_lab_image_admission.mjs "$FIXTURE_SOURCE_SHA" "$FIXTURE_IMAGE_DIGEST"
