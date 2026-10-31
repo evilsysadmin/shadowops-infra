@@ -405,6 +405,75 @@ class TestOCIInventory(unittest.TestCase):
             with self.subTest(body=body[:40]):
                 self.assertEqual(release.trusted_host_timing(body), "")
 
+    def test_oci_poll_latency_is_local_bounded_and_never_echoes_remote_data(self):
+        from unittest.mock import patch
+        import oci_chronicles_api_release as release
+
+        sample = "CHRONICLES_API_OCI_POLL_SECONDS calls=2 total=4 slowest=3"
+        self.assertEqual(release.observed_poll_timing(2, 4.0, 3.0), sample)
+        self.assertEqual(release.observed_poll_timing(0, 200.0, 200.0), "")
+        self.assertEqual(release.observed_poll_timing(200000, -1.0, 200000.0),
+                         "CHRONICLES_API_OCI_POLL_SECONDS calls=99999 total=0 slowest=99999")
+        phase = "CHRONICLES_API_OCI_PHASE_SECONDS preflight=1 dispatch=0 execution=3"
+        self.assertIn(sample, release.timing_summary(phase, verified=True, poll=sample))
+        for malformed in (sample + " SECRET", "SECRET\\n" + sample,
+                          sample.replace("calls=2", "calls=-2"),
+                          sample.replace("slowest=3", "slowest=999999")):
+            self.assertEqual(release.timing_summary(
+                phase, verified=True, poll=malformed), "")
+
+        digest = "sha256:" + "a" * 64
+        vault = "ocid1.vault.oc1.eu-frankfurt-1.abcdefghijkl"
+        marker = release.marker_for("staging") + digest
+        sdk = FakeSDK()
+        sdk.compute_instance_agent.models = NS(
+            InstanceAgentCommandSourceViaTextDetails=lambda **kw: NS(**kw),
+            InstanceAgentCommandOutputViaTextDetails=lambda **kw: NS(**kw),
+            InstanceAgentCommandContent=lambda **kw: NS(**kw),
+            InstanceAgentCommandTarget=lambda **kw: NS(**kw),
+            CreateInstanceAgentCommandDetails=lambda **kw: NS(**kw),
+        )
+
+        class Agent:
+            def __init__(self):
+                self.created = 0
+                self.polled = 0
+
+            def create_instance_agent_command(self, **kwargs):
+                self.created += 1
+                return NS(data=NS(id="command-test"))
+
+            def get_instance_agent_command_execution(self, **kwargs):
+                self.polled += 1
+                return NS(data=NS(
+                    lifecycle_state="ACCEPTED" if self.polled == 1 else "SUCCEEDED",
+                    content=NS(text="SECRET_REMOTE_LOG\\n" + marker, exit_code=0)))
+
+        agent = Agent()
+        sdk.compute_instance_agent.ComputeInstanceAgentClient = lambda cfg: agent
+        clock = iter((0, 1, 2, 3, 4, 5))
+        poll_clock = iter((0, 1, 3, 6))
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "summary.md"
+            with patch("chronicles_api_provision.resolve_vault",
+                       return_value=(vault, None, None)), patch.dict(
+                           os.environ, {"GITHUB_STEP_SUMMARY": str(report)}), redirect_stdout(output):
+                result = release.execute(sdk, cp.config_from_env(sdk, ENV), digest,
+                                         pause=lambda _: None, clock=lambda: next(clock),
+                                         poll_clock=lambda: next(poll_clock))
+            summary = report.read_text()
+        self.assertEqual(result, marker)
+        self.assertEqual(output.getvalue().splitlines()[-1], marker)
+        self.assertIn(sample, output.getvalue())
+        self.assertIn(sample, summary)
+        self.assertNotIn("SECRET_REMOTE_LOG", output.getvalue() + summary)
+        self.assertNotIn(vault, output.getvalue() + summary)
+        self.assertEqual(agent.created, 1)
+        self.assertEqual(agent.polled, 2)
+        self.assertIsNone(next(poll_clock, None))
+        self.assertIsNone(next(clock, None))
+
     def test_missing_credential_never_calls_sdk(self):
         sdk = FakeSDK()
         for key in ENV:
