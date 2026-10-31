@@ -222,6 +222,16 @@ polls. If `IN_PROGRESS` is never observed, the line is omitted rather than
 inventing a split. Fixed-label timings also help diagnose failed terminal
 runs, but never echo the remote command output.
 
+The same OCI poll response has a separate `delivery_state` field. If
+`ACKED` is observed **before** terminal, the controller reports
+`CHRONICLES_API_OCI_DELIVERY_OBSERVED_SECONDS before_ack=N after_ack=M`
+in safe logs and the Actions Summary. ACKED establishes only that the Oracle
+Cloud Agent received the command, **not** that the host started or completed
+running it. Those durations are bounded polling observations, not precise
+delivery times. A command seen as ACKED only when already terminal does
+**not** qualify for this split; no timing is inferred. No new OCI requests,
+host reads, credentials or deployment commands are needed.
+
 The independent host-phase line, available only after a separately installed
 updated wrapper and successful smoke, reports guard, Vault, Compose, image
 pull, startup and health phases. Do not attribute a long OCI lifecycle
