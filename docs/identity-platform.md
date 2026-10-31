@@ -198,7 +198,19 @@ forgery, rollback, concurrent bootstrap and an approved role transition
 using the newly initialized policy.
 
 **This source is not connected to a public API, command or production
-deployment.** Before it can be invoked for real, a protected offline
+deployment.** A disposable MongoDB 7 RBAC CI gate now provisions four **separate**
+random-password test identities: index maintainer, suspension executor,
+role executor and `identity_role_bootstrap`. The bootstrap identity can
+only `insert` into `admin_role_signer_policy` and
+`admin_role_change_journal` and `listIndexes` on that journal. The
+gate exercises a *snapshot/majority* genesis+policy transaction and tests
+that the bootstrap identity cannot read or modify existing policies,
+read or rewrite audit entries, create indexes, update accounts,
+delete sessions, change application tokens or affect suspension policy.
+The fixed genesis ID rejects a second enrollment request. This is a
+synthetic, ephemeral fixture, **not** provisioning of a real Mongo user.
+
+Before it can be invoked for real, a protected offline
 bootstrap principal with ONLY insert access to the two precise collections
 (and `listIndexes` of the journal) must be established and independently
 validated. It must not reuse the runtime, suspension or role-executor

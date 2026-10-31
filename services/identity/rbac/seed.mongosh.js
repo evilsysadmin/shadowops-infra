@@ -53,6 +53,17 @@ ensureWorked(staging.runCommand({
   ],
   roles: [],
 }));
+// Signing-authority enrollment runs with its own short-lived Mongo identity.
+// The bootstrap account can only append the fixed genesis/policy records;
+// it has no access to accounts, sessions, tokens, suspension or DDL.
+ensureWorked(staging.runCommand({
+  createRole: "identity_signed_role_bootstrap",
+  privileges: [
+    at(roleJournal, ["insert", "listIndexes"]),
+    at(roleSignerPolicy, ["insert"]),
+  ],
+  roles: [],
+}));
 ensureWorked(staging.runCommand({
   createUser: "identity_schema_maintainer",
   pwd: process.env.IDENTITY_RBAC_MAINT_PASS,
@@ -67,6 +78,11 @@ ensureWorked(staging.runCommand({
   createUser: "identity_role_executor",
   pwd: process.env.IDENTITY_RBAC_ROLE_EXEC_PASS,
   roles: [{ role: "identity_signed_role_change", db: databaseName }],
+}));
+ensureWorked(staging.runCommand({
+  createUser: "identity_role_bootstrap",
+  pwd: process.env.IDENTITY_RBAC_ROLE_BOOTSTRAP_PASS,
+  roles: [{ role: "identity_signed_role_bootstrap", db: databaseName }],
 }));
 ensureWorked(staging.runCommand({
   insert: "pending_accounts",
@@ -120,11 +136,6 @@ ensureWorked(staging.runCommand({
     active: true,
   }],
 }));
-ensureWorked(staging.runCommand({
-  insert: "admin_role_signer_policy",
-  documents: [{
-    _id: "staging:set-role", environment: "staging", state: "active",
-    action: "set-role", generation: NumberLong(1), use_fence: NumberLong(0),
-  }],
-}));
+// The signed role bootstrap principal (not the fixture root) creates the
+// generation-one role policy and permanent genesis in the same transaction.
 print("synthetic roles and fixtures provisioned");
