@@ -190,7 +190,7 @@ class ActivationTests(unittest.TestCase):
       ({'RESEND_API_KEY':'re_existing_valid_key'},False),
       ({},False),
       ({'RESEND_API_KEY':"re_malformed'key"},True),
-      ({'RESEND_API_KEY':'re_embedded\\nnewline'},True),
+      ({'RESEND_API_KEY':'re_embedded\nnewline'},True),
   ]:
    with self.subTest(previous=bool(previous),should_fail=should_fail):
     with (patch.object(provision,'read_inputs',return_value=dict(BASE)),
@@ -215,23 +215,23 @@ class ActivationTests(unittest.TestCase):
      else:
       provision.provision(env,None,None)
       rendered=write.call_args.args[-1].decode()
-      self.assertIn('ADMIN_USERNAMES='+valid+'\\n',rendered)
-      self.assertIn('SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL='+SOC+'\\n',rendered)
+      self.assertIn('ADMIN_USERNAMES='+valid+'\n',rendered)
+      self.assertIn('SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL='+SOC+'\n',rendered)
       if 'RESEND_API_KEY' in previous:
-       self.assertIn('RESEND_API_KEY='+previous['RESEND_API_KEY']+'\\n',rendered)
+       self.assertIn('RESEND_API_KEY='+previous['RESEND_API_KEY']+'\n',rendered)
       else:
        self.assertNotIn('RESEND_API_KEY=',rendered)
      existing.assert_called_once()
      resend.assert_not_called()
 
  def test_recovery_preserve_is_not_an_unreviewed_general_provision_mode(self):
-  with patch.object(provision,'read_inputs',return_value=dict(BASE)), \\
-       patch('oci_control_plane.config_from_env',return_value={}), \\
-       patch('oci_control_plane.resolve_existing_host',return_value=('compartment','instance')), \\
-       patch.object(provision,'resolve_vault',return_value=('vault','key','compartment')), \\
-       patch.object(provision,'central_credential',return_value=SOC), \\
-       patch.object(provision,'central_admin_profile',return_value=None), \\
-       patch.object(provision,'ensure_tunnel') as tunnel:
+  with (patch.object(provision,'read_inputs',return_value=dict(BASE)),
+        patch('oci_control_plane.config_from_env',return_value={}),
+        patch('oci_control_plane.resolve_existing_host',return_value=('compartment','instance')),
+        patch.object(provision,'resolve_vault',return_value=('vault','key','compartment')),
+        patch.object(provision,'central_credential',return_value=SOC),
+        patch.object(provision,'central_admin_profile',return_value=None),
+        patch.object(provision,'ensure_tunnel') as tunnel):
    with self.assertRaises(provision.ProvisionError):
     provision.provision({'CHRONICLES_EMAIL_RECOVERY':'preserve'},None,None)
    tunnel.assert_not_called()
