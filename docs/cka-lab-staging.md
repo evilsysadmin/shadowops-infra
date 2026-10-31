@@ -179,6 +179,36 @@ rootless daemon; controller restart closes and reaps previous leases. Never run 
 or reuse the developer cluster.
 
 
+
+## Signed CKA controller image admission (no OCI mutation)
+
+The lab source repository builds and publishes `ghcr.io/evilsysadmin/cka-lab-staging`
+after all source checks pass. Publishing alone does **not** authorize deploying
+that image on the shared A1. Infra independently verifies it before admission.
+
+From protected `main`, manually dispatch the
+[CKA lab image admission workflow](https://github.com/evilsysadmin/shadowops-infra/actions/workflows/cka-lab-image-admission.yml)
+with the exact CKA protected-main commit SHA and its published **multiarch
+manifest** digest (`sha256:...`). The independent check rejects non-main or
+superseded source commits, requires successful completed `push` workflows
+`CI`, `Go scenario contract`, `CKA restricted lab staging` and
+`CKA account staging`, verifies precisely one Linux ARM64 and one Linux
+AMD64 image, and uses `gh attestation verify` with the pinned CKA signer
+`.github/workflows/lab-staging.yml`, protected-main source ref,
+exact source commit and SLSA provenance subject digest.
+
+Only an explicit `CKA_LAB_IMAGE_ADMITTED` receipt containing the immutable
+digest and source SHA is positive evidence. The check never issues a Docker
+run, Compose command, host Run Command, credential copy, environment change,
+lab enablement or OCI resource mutation. PRs exercise offline negative
+fixtures only. A missing/ambiguous/invalid receipt is not approval.
+
+This independent source admission does not replace the subsequent operator
+confirmation of a healthy installed rootless runtime, actual A1 scenario smoke,
+Identity pilot binding, tunnel route and controlled frontend activation.
+The admitted digest must later be carried unchanged into
+`CKA_LAB_IMAGE_DIGEST` in the dedicated rootless Compose project.
+
 ## Private Compose deployment contract
 
 `compose.cka-lab.staging.yaml` contains the separate controller and tunnel.
