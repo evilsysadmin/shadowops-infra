@@ -141,7 +141,15 @@ non-sparse, non-partial, non-TTL index named
 `staging_role_nonce_unique` on
 `shadowops_identity_staging.admin_role_change_journal` keys
 `{environment:1,action:1,nonce:1}`. The executor only **checks** this
-index; it never creates or repairs it. A separately approved signer
+index; it never creates or repairs it. The offline DDL-only helper
+`roles.PrepareStagingRoleJournalIndex` can create and verify the index
+**only after** a separate database administrator has created the exact
+`admin_role_change_journal` collection. It requires an independent
+schema-maintainer client with `listIndexes` and `createIndex` on that
+collection and refuses missing collections, wrong existing indexes and
+**any TTL index** (even one unrelated to the nonce). It is idempotent
+and has no route or invocation from the public Identity service. A
+separately approved signer
 policy record `staging:set-role` must also be established with pinned
 operator/security keys and a restricted validity window. An offline
 operator account needs narrowly scoped read/write to those exact
