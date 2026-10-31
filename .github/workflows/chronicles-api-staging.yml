@@ -202,7 +202,8 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       REQUESTED_SHA: ${{ inputs.source_sha }}
-      ONLY_IF_NEW: ${{ inputs.only_if_new || 'false' }}
+      # A grant must always redeploy even if the source SHA was already verified.
+      ONLY_IF_NEW: ${{ inputs.action == 'grant-admin' && 'false' || inputs.only_if_new || 'false' }}
       IMAGE: ghcr.io/evilsysadmin/chronicles-api
     steps:
       - uses: actions/checkout@v4
@@ -320,6 +321,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ADMITTED_SHA: ${{ needs.admit.outputs.source_sha }}
+          GRANT_ADMIN: ${{ inputs.action == 'grant-admin' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -333,6 +335,10 @@ jobs:
             exit 65
           }
           if [[ "$ADMITTED_SHA" != "$current" ]]; then
+            if [[ "$GRANT_ADMIN" == 'true' ]]; then
+              echo 'CHRONICLES_ADMIN_GRANT_DEPLOY_BLOCKED superseded-source' >&2
+              exit 65
+            fi
             echo "CHRONICLES_OCI_STALE_SOURCE_PRECHECK_SKIPPED sha=$ADMITTED_SHA"
             echo '::notice title=Chronicles staging superseded::Skipping OCI SDK setup because the source is no longer main.'
             echo 'fresh=false' >> "$GITHUB_OUTPUT"
@@ -358,6 +364,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ADMITTED_SHA: ${{ needs.admit.outputs.source_sha }}
+          GRANT_ADMIN: ${{ inputs.action == 'grant-admin' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -373,6 +380,10 @@ jobs:
             exit 65
           }
           if [[ "$ADMITTED_SHA" != "$current" ]]; then
+            if [[ "$GRANT_ADMIN" == 'true' ]]; then
+              echo 'CHRONICLES_ADMIN_GRANT_DEPLOY_BLOCKED superseded-source' >&2
+              exit 65
+            fi
             echo "CHRONICLES_OCI_STALE_SOURCE_SKIPPED sha=$ADMITTED_SHA"
             echo '::notice title=Chronicles API staging superseded::The admitted source is no longer main; no OCI mutation or verified receipt will run.'
             echo 'fresh=false' >> "$GITHUB_OUTPUT"
