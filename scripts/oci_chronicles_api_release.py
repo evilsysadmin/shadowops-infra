@@ -78,6 +78,21 @@ def phase_timing(start: float, prepared: float, submitted: float, completed: flo
             + f"execution={duration(submitted, completed)}")
 
 
+def observed_lifecycle_timing(submitted: float, first_active: float | None,
+                              completed: float) -> str:
+    """Monotonic *observations*, not exact OCI scheduling or host runtimes.
+
+    OCI may transition between 3-second polls, or go straight to terminal.
+    Without an observed IN_PROGRESS do not claim to know the queue split.
+    """
+    if first_active is None:
+        return ""
+    duration = lambda a, b: min(99999, max(0, int(b - a)))
+    return ("CHRONICLES_API_OCI_LIFECYCLE_OBSERVED_SECONDS "
+            + f"pre_active={duration(submitted, first_active)} "
+            + f"active={duration(first_active, completed)}")
+
+
 def execute(
     sdk: Any, config: dict[str, str], digest: str, environment: str = "staging", *,
     pause=time.sleep, clock=time.monotonic
@@ -111,12 +126,19 @@ def execute(
         raise InventoryError("Chronicles API deploy did not return an OCI command ID")
     submitted = clock()
     deadline = submitted + 650
+    first_active = None
     while clock() < deadline:
         execution = agent.get_instance_agent_command_execution(
             instance_agent_command_id=command_id, instance_id=instance_id,
         ).data
         status = str(getattr(execution, "lifecycle_state", "") or "").upper()
+        if status == "IN_PROGRESS" and first_active is None:
+            first_active = clock()
         if status in TERMINAL:
+            completed = clock()
+            lifecycle = observed_lifecycle_timing(submitted, first_active, completed)
+            if lifecycle:
+                print(lifecycle, flush=True)
             result = getattr(execution, "content", None)
             stdout = str(getattr(result, "text", "") or "").strip()
             last = stdout.splitlines()[-1] if stdout else ""
@@ -125,12 +147,13 @@ def execute(
                 # Never echo Oracle's raw remote output: only the wrapper's own
                 # bounded reason line, matched strictly.
                 reason = next((line for line in stdout.splitlines() if BLOCKED.fullmatch(line)), "")
+                print(phase_timing(started, prepared, submitted, completed), flush=True)
                 raise InventoryError("Chronicles API root-wrapper smoke did not succeed"
                                      + (" | " + reason if reason else f" | status={status}"))
             timing = trusted_host_timing(stdout)
             if timing:
                 print(timing, flush=True)
-            print(phase_timing(started, prepared, submitted, clock()), flush=True)
+            print(phase_timing(started, prepared, submitted, completed), flush=True)
             print(marker + digest)
             return last
         pause(3)
