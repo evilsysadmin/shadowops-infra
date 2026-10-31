@@ -46,10 +46,15 @@ artifact alone does **not** establish current public staging readiness.
 
 ## Qué ha cambiado en staging
 
-Cada Pages release **verificada** añade a su [GitHub Actions job summary](https://github.com/evilsysadmin/shadowops-infra/actions/workflows/chronicles-pages-release.yml)
-la sección *Chronicles staging · cambios de esta release*. El generador
-`scripts/chronicles_staging_changelog.py` solo se ejecuta después de los
-smokes y del guard de freshness. Usa las evidencias de Pages previamente
+Cada Pages release **verificada** genera el documento
+`RELEASE_NOTES.md` después de los smokes y del guard de freshness.
+Un job final, **Chronicles staging · release notes**, descarga el
+recibo canónico **de la misma ejecución y del SHA exacto** y publica el
+Markdown en el [Summary de la ejecución completa](https://github.com/evilsysadmin/shadowops-infra/actions/workflows/chronicles-pages-release.yml).
+GitHub agrupa y ordena los resúmenes de los jobs por finalización, de modo
+que este informe aparece al final del run, no perdido en los logs.
+El generador `scripts/chronicles_staging_changelog.py` solo se ejecuta
+después de los smokes y del guard de freshness. Usa las evidencias de Pages previamente
 verificadas, compara el SHA anterior contra el nuevo en el repositorio fuente
 y enlaza las PR fusionadas asociadas a los commits. El artefacto
 `chronicles-pages-staging-<SHA>` incluye `changes.json` y referencia esos
@@ -59,9 +64,11 @@ mismos datos desde `evidence.json`, cuando están disponibles.
 
 1. Abre [ShadowOps · Chronicles staging Pages release](https://github.com/evilsysadmin/shadowops-infra/actions/workflows/chronicles-pages-release.yml)
    y selecciona una ejecución que haya verificado una **nueva** generación.
-2. La pestaña **Summary** presenta una tabla con SHA anterior/actual, número
-   de PR y commits, enlaces directos a staging y a la comparación de GitHub,
-   y una lista de las PR incluidas. Los commits van plegados debajo.
+2. Entra en **Summary** de ese run y baja hasta el bloque final
+   **Chronicles staging · release notes**. El informe se muestra **inline**
+   sin descargar ni abrir el job: SHA anterior/actual, número de PR y commits,
+   enlaces a staging y a la comparación, y PR incluidas; los commits se
+   mantienen plegados.
 3. Abajo, en **Artifacts**, descarga
    `chronicles-staging-release-notes-<SHA>`. El ZIP lleva
    `release-notes.html` (abre con doble clic, sin servidor ni dependencias)
@@ -70,8 +77,10 @@ mismos datos desde `evidence.json`, cuando están disponibles.
 4. El recibo canónico `chronicles-pages-staging-<SHA>` también conserva
    ambos formatos legibles, además de los JSON de evidencia.
 
-Un job de PR, un intento omitido o una reverificación sin nueva generación
-no publica un changelog de novedades. Los artefactos caducan a los 90 días;
+El job final solo se ejecuta si el job Pages termina correctamente y el
+paso de freshness verifica la generación exacta. Un job de PR o un intento
+omitido no crea este bloque. Una reverificación del mismo SHA, si llega a
+realizarse, se identifica como tal y no inventa nuevas PR. Los artefactos caducan a los 90 días;
 el informe descargable es comodidad, **no** historial permanente ni fuente
 de verdad alternativa.
 
