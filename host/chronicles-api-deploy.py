@@ -206,7 +206,7 @@ def write_runtime(values: Mapping[str, str], runtime: Path = RUNTIME, target: Ta
     central_admin = values.get("ADMIN_USERNAMES")
     if central and (target.name != "staging" or not re.fullmatch(r"soc1_[A-Za-z0-9_-]{43}", central)):
         raise ReleaseError("Central Identity requires the dedicated staging consumer credential")
-    if central_admin and (target.name != "staging" or not central or not CENTRAL_ADMIN_PROFILE_RE.fullmatch(central_admin)):
+    if "ADMIN_USERNAMES" in values and (target.name != "staging" or not central or not CENTRAL_ADMIN_PROFILE_RE.fullmatch(central_admin)):
         raise ReleaseError("Central administrator requires an approved exact staging profile and active Identity")
     api_rows = [("MONGO_URL", values["MONGO_URL"]), ("JWT_SECRET", values["JWT_SECRET"]),
                 ("INVITE_CODE", values["INVITE_CODE"]), *target.static_env,
