@@ -206,7 +206,8 @@ class ActivationTests(unittest.TestCase):
           patch.object(provision,'tunnel_token',return_value='t'*80) as token,
           patch.object(provision,'ensure_dns',return_value='unchanged') as dns,
           patch.object(provision,'upsert_bundle',return_value='updated') as write):
-     env={'CHRONICLES_CENTRAL_ADMIN':'enable','CHRONICLES_EMAIL_RECOVERY':'preserve'}
+     env={'CHRONICLES_CENTRAL_ADMIN':'enable','CHRONICLES_EMAIL_RECOVERY':'preserve',
+          'CHRONICLES_STAGING_CENTRAL_ADMIN_PROFILE':valid}
      if should_fail:
       with self.assertRaises(provision.ProvisionError):
        provision.provision(env,None,None)
