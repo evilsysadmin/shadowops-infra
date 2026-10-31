@@ -16,6 +16,7 @@ import urllib.parse
 import urllib.request
 
 from chronicles_staging_receipt import ReceiptError, trusted_staging_receipt
+from chronicles_source_ci import RejectGithubRedirects
 
 INFRA = "evilsysadmin/shadowops-infra"
 SOURCE = "evilsysadmin/chronicles-of-matthias"
@@ -29,6 +30,9 @@ class GateError(RuntimeError):
 
 
 def fetch(path: str, token: str) -> dict:
+    """Read exact authenticated GitHub evidence; never follow redirects."""
+    if not token or not isinstance(path, str) or not path.startswith("repos/"):
+        raise GateError("Missing read token or invalid GitHub evidence path")
     request = urllib.request.Request(
         "https://api.github.com/" + path,
         headers={
@@ -38,7 +42,13 @@ def fetch(path: str, token: str) -> dict:
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
+        # urllib.urlopen follows 301/302/307/308 by default. Admission uses a
+        # bearer token and must never forward it to a redirected destination.
+        # Reuse the fixed-source CI transport policy rather than drift again.
+        with urllib.request.build_opener(RejectGithubRedirects()).open(
+                request, timeout=20) as response:
+            if response.status != 200 or response.geturl() != request.full_url:
+                raise GateError("Unexpected GitHub deployment evidence origin/status")
             result = json.load(response)
     except (urllib.error.URLError, TimeoutError, ValueError) as exc:
         raise GateError("Cannot read GitHub deployment evidence") from exc
