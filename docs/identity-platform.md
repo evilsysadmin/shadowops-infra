@@ -118,7 +118,7 @@ the product-scoped staging grant and incident #1029 are separate.
 `services/identity/roles/executor.go` adds an **unwired, offline**
 `StagingRoleExecutor` for **one** signed `user ↔ admin` change. It requires
 two independently approved Ed25519 signatures, an active and versioned
-`admin_signer_policy` record with ID `staging:set-role`, exact pinned
+`admin_role_signer_policy` record with ID `staging:set-role`, exact pinned
 public-key hashes and the account's current session-version/role. Every
 attempt rechecks signatures and policy in a snapshot/majority transaction.
 The policy itself receives a write fence to conflict with concurrent
@@ -146,7 +146,19 @@ policy record `staging:set-role` must also be established with pinned
 operator/security keys and a restricted validity window. An offline
 operator account needs narrowly scoped read/write to those exact
 collections; **never** reuse the live Identity runtime's Mongo credentials
-or add the new journal/policy privileges to its account. Before any real
+or add the new journal/policy privileges to its account. The role signer
+policy is intentionally separate from the suspension signer policy:
+`admin_role_signer_policy` is **not** `admin_signer_policy`. Their operator
+principals must never share policy write access. The disposable test at
+`services/identity/rbac/ci.sh` uses three independent principals:
+`identity_schema_maintainer` (journal DDL only),
+`identity_suspension_executor` (suspension transaction only) and
+`identity_role_executor` (role transaction only). It checks allowed
+majority transactions and explicitly denies cross-policy writes, audit
+tampering, index modifications, account insertion and reads of audit
+history. The test fixtures create synthetic users and random secrets
+locally; they **do not** provision operational credentials or any live
+roles. Before any real
 grant, establish the protected operation, independently review the
 target's immutable `sub`, test rollback and revocation in staging,
 and validate least privilege and audit retention.
