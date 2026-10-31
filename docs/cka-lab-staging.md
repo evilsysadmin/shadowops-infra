@@ -236,7 +236,18 @@ After the first rootless operator installation, from protected Infra source:
 ```bash
 sudo -u shadowops-cka-lab python3 /opt/shadowops-infra/scripts/cka_lab_cluster.py install-tools
 sudo -u shadowops-cka-lab python3 /opt/shadowops-infra/scripts/cka_lab_cluster.py bootstrap
+sudo -u shadowops-cka-lab python3 /opt/shadowops-infra/scripts/cka_lab_cluster.py verify-cluster
 ```
+
+The last command is **read-only** and emits `CKA_LAB_CLUSTER_VERIFIED`
+only after independently checking the existing rootless daemon, private
+internal bridge, bounded/running kind node, private 0600 credentials,
+unchanged kind configuration and actual Kubernetes `/readyz`. Every
+unexpected or unhealthy state fails closed. It does not create/restart a
+container, heal the cluster, read private credential contents, enable labs,
+deploy a controller or grant a user access. Repeat it after a host reboot
+before considering Compose activation. CI runs the same inspection against
+its disposable rootless kind cluster.
 
 These prepare only the fixed cluster. The second command refuses existing
 containers/state instead of adopting or deleting them. Failed bootstrap keeps
