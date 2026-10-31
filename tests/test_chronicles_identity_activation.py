@@ -76,7 +76,7 @@ class ActivationTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as temp:
    path=Path(temp)
    values={**BASE,'SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL':SOC,'ADMIN_USERNAMES':owner}
-   host.write_runtime(host.parse_bundle(''.join(k+'='+v+'\\n' for k,v in values.items())),path,host.STAGING)
+   host.write_runtime(host.parse_bundle(''.join(k+'='+v+'\n' for k,v in values.items())),path,host.STAGING)
    env=(path/'api.env').read_text()
    self.assertIn("ADMIN_USERNAMES='"+owner+"'",env)
    self.assertNotIn(owner,(path/'tunnel.env').read_text())
@@ -89,7 +89,7 @@ class ActivationTests(unittest.TestCase):
   invalid=['*','evilsysadmin','shadowops:production:'+valid.split(':')[-1],
            'shadowops:staging:22222222-2222-2222-8222-222222222222',
            'shadowops:staging:22222222-2222-4222-7222-222222222222',
-           valid+',alice',valid+'\\nADMIN_USERNAMES=*',valid.upper(),'']
+           valid+',alice',valid+'\nADMIN_USERNAMES=*',valid.upper(),'']
   for item in invalid:
    with self.subTest(item=item):
     with self.assertRaises(provision.ProvisionError):
