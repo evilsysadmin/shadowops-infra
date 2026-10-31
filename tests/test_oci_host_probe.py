@@ -161,6 +161,36 @@ class TestFixedHostProbe(unittest.TestCase):
                 if change.get("plugin"):
                     self.assertEqual(bad.invocations, [])
 
+    def test_wrapper_needs_explicit_integer_zero_exit_code_for_current(self):
+        digest = "a" * 64
+        remote = "CHRONICLES_API_WRAPPER_SHA256 " + digest + "\n"
+        for code in (None, False, True, "0", 0.0, 1, -1):
+            with self.subTest(exit_code=repr(code)):
+                sdk = HostSDK(code=code, output=remote)
+                result = io.StringIO()
+                with redirect_stdout(result), self.assertRaises(cp.InventoryError):
+                    hp.execute(sdk, cp.config_from_env(sdk, ENV),
+                               probe="wrapper", expected_digest=digest)
+                self.assertEqual(result.getvalue(), "",
+                                 "No CURRENT status without an attested zero exit code")
+                self.assertEqual(len(sdk.invocations), 2)
+        # OCI explicitly confirms exit_code=0: retain the passing path.
+        sdk = HostSDK(code=0, output=remote)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            hp.execute(sdk, cp.config_from_env(sdk, ENV),
+                       probe="wrapper", expected_digest=digest)
+        self.assertEqual(out.getvalue().strip(), "CHRONICLES_API_WRAPPER_CURRENT")
+
+    def test_legacy_host_readiness_keeps_missing_exit_code_compatibility(self):
+        # This change must not make the preexisting host-readiness probe fail
+        # against OCI results whose exit_code is absent.
+        sdk = HostSDK(code=None, output=hp.HOST_READY + "\n")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            hp.execute(sdk, cp.config_from_env(sdk, ENV), probe="host")
+        self.assertEqual(out.getvalue().strip(), hp.HOST_READY)
+
     def test_invalid_wrapper_arguments_are_rejected_before_oci_calls(self):
         for probe, digest in (("wrapper", ""), ("wrapper", "Z" * 64),
                               ("host", "a" * 64), ("random", "")):

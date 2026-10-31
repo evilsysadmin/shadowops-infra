@@ -136,7 +136,12 @@ def execute(sdk: Any, config: dict[str, str], *, pause=time.sleep,
             content = getattr(execution, "content", None)
             code = getattr(content, "exit_code", None)
             output = str(getattr(content, "text", "") or "")
-            if state != "SUCCEEDED" or code not in (0, None):
+            # The legacy host-readiness observation historically tolerated
+            # missing exit_code. A wrapper CURRENT verdict is a stronger claim:
+            # require OCI to attest an actual integer zero, not None, False,
+            # a string or a partial/malformed execution response.
+            valid_exit = (type(code) is int and code == 0) if probe == "wrapper" else code in (0, None)
+            if state != "SUCCEEDED" or not valid_exit:
                 raise InventoryError("OCI host probe execution failed")
             if probe == "wrapper":
                 verdict = wrapper_verdict(output, expected_digest)
