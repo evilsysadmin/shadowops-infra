@@ -165,8 +165,55 @@ class ChroniclesReleaseChangelog(unittest.TestCase):
                 self.assertEqual(data["status"], "unavailable")
                 self.assertIn("Changelog no disponible",
                               (Path(tmp) / "summary.md").read_text())
+                self.assertTrue(Path("verified-pages/RELEASE_NOTES.md").is_file())
+                page = Path("verified-pages/release-notes.html").read_text()
+                self.assertIn("<!doctype html>", page)
+                self.assertIn("Staging · Release notes", page)
+                self.assertIn("Detalle de cambios no disponible", page)
             finally:
                 os.chdir(cwd)
+
+    def test_human_report_has_summary_table_and_collapsible_commits(self):
+        data = {
+            "source_sha": NEW, "previous_sha": OLD, "status": "changes",
+            "total_commits": 1, "pull_requests": [{
+                "number": 55, "title": "Fix <b>inventory</b> | resize",
+                "url": f"https://github.com/{notes.SOURCE}/pull/55",
+            }],
+            "commits": [{"sha": COMMIT, "message": "Repair inventory"}],
+            "compare_url": f"https://github.com/{notes.SOURCE}/compare/{OLD}...{NEW}",
+            "truncated": False,
+        }
+        md = notes.render_summary(data)
+        self.assertIn("# 🚀 Chronicles · staging", md)
+        self.assertIn("| PR | Cambio |", md)
+        self.assertIn("&#124;", md)
+        self.assertIn("&lt;b&gt;", md)
+        self.assertIn("<details><summary>Ver commits incluidos</summary>", md)
+        html = notes.render_html(data)
+        self.assertIn("<!doctype html>", html)
+        self.assertIn("Fix &lt;b&gt;inventory&lt;/b&gt; | resize", html)
+        self.assertNotIn("<b>inventory</b>", html)
+        self.assertIn("Comparar versiones", html)
+        self.assertIn("<summary>Ver commits (1)</summary>", html)
+        self.assertNotIn("<script", html.lower())
+        self.assertNotIn("cdn.", html.lower())
+
+    def test_human_html_status_variants_and_escaped_untrusted_copy(self):
+        data = {
+            "source_sha": NEW, "previous_sha": None, "status": "no_baseline",
+            "total_commits": None, "pull_requests": [], "commits": [],
+            "compare_url": None, "truncated": False,
+        }
+        self.assertIn("No hay una versión anterior verificable", notes.render_html(data))
+        self.assertIn("Sin baseline verificable", notes.render_summary(data))
+        data["status"] = "already_verified"
+        self.assertIn("Sin cambios nuevos", notes.render_html(data))
+        data["status"] = "non_linear"
+        self.assertIn("rollback", notes.render_html(data))
+        data["status"] = "partial"
+        data["truncated"] = True
+        self.assertIn("Listado parcial", notes.render_html(data))
 
     def test_workflow_keeps_receipt_gate_and_changelog_best_effort(self):
         workflow = (Path(__file__).resolve().parents[1] /
@@ -176,6 +223,9 @@ class ChroniclesReleaseChangelog(unittest.TestCase):
         self.assertIn('if: steps.source_freshness.outputs.fresh == \'true\'', workflow)
         self.assertIn('verified-pages/changes.json', workflow)
         self.assertIn("CHRONICLES_PAGES_RECEIPT_SHA_MISMATCH", workflow)
+        self.assertIn("chronicles-staging-release-notes-", workflow)
+        self.assertIn("verified-pages/RELEASE_NOTES.md", workflow)
+        self.assertIn("verified-pages/release-notes.html", workflow)
 
 
 if __name__ == "__main__":
