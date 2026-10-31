@@ -69,6 +69,11 @@ on:
         type: choice
         options: [preserve, enable, disable]
         default: preserve
+      central_admin:
+        description: Staging provision only — preserve, explicitly enable or revoke a reviewed exact central Identity admin profile
+        type: choice
+        options: [preserve, enable, disable]
+        default: preserve
 
 permissions:
   contents: read
@@ -122,6 +127,8 @@ jobs:
       CHRONICLES_STAGING_INVITE_CODE: ${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}
       CHRONICLES_EMAIL_RECOVERY: ${{ inputs.email_recovery }}
       CHRONICLES_CENTRAL_IDENTITY: ${{ inputs.central_identity || 'preserve' }}
+      CHRONICLES_CENTRAL_ADMIN: ${{ inputs.central_admin || 'preserve' }}
+      CHRONICLES_STAGING_CENTRAL_ADMIN_PROFILE: ${{ secrets.CHRONICLES_STAGING_CENTRAL_ADMIN_PROFILE }}
       CHRONICLES_PRODUCTION_MONGO_URL: ${{ secrets.CHRONICLES_PRODUCTION_MONGO_URL }}
       CHRONICLES_PRODUCTION_JWT_SECRET: ${{ secrets.CHRONICLES_PRODUCTION_JWT_SECRET }}
       CHRONICLES_PRODUCTION_INVITE_CODE: ${{ secrets.CHRONICLES_PRODUCTION_INVITE_CODE }}
