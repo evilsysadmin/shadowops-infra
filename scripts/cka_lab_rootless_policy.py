@@ -63,6 +63,8 @@ def daemon_config(uid):
             "exec-root": f"/run/user/{uid}/cka-lab-docker",
             "pidfile": f"/run/user/{uid}/cka-lab-docker.pid",
             "exec-opts": ["native.cgroupdriver=systemd"], "storage-driver": "fuse-overlayfs",
+            "default-runtime": "cka-rootless-runc",
+            "runtimes": {"cka-rootless-runc": {"path": "runc", "runtimeArgs": ["--rootless=true"]}},
             "log-driver": "local", "log-opts": {"max-size": "5m", "max-file": "2"},
             "live-restore": False, "shutdown-timeout": 15}
 
@@ -87,6 +89,7 @@ def verify_daemon(value):
     if (not isinstance(value, dict) or value.get("CgroupVersion") != "2"
             or value.get("CgroupDriver") != "systemd"
             or value.get("DockerRootDir") != str(RUNTIME / "docker")
+            or value.get("DefaultRuntime") != "cka-rootless-runc"
             or "name=rootless" not in value.get("SecurityOptions", [])):
         raise RuntimeError("Runtime is not the bounded rootless daemon")
 

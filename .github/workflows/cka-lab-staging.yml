@@ -52,7 +52,7 @@ jobs:
           version: v29.9.2
           rootless: true
           set-host: true
-          daemon-config: '{"exec-opts":["native.cgroupdriver=systemd"]}'
+          daemon-config: '{"exec-opts":["native.cgroupdriver=systemd"],"default-runtime":"cka-rootless-runc","runtimes":{"cka-rootless-runc":{"path":"runc","runtimeArgs":["--rootless=true"]}}}'
       - name: Require actual rootless and cgroup v2 authority
         run: |
           docker info --format '{{json .}}' | python3 -c 'import json,sys;v=json.load(sys.stdin);assert "name=rootless" in v["SecurityOptions"] and v["CgroupVersion"]=="2" and v["CgroupDriver"]=="systemd"'

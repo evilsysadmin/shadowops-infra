@@ -46,9 +46,11 @@ class IdentityMappings(unittest.TestCase):
 class RuntimeEvidence(unittest.TestCase):
     def test_host_docker_cannot_substitute_for_the_dedicated_rootless_daemon(self):
         value = {"CgroupVersion": "2", "CgroupDriver": "systemd",
+                 "DefaultRuntime": "cka-rootless-runc",
                  "DockerRootDir": str(policy.RUNTIME / "docker"), "SecurityOptions": ["name=rootless", "name=seccomp"]}
         policy.verify_daemon(value)
         for change in [{"CgroupVersion": "1"}, {"CgroupDriver": "none"},
+                       {"DefaultRuntime": "runc"},
                        {"DockerRootDir": "/var/lib/docker"}, {"SecurityOptions": ["name=seccomp"]}]:
             with self.subTest(change=change), self.assertRaises(policy.RuntimeError):
                 policy.verify_daemon({**value, **change})
