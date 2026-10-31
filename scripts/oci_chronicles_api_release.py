@@ -15,7 +15,7 @@ import sys
 import time
 from typing import Any
 
-from oci_control_plane import InventoryError, config_from_env, inspect, resolve_existing_host
+from oci_control_plane import InventoryError, config_from_env, verified_run_command_host
 
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 WRAPPER = "/usr/local/sbin/shadowops-chronicles-api"
@@ -68,8 +68,8 @@ def execute(
 ) -> str:
     from chronicles_api_provision import resolve_vault
     started = clock()
-    inspect(sdk, config)
-    compartment_id, instance_id = resolve_existing_host(sdk, config)
+    # Identity, shape and plugin are checked once, before any OCI mutation.
+    compartment_id, instance_id = verified_run_command_host(sdk, config)
     vault_id, _key, _ = resolve_vault(sdk, config, compartment_id)
     fixed = command_for(digest, vault_id, environment)
     marker = marker_for(environment)

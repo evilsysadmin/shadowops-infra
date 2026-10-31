@@ -55,6 +55,69 @@ class TestOCIInventory(unittest.TestCase):
         self.assertEqual(sdk.observed[3][1]["plugin_name"], cp.PLUGIN)
         self.assertEqual(len([x for x in sdk.observed if x[0] == "plugin"]), 1)
 
+    def test_verified_release_host_uses_one_inventory_and_one_plugin_probe(self):
+        sdk = FakeSDK()
+        config = cp.config_from_env(sdk, ENV)
+        result = cp.verified_run_command_host(sdk, config)
+        self.assertEqual(result, ("compartment-test", "instance-test"))
+        self.assertEqual([name for name, _ in sdk.observed],
+                         ["validate", "list", "list", "plugin"])
+
+    def test_release_executes_on_prevalidated_host_without_second_inventory(self):
+        from unittest.mock import patch
+        import oci_chronicles_api_release as release
+
+        sdk = FakeSDK()
+        config = cp.config_from_env(sdk, ENV)
+        digest = "sha256:" + "a" * 64
+        vault = "ocid1.vault.oc1.eu-frankfurt-1.abcdefghijkl"
+        marker = release.marker_for("staging") + digest
+        commands = []
+
+        class Agent:
+            def create_instance_agent_command(self, **kwargs):
+                commands.append(kwargs)
+                return NS(data=NS(id="command-test"))
+
+            def get_instance_agent_command_execution(self, **kwargs):
+                commands.append(kwargs)
+                return NS(data=NS(lifecycle_state="SUCCEEDED",
+                                  content=NS(text=marker + "\n", exit_code=0)))
+
+        sdk.compute_instance_agent.models = NS(
+            InstanceAgentCommandSourceViaTextDetails=lambda **kw: NS(**kw),
+            InstanceAgentCommandOutputViaTextDetails=lambda **kw: NS(**kw),
+            InstanceAgentCommandContent=lambda **kw: NS(**kw),
+            InstanceAgentCommandTarget=lambda **kw: NS(**kw),
+            CreateInstanceAgentCommandDetails=lambda **kw: NS(**kw),
+        )
+        sdk.compute_instance_agent.ComputeInstanceAgentClient = lambda cfg: Agent()
+        with patch("chronicles_api_provision.resolve_vault",
+                   return_value=(vault, None, None)):
+            actual = release.execute(sdk, config, digest, pause=lambda _: None,
+                                     clock=lambda: 100.0)
+        self.assertEqual(actual, marker)
+        self.assertEqual([name for name, _ in sdk.observed],
+                         ["validate", "list", "list", "plugin"])
+        self.assertEqual(len(commands), 2, "Only one create and one poll allowed")
+        self.assertEqual(commands[0]["create_instance_agent_command_details"].target.instance_id,
+                         "instance-test")
+        self.assertEqual(commands[1]["instance_id"], "instance-test")
+
+    def test_release_rejects_unhealthy_plugin_before_submitting_any_command(self):
+        from unittest.mock import patch
+        import oci_chronicles_api_release as release
+
+        sdk = FakeSDK(plugin="STOPPED")
+        sdk.compute_instance_agent.ComputeInstanceAgentClient = lambda cfg: self.fail(
+            "No Run Command client when plugin admission fails")
+        with patch("chronicles_api_provision.resolve_vault", return_value=(
+            "ocid1.vault.oc1.eu-frankfurt-1.abcdefghijkl", None, None)):
+            with self.assertRaises(cp.InventoryError):
+                release.execute(sdk, cp.config_from_env(sdk, ENV), "sha256:" + "a" * 64)
+        self.assertEqual([name for name, _ in sdk.observed],
+                         ["validate", "list", "list", "plugin"])
+
     def test_missing_credential_never_calls_sdk(self):
         sdk = FakeSDK()
         for key in ENV:
