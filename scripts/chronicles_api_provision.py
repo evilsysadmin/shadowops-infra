@@ -53,7 +53,8 @@ BUNDLE_KEYS = ("MONGO_URL", "JWT_SECRET", "INVITE_CODE", "TUNNEL_TOKEN")
 # Password recovery by email reuses Chess Studio's staging Resend key, read
 # from the same Vault by name. Opt-in per dispatch: the A1 wrapper must
 # already accept it (installed by the operator bootstrap).
-OPTIONAL_BUNDLE_KEYS = ("RESEND_API_KEY", "SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL")
+OPTIONAL_BUNDLE_KEYS = ("RESEND_API_KEY", "SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL", "ADMIN_USERNAMES")
+CENTRAL_ADMIN_PROFILE_RE = re.compile(r"^shadowops:staging:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 RESEND_SECRET_NAME = "chess-studio-staging-resend-api-key"
 _PREFIX = "CHRONICLES_" + ENVIRONMENT.upper() + "_"
 GITHUB_SECRETS = {
@@ -260,6 +261,13 @@ def provision(env: Mapping[str, str], oci: Any, cf: Cloudflare) -> list[str]:
     central_mode = env.get("CHRONICLES_CENTRAL_IDENTITY", "preserve") or "preserve"
     if central_mode not in {"preserve", "enable", "disable"} or (central_mode == "enable" and ENVIRONMENT != "staging"):
         raise ProvisionError("Central Identity activation is staging-only")
+    admin_mode = env.get("CHRONICLES_CENTRAL_ADMIN", "preserve") or "preserve"
+    if admin_mode not in {"preserve", "enable", "disable"} or (admin_mode == "enable" and ENVIRONMENT != "staging"):
+        raise ProvisionError("Central administrator changes are staging-only")
+    if admin_mode == "enable" and not CENTRAL_ADMIN_PROFILE_RE.fullmatch(env.get("CHRONICLES_STAGING_CENTRAL_ADMIN_PROFILE", "")):
+        raise ProvisionError("An exact approved staging central admin profile is required")
+    if central_mode == "disable" and admin_mode == "enable":
+        raise ProvisionError("Cannot enable central admin while disabling central Identity")
     values = read_inputs(env)
     tunnel_id = ensure_tunnel(cf)
     configure_tunnel(cf, tunnel_id)
@@ -271,6 +279,11 @@ def provision(env: Mapping[str, str], oci: Any, cf: Cloudflare) -> list[str]:
     central = central_credential(central_mode, oci, config, vault_id, compartment_id)
     if central:
         values["SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL"] = central
+    admin_profile = central_admin_profile(admin_mode, env, oci, config, vault_id, compartment_id)
+    if admin_profile and not central and central_mode != "disable":
+        raise ProvisionError("Cannot preserve central admin without an active Identity consumer")
+    if admin_profile and central:
+        values["ADMIN_USERNAMES"] = admin_profile
     recovery = str(env.get("CHRONICLES_EMAIL_RECOVERY", "")).strip().lower() == "true"
     if recovery:
         values["RESEND_API_KEY"] = read_vault_secret(oci, config, vault_id, RESEND_SECRET_NAME)
@@ -278,6 +291,35 @@ def provision(env: Mapping[str, str], oci: Any, cf: Cloudflare) -> list[str]:
     return [f"CHRONICLES_API_TUNNEL_OK name={TUNNEL_NAME}",
             f"CHRONICLES_API_DNS_OK hostname={HOSTNAME} state={dns}",
             f"CHRONICLES_API_VAULT_BUNDLE_OK name={SECRET_NAME} state={secret} email_recovery={str(recovery).lower()}"]
+
+
+def existing_chronicles_bundle(sdk: Any, config: dict, vault_id: str, compartment_id: str) -> dict[str, str]:
+    """Read existing product-only options without exposing Vault material in logs."""
+    try:
+        rows = sdk.pagination.list_call_get_all_results(sdk.vault.VaultsClient(config).list_secrets,
+            compartment_id, vault_id=vault_id, name=SECRET_NAME).data
+    except Exception:
+        raise ProvisionError("Existing Chronicles runtime configuration could not be inspected") from None
+    if not rows:
+        return {}
+    if len(rows) != 1 or str(rows[0].lifecycle_state).upper() != "ACTIVE":
+        raise ProvisionError("Existing Chronicles runtime configuration is not available")
+    try:
+        bundle = sdk.secrets.SecretsClient(config).get_secret_bundle_by_name(
+            secret_name=SECRET_NAME, vault_id=vault_id, stage="CURRENT").data
+        raw = base64.b64decode(bundle.secret_bundle_content.content, validate=True)
+        if len(raw) > 24000:
+            raise ValueError("oversize")
+        values = {}
+        for line in raw.decode().splitlines():
+            key, separator, value = line.partition("=")
+            if not separator or key in values:
+                raise ValueError("invalid bundle")
+            values[key] = value
+        render_bundle(values)
+        return values
+    except Exception:
+        raise ProvisionError("Existing Chronicles runtime configuration could not be preserved") from None
 
 
 def central_credential(mode: str, sdk: Any, config: dict, vault_id: str, compartment_id: str) -> str | None:
@@ -290,34 +332,28 @@ def central_credential(mode: str, sdk: Any, config: dict, vault_id: str, compart
         if operator is None:
             raise ProvisionError("Identity staging custody is not provisioned")
         return operator["consumers"]["chronicles"]
-    try:
-        rows = sdk.pagination.list_call_get_all_results(sdk.vault.VaultsClient(config).list_secrets,
-            compartment_id, vault_id=vault_id, name=SECRET_NAME).data
-    except Exception:
-        raise ProvisionError("Existing Chronicles Identity custody could not be inspected") from None
-    if not rows:
+    credential = existing_chronicles_bundle(sdk, config, vault_id, compartment_id).get("SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL")
+    if credential is not None and not re.fullmatch(r"soc1_[A-Za-z0-9_-]{43}", credential):
+        raise ProvisionError("Existing Chronicles Identity configuration could not be preserved")
+    return credential
+
+
+def central_admin_profile(mode: str, env: Mapping[str, str], sdk: Any, config: dict,
+                          vault_id: str, compartment_id: str) -> str | None:
+    """A verified, per-product grant. Never translate a display username to UUID."""
+    if mode == "disable" or ENVIRONMENT != "staging":
         return None
-    if len(rows) != 1 or str(rows[0].lifecycle_state).upper() != "ACTIVE":
-        raise ProvisionError("Existing Chronicles custody is not available")
-    try:
-        bundle = sdk.secrets.SecretsClient(config).get_secret_bundle_by_name(secret_name=SECRET_NAME,
-            vault_id=vault_id, stage="CURRENT").data
-        raw = base64.b64decode(bundle.secret_bundle_content.content, validate=True)
-        if len(raw) > 24000:
-            raise ValueError("oversize")
-        values = {}
-        for line in raw.decode().splitlines():
-            key, separator, value = line.partition("=")
-            if not separator or key in values:
-                raise ValueError("invalid bundle")
-            values[key] = value
-        render_bundle(values)
-        credential = values.get("SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL")
-        if credential is not None and not re.fullmatch(r"soc1_[A-Za-z0-9_-]{43}", credential):
-            raise ValueError("invalid service credential")
-        return credential
-    except Exception:
-        raise ProvisionError("Existing Chronicles Identity configuration could not be preserved") from None
+    if mode == "enable":
+        profile = str(env.get("CHRONICLES_STAGING_CENTRAL_ADMIN_PROFILE", ""))
+        if not CENTRAL_ADMIN_PROFILE_RE.fullmatch(profile):
+            raise ProvisionError("An exact approved staging central admin profile is required")
+    else:
+        profile = existing_chronicles_bundle(sdk, config, vault_id, compartment_id).get("ADMIN_USERNAMES")
+    if profile and CENTRAL_ADMIN_PROFILE_RE.fullmatch(profile):
+        return profile
+    if profile:
+        raise ProvisionError("Existing or requested central administrator profile is invalid")
+    return None
 
 
 def self_test() -> None:

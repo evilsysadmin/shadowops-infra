@@ -47,6 +47,20 @@ class StagingConvergenceContracts(unittest.TestCase):
         self.assertIn("--receipt-only", selection)
         self.assertIn("deploy_needed=false", selection)
 
+    def test_central_admin_requires_manual_staging_provision_and_private_secret(self):
+        inputs = self.workflow["on"]["workflow_dispatch"]["inputs"]
+        self.assertEqual(inputs["central_admin"]["options"], ["preserve", "enable", "disable"])
+        self.assertEqual(inputs["central_admin"]["default"], "preserve")
+        provision_job = self.workflow["jobs"]["provision"]
+        self.assertIn("workflow_dispatch", provision_job["if"])
+        self.assertIn("inputs.action == 'provision'", provision_job["if"])
+        values = provision_job["env"]
+        self.assertIn("inputs.central_admin || 'preserve'", values["CHRONICLES_CENTRAL_ADMIN"])
+        self.assertIn("secrets.CHRONICLES_STAGING_CENTRAL_ADMIN_PROFILE",
+                      values["CHRONICLES_STAGING_CENTRAL_ADMIN_PROFILE"])
+        self.assertNotIn("CHRONICLES_STAGING_CENTRAL_ADMIN_PROFILE",
+                         self.workflow["jobs"]["deploy"].get("env", {}))
+
     def test_auto_deploy_is_limited_to_trusted_infra_main(self):
         admit = self.workflow["jobs"]["admit"]
         self.assertIn("refs/heads/main", admit["if"])

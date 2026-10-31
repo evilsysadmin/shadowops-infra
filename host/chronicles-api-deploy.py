@@ -50,7 +50,10 @@ KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 BUNDLE_KEYS = frozenset({"MONGO_URL", "JWT_SECRET", "INVITE_CODE", "TUNNEL_TOKEN"})
 # Present only once provisioning copies Chess Studio's staging Resend key into
 # the bundle; with it, password recovery by email turns on.
-OPTIONAL_BUNDLE_KEYS = frozenset({"RESEND_API_KEY", "SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL"})
+OPTIONAL_BUNDLE_KEYS = frozenset({"RESEND_API_KEY", "SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL", "ADMIN_USERNAMES"})
+# Only a reviewed, exact, environment-scoped UUIDv4 profile is admissible.
+# No aliases, bare usernames, wildcards, lists or production identity grants.
+CENTRAL_ADMIN_PROFILE_RE = re.compile(r"^shadowops:staging:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 PUBLIC_ORIGIN = "https://staging.chronicles.shadowops.dpdns.org"
 # Non-secret runtime contract, versioned here rather than in Vault.
 STATIC_API_ENV = (
@@ -200,8 +203,11 @@ def write_private(path: Path, content: str) -> None:
 def write_runtime(values: Mapping[str, str], runtime: Path = RUNTIME, target: Target = STAGING) -> None:
     resend = values.get("RESEND_API_KEY")
     central = values.get("SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL")
+    central_admin = values.get("ADMIN_USERNAMES")
     if central and (target.name != "staging" or not re.fullmatch(r"soc1_[A-Za-z0-9_-]{43}", central)):
         raise ReleaseError("Central Identity requires the dedicated staging consumer credential")
+    if "ADMIN_USERNAMES" in values and (target.name != "staging" or not central or not CENTRAL_ADMIN_PROFILE_RE.fullmatch(central_admin)):
+        raise ReleaseError("Central administrator requires an approved exact staging profile and active Identity")
     api_rows = [("MONGO_URL", values["MONGO_URL"]), ("JWT_SECRET", values["JWT_SECRET"]),
                 ("INVITE_CODE", values["INVITE_CODE"]), *target.static_env,
                 ("ENABLE_EMAIL_RECOVERY", "true" if resend else "false"),
@@ -210,6 +216,8 @@ def write_runtime(values: Mapping[str, str], runtime: Path = RUNTIME, target: Ta
         api_rows.append(("RESEND_API_KEY", resend))
     if central:
         api_rows.append(("SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL", central))
+    if central_admin:
+        api_rows.append(("ADMIN_USERNAMES", central_admin))
     write_private(runtime / API_ENV.name, env_lines(api_rows))
     write_private(runtime / TUNNEL_ENV.name, env_lines([("TUNNEL_TOKEN", values["TUNNEL_TOKEN"])]))
 
@@ -259,7 +267,7 @@ def _env_ok(service: dict, path: Path, keys: frozenset[str],
 API_ENV_KEYS = frozenset({"MONGO_URL", "JWT_SECRET", "INVITE_CODE", "ENABLE_EMAIL_RECOVERY",
                           "ENABLE_SHADOWOPS_IDENTITY",
                           *(k for k, _ in STATIC_API_ENV)})
-API_ENV_OPTIONAL_KEYS = frozenset({"RESEND_API_KEY", "SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL"})
+API_ENV_OPTIONAL_KEYS = frozenset({"RESEND_API_KEY", "SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL", "ADMIN_USERNAMES"})
 TUNNEL_ENV_KEYS = frozenset({"TUNNEL_TOKEN"})
 
 
