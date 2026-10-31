@@ -11,9 +11,10 @@ const adminJournal = "admin_suspension_journal";
 const governanceJournal = "admin_signer_policy_events";
 const roleJournal = "admin_role_change_journal";
 const signerPolicy = "admin_signer_policy";
+const roleSignerPolicy = "admin_role_signer_policy";
 
 for (const collection of [
-  adminJournal, governanceJournal, roleJournal, signerPolicy, "pending_accounts", "sessions", "staging_cka_tokens",
+  adminJournal, governanceJournal, roleJournal, signerPolicy, roleSignerPolicy, "pending_accounts", "sessions", "staging_cka_tokens",
 ]) {
   ensureWorked(staging.runCommand({ create: collection }));
 }
@@ -45,7 +46,7 @@ ensureWorked(staging.runCommand({
   createRole: "identity_signed_role_change",
   privileges: [
     at(roleJournal, ["insert", "listIndexes"]),
-    at(signerPolicy, ["update"]),
+    at(roleSignerPolicy, ["update"]),
     at("pending_accounts", ["update"]),
     at("sessions", ["remove"]),
     at("staging_cka_tokens", ["update"]),
@@ -120,7 +121,7 @@ ensureWorked(staging.runCommand({
   }],
 }));
 ensureWorked(staging.runCommand({
-  insert: "admin_signer_policy",
+  insert: "admin_role_signer_policy",
   documents: [{
     _id: "staging:set-role", environment: "staging", state: "active",
     action: "set-role", generation: NumberLong(1), use_fence: NumberLong(0),
