@@ -93,6 +93,9 @@ func TestNativeEnrollmentNeverClaimsLegacyNameAndRecoveryRevokesAllApps(t *testi
 	if strings.Contains(stored["credential_hash"].(string), newPassword) || stored["recovery_digest"] == code || stored["recovery_digest"] == next || len(stored["recovery_digest"].(string)) != 64 || stored["credential_version"] != int64(2) || stored["session_version"] != int64(2) {
 		t.Fatal("raw secrets stored or credential versions unchanged")
 	}
+	if stored["role"] != "user" {
+		t.Fatal("self-registered central account did not retain the default user role after recovery")
+	}
 }
 
 func TestNativeRecoveryRollbackAndConcurrentSingleUse(t *testing.T) {
