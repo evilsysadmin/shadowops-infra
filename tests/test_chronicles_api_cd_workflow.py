@@ -114,11 +114,47 @@ class StagingConvergenceContracts(unittest.TestCase):
                     if step.get("id") == "staging_freshness")
         for guard in (preflight, late):
             self.assertEqual(guard["env"]["GRANT_ADMIN"], "${{ inputs.action == 'grant-admin' }}")
-            self.assertIn('if [[ "$GRANT_ADMIN" == \'true\' ]]; then', guard["run"])
+            self.assertIn('if [[ "${GRANT_ADMIN:-false}" == \'true\' ]]; then', guard["run"])
             self.assertIn("CHRONICLES_ADMIN_GRANT_DEPLOY_BLOCKED", guard["run"])
             self.assertIn("exit 65", guard["run"])
         self.assertIn("CHRONICLES_OCI_STALE_SOURCE_PRECHECK_SKIPPED", preflight["run"])
         self.assertIn("CHRONICLES_OCI_STALE_SOURCE_SKIPPED", late["run"])
+
+    def test_grant_admin_stale_source_fails_before_any_deployment(self):
+        steps = self.workflow["jobs"]["deploy"]["steps"]
+        guards = [next(step["run"] for step in steps if step.get("id") == guard_id)
+                  for guard_id in ("staging_preflight", "staging_freshness")]
+        sha = "a" * 40
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            gh = root / "gh"
+            gh.write_text('#!/bin/sh\n'
+                          'printf "%s\\n" "$FAKE_MAIN_SHA"\n')
+            gh.chmod(0o755)
+            for guard in guards:
+                for grant_admin, expected_code, expected_output in (
+                    ("true", 65, ""),
+                    ("false", 0, "fresh=false"),
+                ):
+                    with self.subTest(grant_admin=grant_admin, guard=guard[:40]):
+                        output = root / "output"
+                        summary = root / "summary"
+                        output.write_text("")
+                        summary.write_text("")
+                        env = dict(os.environ,
+                                   PATH=f"{root}{os.pathsep}{os.environ.get('PATH', '')}",
+                                   GRANT_ADMIN=grant_admin, ADMITTED_SHA=sha,
+                                   FAKE_MAIN_SHA="b" * 40,
+                                   GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(summary))
+                        result = subprocess.run(["bash", "-c", guard], env=env,
+                                                capture_output=True, text=True, check=False)
+                        self.assertEqual(result.returncode, expected_code, result.stderr)
+                        self.assertEqual(output.read_text().strip(), expected_output)
+                        if grant_admin == "true":
+                            self.assertIn("CHRONICLES_ADMIN_GRANT_DEPLOY_BLOCKED", result.stderr)
+                            self.assertNotIn("SKIPPED", result.stdout)
+                        else:
+                            self.assertIn("STALE_SOURCE", result.stdout)
 
     def test_admin_grant_checks_live_installed_wrapper_before_any_cloud_mutation(self):
         provision = self.workflow["jobs"]["provision"]
