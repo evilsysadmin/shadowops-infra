@@ -23,15 +23,23 @@ func roleChangeFixture(now time.Time) RoleChange {
 
 func TestRoleChangeRequiresTwoPinnedSignersAndExactIntent(t *testing.T) {
 	opPublic, op, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	secPublic, sec, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	v, err := NewApprovalVerifier(opPublic, secPublic)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	now := time.Now().UTC().Truncate(time.Second)
 	c := roleChangeFixture(now)
 	message, err := ApprovalMessage(c)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !bytes.HasPrefix(message, []byte(roleApprovalDomain)) {
 		t.Fatal("role grant not domain-separated")
 	}
@@ -39,7 +47,9 @@ func TestRoleChangeRequiresTwoPinnedSignersAndExactIntent(t *testing.T) {
 		t.Fatal("role change confusable with account suspension")
 	}
 	approval := SignedRoleChange{Change: c, OperatorSignature: ed25519.Sign(op, message), SecuritySignature: ed25519.Sign(sec, message)}
-	if err := v.Verify(approval, now); err != nil { t.Fatal(err) }
+	if err := v.Verify(approval, now); err != nil {
+		t.Fatal(err)
+	}
 	if err := v.Verify(approval, now.Add(4*time.Minute)); !errors.Is(err, ErrRoleApprovalDenied) {
 		t.Fatal("expired authorization still valid")
 	}
@@ -47,7 +57,9 @@ func TestRoleChangeRequiresTwoPinnedSignersAndExactIntent(t *testing.T) {
 		t.Fatal("premature authorization accepted")
 	}
 	wrongKey, _, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := NewApprovalVerifier(opPublic, opPublic); !errors.Is(err, ErrRoleApprovalDenied) {
 		t.Fatal("same signer holds both roles")
 	}
@@ -55,7 +67,9 @@ func TestRoleChangeRequiresTwoPinnedSignersAndExactIntent(t *testing.T) {
 		t.Fatal("missing approver allowed")
 	}
 	otherVerifier, err := NewApprovalVerifier(opPublic, wrongKey)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := otherVerifier.Verify(approval, now); !errors.Is(err, ErrRoleApprovalDenied) {
 		t.Fatal("wrong configured security approver authorized change")
 	}
