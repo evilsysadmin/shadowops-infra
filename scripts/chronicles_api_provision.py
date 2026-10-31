@@ -345,6 +345,8 @@ def central_admin_profile(mode: str, env: Mapping[str, str], sdk: Any, config: d
         return None
     if mode == "enable":
         profile = str(env.get("CHRONICLES_STAGING_CENTRAL_ADMIN_PROFILE", ""))
+        if not CENTRAL_ADMIN_PROFILE_RE.fullmatch(profile):
+            raise ProvisionError("An exact approved staging central admin profile is required")
     else:
         profile = existing_chronicles_bundle(sdk, config, vault_id, compartment_id).get("ADMIN_USERNAMES")
     if profile and CENTRAL_ADMIN_PROFILE_RE.fullmatch(profile):
