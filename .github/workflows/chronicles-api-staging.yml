@@ -26,6 +26,7 @@ on:
       - 'tests/test_chronicles_staging_receipt.py'
       - 'tests/test_chronicles_github_evidence_transport.py'
       - 'tests/test_chronicles_shared_pr_paths.py'
+      - 'scripts/run_chronicles_shared_contracts.py'
       - 'tests/test_chronicles_production_admission.py'
   # Reconcile on EVERY protected Infra main merge. A concurrent unrelated
   # merge can supersede an in-flight Pages owner run after source CI and API
@@ -81,11 +82,7 @@ jobs:
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_host_deploy.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_identity_activation.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_cd_workflow.py' -v
-      - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_before_pages.py' -v
-      - run: python3 -m unittest discover -s tests -p 'test_chronicles_staging_receipt.py' -v
-      - run: python3 -m unittest discover -s tests -p 'test_chronicles_github_evidence_transport.py' -v
-      - run: python3 -m unittest discover -s tests -p 'test_chronicles_source_ci.py' -v
-      - run: python3 -m unittest discover -s tests -p 'test_chronicles_production_admission.py' -v
+      - run: python3 scripts/run_chronicles_shared_contracts.py
       - run: python3 -m unittest discover -s scripts -p 'test_shared_a1_host_guard.py' -v
       - run: python3 scripts/chronicles_api_provision.py --self-test
       - run: python3 scripts/oci_chronicles_api_release.py --self-test

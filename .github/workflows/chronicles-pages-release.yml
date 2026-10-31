@@ -15,6 +15,7 @@ on:
       - 'tests/test_chronicles_staging_receipt.py'
       - 'tests/test_chronicles_github_evidence_transport.py'
       - 'tests/test_chronicles_shared_pr_paths.py'
+      - 'scripts/run_chronicles_shared_contracts.py'
       - 'tests/test_chronicles_production_admission.py'
       - 'tests/test_pages_owner_admission.py'
       - 'tests/test_chronicles_pages_target.py'
@@ -77,16 +78,12 @@ jobs:
         run: python3 scripts/chronicles_pages_manual_target.py
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_manual_target.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_pages_owner_admission.py' -v
-      - run: python3 -m unittest discover -s tests -p 'test_chronicles_source_ci.py' -v
-      - run: python3 -m unittest discover -s tests -p 'test_chronicles_production_admission.py' -v
+      - run: python3 scripts/run_chronicles_shared_contracts.py
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_target.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_verify.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_react_pages.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_public_browser_workflow.py' -v
-      - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_before_pages.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_verified_receipt.py' -v
-      - run: python3 -m unittest discover -s tests -p 'test_chronicles_staging_receipt.py' -v
-      - run: python3 -m unittest discover -s tests -p 'test_chronicles_github_evidence_transport.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_staging_changelog.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_manifest_wait.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_entry_preflight.py' -v
