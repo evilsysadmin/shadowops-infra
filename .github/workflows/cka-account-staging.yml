@@ -1,0 +1,209 @@
+name: CKA shared account · isolated staging handoff
+on:
+  pull_request:
+    paths: ['compose.cka-account.staging.yaml','host/*cka-account*','scripts/cka_account_*.py','tests/test_cka_account_*.py','scripts/identity_staging_bundle.py','scripts/identity_staging_provision.py','.github/workflows/cka-account-staging.yml','docs/cka-account-staging.md']
+  push:
+    branches: [main]
+    paths: ['compose.cka-account.staging.yaml','host/*cka-account*','scripts/cka_account_*.py','tests/test_cka_account_*.py','.github/workflows/cka-account-staging.yml']
+  workflow_dispatch:
+    inputs:
+      action:
+        type: choice
+        required: true
+        options: [admit, inspect, provision, deploy, pages, disable]
+        description: Fixed CKA account staging only; install reviewed operator policy before provisioning
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CKA_ACCOUNT_NETWORK_TEST: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_cka_account_*.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_identity_staging_operations.py' -v
+      - run: bash -n host/install-cka-account-staging.sh
+      - run: sudo visudo -cf host/cka-account-staging.sudoers
+  admit:
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy' || inputs.action == 'pages' || inputs.action == 'admit') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+      attestations: read
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
+      digest: ${{ steps.source.outputs.digest }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      IMAGE: ghcr.io/evilsysadmin/cka-account-staging
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v4
+      - name: Admit current source main, complete CI and signed ARM64 account image
+        id: source
+        run: |
+          set -euo pipefail
+          sha="$(gh api repos/evilsysadmin/cka-exam-simulator/commits/main --jq .sha)"
+          [[ "$sha" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$(python3 scripts/cka_account_source_ci.py "$sha")" == ready ]]
+          digest="$(docker buildx imagetools inspect "${IMAGE}:sha-${sha}" --format '{{json .Manifest}}' | python3 -c 'import json,sys;print(json.load(sys.stdin)["digest"])')"
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          docker buildx imagetools inspect "${IMAGE}@${digest}" --format '{{json .Manifest}}' | python3 -c 'import json,sys;m=json.load(sys.stdin);p={(x["platform"]["os"],x["platform"]["architecture"]) for x in m.get("manifests",[]) if "platform" in x};assert ("linux","arm64") in p and ("linux","amd64") in p'
+          gh attestation verify "oci://${IMAGE}@${digest}" --owner evilsysadmin --signer-workflow evilsysadmin/cka-exam-simulator/.github/workflows/account-staging.yml --source-ref refs/heads/main --source-digest "$sha" >/dev/null
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "CKA_ACCOUNT_SOURCE_ADMITTED sha=$sha digest=$digest"
+  operate:
+    needs: [contracts, admit]
+    if: always() && needs.contracts.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.action != 'pages' && inputs.action != 'admit' && (inputs.action != 'deploy' || needs.admit.result == 'success') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    environment: staging
+    concurrency:
+      group: shadowops-oci-host-operations
+      cancel-in-progress: false
+    env:
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Refuse superseded owner before any mutation
+        run: test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+      - name: Verify fixed operator-installed account policy
+        if: inputs.action == 'inspect'
+        run: python scripts/cka_account_release.py inspect
+      - name: Register the independent CKA consumer while preserving existing Identity keys
+        if: inputs.action == 'provision'
+        env:
+          IDENTITY_STAGING_CKA: enable
+        run: python scripts/identity_staging_provision.py
+      - name: Own only the CKA account tunnel, hostname and narrow runtime secret
+        if: inputs.action == 'provision'
+        run: python scripts/cka_account_provision.py
+      - name: Disable only the CKA account pilot, preserving central custody
+        if: inputs.action == 'disable'
+        run: |
+          set -euo pipefail
+          python scripts/cka_account_release.py stop
+          python scripts/cka_account_pages.py disable
+      - name: Deploy only the admitted account image
+        if: inputs.action == 'deploy'
+        env:
+          SOURCE_SHA: ${{ needs.admit.outputs.source_sha }}
+          DIGEST: ${{ needs.admit.outputs.digest }}
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/evilsysadmin/cka-exam-simulator/commits/main --jq .sha)" = "$SOURCE_SHA"
+          python scripts/cka_account_release.py deploy --digest "$DIGEST" --sha "$SOURCE_SHA"
+          python scripts/cka_account_verify.py "$SOURCE_SHA"
+      - name: Write verified public account release receipt
+        if: inputs.action == 'deploy'
+        env:
+          SOURCE_SHA: ${{ needs.admit.outputs.source_sha }}
+          DIGEST: ${{ needs.admit.outputs.digest }}
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          value={'schema':1,'environment':'staging','application':'cka-account','build':os.environ['SOURCE_SHA'],'digest':os.environ['DIGEST'],'mode':'account-only-staging','public_source_verified':True}
+          (Path(os.environ['RUNNER_TEMP'])/'cka-account-receipt.json').write_text(json.dumps(value))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: inputs.action == 'deploy'
+        with:
+          name: cka-account-staging-${{ needs.admit.outputs.source_sha }}
+          path: ${{ runner.temp }}/cka-account-receipt.json
+          if-no-files-found: error
+  pages:
+    needs: [contracts,admit]
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'pages' && needs.admit.result == 'success' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: staging
+      url: https://staging.cka.shadowops.dpdns.org
+    concurrency:
+      group: shadowops-cka-account-pages-staging
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      SOURCE_SHA: ${{ needs.admit.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require actual exact-source account API before client publication
+        run: python3 scripts/cka_account_verify.py "$SOURCE_SHA"
+      - uses: actions/checkout@v4
+        with:
+          repository: evilsysadmin/cka-exam-simulator
+          ref: ${{ needs.admit.outputs.source_sha }}
+          path: cka-source
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build the isolated account frontend (no secrets in Vite)
+        working-directory: cka-source/frontend
+        env:
+          VITE_BUILD_SHA: ${{ needs.admit.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run test:account
+          npm run build:account-staging
+          node -e 'const m=require("./dist-account-staging/release.json");if(m.build!==process.env.VITE_BUILD_SHA||m.mode!=="account-staging-preview")process.exit(1)'
+      - name: Recheck source and Infra owner before Cloudflare mutation
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/evilsysadmin/cka-exam-simulator/commits/main --jq .sha)" = "$SOURCE_SHA"
+          test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+          python3 scripts/cka_account_pages.py preflight
+          python3 scripts/cka_account_pages.py project
+      - name: Publish only the separate CKA account staging Pages project
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/evilsysadmin/cka-exam-simulator/commits/main --jq .sha)" = "$SOURCE_SHA"
+          test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+          npx --yes wrangler@4.127.1 pages deploy cka-source/frontend/dist-account-staging --project-name cka-account-staging --branch main --commit-hash "$SOURCE_SHA" --commit-dirty=false
+      - name: Associate owned domain and verify exact public source
+        run: |
+          set -euo pipefail
+          python3 scripts/cka_account_pages.py domain
+          python3 scripts/cka_account_pages.py verify "$SOURCE_SHA"
+      - name: Record verified account Pages source
+        run: |
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          (Path(os.environ['RUNNER_TEMP'])/'cka-account-pages.json').write_text(json.dumps({'schema':1,'environment':'staging','application':'cka-exam-simulator','build':os.environ['SOURCE_SHA'],'mode':'account-staging-preview','url':'https://staging.cka.shadowops.dpdns.org'}))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cka-account-pages-${{ needs.admit.outputs.source_sha }}
+          path: ${{ runner.temp }}/cka-account-pages.json
+          if-no-files-found: error

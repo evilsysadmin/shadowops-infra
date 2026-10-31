@@ -84,8 +84,13 @@ def validate(bundle: dict) -> None:
         raise BundleError('Independent database credentials required')
     if not re.fullmatch('[A-Za-z0-9_-]{43}', bundle['signing_seed']):
         raise BundleError('Invalid independent signing seed')
-    if set(bundle['consumers']) != {'chronicles'} or not re.fullmatch('soc1_[A-Za-z0-9_-]{43}', bundle['consumers']['chronicles']):
-        raise BundleError('Only the explicit Chronicles pilot is registered')
+    consumers = bundle['consumers']
+    if (not isinstance(consumers, dict) or 'chronicles' not in consumers
+            or not set(consumers) <= {'chronicles', 'cka-simulator'}
+            or any(not isinstance(v, str) or not re.fullmatch('soc1_[A-Za-z0-9_-]{43}', v) for v in consumers.values())
+            or len(set(consumers.values())) != len(consumers)
+            or any(v[5:] in {bundle['signing_seed'], bundle['backup_key'].rstrip('=')} for v in consumers.values())):
+        raise BundleError('Explicit independent staging consumer credentials required')
     for key, label in [('ca_certificate_pem', 'CERTIFICATE'), ('tls_certificate_pem', 'CERTIFICATE'),
                        ('ca_private_key_pem', 'PRIVATE KEY'), ('tls_private_key_pem', 'PRIVATE KEY')]:
         if '-----BEGIN ' + label + '-----' not in bundle[key]:
@@ -111,3 +116,14 @@ def service_config(bundle: dict) -> dict:
         'tls_certificate_pem': bundle['tls_certificate_pem'],
         'tls_private_key_pem': bundle['tls_private_key_pem'], 'consumers': bundle['consumers'],
     }
+
+
+def enable_cka(bundle: dict) -> dict:
+    """Explicit, idempotent opt-in. Preserve every existing key/account/consumer."""
+    validate(bundle)
+    result = dict(bundle)
+    result['consumers'] = dict(bundle['consumers'])
+    if 'cka-simulator' not in result['consumers']:
+        result['consumers']['cka-simulator'] = 'soc1_' + random32()
+    validate(result)
+    return result

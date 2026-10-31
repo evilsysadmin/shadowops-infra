@@ -1,0 +1,3 @@
+# Fixed account-only policy; no shell, Docker, restore, factory or lab commands.
+Cmnd_Alias SHADOWOPS_CKA_ACCOUNT_STAGING = /usr/local/sbin/shadowops-cka-account-staging inspect, /usr/local/sbin/shadowops-cka-account-staging stop, /usr/local/sbin/shadowops-cka-account-staging deploy *
+ocarun ALL=(root) NOPASSWD: SHADOWOPS_CKA_ACCOUNT_STAGING
