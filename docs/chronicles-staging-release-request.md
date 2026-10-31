@@ -19,6 +19,22 @@ do not follow its historical instructions as if they describe today's pipeline.
 
 ## Comprobar el wrapper OCI sin instalarlo (operador)
 
+**Alternativa sin SSH de operador:** en GitHub Actions, abrir
+[ShadowOps OCI · existing host probe](https://github.com/evilsysadmin/shadowops-infra/actions/workflows/oci-host-probe.yml),
+seleccionar `Run workflow`, rama protegida `main`, y `probe:
+chronicles-wrapper`. Esta ejecución **manual** utiliza el OCI Run Command
+existente con un script fijo y no privilegiado: solo comprueba propietario,
+permisos y SHA-256 del wrapper en el A1. No lee Vault, no ejecuta Docker y no
+instala nada. OCI sí crea un registro de ejecución de comando.
+
+El workflow compara el hash con el archivo del checkout validado de
+`main`; el resultado `CHRONICLES_API_WRAPPER_CURRENT` indica coincidencia.
+`..._OUTDATED`, `..._MISSING` y `..._UNSAFE` se muestran sin exponer
+ningún log remoto y hacen fallar el job para evitar un falso verde. Una
+salida malformada o un `main` obsoleto también bloquean el diagnóstico.
+Este probe no habilita un despliegue, ni sustituye el procedimiento de
+instalación autorizado.
+
 La instrumentación de fases de OCI de `host/chronicles-api-deploy.py` se
 activa **solo cuando ese fichero está realmente instalado en el A1**. El
 merge a `shadowops-infra/main` no lo instala, ni un workflow verde acredita

@@ -24,6 +24,22 @@ class LiveProbeAdmission(unittest.TestCase):
         self.assertNotIn("pull_request_target", body)
         self.assertNotIn("|| github.event_name == 'push'", body)
 
+    def test_chronicles_wrapper_probe_requires_manual_protected_main_and_fresh_sha(self):
+        body = (ROOT / ".github/workflows/oci-host-probe.yml").read_text()
+        self.assertIn("options: [host, chronicles-wrapper]", body)
+        self.assertIn("default: host", body)
+        self.assertIn("if: inputs.probe != 'chronicles-wrapper'", body)
+        self.assertIn("if: inputs.probe == 'chronicles-wrapper'", body)
+        self.assertIn("CHRONICLES_WRAPPER_PROBE_SUPERSEDED_MAIN", body)
+        self.assertIn('current="$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)"', body)
+        self.assertIn('"$current" == "$GITHUB_SHA"', body)
+        self.assertLess(body.index('Reject a superseded Infra main'),
+                        body.index('Compare the installed Chronicles API wrapper'))
+        self.assertIn("python scripts/oci_host_probe.py wrapper", body)
+        self.assertIn("host/chronicles-api-deploy.py", body)
+        self.assertNotIn("sudo --non-interactive", body)
+        self.assertNotIn("pull_request_target", body)
+
     def test_fixed_host_command_remains_nonprivileged(self):
         for forbidden in ("sudo", "docker compose up", "docker compose down",
                           "systemctl restart", "terraform", "ssh ", "git fetch",
