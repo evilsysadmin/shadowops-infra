@@ -113,6 +113,69 @@ class TestOCIInventory(unittest.TestCase):
                          "instance-test")
         self.assertEqual(commands[1]["instance_id"], "instance-test")
 
+
+    def test_oci_lifecycle_timing_is_observation_not_guessed_host_runtime(self):
+        import oci_chronicles_api_release as release
+        self.assertEqual(release.observed_lifecycle_timing(2, 7, 16),
+                         "CHRONICLES_API_OCI_LIFECYCLE_OBSERVED_SECONDS pre_active=5 active=9")
+        self.assertEqual(release.observed_lifecycle_timing(2, None, 16), "")
+        self.assertEqual(release.observed_lifecycle_timing(10, 8, 5),
+                         "CHRONICLES_API_OCI_LIFECYCLE_OBSERVED_SECONDS pre_active=0 active=0")
+        self.assertEqual(release.observed_lifecycle_timing(0, 500000, 1000000),
+                         "CHRONICLES_API_OCI_LIFECYCLE_OBSERVED_SECONDS pre_active=99999 active=99999")
+
+    def test_release_measures_observed_in_progress_without_raw_remote_logs(self):
+        from unittest.mock import patch
+        import oci_chronicles_api_release as release
+        sdk = FakeSDK()
+        config = cp.config_from_env(sdk, ENV)
+        digest = "sha256:" + "a" * 64
+        vault = "ocid1.vault.oc1.eu-frankfurt-1.abcdefghijkl"
+        marker = release.marker_for("staging") + digest
+
+        class Agent:
+            def __init__(self, end_state):
+                self.states = ["ACCEPTED", "IN_PROGRESS", end_state]
+                self.end_state = end_state
+
+            def create_instance_agent_command(self, **kwargs):
+                return NS(data=NS(id="command-test"))
+
+            def get_instance_agent_command_execution(self, **kwargs):
+                status = self.states.pop(0)
+                return NS(data=NS(lifecycle_state=status, content=NS(
+                    text="SECRET_REMOTE_LOG\n" + marker if status == "SUCCEEDED"
+                    else "SECRET_REMOTE_LOG", exit_code=0 if status == "SUCCEEDED" else 1)))
+
+        sdk.compute_instance_agent.models = NS(
+            InstanceAgentCommandSourceViaTextDetails=lambda **kw: NS(**kw),
+            InstanceAgentCommandOutputViaTextDetails=lambda **kw: NS(**kw),
+            InstanceAgentCommandContent=lambda **kw: NS(**kw),
+            InstanceAgentCommandTarget=lambda **kw: NS(**kw),
+            CreateInstanceAgentCommandDetails=lambda **kw: NS(**kw),
+        )
+        for final_status in ("SUCCEEDED", "FAILED"):
+            with self.subTest(status=final_status):
+                agent = Agent(final_status)
+                sdk.compute_instance_agent.ComputeInstanceAgentClient = lambda cfg: agent
+                clock = iter((0, 1, 2, 3, 4, 7, 8, 16))
+                output = io.StringIO()
+                with patch("chronicles_api_provision.resolve_vault",
+                           return_value=(vault, None, None)), redirect_stdout(output):
+                    if final_status == "SUCCEEDED":
+                        self.assertEqual(release.execute(sdk, config, digest,
+                                          pause=lambda _: None, clock=lambda: next(clock)), marker)
+                    else:
+                        with self.assertRaises(cp.InventoryError):
+                            release.execute(sdk, config, digest,
+                                            pause=lambda _: None, clock=lambda: next(clock))
+                lines = output.getvalue().splitlines()
+                self.assertIn("CHRONICLES_API_OCI_LIFECYCLE_OBSERVED_SECONDS pre_active=5 active=9", lines)
+                self.assertIn("CHRONICLES_API_OCI_PHASE_SECONDS preflight=1 dispatch=1 execution=14", lines)
+                self.assertNotIn("SECRET_REMOTE_LOG", output.getvalue())
+                self.assertNotIn(vault, output.getvalue())
+                self.assertEqual(lines[-1] == marker, final_status == "SUCCEEDED")
+
     def test_release_rejects_unhealthy_plugin_before_submitting_any_command(self):
         from unittest.mock import patch
         import oci_chronicles_api_release as release

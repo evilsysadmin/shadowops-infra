@@ -211,6 +211,22 @@ OCI step into preflight, command dispatch and remote execution seconds.
 The marker contains fixed labels and integer timings only, not OCI IDs or
 secret material. It is observational and never authorizes deployment.
 
+The controller also observes OCI's own command lifecycle while polling.
+When it actually sees `IN_PROGRESS` before a terminal result, it emits
+`CHRONICLES_API_OCI_LIFECYCLE_OBSERVED_SECONDS pre_active=N active=M`.
+These are **poll-time estimates**: `pre_active` is elapsed time from command
+submission until the first observed `IN_PROGRESS`, and `active` is the
+elapsed time from that observation to the terminal result. They are **not**
+exact server queue time or Docker runtime; the agent may transition between
+polls. If `IN_PROGRESS` is never observed, the line is omitted rather than
+inventing a split. Fixed-label timings also help diagnose failed terminal
+runs, but never echo the remote command output.
+
+The independent host-phase line, available only after a separately installed
+updated wrapper and successful smoke, reports guard, Vault, Compose, image
+pull, startup and health phases. Do not attribute a long OCI lifecycle
+to Docker until that host-phase evidence is available.
+
 The staging Chromium download cache is keyed to the resolved Playwright
 version. Compare warm-cache browser smoke against the above cold baseline
 before claiming an improvement; both browser journeys remain mandatory.
