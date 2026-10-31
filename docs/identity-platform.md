@@ -113,6 +113,44 @@ Until that executor and its operational gates are verified and deployed,
 a platform `admin` does not automatically become a Chronicles game admin;
 the product-scoped staging grant and incident #1029 are separate.
 
+### Atomic operator-only role executor (staging)
+
+`services/identity/roles/executor.go` adds an **unwired, offline**
+`StagingRoleExecutor` for **one** signed `user ↔ admin` change. It requires
+two independently approved Ed25519 signatures, an active and versioned
+`admin_signer_policy` record with ID `staging:set-role`, exact pinned
+public-key hashes and the account's current session-version/role. Every
+attempt rechecks signatures and policy in a snapshot/majority transaction.
+The policy itself receives a write fence to conflict with concurrent
+retirement/rotation. Only a trusted operator can invoke this primitive;
+the browser login, session token and public Identity HTTP server have no
+role-change route or access to operator signing keys.
+
+A successful transaction changes the exact staging account's role, bumps
+its `session_version`, deletes browser sessions, deactivates bound
+`staging_cka_tokens` and appends one permanent audit entry with
+`environment`, `action`, `nonce`, role transition, review reference,
+evidence digest, approved signer key hashes and timestamps. There is no
+automatic transfer of game privileges. Unknown roles, invalid signatures,
+stale session versions, retired policy, replayed nonce and unauthorized
+subjects fail closed and roll back **all** writes.
+
+**Operator bootstrap still required; no grants are active on merge.**
+An independent database schema maintainer must create a unique,
+non-sparse, non-partial, non-TTL index named
+`staging_role_nonce_unique` on
+`shadowops_identity_staging.admin_role_change_journal` keys
+`{environment:1,action:1,nonce:1}`. The executor only **checks** this
+index; it never creates or repairs it. A separately approved signer
+policy record `staging:set-role` must also be established with pinned
+operator/security keys and a restricted validity window. An offline
+operator account needs narrowly scoped read/write to those exact
+collections; **never** reuse the live Identity runtime's Mongo credentials
+or add the new journal/policy privileges to its account. Before any real
+grant, establish the protected operation, independently review the
+target's immutable `sub`, test rollback and revocation in staging,
+and validate least privilege and audit retention.
+
 ## Acceptance: one ShadowOps account, no repeated product registration
 
 The shared Identity goal means one central registration/login/recovery flow per
