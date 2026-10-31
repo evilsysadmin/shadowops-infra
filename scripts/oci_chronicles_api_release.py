@@ -103,6 +103,16 @@ def observed_delivery_timing(submitted: float, first_acked: float | None,
             + f"after_ack={duration(first_acked, completed)}")
 
 
+def observed_poll_timing(calls: int, total: float, slowest: float) -> str:
+    """Local OCI GET round-trip durations, never host execution time."""
+    if calls <= 0:
+        return ""
+    bounded = lambda n: min(99999, max(0, int(n)))
+    return ("CHRONICLES_API_OCI_POLL_SECONDS "
+            + f"calls={bounded(calls)} total={bounded(total)} "
+            + f"slowest={bounded(slowest)}")
+
+
 # Summary contents are assembled exclusively from local, fixed-format
 # controller timings plus the strictly admitted host timing. Never interpolate
 # arbitrary OCI stdout, command IDs, Vault IDs, digests or failure reasons.
@@ -115,16 +125,21 @@ LIFECYCLE_LINE = re.compile(
 DELIVERY_LINE = re.compile(
     r"CHRONICLES_API_OCI_DELIVERY_OBSERVED_SECONDS before_ack=[0-9]{1,5} after_ack=[0-9]{1,5}"
 )
+POLL_LINE = re.compile(
+    r"CHRONICLES_API_OCI_POLL_SECONDS calls=[0-9]{1,5} total=[0-9]{1,5} slowest=[0-9]{1,5}"
+)
 
 
 def timing_summary(phase: str, lifecycle: str = "", host: str = "",
-                   *, verified: bool, delivery: str = "") -> str:
+                   *, verified: bool, delivery: str = "", poll: str = "") -> str:
     """Render only finite validated lines; optional host timing is not guessed."""
     if not PHASE_LINE.fullmatch(phase):
         return ""
     if lifecycle and not LIFECYCLE_LINE.fullmatch(lifecycle):
         return ""
     if delivery and not DELIVERY_LINE.fullmatch(delivery):
+        return ""
+    if poll and not POLL_LINE.fullmatch(poll):
         return ""
     if host and not HOST_TIMING.fullmatch(host):
         return ""
@@ -139,6 +154,8 @@ def timing_summary(phase: str, lifecycle: str = "", host: str = "",
         "- OCI agent delivery acknowledgement: " + (
             "`" + delivery + "`" if delivery
             else "not observed before terminal; no delivery delay inferred"),
+        "- OCI GET round trips (local controller): " + (
+            "`" + poll + "`" if poll else "not measured"),
         "- Installed wrapper phases: " + (
             "`" + host + "`" if host
             else "not reported (does not prove the wrapper is outdated)"),
@@ -152,13 +169,13 @@ def timing_summary(phase: str, lifecycle: str = "", host: str = "",
 
 def append_timing_summary(phase: str, lifecycle: str = "", host: str = "",
                           *, verified: bool, path: str | None = None,
-                          delivery: str = "") -> None:
+                          delivery: str = "", poll: str = "") -> None:
     """Optional Actions UX only: summary write failures never alter admission."""
     destination = os.environ.get("GITHUB_STEP_SUMMARY", "") if path is None else path
     if not destination:
         return
     summary = timing_summary(phase, lifecycle, host, verified=verified,
-                             delivery=delivery)
+                             delivery=delivery, poll=poll)
     if not summary:
         return
     try:
@@ -170,7 +187,7 @@ def append_timing_summary(phase: str, lifecycle: str = "", host: str = "",
 
 def execute(
     sdk: Any, config: dict[str, str], digest: str, environment: str = "staging", *,
-    pause=time.sleep, clock=time.monotonic
+    pause=time.sleep, clock=time.monotonic, poll_clock=time.monotonic
 ) -> str:
     from chronicles_api_provision import resolve_vault
     started = clock()
@@ -203,10 +220,16 @@ def execute(
     deadline = submitted + 650
     first_active = None
     first_acked = None
+    poll_calls, poll_total, poll_slowest = 0, 0.0, 0.0
     while clock() < deadline:
+        poll_start = poll_clock()
         execution = agent.get_instance_agent_command_execution(
             instance_agent_command_id=command_id, instance_id=instance_id,
         ).data
+        elapsed = max(0.0, poll_clock() - poll_start)
+        poll_calls += 1
+        poll_total += elapsed
+        poll_slowest = max(poll_slowest, elapsed)
         status = str(getattr(execution, "lifecycle_state", "") or "").upper()
         # ACKED means delivery to the agent; it does not prove execution.
         # Terminal ACKED alone has no usable timestamp, so ignore it.
@@ -219,10 +242,13 @@ def execute(
             completed = clock()
             lifecycle = observed_lifecycle_timing(submitted, first_active, completed)
             delivery = observed_delivery_timing(submitted, first_acked, completed)
+            poll = observed_poll_timing(poll_calls, poll_total, poll_slowest)
             if lifecycle:
                 print(lifecycle, flush=True)
             if delivery:
                 print(delivery, flush=True)
+            if poll:
+                print(poll, flush=True)
             result = getattr(execution, "content", None)
             stdout = str(getattr(result, "text", "") or "").strip()
             last = stdout.splitlines()[-1] if stdout else ""
@@ -234,7 +260,7 @@ def execute(
                 reason = next((line for line in stdout.splitlines() if BLOCKED.fullmatch(line)), "")
                 print(phase, flush=True)
                 append_timing_summary(phase, lifecycle, verified=False,
-                                      delivery=delivery)
+                                      delivery=delivery, poll=poll)
                 raise InventoryError("Chronicles API root-wrapper smoke did not succeed"
                                      + (" | " + reason if reason else f" | status={status}"))
             timing = trusted_host_timing(stdout)
@@ -242,7 +268,7 @@ def execute(
                 print(timing, flush=True)
             print(phase, flush=True)
             append_timing_summary(phase, lifecycle, timing, verified=True,
-                                  delivery=delivery)
+                                  delivery=delivery, poll=poll)
             print(marker + digest)
             return last
         pause(3)
@@ -252,13 +278,17 @@ def execute(
     completed = clock()
     lifecycle = observed_lifecycle_timing(submitted, first_active, completed)
     delivery = observed_delivery_timing(submitted, first_acked, completed)
+    poll = observed_poll_timing(poll_calls, poll_total, poll_slowest)
     if lifecycle:
         print(lifecycle, flush=True)
     if delivery:
         print(delivery, flush=True)
+    if poll:
+        print(poll, flush=True)
     phase = phase_timing(started, prepared, submitted, completed)
     print(phase, flush=True)
-    append_timing_summary(phase, lifecycle, verified=False, delivery=delivery)
+    append_timing_summary(phase, lifecycle, verified=False, delivery=delivery,
+                          poll=poll)
     raise InventoryError("Chronicles API OCI release timed out")
 
 
