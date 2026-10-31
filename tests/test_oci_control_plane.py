@@ -233,6 +233,75 @@ class TestOCIInventory(unittest.TestCase):
                                           path=str(Path(tmp) / "missing" / "file"))
             self.assertEqual(Path(destination).read_text(), good)
 
+    def test_oci_nonterminal_timeout_reports_unverified_timings_without_secrets(self):
+        from unittest.mock import patch
+        import oci_chronicles_api_release as release
+
+        sdk = FakeSDK()
+        digest = "sha256:" + "a" * 64
+        vault = "ocid1.vault.oc1.eu-frankfurt-1.abcdefghijkl"
+        sdk.compute_instance_agent.models = NS(
+            InstanceAgentCommandSourceViaTextDetails=lambda **kw: NS(**kw),
+            InstanceAgentCommandOutputViaTextDetails=lambda **kw: NS(**kw),
+            InstanceAgentCommandContent=lambda **kw: NS(**kw),
+            InstanceAgentCommandTarget=lambda **kw: NS(**kw),
+            CreateInstanceAgentCommandDetails=lambda **kw: NS(**kw),
+        )
+        for name, statuses, ticks, lifecycle in (
+            ("observed-active", ["ACCEPTED", "IN_PROGRESS"],
+             (0, 1, 2, 3, 4, 5, 652, 653),
+             "CHRONICLES_API_OCI_LIFECYCLE_OBSERVED_SECONDS pre_active=3 active=648"),
+            ("unobserved-active", ["ACCEPTED"],
+             (0, 1, 2, 3, 652, 653), ""),
+        ):
+            with self.subTest(scenario=name):
+                class Agent:
+                    def __init__(self):
+                        self.polled = 0
+                        self.created = 0
+
+                    def create_instance_agent_command(self, **kwargs):
+                        self.created += 1
+                        return NS(data=NS(id="command-test"))
+
+                    def get_instance_agent_command_execution(self, **kwargs):
+                        status = statuses[self.polled]
+                        self.polled += 1
+                        return NS(data=NS(lifecycle_state=status,
+                                          content=NS(text="SECRET_REMOTE_LOG", exit_code=0)))
+
+                agent = Agent()
+                sdk.compute_instance_agent.ComputeInstanceAgentClient = lambda cfg: agent
+                iterator = iter(ticks)
+                output = io.StringIO()
+                with tempfile.TemporaryDirectory() as tmp:
+                    summary = Path(tmp) / "actions.md"
+                    with patch("chronicles_api_provision.resolve_vault",
+                               return_value=(vault, None, None)), patch.dict(
+                                   os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}), redirect_stdout(output):
+                        with self.assertRaisesRegex(cp.InventoryError, "timed out"):
+                            release.execute(sdk, cp.config_from_env(sdk, ENV), digest,
+                                            pause=lambda _: None, clock=lambda: next(iterator))
+                    report = summary.read_text()
+                phase = "CHRONICLES_API_OCI_PHASE_SECONDS preflight=1 dispatch=1 execution=651"
+                self.assertIn(phase, output.getvalue())
+                self.assertIn(phase, report)
+                self.assertIn("Verified wrapper smoke: no", report)
+                self.assertIn("not reported", report)
+                self.assertNotIn(release.marker_for("staging"), report + output.getvalue())
+                self.assertNotIn("SECRET_REMOTE_LOG", report + output.getvalue())
+                self.assertNotIn(vault, report + output.getvalue())
+                if lifecycle:
+                    self.assertIn(lifecycle, report)
+                    self.assertIn(lifecycle, output.getvalue())
+                else:
+                    self.assertIn("not observed; no queue/active split inferred", report)
+                    self.assertNotIn("CHRONICLES_API_OCI_LIFECYCLE_OBSERVED_SECONDS",
+                                     output.getvalue())
+                self.assertEqual(agent.created, 1)
+                self.assertEqual(agent.polled, len(statuses))
+                self.assertEqual(next(iterator, None), None)
+
     def test_release_rejects_unhealthy_plugin_before_submitting_any_command(self):
         from unittest.mock import patch
         import oci_chronicles_api_release as release
