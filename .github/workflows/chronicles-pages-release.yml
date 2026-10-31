@@ -539,6 +539,19 @@ jobs:
           name: chronicles-pages-staging-${{ steps.source.outputs.sha }}
           path: verified-pages/
           retention-days: 90
+      # Human-facing copy in the run's Artifacts list. The trusted exact-SHA
+      # receipt above remains the only evidence used by deploy admission.
+      - name: Publish readable staging release notes (HTML and Markdown)
+        if: steps.source_freshness.outputs.fresh == 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: chronicles-staging-release-notes-${{ steps.source.outputs.sha }}
+          path: |
+            verified-pages/RELEASE_NOTES.md
+            verified-pages/release-notes.html
+          if-no-files-found: ignore
+          retention-days: 90
 
   production:
     name: Promote a Chronicles main SHA to production
