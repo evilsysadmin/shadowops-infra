@@ -216,6 +216,16 @@ def execute(
             print(marker + digest)
             return last
         pause(3)
+    # A non-terminal OCI wait is precisely when the controller's timings are
+    # most useful. Do not claim a successful smoke or infer unobserved states.
+    # All values come from the local monotonic clock, never remote stdout.
+    completed = clock()
+    lifecycle = observed_lifecycle_timing(submitted, first_active, completed)
+    if lifecycle:
+        print(lifecycle, flush=True)
+    phase = phase_timing(started, prepared, submitted, completed)
+    print(phase, flush=True)
+    append_timing_summary(phase, lifecycle, verified=False)
     raise InventoryError("Chronicles API OCI release timed out")
 
 

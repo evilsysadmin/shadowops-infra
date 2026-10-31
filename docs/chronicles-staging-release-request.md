@@ -237,6 +237,13 @@ The summary has no OCI stdout, command IDs, Vault identifiers, image digests
 or runtime credentials. An unavailable job summary does not block or
 retroactively validate the deploy.
 
+If the controller reaches its 650-second OCI polling deadline without a
+terminal agent response, it still records elapsed local phases and any
+actually observed `IN_PROGRESS` split with **Verified wrapper smoke: no**.
+A timeout does **not** create a release receipt, imply that OCI succeeded,
+or guess the host's activity. It remains a failed deployment; the diagnostic
+does not extend the deadline or issue additional OCI calls.
+
 The staging Chromium download cache is keyed to the resolved Playwright
 version. Compare warm-cache browser smoke against the above cold baseline
 before claiming an improvement; both browser journeys remain mandatory.
