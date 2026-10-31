@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/evilsysadmin/shadowops-infra/services/identity/password"
+	"github.com/evilsysadmin/shadowops-infra/services/identity/roles"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -124,6 +125,7 @@ func (n *NativeAccounts) Register(ctx context.Context, input, candidate string) 
 		{Key: "_id", Value: subject}, {Key: "environment", Value: "staging"},
 		{Key: "source", Value: nativeSource}, {Key: "alias_key", Value: name},
 		{Key: "state", Value: "active"}, {Key: "credentials_disabled", Value: false},
+		{Key: "role", Value: roles.SelfRegistrationRole()},
 		{Key: "credential_hash", Value: hash}, {Key: "credential_version", Value: int64(1)},
 		{Key: "session_version", Value: int64(1)}, {Key: "recovery_digest", Value: digest},
 		{Key: "created_at", Value: time.Now().UTC()},
