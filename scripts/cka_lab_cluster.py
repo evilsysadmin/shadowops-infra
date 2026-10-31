@@ -42,6 +42,10 @@ def call(argv, *, env, timeout=30):
         result = subprocess.run(argv, env=env, capture_output=True, text=True,
                                 timeout=timeout, check=False)
         if result.returncode != 0 or len(result.stdout) + len(result.stderr) > 1048576:
+            if argv[:3] == ["kind", "create", "cluster"] and env.get("GITHUB_ACTIONS") == "true":
+                # Only this disposable cluster initialization: no live Identity
+                # configuration or application credential exists in the CI job.
+                print(result.stderr[:12000], file=sys.stderr)
             raise ClusterBootstrapError("Lab cluster operation failed")
         return result.stdout
     except (OSError, ValueError, subprocess.SubprocessError):
