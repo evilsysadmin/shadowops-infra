@@ -200,8 +200,13 @@ exact source commit and SLSA provenance subject digest.
 Only an explicit `CKA_LAB_IMAGE_ADMITTED` receipt containing the immutable
 digest and source SHA is positive evidence. The check never issues a Docker
 run, Compose command, host Run Command, credential copy, environment change,
-lab enablement or OCI resource mutation. PRs exercise offline negative
-fixtures only. A missing/ambiguous/invalid receipt is not approval.
+lab enablement or OCI resource mutation. PRs exercise offline negative fixtures and a fixed **read-only** live
+positive control using a published CKA multiarch digest and its existing
+signed provenance. The positive control does not admit new artifacts or deploy
+anything, and does not replace an explicit protected-main manual admission.
+If CKA source main advances, update the reviewed positive-control fixture
+to a verified newly published commit/digest pair before expecting it to pass.
+A missing/ambiguous/invalid receipt is not approval.
 
 This independent source admission does not replace the subsequent operator
 confirmation of a healthy installed rootless runtime, actual A1 scenario smoke,
