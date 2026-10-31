@@ -228,8 +228,17 @@ func TestRoleExecutorNeedsPreexistingPermanentUniqueJournal(t *testing.T) {
 	op, sec := roleKeys()
 	_, err := NewStagingRoleExecutor(context.Background(),client,op.Public().(ed25519.PublicKey),sec.Public().(ed25519.PublicKey))
 	if !errors.Is(err, ErrRoleStore) { t.Fatal("missing unique journal accepted",err) }
-	_, err = db.Collection(roleJournal).Indexes().CreateOne(context.Background(),mongo.IndexModel{
-		Keys:roleJournalKeys(),Options:options.Index().SetName(roleJournalIndex).SetUnique(true).SetExpireAfterSeconds(60),
+	_, err = db.Collection(roleJournal).Indexes().CreateOne(context.Background(), mongo.IndexModel{
+		Keys: roleJournalKeys(), Options: options.Index().SetName(roleJournalIndex).SetUnique(true),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// MongoDB refuses TTL on compound indexes. Add an independent TTL
+	// index instead: ANY expiring audit index must block this executor.
+	_, err = db.Collection(roleJournal).Indexes().CreateOne(context.Background(), mongo.IndexModel{
+		Keys: bson.D{{Key: "executed_at", Value: int32(1)}},
+		Options: options.Index().SetName("unsafe_audit_ttl").SetExpireAfterSeconds(60),
 	})
 	if err != nil { t.Fatal(err) }
 	_, err = NewStagingRoleExecutor(context.Background(),client,op.Public().(ed25519.PublicKey),sec.Public().(ed25519.PublicKey))
