@@ -5,7 +5,10 @@ on:
       - '.github/workflows/oci-inventory.yml'
       - 'scripts/oci_control_plane.py'
       - 'scripts/cka_lab_inventory.py'
+      - 'scripts/cka_lab_free_capacity.py'
       - 'tests/test_cka_lab_inventory.py'
+      - 'tests/test_cka_lab_free_capacity.py'
+      - 'docs/cka-lab-staging.md'
       - 'tests/test_oci_control_plane.py'
       - 'docs/platform-ownership.md'
   push:
@@ -14,7 +17,10 @@ on:
       - '.github/workflows/oci-inventory.yml'
       - 'scripts/oci_control_plane.py'
       - 'scripts/cka_lab_inventory.py'
+      - 'scripts/cka_lab_free_capacity.py'
       - 'tests/test_cka_lab_inventory.py'
+      - 'tests/test_cka_lab_free_capacity.py'
+      - 'docs/cka-lab-staging.md'
       - 'tests/test_oci_control_plane.py'
       - 'docs/platform-ownership.md'
   workflow_dispatch:
@@ -33,6 +39,7 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_oci_*.py' -v
           python3 scripts/oci_control_plane.py self-test
           python3 -m unittest discover -s tests -p 'test_cka_lab_inventory.py' -v
+          python3 -m unittest discover -s tests -p 'test_cka_lab_free_capacity.py' -v
 
   inventory:
     name: Inventory existing A1 (no mutations)
@@ -59,3 +66,5 @@ jobs:
         run: python scripts/oci_control_plane.py inventory
       - name: Observe isolated CKA runner availability without allocating compute
         run: python scripts/cka_lab_inventory.py
+      - name: Check tenancy-wide Always Free headroom without allocating compute
+        run: python scripts/cka_lab_free_capacity.py
