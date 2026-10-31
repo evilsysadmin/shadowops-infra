@@ -238,7 +238,9 @@ class ChroniclesReleaseChangelog(unittest.TestCase):
         self.assertIn("continue-on-error: true", notes_job)
         self.assertIn("verified: ${{ steps.source_freshness.outputs.fresh }}", release_job)
         self.assertIn("source_sha: ${{ steps.source.outputs.sha }}", release_job)
-        self.assertNotIn("GITHUB_STEP_SUMMARY", release_job)
+        # Release retains its pre-existing superseded-run status note, but
+        # does not duplicate the human-facing notes rendered by the final job.
+        self.assertNotIn('cat verified-pages/RELEASE_NOTES.md >> "$GITHUB_STEP_SUMMARY"', release_job)
         self.assertNotIn("GITHUB_STEP_SUMMARY", (Path(__file__).resolve().parents[1] /
                          "scripts/chronicles_staging_changelog.py").read_text())
 
