@@ -92,6 +92,15 @@ def observed_lifecycle_timing(submitted: float, first_active: float | None,
             + f"pre_active={duration(submitted, first_active)} "
             + f"active={duration(first_active, completed)}")
 
+def observed_delivery_timing(submitted: float, first_acked: float | None,
+                             completed: float) -> str:
+    """Only an ACKED status seen before terminal; never infer actual start."""
+    if first_acked is None:
+        return ""
+    duration = lambda a, b: min(99999, max(0, int(b - a)))
+    return ("CHRONICLES_API_OCI_DELIVERY_OBSERVED_SECONDS "
+            + f"before_ack={duration(submitted, first_acked)} "
+            + f"after_ack={duration(first_acked, completed)}")
 
 
 # Summary contents are assembled exclusively from local, fixed-format
@@ -103,14 +112,19 @@ PHASE_LINE = re.compile(
 LIFECYCLE_LINE = re.compile(
     r"CHRONICLES_API_OCI_LIFECYCLE_OBSERVED_SECONDS pre_active=[0-9]{1,5} active=[0-9]{1,5}"
 )
+DELIVERY_LINE = re.compile(
+    r"CHRONICLES_API_OCI_DELIVERY_OBSERVED_SECONDS before_ack=[0-9]{1,5} after_ack=[0-9]{1,5}"
+)
 
 
 def timing_summary(phase: str, lifecycle: str = "", host: str = "",
-                   *, verified: bool) -> str:
+                   *, verified: bool, delivery: str = "") -> str:
     """Render only finite validated lines; optional host timing is not guessed."""
     if not PHASE_LINE.fullmatch(phase):
         return ""
     if lifecycle and not LIFECYCLE_LINE.fullmatch(lifecycle):
+        return ""
+    if delivery and not DELIVERY_LINE.fullmatch(delivery):
         return ""
     if host and not HOST_TIMING.fullmatch(host):
         return ""
@@ -122,24 +136,29 @@ def timing_summary(phase: str, lifecycle: str = "", host: str = "",
         "- OCI lifecycle observation: " + (
             "`" + lifecycle + "`" if lifecycle
             else "not observed; no queue/active split inferred"),
+        "- OCI agent delivery acknowledgement: " + (
+            "`" + delivery + "`" if delivery
+            else "not observed before terminal; no delivery delay inferred"),
         "- Installed wrapper phases: " + (
             "`" + host + "`" if host
             else "not reported (does not prove the wrapper is outdated)"),
         "",
-        "OCI lifecycle durations are measured at polling boundaries, not exact "
-        "server queue or Docker runtime.",
+        "ACKED means the agent received the command, not that execution started. "
+        "All observations are taken at polling boundaries, not exact timings.",
         "",
     ]
     return "\n".join(result)
 
 
 def append_timing_summary(phase: str, lifecycle: str = "", host: str = "",
-                          *, verified: bool, path: str | None = None) -> None:
+                          *, verified: bool, path: str | None = None,
+                          delivery: str = "") -> None:
     """Optional Actions UX only: summary write failures never alter admission."""
     destination = os.environ.get("GITHUB_STEP_SUMMARY", "") if path is None else path
     if not destination:
         return
-    summary = timing_summary(phase, lifecycle, host, verified=verified)
+    summary = timing_summary(phase, lifecycle, host, verified=verified,
+                             delivery=delivery)
     if not summary:
         return
     try:
@@ -183,18 +202,27 @@ def execute(
     submitted = clock()
     deadline = submitted + 650
     first_active = None
+    first_acked = None
     while clock() < deadline:
         execution = agent.get_instance_agent_command_execution(
             instance_agent_command_id=command_id, instance_id=instance_id,
         ).data
         status = str(getattr(execution, "lifecycle_state", "") or "").upper()
+        # ACKED means delivery to the agent; it does not prove execution.
+        # Terminal ACKED alone has no usable timestamp, so ignore it.
+        if (status not in TERMINAL and first_acked is None
+                and getattr(execution, "delivery_state", "") == "ACKED"):
+            first_acked = clock()
         if status == "IN_PROGRESS" and first_active is None:
             first_active = clock()
         if status in TERMINAL:
             completed = clock()
             lifecycle = observed_lifecycle_timing(submitted, first_active, completed)
+            delivery = observed_delivery_timing(submitted, first_acked, completed)
             if lifecycle:
                 print(lifecycle, flush=True)
+            if delivery:
+                print(delivery, flush=True)
             result = getattr(execution, "content", None)
             stdout = str(getattr(result, "text", "") or "").strip()
             last = stdout.splitlines()[-1] if stdout else ""
@@ -205,14 +233,16 @@ def execute(
                 # bounded reason line, matched strictly.
                 reason = next((line for line in stdout.splitlines() if BLOCKED.fullmatch(line)), "")
                 print(phase, flush=True)
-                append_timing_summary(phase, lifecycle, verified=False)
+                append_timing_summary(phase, lifecycle, verified=False,
+                                      delivery=delivery)
                 raise InventoryError("Chronicles API root-wrapper smoke did not succeed"
                                      + (" | " + reason if reason else f" | status={status}"))
             timing = trusted_host_timing(stdout)
             if timing:
                 print(timing, flush=True)
             print(phase, flush=True)
-            append_timing_summary(phase, lifecycle, timing, verified=True)
+            append_timing_summary(phase, lifecycle, timing, verified=True,
+                                  delivery=delivery)
             print(marker + digest)
             return last
         pause(3)
@@ -221,11 +251,14 @@ def execute(
     # All values come from the local monotonic clock, never remote stdout.
     completed = clock()
     lifecycle = observed_lifecycle_timing(submitted, first_active, completed)
+    delivery = observed_delivery_timing(submitted, first_acked, completed)
     if lifecycle:
         print(lifecycle, flush=True)
+    if delivery:
+        print(delivery, flush=True)
     phase = phase_timing(started, prepared, submitted, completed)
     print(phase, flush=True)
-    append_timing_summary(phase, lifecycle, verified=False)
+    append_timing_summary(phase, lifecycle, verified=False, delivery=delivery)
     raise InventoryError("Chronicles API OCI release timed out")
 
 

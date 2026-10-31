@@ -302,6 +302,77 @@ class TestOCIInventory(unittest.TestCase):
                 self.assertEqual(agent.polled, len(statuses))
                 self.assertEqual(next(iterator, None), None)
 
+    def test_oci_acknowledgement_is_observed_only_before_terminal(self):
+        from unittest.mock import patch
+        import oci_chronicles_api_release as release
+        phase = "CHRONICLES_API_OCI_PHASE_SECONDS preflight=1 dispatch=1 execution=14"
+        acknowledged = ("CHRONICLES_API_OCI_DELIVERY_OBSERVED_SECONDS "
+                        "before_ack=5 after_ack=9")
+        self.assertEqual(release.observed_delivery_timing(2, 7, 16), acknowledged)
+        self.assertEqual(release.observed_delivery_timing(2, None, 16), "")
+        self.assertEqual(release.observed_delivery_timing(100, 99, 98),
+                         "CHRONICLES_API_OCI_DELIVERY_OBSERVED_SECONDS before_ack=0 after_ack=0")
+        self.assertIn(acknowledged, release.timing_summary(
+            phase, verified=True, delivery=acknowledged))
+        for bad in (acknowledged + " secret", "SECRET\n" + acknowledged,
+                    acknowledged.replace("before_ack=5", "before_ack=-5"),
+                    acknowledged.replace("after_ack=9", "after_ack=123456")):
+            self.assertEqual(release.timing_summary(
+                phase, verified=True, delivery=bad), "")
+
+        digest = "sha256:" + "a" * 64
+        vault = "ocid1.vault.oc1.eu-frankfurt-1.abcdefghijkl"
+        marker = release.marker_for("staging") + digest
+        sdk = FakeSDK()
+        sdk.compute_instance_agent.models = NS(
+            InstanceAgentCommandSourceViaTextDetails=lambda **kw: NS(**kw),
+            InstanceAgentCommandOutputViaTextDetails=lambda **kw: NS(**kw),
+            InstanceAgentCommandContent=lambda **kw: NS(**kw),
+            InstanceAgentCommandTarget=lambda **kw: NS(**kw),
+            CreateInstanceAgentCommandDetails=lambda **kw: NS(**kw),
+        )
+        for ack_before_terminal in (True, False):
+            with self.subTest(ack_before_terminal=ack_before_terminal):
+                class Agent:
+                    def __init__(self):
+                        self.statuses = [("ACCEPTED", "PENDING"),
+                                         ("ACCEPTED", "ACKED" if ack_before_terminal else "PENDING"),
+                                         ("SUCCEEDED", "ACKED")]
+                        self.created = 0
+                    def create_instance_agent_command(self, **kwargs):
+                        self.created += 1
+                        return NS(data=NS(id="test-command"))
+                    def get_instance_agent_command_execution(self, **kwargs):
+                        state, delivery = self.statuses.pop(0)
+                        return NS(data=NS(
+                            lifecycle_state=state, delivery_state=delivery,
+                            content=NS(text="SECRET_REMOTE\n" + marker, exit_code=0)))
+                agent = Agent()
+                sdk.compute_instance_agent.ComputeInstanceAgentClient = lambda cfg: agent
+                ticks = iter((0, 1, 2, 3, 4, 7, 8, 16))
+                output = io.StringIO()
+                with tempfile.TemporaryDirectory() as tmp:
+                    report = Path(tmp) / "timing.md"
+                    with patch("chronicles_api_provision.resolve_vault",
+                               return_value=(vault, None, None)), patch.dict(
+                                   os.environ, {"GITHUB_STEP_SUMMARY": str(report)}), redirect_stdout(output):
+                        result = release.execute(sdk, cp.config_from_env(sdk, ENV),
+                                                 digest, pause=lambda _: None,
+                                                 clock=lambda: next(ticks))
+                    summary = report.read_text()
+                self.assertEqual(result, marker)
+                self.assertEqual(output.getvalue().splitlines()[-1], marker)
+                self.assertNotIn("SECRET_REMOTE", output.getvalue() + summary)
+                self.assertNotIn(vault, output.getvalue() + summary)
+                self.assertEqual(agent.created, 1)
+                if ack_before_terminal:
+                    self.assertIn(acknowledged, summary)
+                    self.assertIn(acknowledged, output.getvalue())
+                else:
+                    self.assertIn("not observed before terminal", summary)
+                    self.assertNotIn("CHRONICLES_API_OCI_DELIVERY_OBSERVED_SECONDS",
+                                     output.getvalue())
+
     def test_release_rejects_unhealthy_plugin_before_submitting_any_command(self):
         from unittest.mock import patch
         import oci_chronicles_api_release as release
