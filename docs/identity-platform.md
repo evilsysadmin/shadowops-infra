@@ -87,6 +87,32 @@ restore access to a verified owner. This central roles vocabulary is not
 that grant and does not close Chronicles issue #1029. Production remains
 unmodified.
 
+### Explicit approval for changing a platform role (staging, offline contract)
+
+`services/identity/roles/approval.go` now defines a **pure**, separately
+domain-bound authorization request for one `user ↔ admin` transition.
+It requires the immutable staging UUIDv4, expected current role, positive
+session-version fence, signer policy generation, review issue, private evidence
+SHA-256 digest, unique nonce, five-minute validity and **two distinct,
+independently provisioned Ed25519 signers** (operator + security).
+All signatures bind the entire request; production, usernames, wildcards,
+changed fields, expired or unsigned requests are denied.
+
+**This is not yet a role-grant mechanism.** The separate operator executor
+must verify both configured keys against an *active, versioned server-side
+policy* and independently reviewed account ownership, then atomically
+compare-and-swap the live active account, bump its session version, revoke
+existing sessions/tokens, consume a globally unique nonce and append a
+permanent audit event in the same majority Mongo transaction. Bootstrap
+and RBAC permissions must restrict the executor independently from the
+public Identity service. Do not enable any browser-side role mutation or
+copy real subjects/approval material into PRs or logs.
+
+Until that executor and its operational gates are verified and deployed,
+**no real account can become `admin` through this contract**. Likewise,
+a platform `admin` does not automatically become a Chronicles game admin;
+the product-scoped staging grant and incident #1029 are separate.
+
 ## Acceptance: one ShadowOps account, no repeated product registration
 
 The shared Identity goal means one central registration/login/recovery flow per
