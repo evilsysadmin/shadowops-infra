@@ -53,7 +53,7 @@ func PrepareStagingRoleJournalIndex(ctx context.Context, client *mongo.Client) e
 	}
 	if !found {
 		_, err := journal.Indexes().CreateOne(ctx, mongo.IndexModel{
-			Keys: roleJournalKeys(),
+			Keys:    roleJournalKeys(),
 			Options: options.Index().SetName(roleJournalIndex).SetUnique(true),
 		})
 		if err != nil {
