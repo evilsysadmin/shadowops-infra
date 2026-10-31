@@ -37,10 +37,10 @@ class ClusterBootstrapError(RuntimeError):
     pass
 
 
-def call(argv, *, env, timeout=30):
+def call(argv, *, env, timeout=30, stdin=None):
     try:
         result = subprocess.run(argv, env=env, capture_output=True, text=True,
-                                timeout=timeout, check=False)
+                                timeout=timeout, check=False, stdin=stdin)
         if result.returncode != 0 or len(result.stdout) + len(result.stderr) > 1048576:
             if argv[:3] in (["kind", "create", "cluster"], ["kind", "load", "docker-image"]) and env.get("GITHUB_ACTIONS") == "true":
                 # Only this disposable cluster initialization: no live Identity
@@ -104,6 +104,34 @@ def bootstrap(directory: Path, *, env=None):
     def inspect(binary, *args):
         return json.loads(run(binary, *args))
 
+    def preload(image):
+        # containerd's transfer importer does not advertise unpack platforms for
+        # the rootless FUSE snapshotter. Use its local, single-platform importer.
+        # Pull remains digest-pinned; verify the final CRI config digest too.
+        architecture = inspect("docker", "image", "inspect", image)[0]["Architecture"]
+        if architecture not in {"arm64", "amd64"}:
+            raise ClusterBootstrapError("Reviewed native image architecture required")
+        original_id = inspect("docker", "image", "inspect", image)[0]["Id"]
+        alias = "localhost/cka-preloaded:sha-" + image.split("@sha256:")[1]
+        run("docker", "image", "tag", image, alias)
+        archive = directory / "preload.tar"
+        try:
+            run("docker", "image", "save", "--output", str(archive), alias, timeout=120)
+            archive.chmod(0o600)
+            with archive.open("rb") as stream:
+                call(["docker", "exec", "--privileged", "-i", NODE, "ctr", "--namespace=k8s.io",
+                      "images", "import", "--local", "--platform=linux/" + architecture,
+                      "--digests", "--snapshotter=fuse-overlayfs", "-"], env=env, timeout=180, stdin=stream)
+        finally:
+            archive.unlink(missing_ok=True)
+        fully_qualified = image if image.startswith("ghcr.io/") else "docker.io/library/" + image
+        without_tag = fully_qualified.split("@")[0].split(":")[0] + "@" + fully_qualified.split("@")[1]
+        for target in dict.fromkeys([fully_qualified, without_tag]):
+            run("docker", "exec", NODE, "ctr", "--namespace=k8s.io", "images", "tag", alias, target)
+        evidence = inspect("docker", "exec", NODE, "crictl", "inspecti", without_tag)
+        if evidence.get("status", {}).get("id") != original_id:
+            raise ClusterBootstrapError("Preloaded image bytes do not match the pinned pull")
+
     rootless_info(inspect("docker", "info", "--format", "{{json .}}"))
     if run("kind", "version").split()[1] != "v0.31.0":
         raise ClusterBootstrapError("Reviewed kind v0.31.0 required")
@@ -147,8 +175,8 @@ def bootstrap(directory: Path, *, env=None):
     run("docker", "update", "--memory=2g", "--memory-swap=2g", "--cpus=0.4",
         "--pids-limit=768", NODE)
     node_policy(inspect("docker", "inspect", NODE)[0])
-    run("kind", "load", "docker-image", FIXTURE_IMAGE, "--name", NAME, timeout=180)
-    run("kind", "load", "docker-image", PROBE_IMAGE, "--name", NAME, timeout=180)
+    preload(FIXTURE_IMAGE)
+    preload(PROBE_IMAGE)
     run("docker", "exec", NODE, "kubectl", "--kubeconfig=/etc/kubernetes/admin.conf",
         "--request-timeout=10s", "wait", "--for=condition=Ready", "node/" + NODE, "--timeout=120s", timeout=130)
     # Compose can mount a separate config using the TLS SAN already minted by kind.
