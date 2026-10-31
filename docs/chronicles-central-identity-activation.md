@@ -55,6 +55,52 @@ with `central_identity=disable` and redeploy the admitted API. Profiles, UUID
 bindings and saved games are preserved. Keep the reserved namespace protected.
 Do not link old usernames or transfer admin rights during this pilot.
 
+## Staging-only Chronicles admin grant (separate, reviewed operation)
+
+Central Identity JWTs prove the immutable account subject, **not** game roles.
+The legacy `evilsysadmin` username is not the same identity as
+`shadowops:staging:<UUIDv4>`. Never infer equivalence by display name or
+automatically transfer privileges during the pilot.
+
+A scoped admin grant requires all of the following **before enabling**:
+
+1. An operator independently reviews ownership of the exact central account
+   using trusted Identity account records and an authenticated ownership
+   process. A screenshot of `/auth/me` is a diagnosis, not authorization.
+   Record a private approval/audit reference; do not put a real subject UUID
+   in GitHub PRs, issues, logs or public action inputs.
+2. Store the canonical **full profile key** `shadowops:staging:<lowercase UUIDv4>`
+   in the protected **staging GitHub Environment secret**
+   `CHRONICLES_STAGING_CENTRAL_ADMIN_PROFILE`. This is product-specific;
+   no aliases, CSV, wildcard, legacy username, unsigned client-side flag,
+   production identity or non-v4 UUID is permitted.
+3. The new root-owned `host/chronicles-api-deploy.py` policy must be installed
+   through the existing reviewed host bootstrap. Older installed wrappers
+   intentionally reject the new Vault bundle key.
+4. Manually dispatch `chronicles-api-staging.yml`, action `provision`,
+   `environment=staging`, `central_identity=preserve` (or `enable` after
+   its usual backup prerequisites) and **`central_admin=enable`**.
+   This copies only the validated profile key into the private Chronicles
+   Vault bundle as `ADMIN_USERNAMES`; it does not touch Identity's roles,
+   passwords or central credentials. The provision action must not print it.
+5. Deploy the admitted Chronicles API through its owner workflow, then verify
+   with a real newly authenticated central session that `/api/auth/me`
+   returns `isAdmin:true` for the approved profile only; also verify the
+   `/api/chronicles/admin/users` census endpoint for the owner and an
+   unrelated account (403), and confirm the in-game menu. Check the exact
+   running image SHA and deployed runtime before closing the incident.
+
+The default `central_admin=preserve` retains an **already reviewed** grant
+across ordinary reprovisioning. `central_admin=disable` removes it from the
+new Vault bundle; disable Central Identity itself also removes the runtime
+grant. Production never accepts this profile-key grant. A missing/invalid
+secret or inactive central consumer must cause the enable operation to fail
+without changing permissions. Rollback is explicit revoke/redeploy, not
+a client-side concealment.
+
+See Chronicles issue #1029. Until this reviewed operator step and a verified
+staging deployment, the user's administration is **not restored**.
+
 ## Snapshot/restore contract
 
 Pilot snapshots are bounded to 16 MiB and 10,000 rows per collection, encrypted
