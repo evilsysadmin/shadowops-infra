@@ -290,7 +290,7 @@ def provision(env: Mapping[str, str], oci: Any, cf: Cloudflare) -> list[str]:
         previous = existing_chronicles_bundle(oci, config, vault_id, compartment_id)
         recovery_key = previous.get("RESEND_API_KEY")
         if recovery_key is not None:
-            if (not recovery_key or any(ch in recovery_key for ch in "'\\x00\\r\\n") or
+            if (not recovery_key or any(ch in recovery_key for ch in "'\x00\r\n") or
                     len(recovery_key) > 4096):
                 raise ProvisionError("Existing email recovery could not be preserved")
             values["RESEND_API_KEY"] = recovery_key
