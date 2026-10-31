@@ -61,6 +61,79 @@ class StagingConvergenceContracts(unittest.TestCase):
         self.assertNotIn("CHRONICLES_STAGING_CENTRAL_ADMIN_PROFILE",
                          self.workflow["jobs"]["deploy"].get("env", {}))
 
+    def test_admin_grant_checks_live_installed_wrapper_before_any_cloud_mutation(self):
+        provision = self.workflow["jobs"]["provision"]
+        steps = provision["steps"]
+        by_name = {step.get("name"): step for step in steps}
+        guard = "Require current root-owned OCI wrapper before granting central admin"
+        update = "Provision (never prints secrets, tokens, IDs or DNS targets)"
+        self.assertIn(guard, by_name)
+        self.assertLess(steps.index(by_name[guard]), steps.index(by_name[update]))
+        self.assertEqual(by_name[guard]["if"],
+                         "inputs.environment == 'staging' && inputs.central_admin == 'enable'")
+        command = by_name[guard]["run"]
+        self.assertEqual(by_name[guard]["env"]["GH_TOKEN"], "${{ github.token }}")
+        self.assertIn("scripts/oci_host_probe.py wrapper", command)
+        self.assertEqual(command.count("gh api repos/evilsysadmin/shadowops-infra/commits/main"), 2)
+        self.assertIn("CHRONICLES_API_WRAPPER_CURRENT", command)
+        self.assertIn("CHRONICLES_ADMIN_GRANT_WRAPPER_READY", command)
+        self.assertIn("set -euo pipefail", command)
+        self.assertNotIn("ADMIN_USERNAMES", command)
+        self.assertNotIn("CHRONICLES_STAGING_CENTRAL_ADMIN_PROFILE", command)
+
+    def test_admin_grant_wrapper_gate_rejects_bad_verdict_and_main_drift(self):
+        command = next(step["run"] for step in self.workflow["jobs"]["provision"]["steps"]
+                       if step.get("name") == "Require current root-owned OCI wrapper before granting central admin")
+        sha = "a" * 40
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            gh = root / "gh"
+            gh.write_text("""#!/bin/sh
+count=0
+if [ -f "$GH_COUNTER" ]; then count=$(cat "$GH_COUNTER"); fi
+count=$((count+1))
+printf '%s' "$count" > "$GH_COUNTER"
+if [ "$count" -eq 1 ]; then
+  printf '%s' "$FAKE_BEFORE"
+else
+  printf '%s' "$FAKE_AFTER"
+fi
+""")
+            gh.chmod(0o755)
+            python = root / "python"
+            python.write_text("""#!/bin/sh
+if [ "$1" != scripts/oci_host_probe.py ] || [ "$2" != wrapper ]; then exit 99; fi
+printf '%s' "$FAKE_VERDICT"
+exit "${FAKE_PROBE_EXIT:-0}"
+""")
+            python.chmod(0o755)
+            for before, verdict, after, exit_code, accepted in (
+                (sha, "CHRONICLES_API_WRAPPER_CURRENT", sha, "0", True),
+                ("b" * 40, "CHRONICLES_API_WRAPPER_CURRENT", sha, "0", False),
+                (sha, "CHRONICLES_API_WRAPPER_OUTDATED", sha, "1", False),
+                (sha, "CHRONICLES_API_WRAPPER_MISSING", sha, "1", False),
+                (sha, "CHRONICLES_API_WRAPPER_UNSAFE", sha, "1", False),
+                (sha, "CHRONICLES_API_WRAPPER_CURRENT", "b" * 40, "0", False),
+                (sha, "CHRONICLES_API_WRAPPER_CURRENT", sha, "1", False),
+                (sha, "bogus\nCHRONICLES_API_WRAPPER_CURRENT", sha, "0", False),
+            ):
+                with self.subTest(before=before, verdict=verdict, after=after, exit_code=exit_code):
+                    counter = root / "counter"
+                    counter.unlink(missing_ok=True)
+                    env = dict(os.environ,
+                               PATH=f"{root}{os.pathsep}{os.environ.get('PATH', '')}",
+                               GITHUB_SHA=sha, GH_COUNTER=str(counter),
+                               FAKE_BEFORE=before, FAKE_VERDICT=verdict,
+                               FAKE_AFTER=after, FAKE_PROBE_EXIT=exit_code)
+                    result = subprocess.run(["bash", "-c", command], env=env,
+                                            capture_output=True, text=True, check=False)
+                    self.assertEqual(result.returncode == 0, accepted,
+                                     result.stdout + result.stderr)
+                    self.assertEqual(
+                        "CHRONICLES_ADMIN_GRANT_WRAPPER_READY" in result.stdout,
+                        accepted,
+                    )
+
     def test_auto_deploy_is_limited_to_trusted_infra_main(self):
         admit = self.workflow["jobs"]["admit"]
         self.assertIn("refs/heads/main", admit["if"])

@@ -140,6 +140,32 @@ jobs:
         with:
           python-version: '3.13'
       - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Require current root-owned OCI wrapper before granting central admin
+        if: inputs.environment == 'staging' && inputs.central_admin == 'enable'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Admin grants are explicitly operator-only and must not be written
+          # into Vault until the installed OCI wrapper accepts their schema.
+          # Recheck main both before and after the non-privileged observation.
+          current="$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)"
+          [[ "$current" =~ ^[a-f0-9]{40}$ && "$current" == "$GITHUB_SHA" ]] || {
+            echo 'CHRONICLES_ADMIN_GRANT_STALE_INFRA_MAIN' >&2
+            exit 65
+          }
+          verdict="$(python scripts/oci_host_probe.py wrapper)"
+          [[ "$verdict" == CHRONICLES_API_WRAPPER_CURRENT ]] || {
+            echo 'CHRONICLES_ADMIN_GRANT_WRAPPER_NOT_READY' >&2
+            exit 65
+          }
+          current="$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)"
+          [[ "$current" =~ ^[a-f0-9]{40}$ && "$current" == "$GITHUB_SHA" ]] || {
+            echo 'CHRONICLES_ADMIN_GRANT_STALE_INFRA_MAIN' >&2
+            exit 65
+          }
+          echo 'CHRONICLES_ADMIN_GRANT_WRAPPER_READY'
       - name: Provision (never prints secrets, tokens, IDs or DNS targets)
         working-directory: scripts
         run: python chronicles_api_provision.py
