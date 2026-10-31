@@ -122,7 +122,10 @@ class PublicBrowserWorkflow(unittest.TestCase):
         self.assertEqual(action["env"]["CHRONICLES_STAGING_INVITE_CODE"],
                          "${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}")
         self.assertEqual(jobs["release"]["environment"]["name"], "staging")
-        self.assertIn("if: always()", PATH.read_text())
+        screenshot = next(step for step in steps if step.get("name") ==
+                          "Preserve public-browser screenshots as deployment evidence")
+        self.assertIn("always()", screenshot["if"])
+        self.assertIn("steps.entry_freshness.outputs.fresh == 'true'", screenshot["if"])
         self.assertNotIn("environment=production", action["run"])
 
 
@@ -179,6 +182,8 @@ exit 0
         workflow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
         steps = workflow["jobs"]["release"]["steps"]
         named = {step.get("name", ""): step for step in steps}
+        def gated(predicate):
+            return "steps.entry_freshness.outputs.fresh == 'true' && (" + predicate + ")"
         live = named["Check whether exact SHA is already publicly deployed"]
         self.assertIn("--live-only", live["run"])
         self.assertIn("FORCE_PUBLISH", live["env"])
@@ -189,7 +194,7 @@ exit 0
         build = named["Build the game against its own API"]
         # A smoke-only retry does not re-publish, but it MUST build the
         # expected index.html used to catch stale public JS/CSS.
-        self.assertNotIn("if", build)
+        self.assertEqual(build["if"], "steps.entry_freshness.outputs.fresh == 'true'")
         self.assertIn("dist/index.html", build["run"])
         self.assertLess(steps.index(build), steps.index(named[
             "Real public browser smoke (desktop, mobile, login, update deferral)"]))
@@ -202,17 +207,17 @@ exit 0
             "Skip superseded source before Pages mutations",
         ):
             self.assertEqual(named[name]["if"],
-                             "steps.live.outputs.already_published != 'true'")
+                             gated("steps.live.outputs.already_published != 'true'"))
         for name in (
             "Reconcile independent Chronicles Pages project",
             "Publish exact source SHA to the isolated Pages project",
         ):
             self.assertEqual(named[name]["if"],
-                             "steps.live.outputs.already_published != 'true' && "
-                             "steps.source_pre_publish.outputs.fresh == 'true'")
+                             gated("steps.live.outputs.already_published != 'true' && "
+                                   "steps.source_pre_publish.outputs.fresh == 'true'"))
         self.assertEqual(
             named["Reconcile the exact domain without overwriting other DNS"]["if"],
-            "steps.deploy.outputs.published == 'true'")
+            gated("steps.deploy.outputs.published == 'true'"))
         self.assertEqual(named["Skip superseded source before Pages mutations"]["id"],
                          "source_pre_publish")
         self.assertEqual(named["Publish exact source SHA to the isolated Pages project"]["id"],
@@ -229,12 +234,12 @@ exit 0
         ):
             self.assertEqual(
                 named[name]["if"],
-                "steps.live.outputs.already_published == 'true' || "
-                "steps.deploy.outputs.published == 'true'")
+                gated("steps.live.outputs.already_published == 'true' || "
+                      "steps.deploy.outputs.published == 'true'"))
         self.assertEqual(named["Record the verified Chronicles Pages source generation"]["if"],
-                         "steps.source_freshness.outputs.fresh == 'true'")
+                         gated("steps.source_freshness.outputs.fresh == 'true'"))
         self.assertEqual(named["Save verified Pages receipt for idempotent hourly sync"]["if"],
-                         "steps.source_freshness.outputs.fresh == 'true'")
+                         gated("steps.source_freshness.outputs.fresh == 'true'"))
         self.assertIn("ALREADY_PUBLISHED",
                       named["Record the verified Chronicles Pages source generation"]["env"])
 
@@ -347,7 +352,7 @@ printf '%s\\n' "$FAKE_SOURCE_MAIN"
         build = next(step for step in steps
                      if step.get("name") == "Build the game against its own API")
         self.assertIn("npm ci --ignore-scripts", build["run"])
-        self.assertNotIn("if", build)
+        self.assertEqual(build["if"], "steps.entry_freshness.outputs.fresh == 'true'")
         browser = next(step for step in steps
                        if step.get("name") == "Real public browser smoke (desktop, mobile, login, update deferral)")
         harness = next(step for step in steps

@@ -519,10 +519,15 @@ class PagesSupersededReleaseTests(unittest.TestCase):
             self.assertIn(
                 "steps.live.outputs.already_published == 'true' || "
                 "steps.deploy.outputs.published == 'true'", block)
+        # Stale generations are now also filtered before both checkouts.
+        # Keep the original receipt/deploy predicates AND the entry gate.
         self.assertIn(
-            "if: steps.source_freshness.outputs.fresh == 'true'\n"
+            "if: steps.entry_freshness.outputs.fresh == 'true' && "
+            "(steps.source_freshness.outputs.fresh == 'true')\n"
             "        uses: actions/upload-artifact@v4", workflow)
-        self.assertIn("if: steps.deploy.outputs.published == 'true'", workflow)
+        self.assertIn(
+            "if: steps.entry_freshness.outputs.fresh == 'true' && "
+            "(steps.deploy.outputs.published == 'true')", workflow)
 
 
 if __name__ == "__main__":
