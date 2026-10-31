@@ -15,6 +15,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from chronicles_staging_receipt import ReceiptError, trusted_staging_receipt
+
 INFRA = "evilsysadmin/shadowops-infra"
 SOURCE = "evilsysadmin/chronicles-of-matthias"
 API_WORKFLOW = ".github/workflows/chronicles-api-staging.yml"
@@ -46,34 +48,15 @@ def fetch(path: str, token: str) -> dict:
 
 
 def evidence_ok(sha: str, listing: dict, read_run) -> bool:
-    if not SHA.fullmatch(sha):
-        raise GateError("Invalid source SHA")
-    artifacts = listing.get("artifacts")
-    if not isinstance(artifacts, list):
-        raise GateError("Missing deployment artifacts")
-    name = "chronicles-api-staging-" + sha
-    for item in artifacts:
-        if not isinstance(item, dict) or item.get("name") != name or item.get("expired") is not False:
-            continue
-        origin = item.get("workflow_run") or {}
-        if not isinstance(origin, dict) or origin.get("head_branch") != "main":
-            continue
-        run_id = origin.get("id")
-        if not isinstance(run_id, int) or run_id <= 0:
-            continue
-        run = read_run(run_id)
-        if (
-            run.get("id") == run_id
-            and run.get("conclusion") == "success"
-            and run.get("status") == "completed"
-            and run.get("path") == API_WORKFLOW
-            and run.get("head_branch") == "main"
-            and (run.get("repository") or {}).get("full_name") == INFRA
-            and run.get("event") in {"push", "schedule", "workflow_dispatch"}
-        ):
-            return True
-    return False
-
+    """Validate API receipts using the shared fixed-workflow identity contract."""
+    try:
+        return trusted_staging_receipt(sha, listing, read_run, kind="api")
+    except ReceiptError as exc:
+        if not SHA.fullmatch(sha):
+            raise GateError("Invalid source SHA") from exc
+        if "artifact listing" in str(exc):
+            raise GateError("Missing deployment artifacts") from exc
+        raise GateError(str(exc)) from exc
 
 def api_receipt_available(sha: str, token: str, *, get=fetch) -> bool:
     """Single, trusted exact-SHA receipt check shared by API admission and Pages."""
