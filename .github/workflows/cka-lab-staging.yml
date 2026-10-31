@@ -117,6 +117,9 @@ jobs:
         env:
           CKA_SCENARIO_SOURCE_ROOT: ${{ github.workspace }}/.cka-contract
         run: python3 scripts/cka_lab_cluster_smoke.py
+      - name: Diagnose only the disposable cluster on failure
+        if: failure()
+        run: docker logs --tail 120 cka-lab-staging-control-plane || true
       - name: Remove only the disposable lab cluster
         if: always()
         run: |

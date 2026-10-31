@@ -116,7 +116,7 @@ def bootstrap(directory: Path, *, env=None):
     for image in (NODE_IMAGE, FIXTURE_IMAGE, PROBE_IMAGE):
         run("docker", "pull", "--quiet", image, timeout=300)
     run("kind", "create", "cluster", "--name", NAME, "--image", NODE_IMAGE,
-        "--config", str(config), "--kubeconfig", str(kubeconfig), "--wait", "300s", timeout=600)
+        "--config", str(config), "--kubeconfig", str(kubeconfig), "--retain", "--wait", "300s", timeout=600)
     kubeconfig.chmod(0o600)
     run("docker", "update", "--memory=2g", "--memory-swap=2g", "--cpus=0.4",
         "--pids-limit=768", NODE)
