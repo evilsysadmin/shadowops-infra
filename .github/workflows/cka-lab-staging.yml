@@ -1,10 +1,10 @@
 name: CKA labs · shared A1 Compose preflight
 on:
   pull_request:
-    paths: ['scripts/cka_lab_*.py','host/*cka-lab*','host/vendor/*','tests/test_cka_lab*.py','docs/cka-lab-staging.md','.github/workflows/cka-lab-staging.yml']
+    paths: ['scripts/cka_lab_*.py','host/*cka-lab*','host/vendor/*','deploy/Dockerfile.cka-lab-proof','tests/test_cka_lab*.py','docs/cka-lab-staging.md','.github/workflows/cka-lab-staging.yml']
   push:
     branches: [main]
-    paths: ['scripts/cka_lab_*.py','host/*cka-lab*','host/vendor/*','tests/test_cka_lab*.py','docs/cka-lab-staging.md','.github/workflows/cka-lab-staging.yml']
+    paths: ['scripts/cka_lab_*.py','host/*cka-lab*','host/vendor/*','deploy/Dockerfile.cka-lab-proof','tests/test_cka_lab*.py','docs/cka-lab-staging.md','.github/workflows/cka-lab-staging.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -112,7 +112,8 @@ jobs:
           cd .cka-contract/go
           CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/cka-rootless-lease" ./cmd/cka-lease-stdio
           cd ..
-          python3 -m pip install --disable-pip-version-check .
+          cp "$RUNNER_TEMP/cka-rootless-lease" cka-lease-stdio
+          cp "$(command -v kubectl)" kubectl
       - name: Prove all curated repairs with actual rootless node limits
         env:
           CKA_SCENARIO_SOURCE_ROOT: ${{ github.workspace }}/.cka-contract

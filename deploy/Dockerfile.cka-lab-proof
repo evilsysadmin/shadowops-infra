@@ -1,0 +1,12 @@
+# Disposable CI only: never published or admitted as a service image.
+FROM python:3.13-slim-bookworm@sha256:281d39ff02e3b389401586134ff9e6572954687822a58055ec07a60ded4e0b7f
+COPY .cka-contract/deploy/account-requirements.txt /requirements.txt
+RUN pip install --no-cache-dir -r /requirements.txt PyYAML==6.0.3
+WORKDIR /app
+COPY .cka-contract/backend/cka_sim /app/cka_sim
+COPY .cka-contract/scenarios/*.json /app/scenarios/
+COPY .cka-contract/cka-lease-stdio .cka-contract/kubectl /usr/local/bin/
+COPY scripts/cka_lab_cluster.py scripts/cka_lab_cluster_candidate_smoke.py /app/
+ENV CKA_SCENARIO_SOURCE_ROOT=/app PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+USER 0:0
+ENTRYPOINT ["python", "/app/cka_lab_cluster_candidate_smoke.py"]

@@ -25,13 +25,13 @@ class FixedRootlessCluster(unittest.TestCase):
                 cluster.network_policy({**good, key: value})
 
     def test_node_requires_limits_private_bridge_and_exact_readonly_module_mount(self):
-        good = {"Name": "/" + cluster.NODE, "Config": {"Image": cluster.NODE_IMAGE},
+        good = {"Name": "/" + cluster.NODE, "Config": {"Image": cluster.NODE_IMAGE,
+                "Labels": {"desktop.docker.io/ports/6443/tcp": cluster.NODE + ":6443"}},
                 "HostConfig": {"Memory": 2 * 1024**3, "MemorySwap": 2 * 1024**3,
                     "NanoCpus": 400000000, "PidsLimit": 768, "NetworkMode": cluster.NETWORK,
                     "ExtraHosts": ["host.docker.internal:172.31.254.1"],
                     "Privileged": True, "Binds": ["/lib/modules:/lib/modules:ro"]},
-                "NetworkSettings": {"Networks": {cluster.NETWORK: {}}, "Ports": {
-                    "6443/tcp": [{"HostIp": "127.0.0.1", "HostPort": "39001"}]}},
+                "NetworkSettings": {"Networks": {cluster.NETWORK: {}}, "Ports": {}},
                 "Mounts": [{"Type": "bind", "Source": "/lib/modules", "Destination": "/lib/modules", "RW": False},
                            {"Type": "volume", "Destination": "/var"}]}
         cluster.node_policy(good)

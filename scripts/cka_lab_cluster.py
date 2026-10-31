@@ -84,9 +84,10 @@ def node_policy(info):
                        for m in info.get("Mounts", []))):
         raise ClusterBootstrapError("Bounded private rootless node required")
     ports = info.get("NetworkSettings", {}).get("Ports", {})
-    if (set(ports) != {"6443/tcp"} or len(ports["6443/tcp"] or []) != 1
-            or ports["6443/tcp"][0].get("HostIp") != "127.0.0.1"):
-        raise ClusterBootstrapError("Only a loopback Kubernetes API may be published")
+    if any(bindings for bindings in ports.values()):
+        raise ClusterBootstrapError("The internal Kubernetes API must not publish a host port")
+    if info.get("Config", {}).get("Labels", {}).get("desktop.docker.io/ports/6443/tcp") != NODE + ":6443":
+        raise ClusterBootstrapError("Explicit container-network API endpoint required")
 
 
 def bootstrap(directory: Path, *, env=None):
@@ -129,7 +130,8 @@ def bootstrap(directory: Path, *, env=None):
     shim.write_text("#!/usr/bin/python3\nimport os,sys\n"
         + "binary=" + repr(docker_binary) + "\nargs=sys.argv[1:]\n"
         + "if args and args[0]=='run' and args[-1]==" + repr(NODE_IMAGE) + ":\n"
-        + " args.insert(1,'--add-host=host.docker.internal:172.31.254.1')\n"
+        + " args[1:1]=['--add-host=host.docker.internal:172.31.254.1',"
+        + repr("--label=desktop.docker.io/ports/6443/tcp=" + NODE + ":6443") + "]\n"
         + "os.execv(binary,[binary,*args])\n")
     shim.chmod(0o700)
     env["PATH"] = str(shim_dir) + os.pathsep + env.get("PATH", "/usr/local/bin:/usr/bin:/bin")
@@ -147,7 +149,7 @@ def bootstrap(directory: Path, *, env=None):
     node_policy(inspect("docker", "inspect", NODE)[0])
     run("kind", "load", "docker-image", FIXTURE_IMAGE, "--name", NAME, timeout=180)
     run("kind", "load", "docker-image", PROBE_IMAGE, "--name", NAME, timeout=180)
-    run("kubectl", "--kubeconfig", str(kubeconfig), "--context", "kind-" + NAME,
+    run("docker", "exec", NODE, "kubectl", "--kubeconfig=/etc/kubernetes/admin.conf",
         "--request-timeout=10s", "wait", "--for=condition=Ready", "node/" + NODE, "--timeout=120s", timeout=130)
     # Compose can mount a separate config using the TLS SAN already minted by kind.
     internal = directory / "controller.yaml"
