@@ -22,17 +22,17 @@ func roleBootstrapAuthorities() (ed25519.PrivateKey, ed25519.PrivateKey) {
 
 func roleBootstrapStatement(now time.Time, operator, security ed25519.PrivateKey) RoleBootstrapStatement {
 	return RoleBootstrapStatement{
-		Environment: "staging",
-		Action: roleBootstrapAction,
+		Environment:       "staging",
+		Action:            roleBootstrapAction,
 		OperatorPublicKey: hex.EncodeToString(operator.Public().(ed25519.PublicKey)),
 		SecurityPublicKey: hex.EncodeToString(security.Public().(ed25519.PublicKey)),
-		NotBefore: now.Unix(),
-		NotAfter: now.Add(48 * time.Hour).Unix(),
-		ReviewIssue: "https://github.com/evilsysadmin/shadowops-infra/issues/287",
-		EvidenceSHA256: strings.Repeat("a", 64),
-		Nonce: strings.Repeat("b", 32),
-		IssuedAt: now.Unix(),
-		ExpiresAt: now.Add(5 * time.Minute).Unix(),
+		NotBefore:         now.Unix(),
+		NotAfter:          now.Add(48 * time.Hour).Unix(),
+		ReviewIssue:       "https://github.com/evilsysadmin/shadowops-infra/issues/287",
+		EvidenceSHA256:    strings.Repeat("a", 64),
+		Nonce:             strings.Repeat("b", 32),
+		IssuedAt:          now.Unix(),
+		ExpiresAt:         now.Add(5 * time.Minute).Unix(),
 	}
 }
 
@@ -44,11 +44,11 @@ func signRoleBootstrap(t *testing.T, statement RoleBootstrapStatement,
 		t.Fatal(err)
 	}
 	return SignedRoleBootstrap{
-		Statement: statement,
+		Statement:           statement,
 		AuthorityASignature: ed25519.Sign(authorityA, message),
 		AuthorityBSignature: ed25519.Sign(authorityB, message),
-		OperatorProof: ed25519.Sign(operator, message),
-		SecurityProof: ed25519.Sign(security, message),
+		OperatorProof:       ed25519.Sign(operator, message),
+		SecurityProof:       ed25519.Sign(security, message),
 	}
 }
 
@@ -82,10 +82,10 @@ func TestRoleSignerGenesisIsOneTimeAndEnablesSignedRoleChanges(t *testing.T) {
 		t.Fatal("first role signer bootstrap failed", err)
 	}
 	var policy struct {
-		Environment string `bson:"environment"`
-		Action string `bson:"action"`
-		State string `bson:"state"`
-		Generation int64 `bson:"generation"`
+		Environment       string `bson:"environment"`
+		Action            string `bson:"action"`
+		State             string `bson:"state"`
+		Generation        int64  `bson:"generation"`
 		OperatorKeySHA256 string `bson:"operator_key_sha256"`
 		SecurityKeySHA256 string `bson:"security_key_sha256"`
 	}
@@ -97,11 +97,11 @@ func TestRoleSignerGenesisIsOneTimeAndEnablesSignedRoleChanges(t *testing.T) {
 		t.Fatal("incorrect role policy genesis", err, policy)
 	}
 	var genesis struct {
-		Action string `bson:"action"`
-		Nonce string `bson:"nonce"`
+		Action         string `bson:"action"`
+		Nonce          string `bson:"nonce"`
 		ApprovalSHA256 string `bson:"approval_sha256"`
-		AuthorityA string `bson:"authority_a_sha256"`
-		AuthorityB string `bson:"authority_b_sha256"`
+		AuthorityA     string `bson:"authority_a_sha256"`
+		AuthorityB     string `bson:"authority_b_sha256"`
 	}
 	err = db.Collection(roleJournal).FindOne(context.Background(), bson.D{{Key: "_id", Value: roleBootstrapGenesisID}}).Decode(&genesis)
 	if err != nil || genesis.Action != roleBootstrapAction || genesis.Nonce != signed.Statement.Nonce ||
@@ -149,7 +149,7 @@ func TestRoleBootstrapRejectsForgeryWrongEnvironmentAndUnknownKeys(t *testing.T)
 	tampered.Statement.Environment = "production"
 	invalid = append(invalid, tampered)
 	mutated := signed
-	mutated.Statement.OperatorPublicKey = strings.Repeat("f",64)
+	mutated.Statement.OperatorPublicKey = strings.Repeat("f", 64)
 	invalid = append(invalid, mutated)
 	swapped := signed
 	swapped.AuthorityASignature, swapped.AuthorityBSignature = signed.AuthorityBSignature, signed.AuthorityASignature
@@ -189,7 +189,7 @@ func TestRoleBootstrapRejectsForgeryWrongEnvironmentAndUnknownKeys(t *testing.T)
 		t.Fatal("cancelled request approved role genesis")
 	}
 	for _, tc := range []struct {
-		name string
+		name   string
 		mutate func(*RoleBootstrapStatement)
 	}{
 		{"wrong action", func(s *RoleBootstrapStatement) { s.Action = "bootstrap-staging-signers" }},
@@ -202,7 +202,9 @@ func TestRoleBootstrapRejectsForgeryWrongEnvironmentAndUnknownKeys(t *testing.T)
 		{"expiry beyond 5m", func(s *RoleBootstrapStatement) { s.ExpiresAt = s.IssuedAt + 301 }},
 		{"expired", func(s *RoleBootstrapStatement) { s.ExpiresAt = s.IssuedAt }},
 		{"before issued", func(s *RoleBootstrapStatement) { s.NotBefore = s.IssuedAt - 1 }},
-		{"oversized signer window", func(s *RoleBootstrapStatement) { s.NotAfter = s.NotBefore + int64(roleBootstrapMaxSignerLifetime.Seconds()) + 1 }},
+		{"oversized signer window", func(s *RoleBootstrapStatement) {
+			s.NotAfter = s.NotBefore + int64(roleBootstrapMaxSignerLifetime.Seconds()) + 1
+		}},
 		{"zero signer window", func(s *RoleBootstrapStatement) { s.NotAfter = s.NotBefore }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
