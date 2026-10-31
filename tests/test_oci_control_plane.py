@@ -7,6 +7,7 @@ from contextlib import redirect_stdout
 import io
 import os
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -98,10 +99,19 @@ class TestOCIInventory(unittest.TestCase):
         )
         sdk.compute_instance_agent.ComputeInstanceAgentClient = lambda cfg: Agent()
         stdout = io.StringIO()
-        with patch("chronicles_api_provision.resolve_vault",
-                   return_value=(vault, None, None)), redirect_stdout(stdout):
-            actual = release.execute(sdk, config, digest, pause=lambda _: None,
-                                     clock=lambda: 100.0)
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = Path(tmp) / "actions.md"
+            with patch("chronicles_api_provision.resolve_vault",
+                       return_value=(vault, None, None)), patch.dict(
+                           os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}), redirect_stdout(stdout):
+                actual = release.execute(sdk, config, digest, pause=lambda _: None,
+                                         clock=lambda: 100.0)
+            summary_text = summary.read_text()
+        self.assertIn("Verified wrapper smoke: yes", summary_text)
+        self.assertIn(timing, summary_text)
+        self.assertIn("not observed; no queue/active split inferred", summary_text)
+        self.assertNotIn("SECRET_INTERNAL_LOG", summary_text)
+        self.assertNotIn(vault, summary_text)
         self.assertEqual(actual, marker)
         self.assertIn(timing + "\n", stdout.getvalue())
         self.assertNotIn("SECRET_INTERNAL_LOG", stdout.getvalue())
@@ -160,21 +170,68 @@ class TestOCIInventory(unittest.TestCase):
                 sdk.compute_instance_agent.ComputeInstanceAgentClient = lambda cfg: agent
                 clock = iter((0, 1, 2, 3, 4, 7, 8, 16))
                 output = io.StringIO()
-                with patch("chronicles_api_provision.resolve_vault",
-                           return_value=(vault, None, None)), redirect_stdout(output):
-                    if final_status == "SUCCEEDED":
-                        self.assertEqual(release.execute(sdk, config, digest,
-                                          pause=lambda _: None, clock=lambda: next(clock)), marker)
-                    else:
-                        with self.assertRaises(cp.InventoryError):
-                            release.execute(sdk, config, digest,
-                                            pause=lambda _: None, clock=lambda: next(clock))
+                with tempfile.TemporaryDirectory() as tmp:
+                    report = Path(tmp) / "summary.md"
+                    with patch("chronicles_api_provision.resolve_vault",
+                               return_value=(vault, None, None)), patch.dict(
+                                   os.environ, {"GITHUB_STEP_SUMMARY": str(report)}), redirect_stdout(output):
+                        if final_status == "SUCCEEDED":
+                            self.assertEqual(release.execute(sdk, config, digest,
+                                              pause=lambda _: None, clock=lambda: next(clock)), marker)
+                        else:
+                            with self.assertRaises(cp.InventoryError):
+                                release.execute(sdk, config, digest,
+                                                pause=lambda _: None, clock=lambda: next(clock))
+                    summary = report.read_text()
+                self.assertIn("Verified wrapper smoke: " + (
+                    "yes" if final_status == "SUCCEEDED" else "no"), summary)
+                self.assertIn("pre_active=5 active=9", summary)
+                self.assertNotIn("SECRET_REMOTE_LOG", summary)
+                self.assertNotIn(vault, summary)
                 lines = output.getvalue().splitlines()
                 self.assertIn("CHRONICLES_API_OCI_LIFECYCLE_OBSERVED_SECONDS pre_active=5 active=9", lines)
                 self.assertIn("CHRONICLES_API_OCI_PHASE_SECONDS preflight=1 dispatch=1 execution=14", lines)
                 self.assertNotIn("SECRET_REMOTE_LOG", output.getvalue())
                 self.assertNotIn(vault, output.getvalue())
                 self.assertEqual(lines[-1] == marker, final_status == "SUCCEEDED")
+
+    def test_actions_summary_only_renders_allowlisted_timing(self):
+        import oci_chronicles_api_release as release
+        phase = "CHRONICLES_API_OCI_PHASE_SECONDS preflight=7 dispatch=0 execution=213"
+        lifecycle = ("CHRONICLES_API_OCI_LIFECYCLE_OBSERVED_SECONDS "
+                     "pre_active=10 active=203")
+        host = ("CHRONICLES_API_OCI_HOST_PHASE_SECONDS guard=2 vault=3 runtime=4 "
+                "compose=5 pull=16 recheck=4 up=36 smoke=5 receipt=1")
+        good = release.timing_summary(phase, lifecycle, host, verified=True)
+        self.assertIn("Verified wrapper smoke: yes", good)
+        self.assertIn(phase, good)
+        self.assertIn(lifecycle, good)
+        self.assertIn(host, good)
+        self.assertNotIn("sha256:", good)
+        self.assertNotIn("ocid1.", good)
+        missing = release.timing_summary(phase, verified=False)
+        self.assertIn("Verified wrapper smoke: no", missing)
+        self.assertIn("not observed; no queue/active split inferred", missing)
+        self.assertIn("does not prove the wrapper is outdated", missing)
+        for untrusted in ("SECRET\n" + phase, phase + " SECRET", phase + "\nextra",
+                          phase.replace("execution=213", "execution=-213"),
+                          phase.replace("execution=213", "execution=123456")):
+            with self.subTest(untrusted=untrusted[:35]):
+                self.assertEqual(release.timing_summary(untrusted, verified=True), "")
+        self.assertEqual(release.timing_summary(phase, "SECRET\n" + lifecycle,
+                                                verified=True), "")
+        self.assertEqual(release.timing_summary(phase, lifecycle, host + " SECRET",
+                                                verified=True), "")
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = str(Path(tmp) / "github-summary.md")
+            release.append_timing_summary(phase, lifecycle, host,
+                                          verified=True, path=destination)
+            release.append_timing_summary("secret\n" + phase, verified=True,
+                                          path=destination)
+            self.assertEqual(Path(destination).read_text(), good)
+            release.append_timing_summary(phase, verified=True,
+                                          path=str(Path(tmp) / "missing" / "file"))
+            self.assertEqual(Path(destination).read_text(), good)
 
     def test_release_rejects_unhealthy_plugin_before_submitting_any_command(self):
         from unittest.mock import patch
