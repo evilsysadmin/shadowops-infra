@@ -8,12 +8,14 @@ daemon. The operator CLI fixes its user/socket/state paths and accepts no paths.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 from pathlib import Path
 import pwd
 import shutil
 import subprocess
 import sys
+import urllib.request
 
 
 NAME = "cka-lab-staging"
@@ -23,6 +25,8 @@ SUBNET = "172.31.254.0/24"
 NODE_IMAGE = "kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f"
 FIXTURE_IMAGE = "ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine@sha256:e234d4f7e346c098f7b22245690372382aded5be988611eb2c53ae62231eece7"
 PROBE_IMAGE = "python:3.13-slim-bookworm@sha256:281d39ff02e3b389401586134ff9e6572954687822a58055ec07a60ded4e0b7f"
+KIND_HASHES = {"aarch64": ("arm64", "8e1014e87c34901cc422a1445866835d1e666f2a61301c27e722bdeab5a1f7e4"),
+               "x86_64": ("amd64", "eb244cbafcc157dff60cf68693c14c9a75c4e6e6fedaf9cd71c58117cb93e3fa")}
 CONFIG = """kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: cka-lab-staging
@@ -73,6 +77,7 @@ def node_policy(info):
     if (info.get("Name") != "/" + NODE or info.get("Config", {}).get("Image") != NODE_IMAGE
             or config.get("Memory") != 2 * 1024**3 or config.get("MemorySwap") != 2 * 1024**3
             or config.get("NanoCpus") != 400000000 or config.get("PidsLimit") != 768
+            or config.get("RestartPolicy", {}).get("Name") != "unless-stopped"
             or config.get("ExtraHosts") != ["host.docker.internal:172.31.254.1"]
             or set(networks) != {NETWORK} or config.get("NetworkMode") != NETWORK
             or not config.get("Privileged")
@@ -173,7 +178,7 @@ def bootstrap(directory: Path, *, env=None):
         "--config", str(config), "--kubeconfig", str(kubeconfig), "--retain", "--wait", "300s", timeout=600)
     kubeconfig.chmod(0o600)
     run("docker", "update", "--memory=2g", "--memory-swap=2g", "--cpus=0.4",
-        "--pids-limit=768", NODE)
+        "--pids-limit=768", "--restart=unless-stopped", NODE)
     node_policy(inspect("docker", "inspect", NODE)[0])
     preload(FIXTURE_IMAGE)
     preload(PROBE_IMAGE)
@@ -190,13 +195,54 @@ def bootstrap(directory: Path, *, env=None):
             "labs_enabled": False}
 
 
+def tool(account, *, install):
+    architecture, expected = KIND_HASHES[os.uname().machine]
+    directory = Path(account.pw_dir) / "tools"
+    if directory.is_symlink():
+        raise ClusterBootstrapError("Private tool directory required")
+    directory.mkdir(mode=0o700, exist_ok=True)
+    if directory.stat().st_uid != account.pw_uid or directory.stat().st_mode & 0o077:
+        raise ClusterBootstrapError("Private tool directory required")
+    target = directory / "kind"
+    if not target.exists() and install:
+        temporary = directory / "kind.download"
+        try:
+            with temporary.open("xb") as output:
+                temporary.chmod(0o600)
+                url = "https://github.com/kubernetes-sigs/kind/releases/download/v0.31.0/kind-linux-" + architecture
+                with urllib.request.urlopen(url, timeout=30) as response:
+                    if not response.geturl().startswith("https://"):
+                        raise ClusterBootstrapError("HTTPS tool distribution required")
+                    size = 0
+                    while chunk := response.read(65536):
+                        size += len(chunk)
+                        if size > 32 * 1024**2:
+                            raise ClusterBootstrapError("Oversized tool distribution")
+                        output.write(chunk)
+            if hashlib.file_digest(temporary.open("rb"), "sha256").hexdigest() != expected:
+                raise ClusterBootstrapError("Unreviewed kind binary rejected")
+            temporary.chmod(0o700)
+            os.link(temporary, target)
+        finally:
+            temporary.unlink(missing_ok=True)
+    if (target.is_symlink() or not target.is_file() or target.stat().st_uid != account.pw_uid
+            or target.stat().st_mode & 0o077
+            or hashlib.file_digest(target.open("rb"), "sha256").hexdigest() != expected):
+        raise ClusterBootstrapError("Reviewed private kind binary required")
+    return directory
+
+
 def main():
-    if sys.argv[1:] != ["bootstrap"] or os.geteuid() == 0:
-        raise ClusterBootstrapError("Run bootstrap as the dedicated non-root runtime user")
+    if len(sys.argv) != 2 or sys.argv[1] not in {"install-tools", "bootstrap"} or os.geteuid() == 0:
+        raise ClusterBootstrapError("Run the fixed command as the dedicated non-root runtime user")
     account = pwd.getpwnam("shadowops-cka-lab")
     if os.getuid() != account.pw_uid:
         raise ClusterBootstrapError("Dedicated lab runtime user required")
-    env = {"PATH": "/usr/local/bin:/usr/bin:/bin", "LANG": "C.UTF-8",
+    tools = tool(account, install=sys.argv[1] == "install-tools")
+    if sys.argv[1] == "install-tools":
+        print("CKA_LAB_KIND_TOOL_VERIFIED v0.31.0")
+        return
+    env = {"PATH": str(tools) + ":/usr/local/bin:/usr/bin:/bin", "LANG": "C.UTF-8",
            "HOME": account.pw_dir, "XDG_RUNTIME_DIR": "/run/user/" + str(account.pw_uid),
            "DOCKER_HOST": "unix:///run/user/" + str(account.pw_uid) + "/cka-lab-docker.sock"}
     receipt = bootstrap(Path("/var/lib/shadowops-cka-lab-staging/runtime/cluster"), env=env)

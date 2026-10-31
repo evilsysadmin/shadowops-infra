@@ -30,6 +30,7 @@ class FixedRootlessCluster(unittest.TestCase):
                 "HostConfig": {"Memory": 2 * 1024**3, "MemorySwap": 2 * 1024**3,
                     "NanoCpus": 400000000, "PidsLimit": 768, "NetworkMode": cluster.NETWORK,
                     "ExtraHosts": ["host.docker.internal:172.31.254.1"],
+                    "RestartPolicy": {"Name": "unless-stopped"},
                     "Privileged": True, "Binds": ["/lib/modules:/lib/modules:ro"]},
                 "NetworkSettings": {"Networks": {cluster.NETWORK: {}}, "Ports": {}},
                 "Mounts": [{"Type": "bind", "Source": "/lib/modules", "Destination": "/lib/modules", "RW": False},
