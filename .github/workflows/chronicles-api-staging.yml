@@ -19,6 +19,7 @@ on:
       - 'tests/test_chronicles_api_before_pages.py'
       - 'scripts/shared_a1_host_guard.py'
       - 'tests/test_chronicles_api_host_deploy.py'
+      - 'tests/test_chronicles_api_wrapper_check.py'
       - 'tests/test_chronicles_identity_activation.py'
       - 'tests/test_chronicles_api_cd_workflow.py'
       - 'scripts/chronicles_source_ci.py'
@@ -82,6 +83,7 @@ jobs:
         with:
           persist-credentials: false
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_host_deploy.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_wrapper_check.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_identity_activation.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_cd_workflow.py' -v
       - run: python3 scripts/run_chronicles_shared_contracts.py

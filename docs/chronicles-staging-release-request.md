@@ -17,6 +17,38 @@ do not follow its historical instructions as if they describe today's pipeline.
 - Infra receives source-CI dispatches when configured and also polls hourly.
   Changes to this file are a **release request**, not proof of deployment.
 
+## Comprobar el wrapper OCI sin instalarlo (operador)
+
+La instrumentación de fases de OCI de `host/chronicles-api-deploy.py` se
+activa **solo cuando ese fichero está realmente instalado en el A1**. El
+merge a `shadowops-infra/main` no lo instala, ni un workflow verde acredita
+que el wrapper del host sea actual.
+
+Desde el checkout local del operador Linux, con SSH + Cloudflare Access
+configurados, ejecutar:
+
+```bash
+bash host/bootstrap-chronicles-api-over-ssh.sh --check
+```
+
+Opcionalmente, se puede añadir el SHA completo de `shadowops-infra/main`
+como argumento. El script primero lo valida contra el `main` remoto, obtiene
+el hash del archivo de ese commit sobre **el equipo del operador** y compara
+con el wrapper instalado a través del túnel SSH existente, **sin sudo ni
+mutaciones remotas**. No lee ni imprime variables de Vault, ni invoca Docker.
+
+- `CHRONICLES_API_WRAPPER_CURRENT` (exit 0): el archivo instalado coincide.
+- `CHRONICLES_API_WRAPPER_OUTDATED` o `..._MISSING` (exit 3): requiere
+  actualización manual para obtener las nuevas métricas.
+- `CHRONICLES_API_WRAPPER_UNSAFE` (exit 65): no continuar hasta revisar el
+  propietario, permisos o posibles enlaces simbólicos.
+
+La instalación sigue siendo una operación **distinta y explícita** del
+operador, mediante el mismo script **sin** `--check`, que verifica de nuevo
+el commit protegido antes de instalar. Ni el modo `--check` ni los checks de
+GitHub ejecutan esa instalación. Después de cualquier instalación autorizada,
+repetir `--check` antes de utilizar las métricas de fases.
+
 ## Staging state machine
 
 1. **Source CI ready:** all three required Chronicles source-main checks
