@@ -43,9 +43,9 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: provision = tunnel + DNS + Vault bundle; deploy = run an admitted image on the A1
+        description: provision = Vault/DNS; deploy = admitted API image; grant-admin = reviewed staging grant + deploy
         type: choice
-        options: [provision, deploy]
+        options: [provision, deploy, grant-admin]
         required: true
       environment:
         description: Target environment
@@ -108,7 +108,11 @@ jobs:
       group: shadowops-oci-host-operations
       cancel-in-progress: false
     needs: contracts
-    if: github.event_name == 'workflow_dispatch' && inputs.action == 'provision' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.action == 'provision' || (inputs.action == 'grant-admin' && inputs.environment == 'staging')) &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'evilsysadmin/shadowops-infra'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment:
@@ -127,7 +131,7 @@ jobs:
       CHRONICLES_STAGING_INVITE_CODE: ${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}
       CHRONICLES_EMAIL_RECOVERY: ${{ inputs.email_recovery }}
       CHRONICLES_CENTRAL_IDENTITY: ${{ inputs.central_identity || 'preserve' }}
-      CHRONICLES_CENTRAL_ADMIN: ${{ inputs.central_admin || 'preserve' }}
+      CHRONICLES_CENTRAL_ADMIN: ${{ inputs.action == 'grant-admin' && 'enable' || inputs.central_admin || 'preserve' }}
       CHRONICLES_STAGING_CENTRAL_ADMIN_PROFILE: ${{ secrets.CHRONICLES_STAGING_CENTRAL_ADMIN_PROFILE }}
       CHRONICLES_PRODUCTION_MONGO_URL: ${{ secrets.CHRONICLES_PRODUCTION_MONGO_URL }}
       CHRONICLES_PRODUCTION_JWT_SECRET: ${{ secrets.CHRONICLES_PRODUCTION_JWT_SECRET }}
@@ -141,7 +145,7 @@ jobs:
           python-version: '3.13'
       - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
       - name: Require current root-owned OCI wrapper before granting central admin
-        if: inputs.environment == 'staging' && inputs.central_admin == 'enable'
+        if: inputs.environment == 'staging' && (inputs.central_admin == 'enable' || inputs.action == 'grant-admin')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -172,10 +176,17 @@ jobs:
 
   admit:
     name: Admit the signed Chronicles API image (no OCI secrets)
-    needs: contracts
+    needs: [contracts, provision]
+    # The provision job is intentionally skipped for ordinary deploy/push/schedule.
+    # always() keeps those existing paths live; grant-admin instead requires a
+    # successful protected staging provision before ANY image admission/deploy.
     if: >-
+      always() && needs.contracts.result == 'success' &&
       (github.event_name == 'schedule' || github.event_name == 'push' ||
-       (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy')) &&
+       (github.event_name == 'workflow_dispatch' &&
+        (inputs.action == 'deploy' ||
+         (inputs.action == 'grant-admin' && inputs.environment == 'staging' &&
+          needs.provision.result == 'success')))) &&
       github.ref == 'refs/heads/main' &&
       github.repository == 'evilsysadmin/shadowops-infra'
     runs-on: ubuntu-24.04
