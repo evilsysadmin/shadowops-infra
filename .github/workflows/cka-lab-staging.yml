@@ -6,6 +6,12 @@ on:
     branches: [main]
     paths: ['scripts/cka_lab_*.py','host/*cka-lab*','host/vendor/*','deploy/Dockerfile.cka-lab-proof','tests/test_cka_lab*.py','compose.cka-lab.staging.yaml','docs/cka-lab-staging.md','.github/workflows/cka-lab-staging.yml']
   workflow_dispatch:
+    inputs:
+      action:
+        description: 'Non-mutating host preflight or installed rootless runtime inspection'
+        type: choice
+        options: [host-preflight, inspect-runtime]
+        default: host-preflight
 permissions:
   contents: read
 jobs:
@@ -34,6 +40,7 @@ jobs:
     name: Real rootless Docker cgroup enforcement (disposable CI only)
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    if: github.event_name != 'workflow_dispatch' || inputs.action != 'inspect-runtime'
     env:
       DOCKERD_ROOTLESS_ROOTLESSKIT_DETACH_NETNS: 'false'
     steps:
@@ -139,7 +146,7 @@ jobs:
   preflight:
     name: Observe shared host without workload changes
     needs: contracts
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.action == 'host-preflight')) && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     concurrency:
@@ -164,3 +171,32 @@ jobs:
         run: test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
       - name: Observe actual resource headroom and rootless prerequisites
         run: python scripts/cka_lab_host_preflight.py
+
+  runtime-inspect:
+    name: Verify installed rootless runtime (read-only, opt-in)
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'inspect-runtime' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: shadowops-oci-host-operations
+      cancel-in-progress: false
+    env:
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Require exact protected-main source before contacting the adopted A1
+        run: test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+      - name: Read installed rootless policy and actual cgroups
+        run: python scripts/cka_lab_runtime_inspect.py

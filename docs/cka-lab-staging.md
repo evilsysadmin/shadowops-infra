@@ -127,6 +127,27 @@ This step starts the empty bounded rootless daemon only. Kubernetes, controller
 images, credentials, tunnel routes and public labs are not installed or enabled
 by this bootstrap. Do not use an inspection marker as browser acceptance.
 
+
+## Verify the installed rootless runtime through GitHub (read-only)
+
+After the initial privileged operator installation, dispatch the
+[CKA lab staging workflow](https://github.com/evilsysadmin/shadowops-infra/actions/workflows/cka-lab-staging.yml)
+from protected `main`, choosing `inspect-runtime`. The workflow uses
+the **existing narrowly allowlisted** OCI agent sudo command:
+`sudo -n /usr/local/sbin/shadowops-cka-lab-staging inspect`.
+
+The inspector independently verifies the dedicated non-login user, exact
+installed policy hashes, private 8 GiB filesystem backing, live user-slice
+CPU/memory/swap/PID limits and the actual rootless Docker daemon.
+It emits only a strictly validated `CKA_LAB_RUNTIME_VERIFIED` summary
+containing the installed source SHA and `labs_enabled=false`.
+
+Missing installation, a missing sudo rule, an unhealthy OCI agent, a failed
+command, ambiguous/extra output or malformed receipt all fail closed. This
+**does not** install prerequisites, create Kubernetes, deploy the lab API,
+enable a tunnel or activate the browser. Select `host-preflight` for the
+existing nonprivileged capacity observation. PR checks remain offline.
+
 ## Rootless Kubernetes bootstrap under review
 
 `scripts/cka_lab_cluster.py` creates only the fixed `cka-lab-staging` cluster
