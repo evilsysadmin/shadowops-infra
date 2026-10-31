@@ -20,7 +20,7 @@ import (
 const (
 	roleDatabase     = "shadowops_identity_staging"
 	roleJournal      = "admin_role_change_journal"
-	rolePolicy       = "admin_signer_policy"
+	rolePolicy       = "admin_role_signer_policy"
 	rolePolicyID     = "staging:set-role"
 	roleJournalIndex = "staging_role_nonce_unique"
 )
