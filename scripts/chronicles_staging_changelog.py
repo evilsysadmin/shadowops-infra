@@ -361,10 +361,8 @@ def main() -> int:
     output.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
     (output.parent / "RELEASE_NOTES.md").write_text(render_summary(data), encoding="utf-8")
     (output.parent / "release-notes.html").write_text(render_html(data), encoding="utf-8")
-    summary = os.environ.get("GITHUB_STEP_SUMMARY")
-    if summary:
-        with open(summary, "a", encoding="utf-8") as stream:
-            stream.write(render_summary(data))
+    # A separate final job copies RELEASE_NOTES.md into the run landing-page
+    # summary AFTER the exact-SHA Pages receipt is uploaded successfully.
     print(f"CHRONICLES_STAGING_CHANGELOG status={data['status']} sha={current}")
     return 0
 
