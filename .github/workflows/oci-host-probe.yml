@@ -7,6 +7,7 @@ on:
       - 'scripts/oci_control_plane.py'
       - 'tests/test_oci_host_probe.py'
       - 'tests/test_oci_probe_admission.py'
+      - 'host/chronicles-api-deploy.py'
   push:
     branches: [main]
     paths:
@@ -15,6 +16,13 @@ on:
       - 'scripts/oci_control_plane.py'
       - 'tests/test_oci_host_probe.py'
   workflow_dispatch:
+    inputs:
+      probe:
+        description: Fixed, non-privileged A1 observation (never installs anything)
+        type: choice
+        options: [host, chronicles-wrapper]
+        default: host
+        required: true
 
 permissions:
   contents: read
@@ -52,4 +60,20 @@ jobs:
           python-version: '3.13'
       - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
       - name: Probe the pinned existing A1 without sudo or workload changes
+        if: inputs.probe != 'chronicles-wrapper'
         run: python scripts/oci_host_probe.py run
+      - name: Reject a superseded Infra main before inspecting the Chronicles wrapper
+        if: inputs.probe == 'chronicles-wrapper'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)"
+          [[ "$current" =~ ^[a-f0-9]{40}$ && "$current" == "$GITHUB_SHA" ]] || {
+            echo 'CHRONICLES_WRAPPER_PROBE_SUPERSEDED_MAIN' >&2
+            exit 65
+          }
+      - name: Compare the installed Chronicles API wrapper with protected source
+        if: inputs.probe == 'chronicles-wrapper'
+        run: python scripts/oci_host_probe.py wrapper
