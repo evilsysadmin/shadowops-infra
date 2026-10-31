@@ -269,10 +269,9 @@ def provision(env: Mapping[str, str], oci: Any, cf: Cloudflare) -> list[str]:
     if central_mode == "disable" and admin_mode == "enable":
         raise ProvisionError("Cannot enable central admin while disabling central Identity")
     values = read_inputs(env)
-    tunnel_id = ensure_tunnel(cf)
-    configure_tunnel(cf, tunnel_id)
-    values["TUNNEL_TOKEN"] = tunnel_token(cf, tunnel_id)
-    dns = ensure_dns(cf, tunnel_id)
+    # Read-only authorization preflight. A missing/revoked Identity consumer,
+    # invalid preserved grant or unavailable recovery secret must abort BEFORE
+    # changing the existing Cloudflare tunnel, DNS or the runtime Vault bundle.
     config = config_from_env(oci, env)
     compartment_id, _instance = resolve_existing_host(oci, config)
     vault_id, key_id, compartment_id = resolve_vault(oci, config, compartment_id)
@@ -287,6 +286,13 @@ def provision(env: Mapping[str, str], oci: Any, cf: Cloudflare) -> list[str]:
     recovery = str(env.get("CHRONICLES_EMAIL_RECOVERY", "")).strip().lower() == "true"
     if recovery:
         values["RESEND_API_KEY"] = read_vault_secret(oci, config, vault_id, RESEND_SECRET_NAME)
+
+    # Only mutate cloud resources after the existing Identity/role configuration
+    # and optional recovery key have passed validation.
+    tunnel_id = ensure_tunnel(cf)
+    configure_tunnel(cf, tunnel_id)
+    values["TUNNEL_TOKEN"] = tunnel_token(cf, tunnel_id)
+    dns = ensure_dns(cf, tunnel_id)
     secret = upsert_bundle(oci, config, compartment_id, vault_id, key_id, render_bundle(values))
     return [f"CHRONICLES_API_TUNNEL_OK name={TUNNEL_NAME}",
             f"CHRONICLES_API_DNS_OK hostname={HOSTNAME} state={dns}",
