@@ -5,6 +5,7 @@ import json
 import os
 import ssl
 import urllib.parse
+import urllib.error
 import urllib.request
 from chronicles_api_provision import Cloudflare, ProvisionError, UUID_RE, resolve_vault
 from oci_control_plane import config_from_env, resolve_existing_host
@@ -13,6 +14,7 @@ from cka_account_contract import HOST, SECRET, validate, public_keys
 
 NAME='cka-account-staging'
 ZONE='shadowops.dpdns.org'
+PUBLIC_KEY_USER_AGENT='ShadowOps-CKA-Account-Provision/1'
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self,*args): return None
@@ -20,7 +22,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 def read_keys():
     url='https://id-staging.shadowops.dpdns.org/api/identity/jwks'
     opener=urllib.request.build_opener(NoRedirect(),urllib.request.ProxyHandler({}),urllib.request.HTTPSHandler(context=ssl.create_default_context()))
-    with opener.open(urllib.request.Request(url,headers={'Accept':'application/json'}),timeout=5) as response:
+    with opener.open(urllib.request.Request(url,headers={'Accept':'application/json','User-Agent':PUBLIC_KEY_USER_AGENT}),timeout=5) as response:
         raw=response.read(16385)
         if response.status!=200 or response.geturl()!=url or len(raw)>16384:
             raise ProvisionError('Identity public trust anchor unavailable')
@@ -78,6 +80,8 @@ def main():
     try:
         import oci
         print(provision(oci,os.environ,Cloudflare(os.environ)));return 0
+    except urllib.error.HTTPError as error:
+        print('CKA_ACCOUNT_PROVISION_BLOCKED phase=public-jwks status='+str(error.code));return 1
     except Exception as error:
         print('CKA_ACCOUNT_PROVISION_BLOCKED type='+type(error).__name__);return 1
 if __name__=='__main__':raise SystemExit(main())

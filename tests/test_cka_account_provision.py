@@ -4,6 +4,9 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace as NS
 import unittest
+import urllib.error
+import io
+import contextlib
 from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/'scripts'))
 import cka_account_provision as provision
@@ -39,6 +42,30 @@ class ProvisionTests(unittest.TestCase):
         with patch.object(provision,'config_from_env',return_value={}),patch.object(provision,'resolve_existing_host',return_value=('compartment','instance')),patch.object(provision,'resolve_vault',return_value=('vault','key',None)),patch.object(provision,'load_existing',return_value=custody):
             value=provision.provision(sdk,{},cf,keys_reader=lambda:keys)
         return value,writes
+
+    def test_public_key_fetch_identifies_its_client_without_any_service_secret(self):
+        requests=[]
+        class Response:
+            status=200
+            def __enter__(self):return self
+            def __exit__(self,*_):pass
+            def geturl(self):return 'https://id-staging.shadowops.dpdns.org/api/identity/jwks'
+            def read(self,limit):return json.dumps(KEYS).encode()[:limit]
+        def open(request,**kwargs):
+            requests.append(request)
+            self.assertEqual(request.get_header('User-agent'),'ShadowOps-CKA-Account-Provision/1')
+            for name in ['Authorization','Cookie','Origin']:self.assertIsNone(request.get_header(name))
+            return Response()
+        with patch.object(provision.urllib.request,'build_opener',return_value=NS(open=open)):
+            self.assertEqual(provision.read_keys(),KEYS)
+        self.assertEqual(len(requests),1)
+
+    def test_public_key_http_failure_diagnostic_never_prints_response_body_or_url(self):
+        error=urllib.error.HTTPError('https://untrusted.invalid/private',403,'never-print-this',{},io.BytesIO(b'private-response-body'))
+        output=io.StringIO()
+        with patch.dict(sys.modules,{'oci':NS()}),patch.object(provision,'Cloudflare',return_value=object()),patch.object(provision,'provision',side_effect=error),contextlib.redirect_stdout(output):
+            self.assertEqual(provision.main(),1)
+        self.assertEqual(output.getvalue().strip(),'CKA_ACCOUNT_PROVISION_BLOCKED phase=public-jwks status=403')
 
     def test_independent_bundle_copies_only_cka_service_proof_and_public_keys(self):
         cf=Cloudflare();marker,writes=self.runtime(cf)

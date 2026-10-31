@@ -16,7 +16,8 @@ def verify(sha,*,read=None,pause=time.sleep,clock=time.monotonic):
     opener=urllib.request.build_opener(NoRedirect(),urllib.request.ProxyHandler({}),urllib.request.HTTPSHandler(context=ssl.create_default_context()))
     def request(path):
         try:
-            with opener.open('https://'+HOST+path,timeout=6) as r:return r.status,r.read(4096)
+            request=urllib.request.Request('https://'+HOST+path,headers={'User-Agent':'ShadowOps-CKA-Account-Verify/1','Accept':'application/json','Cache-Control':'no-cache'})
+            with opener.open(request,timeout=6) as r:return r.status,r.read(4096)
         except urllib.error.HTTPError as error:return error.code,b''
     get=read or request;deadline=clock()+180
     while True:

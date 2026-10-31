@@ -49,6 +49,9 @@ jobs:
         with:
           persist-credentials: false
       - uses: docker/setup-buildx-action@v4
+      - name: Verify public Identity keys with the declared provisioning client
+        working-directory: scripts
+        run: python3 -c "from cka_account_provision import read_keys; keys=read_keys(); print('CKA_PUBLIC_JWKS_FETCH_OK keys='+str(len(keys['keys'])))"
       - name: Admit current source main, complete CI and signed ARM64 account image
         id: source
         run: |
