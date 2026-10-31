@@ -13,7 +13,8 @@ import (
 // It must be run using a dedicated schema-maintainer Mongo principal BEFORE
 // an operator-only role executor is allowed to start. It never issues a
 // role grant, repairs existing unsafe indexes, or creates signing policies.
-// The journal collection must already be created by a database administrator.
+// MongoDB may implicitly create the exact journal collection when its first
+// authorized index is created; the schema owner never gets collection-wide DDL.
 func PrepareStagingRoleJournalIndex(ctx context.Context, client *mongo.Client) error {
 	if ctx == nil || ctx.Err() != nil || client == nil {
 		return ErrRoleStore
@@ -21,8 +22,8 @@ func PrepareStagingRoleJournalIndex(ctx context.Context, client *mongo.Client) e
 	journal := client.Database(roleDatabase).Collection(roleJournal)
 	cursor, err := journal.Indexes().List(ctx)
 	if err != nil {
-		// A missing collection or missing listIndexes permission is not
-		// permission to initialize an unknown namespace.
+		// Insufficient listIndexes permissions or a failed preflight must
+		// never be bypassed by attempting CreateOne.
 		return ErrRoleStore
 	}
 	var indexes []struct {
