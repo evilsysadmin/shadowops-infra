@@ -94,7 +94,7 @@ class FixedRootlessCluster(unittest.TestCase):
                 if argv[:2] == ["docker", "inspect"]:
                     return json.dumps([node])
                 if argv[:3] == ["docker", "exec", cluster.NODE]:
-                    return "ok\\n"
+                    return "ok\n"
                 raise AssertionError("Unexpected or mutating CLI operation")
 
             with patch.object(cluster, "call", side_effect=fake_call):
