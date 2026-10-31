@@ -416,7 +416,7 @@ class TestOCIInventory(unittest.TestCase):
                          "CHRONICLES_API_OCI_POLL_SECONDS calls=99999 total=0 slowest=99999")
         phase = "CHRONICLES_API_OCI_PHASE_SECONDS preflight=1 dispatch=0 execution=3"
         self.assertIn(sample, release.timing_summary(phase, verified=True, poll=sample))
-        for malformed in (sample + " SECRET", "SECRET\\n" + sample,
+        for malformed in (sample + " SECRET", "SECRET\n" + sample,
                           sample.replace("calls=2", "calls=-2"),
                           sample.replace("slowest=3", "slowest=999999")):
             self.assertEqual(release.timing_summary(
@@ -447,7 +447,7 @@ class TestOCIInventory(unittest.TestCase):
                 self.polled += 1
                 return NS(data=NS(
                     lifecycle_state="ACCEPTED" if self.polled == 1 else "SUCCEEDED",
-                    content=NS(text="SECRET_REMOTE_LOG\\n" + marker, exit_code=0)))
+                    content=NS(text="SECRET_REMOTE_LOG\n" + marker, exit_code=0)))
 
         agent = Agent()
         sdk.compute_instance_agent.ComputeInstanceAgentClient = lambda cfg: agent
