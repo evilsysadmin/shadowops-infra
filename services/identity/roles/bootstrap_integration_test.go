@@ -170,7 +170,7 @@ func TestRoleBootstrapRejectsForgeryWrongEnvironmentAndUnknownKeys(t *testing.T)
 		}
 	}
 	authorityA, authorityB := roleBootstrapAuthorities()
-	operator, security := roleKeys()
+	_, security := roleKeys()
 	otherOperator := roleBootstrapStatement(time.Now().UTC(), authorityA, security)
 	if err := bootstrap.Bootstrap(context.Background(), signRoleBootstrap(t, otherOperator,
 		authorityA, authorityB, authorityA, security)); !errors.Is(err, ErrRoleBootstrapDenied) {
