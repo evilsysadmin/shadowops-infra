@@ -19,45 +19,45 @@ import (
 )
 
 const (
-	roleBootstrapAction = "bootstrap-role-signers"
-	roleBootstrapDomain = "shadowops-identity-role-signers-bootstrap-v1\n"
-	roleBootstrapGenesisID = "staging:bootstrap-role-signers"
+	roleBootstrapAction            = "bootstrap-role-signers"
+	roleBootstrapDomain            = "shadowops-identity-role-signers-bootstrap-v1\n"
+	roleBootstrapGenesisID         = "staging:bootstrap-role-signers"
 	roleBootstrapMaxSignerLifetime = 30 * 24 * time.Hour
 )
 
 var (
-	ErrRoleBootstrapDenied = errors.New("offline staging role signer bootstrap denied")
+	ErrRoleBootstrapDenied   = errors.New("offline staging role signer bootstrap denied")
 	ErrRoleBootstrapConflict = errors.New("staging role signer policy already bootstrapped")
-	ErrRoleBootstrapStore = errors.New("staging role signer bootstrap store unavailable")
+	ErrRoleBootstrapStore    = errors.New("staging role signer bootstrap store unavailable")
 )
 
 // The fixed action and domain cannot authorize suspension or another Identity
 // product. The authorities are separately pinned OUTSIDE Mongo; the two
 // proposed operational signers must prove possession of their private keys.
 type RoleBootstrapStatement struct {
-	Environment string `json:"environment"`
-	Action string `json:"action"`
+	Environment       string `json:"environment"`
+	Action            string `json:"action"`
 	OperatorPublicKey string `json:"operator_public_key"`
 	SecurityPublicKey string `json:"security_public_key"`
-	NotBefore int64 `json:"not_before"`
-	NotAfter int64 `json:"not_after"`
-	ReviewIssue string `json:"review_issue"`
-	EvidenceSHA256 string `json:"evidence_sha256"`
-	Nonce string `json:"nonce"`
-	IssuedAt int64 `json:"issued_at"`
-	ExpiresAt int64 `json:"expires_at"`
+	NotBefore         int64  `json:"not_before"`
+	NotAfter          int64  `json:"not_after"`
+	ReviewIssue       string `json:"review_issue"`
+	EvidenceSHA256    string `json:"evidence_sha256"`
+	Nonce             string `json:"nonce"`
+	IssuedAt          int64  `json:"issued_at"`
+	ExpiresAt         int64  `json:"expires_at"`
 }
 
 type SignedRoleBootstrap struct {
-	Statement RoleBootstrapStatement
+	Statement           RoleBootstrapStatement
 	AuthorityASignature []byte
 	AuthorityBSignature []byte
-	OperatorProof []byte
-	SecurityProof []byte
+	OperatorProof       []byte
+	SecurityProof       []byte
 }
 
 func roleBootstrapPublicKey(value string) (ed25519.PublicKey, error) {
-	if len(value) != 2 * ed25519.PublicKeySize {
+	if len(value) != 2*ed25519.PublicKeySize {
 		return nil, ErrRoleBootstrapDenied
 	}
 	key, err := hex.DecodeString(value)
@@ -101,11 +101,11 @@ func RoleBootstrapMessage(statement RoleBootstrapStatement) ([]byte, error) {
 // Mongo principal may INSERT one genesis journal entry and one signer policy
 // but must not have privileges to modify accounts, sessions or app tokens.
 type StagingRoleBootstrapper struct {
-	client *mongo.Client
-	journal *mongo.Collection
-	policy *mongo.Collection
-	authorityA ed25519.PublicKey
-	authorityB ed25519.PublicKey
+	client           *mongo.Client
+	journal          *mongo.Collection
+	policy           *mongo.Collection
+	authorityA       ed25519.PublicKey
+	authorityB       ed25519.PublicKey
 	afterPolicyWrite func() error // test-only rollback injection
 }
 
