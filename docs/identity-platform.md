@@ -173,6 +173,40 @@ grant, establish the protected operation, independently review the
 target's immutable `sub`, test rollback and revocation in staging,
 and validate least privilege and audit retention.
 
+### One-time signer genesis for Identity role changes (offline only)
+
+`roles.StagingRoleBootstrapper` creates the **initial** staging role signer
+policy using two separately pinned *governance* Ed25519 authorities AND
+proofs of private-key possession from two *different operational* signers.
+The four signatures cover the same canonical, domain-separated request.
+Governance keys must be provisioned and reviewed out-of-band; neither a
+GitHub issue, login alias, token nor a key supplied in the request can act
+as an authority. The request binds the exact fixed staging action,
+two operational public keys, review reference, SHA-256 evidence digest,
+random nonce and a maximum five-minute signing window. Operational
+signer validity cannot exceed 30 days.
+
+A MongoDB snapshot/majority transaction inserts the **immutable-genesis
+marker** `staging:bootstrap-role-signers` in
+`admin_role_change_journal` together with the **generation-one** policy
+`staging:set-role` in `admin_role_signer_policy`. Key fingerprints,
+approval digest, governance fingerprints, review reference, window and
+timestamp are included in the audit. The fixed genesis ID prevents
+re-enrolment after someone deletes the policy; duplicate signing, unsafe
+signers, production actions and expired requests fail closed. Tests cover
+forgery, rollback, concurrent bootstrap and an approved role transition
+using the newly initialized policy.
+
+**This source is not connected to a public API, command or production
+deployment.** Before it can be invoked for real, a protected offline
+bootstrap principal with ONLY insert access to the two precise collections
+(and `listIndexes` of the journal) must be established and independently
+validated. It must not reuse the runtime, suspension or role-executor
+principal, and it must not grant itself account/session write access.
+Production and all user grants remain unchanged. Existing approved
+Chronicles-specific staging access must still be activated separately
+after the owner/subject mapping is independently verified.
+
 ## Acceptance: one ShadowOps account, no repeated product registration
 
 The shared Identity goal means one central registration/login/recovery flow per
