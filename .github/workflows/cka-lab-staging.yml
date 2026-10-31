@@ -71,9 +71,13 @@ jobs:
           docker info --format '{{json .}}' | python3 -c 'import json,sys;v=json.load(sys.stdin);assert "name=rootless" in v["SecurityOptions"] and v["CgroupVersion"]=="2" and v["CgroupDriver"]=="systemd"'
       - name: Prove actual memory, CPU, PID and swap limits inside a container
         run: |
-          docker run --rm --read-only --memory=64m --memory-swap=64m --cpus=0.1 --pids-limit=64 --cap-drop=ALL --security-opt=no-new-privileges:true \
-            python:3.13-slim-bookworm@sha256:281d39ff02e3b389401586134ff9e6572954687822a58055ec07a60ded4e0b7f \
-            python -c 'from pathlib import Path;p=Path("/sys/fs/cgroup");assert int((p/"memory.max").read_text())==67108864;assert (p/"memory.swap.max").read_text().strip()=="0";a,b=map(int,(p/"cpu.max").read_text().split());assert a/b<=0.1;assert int((p/"pids.max").read_text())==64;print("CKA_ROOTLESS_LIMITS_ENFORCED")'
+          PYTHONPATH=scripts python3 - <<'PY'
+          import subprocess
+          import cka_lab_rootless_policy as policy
+          result = subprocess.run(['docker', *policy.proof_args()], capture_output=True, text=True, timeout=120)
+          assert result.returncode == 0 and result.stdout.strip() == policy.PROOF_MARKER, result.stderr
+          print(policy.PROOF_MARKER)
+          PY
   preflight:
     name: Observe shared host without workload changes
     needs: contracts

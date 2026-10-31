@@ -243,6 +243,12 @@ def install(sha, policy):
     run(["runuser", "--user", policy.USER, "--", "env", f"XDG_RUNTIME_DIR=/run/user/{user.pw_uid}",
          f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{user.pw_uid}/bus", "systemctl", "--user", "start",
          "cka-lab-rootless-docker.service"], timeout=100)
+    # Check actual container limits on this A1, not just daemon-reported
+    # support. The approved public fixture has no network, secrets or mounts.
+    proof = run(["runuser", "--user", policy.USER, "--", "/usr/bin/docker", "--host",
+                 f"unix:///run/user/{user.pw_uid}/cka-lab-docker.sock", *policy.proof_args()], timeout=180)
+    if proof != policy.PROOF_MARKER:
+        raise ValueError("Actual runtime container limits did not verify")
     run(["/usr/local/sbin/shadowops-cka-lab-staging", "inspect"])
 
 

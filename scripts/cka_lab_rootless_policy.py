@@ -16,6 +16,19 @@ MEMORY_BYTES = 2816 * 1024**2
 CPU_FRACTION = 0.55
 PIDS = 1024
 MAP_COUNT = 65536
+PROOF_IMAGE = "python:3.13-slim-bookworm@sha256:281d39ff02e3b389401586134ff9e6572954687822a58055ec07a60ded4e0b7f"
+PROOF_MARKER = "CKA_ROOTLESS_LIMITS_ENFORCED"
+PROOF_CODE = ('from pathlib import Path;p=Path("/sys/fs/cgroup");'
+              'assert int((p/"memory.max").read_text())==67108864;'
+              'assert (p/"memory.swap.max").read_text().strip()=="0";'
+              'a,b=map(int,(p/"cpu.max").read_text().split());assert a/b<=0.1;'
+              'assert int((p/"pids.max").read_text())==64;print("CKA_ROOTLESS_LIMITS_ENFORCED")')
+
+
+def proof_args():
+    return ["run", "--rm", "--read-only", "--network=none", "--user=65532:65532",
+            "--memory=64m", "--memory-swap=64m", "--cpus=0.1", "--pids-limit=64",
+            "--cap-drop=ALL", "--security-opt=no-new-privileges=true", PROOF_IMAGE, "python", "-c", PROOF_CODE]
 
 
 class RuntimeError(ValueError):
