@@ -108,9 +108,12 @@ jobs:
           PYTHONPATH=scripts python3 - <<'PY'
           import json, os
           from pathlib import Path
-          from cka_lab_cluster import bootstrap
-          result = bootstrap(Path(os.environ["RUNNER_TEMP"]) / "cka-rootless-cluster")
+          from cka_lab_cluster import bootstrap, verify_cluster
+          workspace = Path(os.environ["RUNNER_TEMP"]) / "cka-rootless-cluster"
+          result = bootstrap(workspace)
           print("CKA_LAB_CLUSTER_PREPARED " + json.dumps(result, sort_keys=True))
+          verified = verify_cluster(workspace)
+          print("CKA_LAB_CLUSTER_VERIFIED " + json.dumps(verified, sort_keys=True))
           PY
       - name: Checkout the reviewed CKA lease and candidate driver contract
         uses: actions/checkout@v4

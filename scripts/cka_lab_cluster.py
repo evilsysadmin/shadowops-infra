@@ -195,6 +195,54 @@ def bootstrap(directory: Path, *, env=None):
             "labs_enabled": False}
 
 
+
+def verify_cluster(directory: Path, *, env=None):
+    """Read-only operator gate after bootstrap; never creates or heals state.
+
+    This evidence is intentionally narrower than an end-to-end candidate smoke:
+    it proves the existing bounded rootless node, internal bridge, private
+    credentials and the live Kubernetes API. It never grants lab access.
+    """
+    env = dict(os.environ if env is None else env)
+    if (not directory.is_absolute() or directory.is_symlink() or not directory.is_dir()
+            or directory.stat().st_uid != os.geteuid()
+            or directory.stat().st_mode & 0o077):
+        raise ClusterBootstrapError("Private cluster state unavailable")
+    for name in ("kind.yaml", "admin.yaml", "controller.yaml"):
+        path = directory / name
+        if (path.is_symlink() or not path.is_file()
+                or path.stat().st_uid != os.geteuid()
+                or path.stat().st_mode & 0o077):
+            raise ClusterBootstrapError("Private cluster credentials unavailable")
+    if (directory / "kind.yaml").read_text() != CONFIG:
+        raise ClusterBootstrapError("Pinned cluster definition changed")
+
+    def read(*args):
+        return call(list(args), env=env, timeout=15)
+
+    def inspect(*args):
+        try:
+            return json.loads(read(*args))
+        except (ValueError, TypeError, RecursionError):
+            raise ClusterBootstrapError("Malformed private runtime inspection") from None
+
+    rootless_info(inspect("docker", "info", "--format", "{{json .}}"))
+    network_policy(inspect("docker", "network", "inspect", NETWORK)[0])
+    node = inspect("docker", "inspect", NODE)[0]
+    node_policy(node)
+    if node.get("State", {}).get("Running") is not True:
+        raise ClusterBootstrapError("Private Kubernetes node is stopped")
+    # Private node control-plane credentials are internal to the container.
+    # No user-supplied host path, kube context, public port or Docker socket.
+    if read("docker", "exec", NODE, "kubectl",
+            "--kubeconfig=/etc/kubernetes/admin.conf",
+            "--request-timeout=8s", "get", "--raw", "/readyz").strip() != "ok":
+        raise ClusterBootstrapError("Private Kubernetes API is not ready")
+    return {"schema": 1, "rootless_verified": True, "private_network_verified": True,
+            "bounded_node_verified": True, "kubernetes_ready": True,
+            "labs_enabled": False}
+
+
 def tool(account, *, install):
     architecture, expected = KIND_HASHES[os.uname().machine]
     directory = Path(account.pw_dir) / "tools"
@@ -233,7 +281,7 @@ def tool(account, *, install):
 
 
 def main():
-    if len(sys.argv) != 2 or sys.argv[1] not in {"install-tools", "bootstrap"} or os.geteuid() == 0:
+    if len(sys.argv) != 2 or sys.argv[1] not in {"install-tools", "bootstrap", "verify-cluster"} or os.geteuid() == 0:
         raise ClusterBootstrapError("Run the fixed command as the dedicated non-root runtime user")
     account = pwd.getpwnam("shadowops-cka-lab")
     if os.getuid() != account.pw_uid:
@@ -245,7 +293,12 @@ def main():
     env = {"PATH": str(tools) + ":/usr/local/bin:/usr/bin:/bin", "LANG": "C.UTF-8",
            "HOME": account.pw_dir, "XDG_RUNTIME_DIR": "/run/user/" + str(account.pw_uid),
            "DOCKER_HOST": "unix:///run/user/" + str(account.pw_uid) + "/cka-lab-docker.sock"}
-    receipt = bootstrap(Path("/var/lib/shadowops-cka-lab-staging/runtime/cluster"), env=env)
+    directory = Path("/var/lib/shadowops-cka-lab-staging/runtime/cluster")
+    if sys.argv[1] == "verify-cluster":
+        receipt = verify_cluster(directory, env=env)
+        print("CKA_LAB_CLUSTER_VERIFIED " + json.dumps(receipt, sort_keys=True))
+        return
+    receipt = bootstrap(directory, env=env)
     print("CKA_LAB_CLUSTER_PREPARED " + json.dumps(receipt, sort_keys=True))
 
 
