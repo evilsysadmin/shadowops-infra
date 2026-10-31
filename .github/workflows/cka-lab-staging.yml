@@ -26,7 +26,7 @@ jobs:
   rootless-proof:
     name: Real rootless Docker cgroup enforcement (disposable CI only)
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
@@ -78,6 +78,51 @@ jobs:
           assert result.returncode == 0 and result.stdout.strip() == policy.PROOF_MARKER, result.stderr
           print(policy.PROOF_MARKER)
           PY
+      - name: Install the reviewed kind binary and pinned kubectl for disposable CI
+        uses: helm/kind-action@v1.14.0
+        with:
+          install_only: true
+          version: v0.31.0
+          kubectl_version: v1.35.0
+      - name: Verify the exact kind release bytes before execution
+        run: |
+          printf '%s  %s\n' eb244cbafcc157dff60cf68693c14c9a75c4e6e6fedaf9cd71c58117cb93e3fa "$(command -v kind)" | sha256sum --check
+      - name: Create the bounded private Kubernetes cluster in the rootless daemon
+        run: |
+          PYTHONPATH=scripts python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          from cka_lab_cluster import bootstrap
+          result = bootstrap(Path(os.environ["RUNNER_TEMP"]) / "cka-rootless-cluster")
+          print("CKA_LAB_CLUSTER_PREPARED " + json.dumps(result, sort_keys=True))
+          PY
+      - name: Checkout the reviewed CKA lease and candidate driver contract
+        uses: actions/checkout@v4
+        with:
+          repository: evilsysadmin/cka-exam-simulator
+          ref: f5362874b83a51b8c4c9f06cf547cd91073de692
+          path: .cka-contract
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: .cka-contract/go/go.mod
+          cache-dependency-path: .cka-contract/go/go.mod
+      - name: Build the real journal helper and install the scenario engine
+        run: |
+          cd .cka-contract/go
+          CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/cka-rootless-lease" ./cmd/cka-lease-stdio
+          cd ..
+          python3 -m pip install --disable-pip-version-check .
+      - name: Prove all curated repairs with actual rootless node limits
+        env:
+          CKA_SCENARIO_SOURCE_ROOT: ${{ github.workspace }}/.cka-contract
+        run: python3 scripts/cka_lab_cluster_smoke.py
+      - name: Remove only the disposable lab cluster
+        if: always()
+        run: |
+          if command -v kind >/dev/null 2>&1; then
+            KIND_EXPERIMENTAL_PROVIDER=docker kind delete cluster --name cka-lab-staging || true
+          fi
   preflight:
     name: Observe shared host without workload changes
     needs: contracts

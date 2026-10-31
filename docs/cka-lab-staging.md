@@ -126,3 +126,32 @@ only this inspection command, never generic sudo, Docker, install or shell acces
 This step starts the empty bounded rootless daemon only. Kubernetes, controller
 images, credentials, tunnel routes and public labs are not installed or enabled
 by this bootstrap. Do not use an inspection marker as browser acceptance.
+
+## Rootless Kubernetes bootstrap under review
+
+`scripts/cka_lab_cluster.py` creates only the fixed `cka-lab-staging` cluster
+inside the dedicated rootless daemon. It refuses existing containers, bridges
+and state, requires cgroup v2/systemd, pins kind v0.31.0 and Kubernetes v1.35.0
+by the upstream node-image digest, and creates a separate internal IPv4 Docker
+bridge. The API is published only to loopback. No application port is published.
+
+After kind initialization, the node is capped at 2 GiB RAM, zero swap, 40% CPU
+and 768 tasks. The encompassing user slice limits apply during bootstrap too.
+The only host bind is kind's read-only `/lib/modules`; writable node data is
+an anonymous volume in the bounded rootless data filesystem. Controller and
+tunnel must never receive this daemon's Docker socket. Both curated workload and
+network-probe images are pinned and preloaded; candidate pods cannot pull them
+over an external route.
+
+CI uses a disposable rootless daemon to run this actual bootstrap, checks the
+node's live cgroup files, and exercises all curated scenarios through the real
+Go journal and candidate driver. A restricted probe Pod must fail TCP connections
+to a public positive-control destination and OCI metadata. The external host
+first proves the public destination is reachable. This is an additional network
+gate, not a claim of multi-user or production acceptance.
+
+A bootstrap receipt always says `labs_enabled=false`. This PR does not execute
+bootstrap on the A1, install host CLI tools, configure Identity, start a public
+controller/tunnel or enable browser controls. Operator tool provisioning and the
+separate Compose deployment remain required. Never run this against host Docker
+or reuse the developer cluster.
