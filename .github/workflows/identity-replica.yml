@@ -63,8 +63,14 @@ jobs:
           node-version: '24'
       - name: Install isolated browser test tools
         run: |
+          set -euo pipefail
           npm install --prefix "$RUNNER_TEMP/identity-browser-tools" --no-audit --no-fund playwright@1.55.0
-          "$RUNNER_TEMP/identity-browser-tools/node_modules/.bin/playwright" install --with-deps chromium
+          # GitHub's ubuntu-24.04 runner already carries Chrome. Running
+          # Playwright against this real browser keeps the complete UI gate
+          # without slow, global APT changes from install --with-deps.
+          browser="$(command -v google-chrome)"
+          test -x "$browser"
+          printf 'IDENTITY_BROWSER_EXECUTABLE=%s\n' "$browser" >> "$GITHUB_ENV"
       - name: Real Chromium central account journey on desktop and mobile
         working-directory: services/identity
         env:
