@@ -151,7 +151,7 @@ class ChroniclesReleaseChangelog(unittest.TestCase):
         with self.assertRaises(ValueError):
             notes.changes_for("invalid", lambda _: {})
 
-    def test_cli_writes_nonblocking_unavailable_json_and_summary(self):
+    def test_cli_writes_nonblocking_unavailable_report_for_final_job(self):
         with tempfile.TemporaryDirectory() as tmp:
             cwd = os.getcwd()
             try:
@@ -163,8 +163,9 @@ class ChroniclesReleaseChangelog(unittest.TestCase):
                     self.assertEqual(notes.main(), 0)
                 data = __import__("json").loads(Path("verified-pages/changes.json").read_text())
                 self.assertEqual(data["status"], "unavailable")
+                self.assertFalse((Path(tmp) / "summary.md").exists())
                 self.assertIn("Changelog no disponible",
-                              (Path(tmp) / "summary.md").read_text())
+                              Path("verified-pages/RELEASE_NOTES.md").read_text())
                 self.assertTrue(Path("verified-pages/RELEASE_NOTES.md").is_file())
                 page = Path("verified-pages/release-notes.html").read_text()
                 self.assertIn("<!doctype html>", page)
@@ -226,6 +227,22 @@ class ChroniclesReleaseChangelog(unittest.TestCase):
         self.assertIn("chronicles-staging-release-notes-", workflow)
         self.assertIn("verified-pages/RELEASE_NOTES.md", workflow)
         self.assertIn("verified-pages/release-notes.html", workflow)
+        # Only the successful Pages release can create the final run summary.
+        notes_job = workflow.split("  staging-release-summary:", 1)[1].split("  production:", 1)[0]
+        release_job = workflow.split("  release:", 1)[1].split("  staging-release-summary:", 1)[0]
+        self.assertIn("needs: release", notes_job)
+        self.assertIn("needs.release.result == 'success'", notes_job)
+        self.assertIn("needs.release.outputs.verified == 'true'", notes_job)
+        self.assertIn("chronicles-pages-staging-${{ needs.release.outputs.source_sha }}", notes_job)
+        self.assertIn("cat verified-pages/RELEASE_NOTES.md >> \"$GITHUB_STEP_SUMMARY\"", notes_job)
+        self.assertIn("continue-on-error: true", notes_job)
+        self.assertIn("verified: ${{ steps.source_freshness.outputs.fresh }}", release_job)
+        self.assertIn("source_sha: ${{ steps.source.outputs.sha }}", release_job)
+        # Release retains its pre-existing superseded-run status note, but
+        # does not duplicate the human-facing notes rendered by the final job.
+        self.assertNotIn('cat verified-pages/RELEASE_NOTES.md >> "$GITHUB_STEP_SUMMARY"', release_job)
+        self.assertNotIn("GITHUB_STEP_SUMMARY", (Path(__file__).resolve().parents[1] /
+                         "scripts/chronicles_staging_changelog.py").read_text())
 
 
 if __name__ == "__main__":

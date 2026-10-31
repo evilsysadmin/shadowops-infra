@@ -223,6 +223,9 @@ jobs:
       contents: read
       actions: read
     timeout-minutes: 25
+    outputs:
+      verified: ${{ steps.source_freshness.outputs.fresh }}
+      source_sha: ${{ steps.source.outputs.sha }}
     environment:
       name: staging
       url: https://staging.chronicles.shadowops.dpdns.org
@@ -552,6 +555,47 @@ jobs:
             verified-pages/release-notes.html
           if-no-files-found: ignore
           retention-days: 90
+
+  staging-release-summary:
+    # GitHub displays job summaries on the RUN landing page, ordered by
+    # completion. Keep the human-readable release report as the final job.
+    # Only a successful exact-SHA Pages verification may publish this summary.
+    name: Chronicles staging · release notes
+    needs: release
+    if: needs.release.result == 'success' && needs.release.outputs.verified == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Read verified Pages release notes from this workflow run
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: chronicles-pages-staging-${{ needs.release.outputs.source_sha }}
+          path: verified-pages
+      - name: Show release notes on the main workflow run Summary
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.release.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          if [[ -s verified-pages/RELEASE_NOTES.md ]]; then
+            cat verified-pages/RELEASE_NOTES.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            # An optional changelog failure never invalidates an already
+            # verified Pages receipt; make the missing detail explicit.
+            {
+              echo '# 🚀 Chronicles · staging'
+              echo
+              echo "✅ **Versión pública verificada:** \`$SOURCE_SHA\`"
+              echo
+              echo 'El informe de cambios no está disponible en este run.'
+              echo 'Consulta la evidencia exact-SHA en el artefacto de Pages.'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   production:
     name: Promote a Chronicles main SHA to production
