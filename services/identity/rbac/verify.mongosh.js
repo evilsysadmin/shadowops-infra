@@ -41,9 +41,11 @@ function denied(label, database, command) {
 const maintenanceConn = roleDB("identity_schema_maintainer", process.env.IDENTITY_RBAC_MAINT_PASS);
 const runtimeConn = roleDB("identity_suspension_executor", process.env.IDENTITY_RBAC_EXEC_PASS);
 const rolesConn = roleDB("identity_role_executor", process.env.IDENTITY_RBAC_ROLE_EXEC_PASS);
+const bootstrapConn = roleDB("identity_role_bootstrap", process.env.IDENTITY_RBAC_ROLE_BOOTSTRAP_PASS);
 const maintenance = maintenanceConn.getDB(stagingName);
 const runtime = runtimeConn.getDB(stagingName);
 const roles = rolesConn.getDB(stagingName);
+const bootstrap = bootstrapConn.getDB(stagingName);
 const adminJournal = "admin_suspension_journal";
 const policyEvents = "admin_signer_policy_events";
 const roleJournal = "admin_role_change_journal";
@@ -169,6 +171,137 @@ denied("role executor cannot create an app token", roles, {
 denied("role executor cannot write production data", roles, {
   update: "production_accounts", updates: [{ q: {}, u: { $set: { role: "admin" } } }],
 });
+
+// Four independent cryptographic signatures are checked in Go's replica
+// tests; this gate proves only Mongo privileges of the OFFLINE genesis
+// principal, not that a signature can be forged by a database user.
+commandWorked("bootstrap can inspect permanent nonce index", bootstrap, {
+  listIndexes: roleJournal,
+});
+denied("bootstrap cannot create audit indexes", bootstrap, {
+  createIndexes: roleJournal,
+  indexes: [{ key: { bad: 1 }, name: "bootstrap-unsafe-ddl" }],
+});
+denied("bootstrap cannot drop audit indexes", bootstrap, {
+  dropIndexes: roleJournal, index: "staging_role_nonce_unique",
+});
+denied("bootstrap cannot set audit TTL", bootstrap, {
+  collMod: roleJournal, index: { name: "staging_role_nonce_unique", expireAfterSeconds: 60 },
+});
+denied("bootstrap cannot read genesis or audit history", bootstrap, {
+  find: roleJournal, filter: {},
+});
+denied("bootstrap cannot update existing audit", bootstrap, {
+  update: roleJournal, updates: [{ q: {}, u: { $set: { tampered: true } } }],
+});
+denied("bootstrap cannot delete audits", bootstrap, {
+  delete: roleJournal, deletes: [{ q: {}, limit: 0 }],
+});
+denied("bootstrap cannot read signer policy", bootstrap, {
+  find: "admin_role_signer_policy", filter: {},
+});
+denied("bootstrap cannot modify existing signer policy", bootstrap, {
+  update: "admin_role_signer_policy",
+  updates: [{ q: { _id: "staging:set-role" }, u: { $set: { state: "active" } } }],
+});
+denied("bootstrap cannot delete signer policy", bootstrap, {
+  delete: "admin_role_signer_policy", deletes: [{ q: {}, limit: 0 }],
+});
+denied("bootstrap cannot write suspension policy", bootstrap, {
+  insert: "admin_signer_policy", documents: [{ _id: "forbidden-bootstrap-suspension" }],
+});
+denied("bootstrap cannot append suspension audit", bootstrap, {
+  insert: adminJournal, documents: [{ _id: "forbidden-bootstrap-suspension-audit" }],
+});
+denied("bootstrap cannot alter an account", bootstrap, {
+  update: "pending_accounts", updates: [{
+    q: { _id: "22222222-2222-4222-8222-222222222222" },
+    u: { $set: { role: "admin" } },
+  }],
+});
+denied("bootstrap cannot read accounts", bootstrap, {
+  find: "pending_accounts", filter: {},
+});
+denied("bootstrap cannot delete sessions", bootstrap, {
+  delete: "sessions", deletes: [{ q: {}, limit: 0 }],
+});
+denied("bootstrap cannot change application tokens", bootstrap, {
+  update: "staging_cka_tokens", updates: [{ q: {}, u: { $set: { active: false } } }],
+});
+denied("bootstrap cannot write production account", bootstrap, {
+  insert: "production_accounts", documents: [{ _id: "forbidden-bootstrap-prod" }],
+});
+denied("role executor cannot enroll signer policy", roles, {
+  insert: "admin_role_signer_policy", documents: [{ _id: "forbidden-role-executor-genesis" }],
+});
+denied("suspension executor cannot enroll role signer policy", runtime, {
+  insert: "admin_role_signer_policy", documents: [{ _id: "forbidden-suspension-genesis" }],
+});
+denied("schema maintainer cannot enroll role signer policy", maintenance, {
+  insert: "admin_role_signer_policy", documents: [{ _id: "forbidden-schema-genesis" }],
+});
+
+// Mirror the Mongo effects of the four-signature StagingRoleBootstrapper:
+// first write a fixed genesis _id, then the generation-one signer policy,
+// within one majority snapshot transaction. Only synthetic identifiers.
+const bootstrapSession = bootstrapConn.startSession({ causalConsistency: false });
+try {
+  bootstrapSession.startTransaction({
+    readConcern: { level: "snapshot" },
+    writeConcern: { w: "majority" },
+  });
+  const tx = bootstrapSession.getDatabase(stagingName);
+  commandWorked("bootstrap inserts immutable genesis", tx, {
+    insert: roleJournal,
+    documents: [{
+      _id: "staging:bootstrap-role-signers",
+      environment: "staging", action: "bootstrap-role-signers",
+      nonce: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      operator_key_sha256: "a".repeat(64),
+      security_key_sha256: "b".repeat(64),
+      generation: NumberLong(1),
+    }],
+  });
+  commandWorked("bootstrap creates signer policy", tx, {
+    insert: "admin_role_signer_policy",
+    documents: [{
+      _id: "staging:set-role", environment: "staging",
+      action: "set-role", state: "active",
+      operator_key_sha256: "a".repeat(64),
+      security_key_sha256: "b".repeat(64),
+      generation: NumberLong(1),
+      use_fence: NumberLong(0),
+    }],
+  });
+  bootstrapSession.commitTransaction();
+} finally {
+  bootstrapSession.endSession();
+}
+ensureEqual(root.admin_role_change_journal.countDocuments({
+  _id: "staging:bootstrap-role-signers",
+}), 1, "bootstrap genesis missing");
+ensureEqual(root.admin_role_signer_policy.countDocuments({
+  _id: "staging:set-role", generation: NumberLong(1), state: "active",
+}), 1, "bootstrap role signer policy missing");
+
+// Replay the bootstrap with a different nonce: the constant genesis _id
+// must make it impossible to re-enroll even with insert-only access.
+let genesisReplayBlocked = false;
+try {
+  const result = bootstrap.runCommand({
+    insert: roleJournal,
+    documents: [{
+      _id: "staging:bootstrap-role-signers",
+      environment: "staging", action: "bootstrap-role-signers",
+      nonce: "cccccccccccccccccccccccccccccccc",
+    }],
+  });
+  genesisReplayBlocked = result.ok === 1 && Array.isArray(result.writeErrors) &&
+    result.writeErrors.length === 1 && result.writeErrors[0].code === 11000;
+} catch (err) {
+  genesisReplayBlocked = err.code === 11000 || err.codeName === "DuplicateKey";
+}
+if (!genesisReplayBlocked) throw new Error("bootstrap genesis replay was not blocked");
 
 const roleSubject = "22222222-2222-4222-8222-222222222222";
 const roleSession = rolesConn.startSession({ causalConsistency: false });
