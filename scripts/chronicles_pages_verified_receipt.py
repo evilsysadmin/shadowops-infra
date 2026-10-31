@@ -11,6 +11,7 @@ import urllib.parse
 import urllib.request
 
 from chronicles_api_before_pages import GateError, INFRA, SHA, fetch
+from chronicles_staging_receipt import ReceiptError, trusted_staging_receipt
 
 PAGES_WORKFLOW = ".github/workflows/chronicles-pages-release.yml"
 ORIGIN = "https://staging.chronicles.shadowops.dpdns.org"
@@ -25,34 +26,13 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def receipt_ok(sha: str, listing: dict, read_run) -> bool:
-    if not SHA.fullmatch(sha):
-        raise GateError("Invalid Chronicles source SHA")
-    artifacts = listing.get("artifacts")
-    if not isinstance(artifacts, list):
-        raise GateError("Malformed Pages artifact listing")
-    expected = "chronicles-pages-staging-" + sha
-    for item in artifacts:
-        if not isinstance(item, dict) or item.get("name") != expected or item.get("expired") is not False:
-            continue
-        origin = item.get("workflow_run") or {}
-        if not isinstance(origin, dict) or origin.get("head_branch") != "main":
-            continue
-        run_id = origin.get("id")
-        if not isinstance(run_id, int) or run_id <= 0:
-            continue
-        run = read_run(run_id)
-        if (
-            run.get("id") == run_id
-            and run.get("status") == "completed"
-            and run.get("conclusion") == "success"
-            and run.get("path") == PAGES_WORKFLOW
-            and run.get("head_branch") == "main"
-            and (run.get("repository") or {}).get("full_name") == INFRA
-            and run.get("event") in {"push", "schedule", "workflow_dispatch"}
-        ):
-            return True
-    return False
-
+    """Validate Pages receipts using the same fixed-workflow identity contract."""
+    try:
+        return trusted_staging_receipt(sha, listing, read_run, kind="pages")
+    except ReceiptError as exc:
+        if "artifact listing" in str(exc):
+            raise GateError("Malformed Pages artifact listing") from exc
+        raise GateError(str(exc)) from exc
 
 def read_manifest(url: str, *, opener=None) -> dict:
     """Require bounded JSON served directly from the exact staging hostname."""

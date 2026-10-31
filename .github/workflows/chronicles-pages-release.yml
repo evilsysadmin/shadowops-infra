@@ -81,6 +81,7 @@ jobs:
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_public_browser_workflow.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_before_pages.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_verified_receipt.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_staging_receipt.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_staging_changelog.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_manifest_wait.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_entry_preflight.py' -v
