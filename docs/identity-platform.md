@@ -141,7 +141,17 @@ non-sparse, non-partial, non-TTL index named
 `staging_role_nonce_unique` on
 `shadowops_identity_staging.admin_role_change_journal` keys
 `{environment:1,action:1,nonce:1}`. The executor only **checks** this
-index; it never creates or repairs it. A separately approved signer
+index; it never creates or repairs it. The offline DDL-only helper
+`roles.PrepareStagingRoleJournalIndex` can create and verify the index
+for the one fixed `admin_role_change_journal` namespace. MongoDB 7
+may create that **specific** collection implicitly when its first index
+is created; the schema maintainer does not receive general-purpose
+collection DDL. It requires an independent
+schema-maintainer client with `listIndexes` and `createIndex` on that
+collection and refuses a failed index preflight, wrong existing
+indexes and **any TTL index** (even one unrelated to the nonce). It is idempotent
+and has no route or invocation from the public Identity service. A
+separately approved signer
 policy record `staging:set-role` must also be established with pinned
 operator/security keys and a restricted validity window. An offline
 operator account needs narrowly scoped read/write to those exact
