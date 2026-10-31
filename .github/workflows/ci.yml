@@ -64,5 +64,10 @@ jobs:
             exit 1
           fi
 
+      # The two cross-repo CD contract workflows use path-filtered PR jobs.
+      # Ensure their shared receipt/transport dependencies cannot evade CI.
+      - name: Protect shared Chronicles staging admission path filters
+        run: python3 -m unittest discover -s tests -p 'test_chronicles_shared_pr_paths.py' -v
+
       - name: Protect consolidated Chronicles CI coverage
         run: python3 -m unittest discover -s tests -p 'test_chronicles_ci_consolidation.py' -v
