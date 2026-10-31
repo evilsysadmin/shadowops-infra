@@ -234,12 +234,14 @@ def render_summary(data: dict) -> str:
     lines.extend([
         "", "### Informe descargable",
         "",
-        "En **Artifacts** de esta ejecución: **chronicles-staging-release-notes-<SHA>**.",
+        "En **Artifacts** de esta ejecución: `chronicles-staging-release-notes-<SHA>`.",
         "Incluye un **reporte HTML** que se abre en el navegador y una copia **RELEASE_NOTES.md**.",
         "",
         "> Este resumen es informativo. La evidencia firmada/validada de despliegue "
         "sigue siendo el recibo exact-SHA de API y Pages."
     ])
+    if os.environ.get("GITHUB_RUN_ID"):
+        lines.append(f"\n[📦 Ver artefactos de esta ejecución]({report_url}#artifacts)")
     return "\n".join(lines) + "\n"
 
 
