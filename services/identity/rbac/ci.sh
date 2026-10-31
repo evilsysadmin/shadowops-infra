@@ -14,7 +14,8 @@ root_pass="$(openssl rand -hex 24)"
 maint_pass="$(openssl rand -hex 24)"
 exec_pass="$(openssl rand -hex 24)"
 role_exec_pass="$(openssl rand -hex 24)"
-for secret in "$root_pass" "$maint_pass" "$exec_pass" "$role_exec_pass"; do
+role_bootstrap_pass="$(openssl rand -hex 24)"
+for secret in "$root_pass" "$maint_pass" "$exec_pass" "$role_exec_pass" "$role_bootstrap_pass"; do
   echo "::add-mask::$secret"
 done
 
@@ -68,13 +69,15 @@ docker cp "$repo_root/services/identity/rbac/verify.mongosh.js" identity-rbac-ci
 docker exec -e IDENTITY_RBAC_ROOT_PASS="$root_pass" \
   -e IDENTITY_RBAC_MAINT_PASS="$maint_pass" \
   -e IDENTITY_RBAC_EXEC_PASS="$exec_pass" \
-  -e IDENTITY_RBAC_ROLE_EXEC_PASS="$role_exec_pass" identity-rbac-ci \
+  -e IDENTITY_RBAC_ROLE_EXEC_PASS="$role_exec_pass" \
+  -e IDENTITY_RBAC_ROLE_BOOTSTRAP_PASS="$role_bootstrap_pass" identity-rbac-ci \
   mongosh --quiet --norc "mongodb://127.0.0.1:27019/?directConnection=true" \
   --eval "$auth_eval load('/tmp/identity-rbac-seed.js')"
 
 docker exec -e IDENTITY_RBAC_ROOT_PASS="$root_pass" \
   -e IDENTITY_RBAC_MAINT_PASS="$maint_pass" \
   -e IDENTITY_RBAC_EXEC_PASS="$exec_pass" \
-  -e IDENTITY_RBAC_ROLE_EXEC_PASS="$role_exec_pass" identity-rbac-ci \
+  -e IDENTITY_RBAC_ROLE_EXEC_PASS="$role_exec_pass" \
+  -e IDENTITY_RBAC_ROLE_BOOTSTRAP_PASS="$role_bootstrap_pass" identity-rbac-ci \
   mongosh --quiet --norc "mongodb://127.0.0.1:27019/?directConnection=true" \
   --eval "$auth_eval load('/tmp/identity-rbac-verify.js')"
