@@ -79,7 +79,7 @@ func TestRoleJournalSchemaRejectsMissingCollectionAndUnsafeExistingIndex(t *test
 			t.Fatal(err)
 		}
 		_, err := db.Collection(roleJournal).Indexes().CreateOne(ctx, mongo.IndexModel{
-			Keys: bson.D{{Key: "nonce", Value: int32(1)}},
+			Keys:    bson.D{{Key: "nonce", Value: int32(1)}},
 			Options: options.Index().SetName(roleJournalIndex),
 		})
 		if err != nil {
