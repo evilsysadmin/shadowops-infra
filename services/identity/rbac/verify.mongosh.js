@@ -145,6 +145,12 @@ denied("role executor cannot delete audit history", roles, {
 denied("role executor cannot drop audit history", roles, {
   drop: roleJournal,
 });
+denied("role executor cannot update suspension signer policy", roles, {
+  update: "admin_signer_policy", updates: [{ q: { _id: "staging:suspend-and-revoke" }, u: { $inc: { use_fence: 1 } } }],
+});
+denied("suspension executor cannot update role signer policy", runtime, {
+  update: "admin_role_signer_policy", updates: [{ q: { _id: "staging:set-role" }, u: { $inc: { use_fence: 1 } } }],
+});
 denied("role executor cannot update governance events", roles, {
   update: policyEvents, updates: [{ q: {}, u: { $set: { compromised: true } } }],
 });
@@ -173,7 +179,7 @@ try {
   });
   const txDB = roleSession.getDatabase(stagingName);
   commandWorked("role change fences independent signer policy", txDB, {
-    update: "admin_signer_policy",
+    update: "admin_role_signer_policy",
     updates: [{
       q: { _id: "staging:set-role", state: "active", action: "set-role" },
       u: { $inc: { use_fence: NumberLong(1) } }, multi: false,
@@ -227,7 +233,7 @@ const unrelatedSuspensionSubject = root.pending_accounts.findOne({
 });
 ensureEqual(Number(unrelatedSuspensionSubject.session_version), 1,
   "role operator touched an unrelated account");
-ensureEqual(Number(root.admin_signer_policy.findOne({
+ensureEqual(Number(root.admin_role_signer_policy.findOne({
   _id: "staging:set-role",
 }).use_fence), 1, "role policy fence was not committed");
 ensureEqual(root.admin_suspension_journal.countDocuments({}), 0,
