@@ -221,7 +221,9 @@ class ChroniclesReleaseChangelog(unittest.TestCase):
                     ".github/workflows/chronicles-pages-release.yml").read_text()
         self.assertIn("python3 scripts/chronicles_staging_changelog.py", workflow)
         self.assertIn("continue-on-error: true", workflow)
-        self.assertIn('if: steps.source_freshness.outputs.fresh == \'true\'', workflow)
+        self.assertIn(
+            "if: steps.entry_freshness.outputs.fresh == 'true' && "
+            "(steps.source_freshness.outputs.fresh == 'true')", workflow)
         self.assertIn('verified-pages/changes.json', workflow)
         self.assertIn("CHRONICLES_PAGES_RECEIPT_SHA_MISMATCH", workflow)
         self.assertIn("chronicles-staging-release-notes-", workflow)
