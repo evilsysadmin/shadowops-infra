@@ -76,4 +76,34 @@ jobs:
           }
       - name: Compare the installed Chronicles API wrapper with protected source
         if: inputs.probe == 'chronicles-wrapper'
-        run: python scripts/oci_host_probe.py wrapper
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Only finite, explicitly authorized states may enter Actions logs
+          # or the summary. Raw Oracle stdout remains private in the probe.
+          status=0
+          verdict="$(python scripts/oci_host_probe.py wrapper)" || status=$?
+          case "$verdict" in
+            CHRONICLES_API_WRAPPER_CURRENT|CHRONICLES_API_WRAPPER_OUTDATED|CHRONICLES_API_WRAPPER_MISSING|CHRONICLES_API_WRAPPER_UNSAFE) ;;
+            *) echo 'CHRONICLES_WRAPPER_PROBE_INVALID_RESULT' >&2; exit 1 ;;
+          esac
+          printf '### Chronicles API installed wrapper\n\n- Protected Infra SHA: `%s`\n- Host status: `%s`\n- Host mutations: none\n' \
+            "$GITHUB_SHA" "$verdict" >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' "$verdict"
+          # An OUTDATED/MISSING/UNSAFE observation is NOT a passing check.
+          if [[ "$status" != 0 || "$verdict" != CHRONICLES_API_WRAPPER_CURRENT ]]; then
+            exit 1
+          fi
+      - name: Recheck protected main after Chronicles wrapper observation
+        if: inputs.probe == 'chronicles-wrapper' && success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)"
+          [[ "$current" =~ ^[a-f0-9]{40}$ && "$current" == "$GITHUB_SHA" ]] || {
+            echo 'CHRONICLES_WRAPPER_PROBE_SUPERSEDED_MAIN_AFTER_OBSERVATION' >&2
+            printf '\n**Verification invalidated:** protected main advanced during the OCI observation.\n' >> "$GITHUB_STEP_SUMMARY"
+            exit 65
+          }
