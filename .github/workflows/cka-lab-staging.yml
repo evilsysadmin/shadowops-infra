@@ -1,10 +1,10 @@
 name: CKA labs · shared A1 Compose preflight
 on:
   pull_request:
-    paths: ['scripts/cka_lab_host_preflight.py','tests/test_cka_lab_host_preflight.py','docs/cka-lab-staging.md','.github/workflows/cka-lab-staging.yml']
+    paths: ['scripts/cka_lab_*.py','host/*cka-lab*','host/vendor/*','tests/test_cka_lab*.py','docs/cka-lab-staging.md','.github/workflows/cka-lab-staging.yml']
   push:
     branches: [main]
-    paths: ['scripts/cka_lab_host_preflight.py','tests/test_cka_lab_host_preflight.py','docs/cka-lab-staging.md','.github/workflows/cka-lab-staging.yml']
+    paths: ['scripts/cka_lab_*.py','host/*cka-lab*','host/vendor/*','tests/test_cka_lab*.py','docs/cka-lab-staging.md','.github/workflows/cka-lab-staging.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -17,6 +17,67 @@ jobs:
         with:
           persist-credentials: false
       - run: python3 -m unittest discover -s tests -p 'test_cka_lab*.py' -v
+      - run: sh -n host/vendor/dockerd-rootless.sh
+      - run: sudo visudo --check --file host/cka-lab-rootless.sudoers
+      - name: Verify the actual user unit without starting it
+        run: |
+          sudo install -D -m 0755 host/vendor/dockerd-rootless.sh /usr/local/libexec/cka-lab-staging/dockerd-rootless.sh
+          systemd-analyze --user verify host/cka-lab-rootless-docker.service
+  rootless-proof:
+    name: Real rootless Docker cgroup enforcement (disposable CI only)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Establish the disposable runner user session and delegated cgroups
+        run: |
+          set -euo pipefail
+          cka_runner_uid="$(id -u)"
+          cka_runner_user="$(id -un)"
+          sudo apt-get update -qq
+          sudo apt-get install --yes --no-install-recommends dbus-user-session
+          sudo install -d -m 0755 "/etc/systemd/system/user@${cka_runner_uid}.service.d"
+          printf '[Service]\nDelegate=cpu cpuset io memory pids\n' > "$RUNNER_TEMP/cka-delegate.conf"
+          sudo install -m 0644 "$RUNNER_TEMP/cka-delegate.conf" "/etc/systemd/system/user@${cka_runner_uid}.service.d/cka-delegate.conf"
+          sudo systemctl daemon-reload
+          sudo loginctl enable-linger "$cka_runner_user"
+          sudo systemctl restart "user@${cka_runner_uid}.service"
+          test -S "/run/user/${cka_runner_uid}/bus"
+          printf 'XDG_RUNTIME_DIR=/run/user/%s\nDBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%s/bus\n' "$cka_runner_uid" "$cka_runner_uid" >> "$GITHUB_ENV"
+          sudo install -D -m 0755 host/cka-lab-runc-rootless.sh /usr/local/libexec/cka-lab-staging/runc-rootless.sh
+          sudo install -d -m 0755 /etc/cka-lab-staging
+          cka_runtime_runc="$(command -v runc)"
+          [[ "$cka_runtime_runc" =~ ^/[A-Za-z0-9/_+.-]+$ ]]
+          printf 'CKA_PARENT_UID=%s\nCKA_RUNC=%s\n' "$cka_runner_uid" "$cka_runtime_runc" > "$RUNNER_TEMP/cka-runc.env"
+          sudo install -m 0644 "$RUNNER_TEMP/cka-runc.env" /etc/cka-lab-staging/runc.env
+      - name: Set up a separate disposable rootless daemon
+        uses: docker/setup-docker-action@v4
+        with:
+          version: v29.9.2
+          rootless: true
+          set-host: true
+          daemon-config: '{"exec-opts":["native.cgroupdriver=systemd"],"default-runtime":"cka-rootless-runc","runtimes":{"cka-rootless-runc":{"path":"/usr/local/libexec/cka-lab-staging/runc-rootless.sh"}}}'
+      - name: Pin the test wrapper to the downloaded engine runtime
+        run: |
+          cka_runner_uid="$(id -u)"
+          cka_runtime_runc="$(command -v runc)"
+          [[ "$cka_runtime_runc" =~ ^/[A-Za-z0-9/_+.-]+$ ]]
+          printf 'CKA_PARENT_UID=%s\nCKA_RUNC=%s\n' "$cka_runner_uid" "$cka_runtime_runc" > "$RUNNER_TEMP/cka-runc.env"
+          sudo install -m 0644 "$RUNNER_TEMP/cka-runc.env" /etc/cka-lab-staging/runc.env
+      - name: Require actual rootless and cgroup v2 authority
+        run: |
+          docker info --format '{{json .}}' | python3 -c 'import json,sys;v=json.load(sys.stdin);assert "name=rootless" in v["SecurityOptions"] and v["CgroupVersion"]=="2" and v["CgroupDriver"]=="systemd"'
+      - name: Prove actual memory, CPU, PID and swap limits inside a container
+        run: |
+          PYTHONPATH=scripts python3 - <<'PY'
+          import subprocess
+          import cka_lab_rootless_policy as policy
+          result = subprocess.run(['docker', *policy.proof_args()], capture_output=True, text=True, timeout=120)
+          assert result.returncode == 0 and result.stdout.strip() == policy.PROOF_MARKER, result.stderr
+          print(policy.PROOF_MARKER)
+          PY
   preflight:
     name: Observe shared host without workload changes
     needs: contracts

@@ -1,0 +1,28 @@
+[Unit]
+Description=CKA staging dedicated rootless Docker (no host Docker authority)
+ConditionUser=shadowops-cka-lab
+
+[Service]
+Type=notify
+NotifyAccess=all
+Environment=PATH=/usr/sbin:/usr/bin:/sbin:/bin
+Environment=XDG_RUNTIME_DIR=%t
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=%t/bus
+Environment=DOCKERD=/usr/bin/dockerd
+Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_NET=slirp4netns
+Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_DISABLE_HOST_LOOPBACK=true
+Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_DETACH_NETNS=false
+Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_SLIRP4NETNS_SANDBOX=true
+Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_SLIRP4NETNS_SECCOMP=true
+ExecStart=/usr/local/libexec/cka-lab-staging/dockerd-rootless.sh --config-file=/etc/cka-lab-staging/daemon.json
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=90
+TimeoutStopSec=30
+Delegate=cpu cpuset io memory pids
+KillMode=mixed
+TasksMax=1024
+LimitNOFILE=65536
+
+[Install]
+WantedBy=default.target
