@@ -64,7 +64,7 @@ def daemon_config(uid):
             "pidfile": f"/run/user/{uid}/cka-lab-docker.pid",
             "exec-opts": ["native.cgroupdriver=systemd"], "storage-driver": "fuse-overlayfs",
             "default-runtime": "cka-rootless-runc",
-            "runtimes": {"cka-rootless-runc": {"path": "runc", "runtimeArgs": ["--rootless=true"]}},
+            "runtimes": {"cka-rootless-runc": {"path": str(LIB / "runc-rootless.sh")}},
             "log-driver": "local", "log-opts": {"max-size": "5m", "max-file": "2"},
             "live-restore": False, "shutdown-timeout": 15}
 

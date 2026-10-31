@@ -46,13 +46,26 @@ jobs:
           sudo systemctl restart "user@${cka_runner_uid}.service"
           test -S "/run/user/${cka_runner_uid}/bus"
           printf 'XDG_RUNTIME_DIR=/run/user/%s\nDBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%s/bus\n' "$cka_runner_uid" "$cka_runner_uid" >> "$GITHUB_ENV"
+          sudo install -D -m 0755 host/cka-lab-runc-rootless.sh /usr/local/libexec/cka-lab-staging/runc-rootless.sh
+          sudo install -d -m 0755 /etc/cka-lab-staging
+          cka_runtime_runc="$(command -v runc)"
+          [[ "$cka_runtime_runc" =~ ^/[A-Za-z0-9/_+.-]+$ ]]
+          printf 'CKA_PARENT_UID=%s\nCKA_RUNC=%s\n' "$cka_runner_uid" "$cka_runtime_runc" > "$RUNNER_TEMP/cka-runc.env"
+          sudo install -m 0644 "$RUNNER_TEMP/cka-runc.env" /etc/cka-lab-staging/runc.env
       - name: Set up a separate disposable rootless daemon
         uses: docker/setup-docker-action@v4
         with:
           version: v29.9.2
           rootless: true
           set-host: true
-          daemon-config: '{"exec-opts":["native.cgroupdriver=systemd"],"default-runtime":"cka-rootless-runc","runtimes":{"cka-rootless-runc":{"path":"runc","runtimeArgs":["--rootless=true"]}}}'
+          daemon-config: '{"exec-opts":["native.cgroupdriver=systemd"],"default-runtime":"cka-rootless-runc","runtimes":{"cka-rootless-runc":{"path":"/usr/local/libexec/cka-lab-staging/runc-rootless.sh"}}}'
+      - name: Pin the test wrapper to the downloaded engine runtime
+        run: |
+          cka_runner_uid="$(id -u)"
+          cka_runtime_runc="$(command -v runc)"
+          [[ "$cka_runtime_runc" =~ ^/[A-Za-z0-9/_+.-]+$ ]]
+          printf 'CKA_PARENT_UID=%s\nCKA_RUNC=%s\n' "$cka_runner_uid" "$cka_runtime_runc" > "$RUNNER_TEMP/cka-runc.env"
+          sudo install -m 0644 "$RUNNER_TEMP/cka-runc.env" /etc/cka-lab-staging/runc.env
       - name: Require actual rootless and cgroup v2 authority
         run: |
           docker info --format '{{json .}}' | python3 -c 'import json,sys;v=json.load(sys.stdin);assert "name=rootless" in v["SecurityOptions"] and v["CgroupVersion"]=="2" and v["CgroupDriver"]=="systemd"'

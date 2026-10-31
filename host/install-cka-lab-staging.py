@@ -14,6 +14,7 @@ from pathlib import Path
 import pwd
 import re
 import shutil
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -25,6 +26,7 @@ REPO = Path("/opt/shadowops-infra")
 # exact source are checked in main; tests explicitly import the pure policy.
 POLICY_SOURCE = REPO / "scripts/cka_lab_rootless_policy.py"
 FILES = {"host/vendor/dockerd-rootless.sh": "/usr/local/libexec/cka-lab-staging/dockerd-rootless.sh",
+         "host/cka-lab-runc-rootless.sh": "/usr/local/libexec/cka-lab-staging/runc-rootless.sh",
          "host/vendor/MOBY-LICENSE": "/usr/local/libexec/cka-lab-staging/MOBY-LICENSE",
          "scripts/cka_lab_rootless_policy.py": "/usr/local/libexec/cka-lab-staging/cka_lab_rootless_policy.py",
          "host/cka-lab-enable-rootless.py": "/usr/local/libexec/cka-lab-staging/enable-rootless.py",
@@ -96,7 +98,7 @@ def source_preflight(sha):
     disk = os.statvfs("/var/lib")
     if memory < 3 * 1024**2 or disk.f_bavail * disk.f_frsize < 12 * 1024**3:
         raise ValueError("Insufficient shared-host reserve")
-    for binary in ("docker", "dockerd", "systemctl", "loginctl", "runuser", "mount", "losetup", "findmnt", "fallocate", "mkfs.ext4", "blkid", "visudo"):
+    for binary in ("docker", "dockerd", "runc", "awk", "nsenter", "sysctl", "systemctl", "loginctl", "runuser", "mount", "losetup", "findmnt", "fallocate", "mkfs.ext4", "blkid", "visudo"):
         if not shutil.which(binary):
             raise ValueError("Missing host runtime prerequisite")
 
@@ -190,11 +192,16 @@ def install(sha, policy):
                 or run(["blkid", "-s", "TYPE", "-o", "value", str(image)]) != "ext4"):
             raise ValueError("Foreign runtime backing filesystem")
     for source, target in FILES.items():
-        mode = 0o755 if target.endswith("dockerd-rootless.sh") or target.endswith("shadowops-cka-lab-staging") else 0o644
+        mode = 0o755 if target.endswith(".sh") or target.endswith("shadowops-cka-lab-staging") else 0o644
         if "/sudoers.d/" in target:
             mode = 0o440
         publish(Path(target), (REPO / source).read_bytes(), mode=mode)
+    runc = Path(shutil.which("runc")).resolve()
+    root_path(runc)
+    for parent in runc.parents:
+        root_path(parent, directory=True)
     generated = {policy.CONFIG / "daemon.json": json.dumps(policy.daemon_config(user.pw_uid), sort_keys=True) + "\n",
+                 policy.CONFIG / "runc.env": f"CKA_PARENT_UID={user.pw_uid}\nCKA_RUNC={shlex.quote(str(runc))}\n",
                  Path("/etc/systemd/system/shadowops-cka-lab-disk.service"): policy.disk_unit()}
     for parent, name, body in [
         (Path(f"/etc/systemd/system/user@{user.pw_uid}.service.d"), "cka-lab-runtime.conf", policy.manager_dropin()),
