@@ -28,6 +28,7 @@ class FixedRootlessCluster(unittest.TestCase):
         good = {"Name": "/" + cluster.NODE, "Config": {"Image": cluster.NODE_IMAGE},
                 "HostConfig": {"Memory": 2 * 1024**3, "MemorySwap": 2 * 1024**3,
                     "NanoCpus": 400000000, "PidsLimit": 768, "NetworkMode": cluster.NETWORK,
+                    "ExtraHosts": ["host.docker.internal:172.31.254.1"],
                     "Privileged": True, "Binds": ["/lib/modules:/lib/modules:ro"]},
                 "NetworkSettings": {"Networks": {cluster.NETWORK: {}}, "Ports": {
                     "6443/tcp": [{"HostIp": "127.0.0.1", "HostPort": "39001"}]}},

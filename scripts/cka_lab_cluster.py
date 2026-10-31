@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import pwd
+import shutil
 import subprocess
 import sys
 
@@ -68,6 +69,7 @@ def node_policy(info):
     if (info.get("Name") != "/" + NODE or info.get("Config", {}).get("Image") != NODE_IMAGE
             or config.get("Memory") != 2 * 1024**3 or config.get("MemorySwap") != 2 * 1024**3
             or config.get("NanoCpus") != 400000000 or config.get("PidsLimit") != 768
+            or config.get("ExtraHosts") != ["host.docker.internal:172.31.254.1"]
             or set(networks) != {NETWORK} or config.get("NetworkMode") != NETWORK
             or not config.get("Privileged")
             or set(config.get("Binds") or []) - {"/var"} != {"/lib/modules:/lib/modules:ro"}
@@ -109,6 +111,24 @@ def bootstrap(directory: Path, *, env=None):
     config.write_text(CONFIG)
     config.chmod(0o600)
     kubeconfig = directory / "admin.yaml"
+    # kind's node entrypoint uses host.docker.internal (or a default route) to
+    # rewrite Docker DNS rules. Internal bridges deliberately have no default
+    # route. Supply only that fixed host alias to the pinned node's docker run;
+    # preserve the internal bridge and its egress filtering. kind has no config
+    # field for Docker ExtraHosts. Every other Docker call is forwarded intact.
+    docker_binary = shutil.which("docker", path=env.get("PATH"))
+    if not docker_binary or not Path(docker_binary).is_absolute():
+        raise ClusterBootstrapError("Explicit Docker CLI required")
+    shim_dir = directory / "tools"
+    shim_dir.mkdir(mode=0o700)
+    shim = shim_dir / "docker"
+    shim.write_text("#!/usr/bin/python3\nimport os,sys\n"
+        + "binary=" + repr(docker_binary) + "\nargs=sys.argv[1:]\n"
+        + "if args and args[0]=='run' and args[-1]==" + repr(NODE_IMAGE) + ":\n"
+        + " args.insert(1,'--add-host=host.docker.internal:172.31.254.1')\n"
+        + "os.execv(binary,[binary,*args])\n")
+    shim.chmod(0o700)
+    env["PATH"] = str(shim_dir) + os.pathsep + env.get("PATH", "/usr/local/bin:/usr/bin:/bin")
     run("docker", "network", "create", "--internal", "--subnet", SUBNET,
         "--label", "labs.shadowops.org/managed=staging-v1", NETWORK)
     network_policy(inspect("docker", "network", "inspect", NETWORK)[0])
