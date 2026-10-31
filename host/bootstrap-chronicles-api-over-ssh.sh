@@ -9,8 +9,14 @@ readonly destination='ubuntu@ssh-chess-studio-staging.shadowops.dpdns.org'
 # Optional argument: an exact protected main SHA to pin. Without it, the
 # script installs the CURRENT protected main (resolved below and re-verified
 # on the host), so the operator never has to copy a hash.
+# --check only observes the installed wrapper; the default still installs it.
+check_only=false
+if [[ "${1:-}" == '--check' ]]; then
+  check_only=true
+  shift
+fi
 if [[ $# -gt 1 || ( $# -eq 1 && ! "$1" =~ ^[0-9a-f]{40}$ ) ]]; then
-  printf '%s\n' 'Usage: host/bootstrap-chronicles-api-over-ssh.sh [exact-protected-main-SHA]' >&2
+  printf '%s\n' 'Usage: host/bootstrap-chronicles-api-over-ssh.sh [--check] [exact-protected-main-SHA]' >&2
   exit 64
 fi
 
@@ -27,7 +33,11 @@ main_line="$(GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code "$source_repo" refs
 main_sha="${main_line%%$'\t'*}"
 expected="${1:-$main_sha}"
 readonly expected
-printf 'Installing protected main %s\n' "$expected"
+if [[ "$check_only" == true ]]; then
+  printf 'Checking installed Chronicles API wrapper against protected main %s\n' "$expected"
+else
+  printf 'Installing protected main %s\n' "$expected"
+fi
 if [[ ! "$main_sha" =~ ^[0-9a-f]{40}$ || "$main_sha" != "$expected" ]]; then
   printf '%s\n' 'CHRONICLES_API_BOOTSTRAP_BLOCKED source-main-sha-mismatch' >&2
   exit 65
@@ -46,6 +56,49 @@ if [[ -n "${CHRONICLES_OPERATOR_SSH_KEY:-}" ]]; then
     exit 65
   }
   ssh_options+=(-i "$CHRONICLES_OPERATOR_SSH_KEY")
+fi
+
+
+# Fetch the immutable protected-main source on the operator machine, not A1.
+# This path never invokes sudo, installs packages or modifies the host.
+if [[ "$check_only" == true ]]; then
+  for executable in curl sha256sum; do
+    command -v "$executable" >/dev/null 2>&1 || exit 69
+  done
+  expected_digest="$(curl --fail --silent --show-error --location --max-time 20 \
+    "https://raw.githubusercontent.com/evilsysadmin/shadowops-infra/$expected/host/chronicles-api-deploy.py" | sha256sum)"
+  expected_digest="${expected_digest%% *}"
+  [[ "$expected_digest" =~ ^[0-9a-f]{64}$ ]] || exit 65
+  readonly expected_digest
+  ssh "${ssh_options[@]}" "$destination" "bash -se -- '$expected_digest'" <<'REMOTE_CHECK'
+set -euo pipefail
+[[ $# -eq 1 && "$1" =~ ^[0-9a-f]{64}$ ]] || exit 64
+readonly expected_digest="$1"
+readonly helper=/usr/local/sbin/shadowops-chronicles-api
+if [[ ! -e "$helper" && ! -L "$helper" ]]; then
+  printf '%s\n' 'CHRONICLES_API_WRAPPER_MISSING'
+  exit 3
+fi
+if [[ ! -f "$helper" || -L "$helper" || ! -x "$helper" ||
+      "$(stat -c %u -- "$helper")" != 0 ]]; then
+  printf '%s\n' 'CHRONICLES_API_WRAPPER_UNSAFE'
+  exit 65
+fi
+mode="$(stat -c %a -- "$helper")"
+[[ "$mode" =~ ^[0-7]{3,4}$ ]] || exit 65
+if (( (8#$mode & 8#022) != 0 )); then
+  printf '%s\n' 'CHRONICLES_API_WRAPPER_UNSAFE'
+  exit 65
+fi
+installed="$(sha256sum -- "$helper")"
+installed="${installed%% *}"
+if [[ "$installed" != "$expected_digest" ]]; then
+  printf '%s\n' 'CHRONICLES_API_WRAPPER_OUTDATED'
+  exit 3
+fi
+printf '%s\n' 'CHRONICLES_API_WRAPPER_CURRENT'
+REMOTE_CHECK
+  exit 0
 fi
 
 printf '%s\n' 'Connecting through the existing operator SSH tunnel (no direct A1 port 22).'
