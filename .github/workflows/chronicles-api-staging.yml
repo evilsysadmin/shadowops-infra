@@ -335,7 +335,7 @@ jobs:
             exit 65
           }
           if [[ "$ADMITTED_SHA" != "$current" ]]; then
-            if [[ "$GRANT_ADMIN" == 'true' ]]; then
+            if [[ "${GRANT_ADMIN:-false}" == 'true' ]]; then
               echo 'CHRONICLES_ADMIN_GRANT_DEPLOY_BLOCKED superseded-source' >&2
               exit 65
             fi
@@ -380,7 +380,7 @@ jobs:
             exit 65
           }
           if [[ "$ADMITTED_SHA" != "$current" ]]; then
-            if [[ "$GRANT_ADMIN" == 'true' ]]; then
+            if [[ "${GRANT_ADMIN:-false}" == 'true' ]]; then
               echo 'CHRONICLES_ADMIN_GRANT_DEPLOY_BLOCKED superseded-source' >&2
               exit 65
             fi
