@@ -248,7 +248,11 @@ def tool(account, *, install):
     directory = Path(account.pw_dir) / "tools"
     if directory.is_symlink():
         raise ClusterBootstrapError("Private tool directory required")
-    directory.mkdir(mode=0o700, exist_ok=True)
+    # Verification must never create even an empty tools directory.
+    if install:
+        directory.mkdir(mode=0o700, exist_ok=True)
+    elif not directory.is_dir():
+        raise ClusterBootstrapError("Reviewed private tool directory required")
     if directory.stat().st_uid != account.pw_uid or directory.stat().st_mode & 0o077:
         raise ClusterBootstrapError("Private tool directory required")
     target = directory / "kind"
