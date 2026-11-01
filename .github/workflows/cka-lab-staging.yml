@@ -149,8 +149,8 @@ jobs:
       - name: Prove the signed published controller through real Compose and TLS Identity
         env:
           GH_TOKEN: ${{ github.token }}
-          CKA_API_TEST_SOURCE: 7fdec690b7bfe8baa485aee3041110bd8d72730c
-          CKA_API_TEST_DIGEST: sha256:6ef965ebee237b0369b76614622cc804e088c409f4337656ff3384d189e034fa
+          CKA_API_TEST_SOURCE: c337655cd11d710ca13bf68a9cab510b169de3f3
+          CKA_API_TEST_DIGEST: sha256:f990c0419d20b6e5d697ba8b471c0ddd1b7ca1ce5dbb077d104a74377cf4699f
         run: python3 scripts/cka_lab_api_smoke.py
       - name: Diagnose only the disposable cluster on failure
         if: failure()
