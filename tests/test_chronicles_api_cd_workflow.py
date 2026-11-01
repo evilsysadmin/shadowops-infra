@@ -147,6 +147,86 @@ class StagingConvergenceContracts(unittest.TestCase):
         self.assertIn("CHRONICLES_OCI_STALE_SOURCE_PRECHECK_SKIPPED", preflight["run"])
         self.assertIn("CHRONICLES_OCI_STALE_SOURCE_SKIPPED", late["run"])
 
+    def test_serialized_staging_preflight_rechecks_receipt_before_oci_setup(self):
+        """The receipt may be published after admission while deploy waits for A1."""
+        deploy = self.workflow["jobs"]["deploy"]
+        self.assertEqual(deploy["permissions"], {"contents": "read", "actions": "read"})
+        steps = deploy["steps"]
+        gate = next(step for step in steps if step.get("id") == "staging_preflight")
+        source = gate["run"]
+        self.assertIn("--receipt-only \"$ADMITTED_SHA\"", source)
+        self.assertIn("CHRONICLES_OCI_ALREADY_VERIFIED_LATE_SKIP", source)
+        self.assertIn("CHRONICLES_OCI_LATE_RECEIPT_CHECK_INCONCLUSIVE", source)
+        self.assertLess(steps.index(gate), next(
+            i for i, step in enumerate(steps)
+            if "oci==2.185.2" in str(step.get("run", ""))))
+        self.assertIn("inputs.only_if_new", gate["env"]["ONLY_IF_NEW"])
+        # A late skip must suppress OCI SDK installation and *all* mutation
+        # and receipt steps, without weakening the late source SHA check.
+        self.assertIn("steps.staging_preflight.outputs.fresh == 'true'",
+                      next(step for step in steps
+                           if "oci==2.185.2" in str(step.get("run", "")))["if"])
+        for name in ("Execute only the restricted Chronicles API deployer",
+                     "Record successfully verified staging generation",
+                     "Publish verified generation receipt (idempotent future sync)"):
+            step = next(x for x in steps if x.get("name") == name)
+            self.assertIn("steps.staging_freshness.outputs.fresh == 'true'",
+                          step["if"])
+        self.assertIn("steps.staging_preflight.outputs.fresh == 'true'",
+                      next(step for step in steps
+                           if step.get("id") == "staging_freshness")["if"])
+
+        cases = (
+            # kind, only_if_new, grant_admin, receipt_exit, exit_code, output, calls
+            ("push", "false", "false", 0, 0, "fresh=false", 1),
+            ("schedule", "false", "false", 0, 0, "fresh=false", 1),
+            ("push", "false", "false", 1, 0, "fresh=true", 1),
+            ("push", "false", "false", 2, 2, "", 1),
+            ("workflow_dispatch", "true", "false", 0, 0, "fresh=false", 1),
+            ("workflow_dispatch", "false", "false", 0, 0, "fresh=true", 0),
+            ("workflow_dispatch", "true", "true", 0, 0, "fresh=true", 0),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            gh = root / "gh"
+            gh.write_text('#!/bin/sh\nprintf "%s\\n" "$FAKE_MAIN_SHA"\n')
+            gh.chmod(0o755)
+            python = root / "python3"
+            python.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$FAKE_CALLS"\n'
+                              'exit "$FAKE_RECEIPT_RC"\n')
+            python.chmod(0o755)
+            for event, only, grant, receipt_rc, expected_rc, expected_output, calls in cases:
+                with self.subTest(event=event, only=only, grant=grant,
+                                  receipt_rc=receipt_rc):
+                    output, summary, called = (
+                        root / "output", root / "summary", root / "python-calls")
+                    for p in (output, summary, called):
+                        p.write_text("")
+                    env = dict(os.environ,
+                               PATH=f"{root}{os.pathsep}{os.environ.get('PATH', '')}",
+                               GITHUB_EVENT_NAME=event, ONLY_IF_NEW=only,
+                               GRANT_ADMIN=grant, ADMITTED_SHA="a" * 40,
+                               FAKE_MAIN_SHA="a" * 40,
+                               FAKE_RECEIPT_RC=str(receipt_rc),
+                               FAKE_CALLS=str(called),
+                               GITHUB_OUTPUT=str(output),
+                               GITHUB_STEP_SUMMARY=str(summary))
+                    result = subprocess.run(["bash", "-c", source], env=env,
+                                            capture_output=True, text=True, check=False)
+                    self.assertEqual(result.returncode, expected_rc, result.stderr)
+                    self.assertEqual(output.read_text().strip(), expected_output)
+                    observed_calls = called.read_text().splitlines()
+                    self.assertEqual(len(observed_calls), calls)
+                    if calls:
+                        self.assertEqual(
+                            observed_calls[0],
+                            "scripts/chronicles_api_before_pages.py --receipt-only " + "a" * 40)
+                    if expected_rc == 2:
+                        self.assertIn("CHRONICLES_OCI_LATE_RECEIPT_CHECK_INCONCLUSIVE",
+                                      result.stderr)
+                    if expected_output == "fresh=false":
+                        self.assertIn("Staging API skipped", summary.read_text())
+
     def test_grant_admin_stale_source_fails_before_any_deployment(self):
         steps = self.workflow["jobs"]["deploy"]["steps"]
         guards = [next(step["run"] for step in steps if step.get("id") == guard_id)
@@ -323,6 +403,10 @@ exit "${FAKE_PROBE_EXIT:-0}"
                     env = dict(os.environ, PATH=f"{root}{os.pathsep}{os.environ.get('PATH', '')}",
                                ADMITTED_SHA=admitted, GH_TOKEN='test-only',
                                FAKE_MAIN_SHA=main_sha, FAKE_GH_FAIL=failure,
+                               # Manual deploy avoids the independent automatic
+                               # receipt lookup in this source-guard unit test.
+                               GITHUB_EVENT_NAME='workflow_dispatch',
+                               ONLY_IF_NEW='false', GRANT_ADMIN='false',
                                GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(summary))
                     run = subprocess.run(['bash', '-c', guard['run']],
                                          env=env, capture_output=True, text=True, check=False)
