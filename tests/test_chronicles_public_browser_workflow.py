@@ -207,7 +207,10 @@ exit 0
         # A smoke-only retry does not re-publish, but it MUST build the
         # expected index.html used to catch stale public JS/CSS.
         self.assertEqual(build["if"], "steps.entry_freshness.outputs.fresh == 'true'")
-        self.assertIn("dist/index.html", build["run"])
+        self.assertIn("bash ../../scripts/chronicles_frontend_artifacts.sh staging", build["run"])
+        artifact_guard = (ROOT / "scripts/chronicles_frontend_artifacts.sh").read_text()
+        self.assertIn("dist/index.html", artifact_guard)
+        self.assertIn("dist/release.json", artifact_guard)
         self.assertLess(steps.index(build), steps.index(named[
             "Real public browser smoke (desktop, mobile, login, update deferral)"]))
         # Existing public builds can retry the smoke without re-publishing;
