@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'scripts/cka_lab_image_admission.mjs'
+      - 'scripts/cka_lab_current_publication.mjs'
       - 'tests/cka_lab_image_admission.test.mjs'
       - 'docs/cka-lab-staging.md'
       - '.github/workflows/cka-lab-image-admission.yml'
@@ -53,11 +54,12 @@ jobs:
       - name: Admit exact signed immutable CKA image without deployment
         run: node scripts/cka_lab_image_admission.mjs "$CKA_SOURCE_SHA" "$CKA_IMAGE_DIGEST"
 
-  verify-known-publication:
-    name: Prove existing signed CKA ARM64 image against live GitHub and GHCR
+  verify-current-publication:
+    name: Resolve and admit current signed CKA multiarch publication
     needs: contracts
-    # This is a read-only positive control for the currently published artifact.
-    # It does not admit a future release or mutate staging.
+    # Latest protected-main publication is resolved by SHA tag to a digest.
+    # The digest is admitted only after all green source checks and provenance.
+    # Read-only CI control: it is not release approval or deployment.
     if: github.event_name == 'pull_request' && github.repository == 'evilsysadmin/shadowops-infra'
     runs-on: ubuntu-24.04
     timeout-minutes: 8
@@ -68,12 +70,10 @@ jobs:
       attestations: read
     env:
       GH_TOKEN: ${{ github.token }}
-      FIXTURE_SOURCE_SHA: c337655cd11d710ca13bf68a9cab510b169de3f3
-      FIXTURE_IMAGE_DIGEST: sha256:f990c0419d20b6e5d697ba8b471c0ddd1b7ca1ce5dbb077d104a74377cf4699f
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
       - uses: docker/setup-buildx-action@v3
-      - name: Verify published CKA image with real public signature and source CI
-        run: node scripts/cka_lab_image_admission.mjs "$FIXTURE_SOURCE_SHA" "$FIXTURE_IMAGE_DIGEST"
+      - name: Resolve current CKA source and verify its immutable signed image
+        run: node scripts/cka_lab_current_publication.mjs

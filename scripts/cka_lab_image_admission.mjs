@@ -98,6 +98,46 @@ export function admit(sha, digest, runner = spawnSync) {
     arm64: true, amd64: true, deployment_performed: false});
 }
 
+
+const MULTIARCH = new Set([
+  'application/vnd.oci.image.index.v1+json',
+  'application/vnd.docker.distribution.manifest.list.v2+json'
+]);
+
+export function inspectPublishedDigest(output, sha) {
+  if (typeof output !== 'string' || output.length > 2 * 1024 * 1024 || !SHA.test(sha))
+    throw new Error('Published image metadata unavailable');
+  const header = new Map();
+  for (const line of output.split(/\r?\n/)) {
+    const match = /^(Name|MediaType|Digest):[ \t]*(.*?)[ \t]*$/.exec(line);
+    if (!match) continue;
+    if (header.has(match[1])) throw new Error('Ambiguous published image header');
+    header.set(match[1], match[2]);
+  }
+  if (header.size !== 3 || header.get('Name') !== IMAGE + ':sha-' + sha
+      || !MULTIARCH.has(header.get('MediaType'))
+      || !DIGEST.test(header.get('Digest'))) {
+    throw new Error('Current CKA multiarch publication unavailable');
+  }
+  return header.get('Digest');
+}
+
+export function admitCurrent(runner = spawnSync) {
+  // The per-commit tag is a locator only. Immediately freeze it to its
+  // immutable digest, then run the full independent protected-main,
+  // multiarch and signed-provenance checks against that digest.
+  const source = invoke('gh', ['api', 'repos/' + SOURCE + '/commits/main'], runner);
+  if (!SHA.test(source?.sha)) throw new Error('Current protected CKA source unavailable');
+  const result = runner('docker', ['buildx', 'imagetools', 'inspect',
+    IMAGE + ':sha-' + source.sha], {
+    encoding: 'utf8', timeout: 90000, maxBuffer: 2 * 1024 * 1024
+  });
+  if (result.error || result.status !== 0 || typeof result.stdout !== 'string')
+    throw new Error('Current published CKA image unavailable');
+  const digest = inspectPublishedDigest(result.stdout, source.sha);
+  return admit(source.sha, digest, runner);
+}
+
 if (process.argv[1]?.endsWith('/cka_lab_image_admission.mjs')) {
   try {
     if (process.argv.length !== 4) throw new Error('Explicit SHA and digest required');

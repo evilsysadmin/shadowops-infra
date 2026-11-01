@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {SOURCE, IMAGE, SIGNER, REQUIRED, attestArgs, verifyAttestation,
-  verifyManifest, verifySourceRuns, validateInput, admit} from '../scripts/cka_lab_image_admission.mjs';
+  verifyManifest, verifySourceRuns, validateInput, admit, admitCurrent,
+  inspectPublishedDigest} from '../scripts/cka_lab_image_admission.mjs';
 
 const SHA = 'a'.repeat(40);
 const DIGEST = 'sha256:' + 'b'.repeat(64);
@@ -78,5 +79,59 @@ test('admission only verifies 4 fixed read-only commands, never deploys',()=>{
       return {status:0,stdout:JSON.stringify(n===1?{sha:SHA}:n===2?RUNS:n===3?MANIFEST:ATT)};
     }));
     assert.equal(n,fail);
+  }
+});
+
+
+test('resolve only exact CKA SHA tag to a strict multiarch OCI digest',()=>{
+  const header = 'Name:      ' + IMAGE + ':sha-' + SHA + '\n'
+    + 'MediaType: application/vnd.oci.image.index.v1+json\n'
+    + 'Digest:    ' + DIGEST + '\n'
+    + 'Manifests:\n  Digest: sha256:' + 'f'.repeat(64) + '\n';
+  assert.equal(inspectPublishedDigest(header,SHA),DIGEST);
+  for(const bad of [
+    header.replace(IMAGE+':sha-'+SHA, IMAGE+':latest'),
+    header.replace('image.index', 'image.manifest'),
+    header.replace('sha256:'+ 'b'.repeat(64), 'sha256:'+'B'.repeat(64)),
+    header+'Digest: '+DIGEST+'\n',
+    header.replace('Digest:    '+DIGEST+'\n', ''),
+    header.replace('MediaType: application/vnd.oci.image.index.v1+json', 'MediaType: text/plain')
+  ]) assert.throws(()=>inspectPublishedDigest(bad,SHA));
+  assert.throws(()=>inspectPublishedDigest(header,'main'));
+});
+
+test('current publication uses only read-only source/tag discovery then original immutable admission',()=>{
+  const header = 'Name: ' + IMAGE + ':sha-' + SHA + '\n'
+    + 'MediaType: application/vnd.oci.image.index.v1+json\n'
+    + 'Digest: ' + DIGEST + '\n';
+  const calls = [];
+  const runner=(tool,args)=>{
+    calls.push({tool,args});
+    const n = calls.length;
+    const body = n===1||n===3 ? {sha:SHA} : n===4 ? RUNS : n===5 ? MANIFEST : ATT;
+    return {status:0,stdout:n===2?header:JSON.stringify(body)};
+  };
+  assert.deepEqual(admitCurrent(runner),{source_sha:SHA,image_digest:DIGEST,
+    source_checks:4,signed_provenance:true,arm64:true,amd64:true,deployment_performed:false});
+  assert.deepEqual(calls.map(x=>x.tool),['gh','docker','gh','gh','docker','gh']);
+  assert.deepEqual(calls[1].args,['buildx','imagetools','inspect',IMAGE+':sha-'+SHA]);
+  assert.deepEqual(calls[4].args,['buildx','imagetools','inspect','--raw',IMAGE+'@'+DIGEST]);
+  // A changed source main after tag discovery must block admission.
+  let n=0;
+  assert.throws(()=>admitCurrent((tool,args)=>{
+    n++;
+    return {status:0,stdout:n===1?JSON.stringify({sha:SHA}):n===2?header:
+      n===3?JSON.stringify({sha:'f'.repeat(40)}):JSON.stringify(RUNS)};
+  }));
+  assert.equal(n,4);
+  for(const bad of [
+    {status:1,stdout:header},{status:0,stdout:'Name: wrong\nDigest: '+DIGEST+'\n'}
+  ]){
+    let calls=0;
+    assert.throws(()=>admitCurrent((tool,args)=>{
+      calls++;
+      return calls===1?{status:0,stdout:JSON.stringify({sha:SHA})}:bad;
+    }));
+    assert.equal(calls,2,'No trust checks after unreadable or invalid tag');
   }
 });
