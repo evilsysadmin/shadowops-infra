@@ -67,32 +67,32 @@ async function exerciseBridge(browser, width) {
     const navigation = await page.goto(BASE + '/bridge?staging-smoke=1', { waitUntil: 'domcontentloaded', timeout: 30000 });
     assert.equal(navigation?.status(), 200, 'Public SPA deep link did not return 200');
     await expect(page.getByRole('heading', { name: /Ecos en la frontera/i })).toBeVisible({ timeout: 15000 });
-    await expect(page.getByTestId('explore-area')).toContainText('Puente');
-    await expect(page.getByTestId('console-locked')).toBeVisible();
+    // The default shipped UI is now the captain's station, not the old
+    // walkable bridge. Mission orders live in a closed journal until opened.
+    await expect(page.getByTestId('game-shell')).toHaveAttribute('data-interface', 'game');
+    await expect(page.getByTestId('captain-controls')).toBeVisible();
+    await expect(page.getByTestId('game-journal-toggle')).toHaveAttribute('aria-expanded', 'false');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true,
       'Public bridge overflows horizontally at ' + width + 'px');
 
-    // Follow the real first-person navigation from source bridge.spec.ts.
-    await page.getByTestId('explore-left').click();
-    await page.getByTestId('explore-forward').click();
-    await page.getByTestId('explore-forward').click();
-    await page.getByTestId('explore-right').click();
-    await page.getByTestId('explore-forward').click();
-    await page.getByTestId('explore-use').click();
+    await page.getByTestId('captain-science').click();
+    await expect(page.getByTestId('game-journal-toggle')).toHaveAttribute('aria-expanded', 'true');
     await expect(page.getByTestId('choice-scan')).toBeVisible();
     await page.getByTestId('choice-scan').click();
     await expect(page.getByTestId('science-score')).toHaveText('02');
 
+    // Reload restores the saved decision, but not the transient open journal.
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('science-score')).toHaveText('02');
-    await expect(page.getByTestId('console-locked')).toBeVisible();
-    await page.getByTestId('explore-use').click();
+    await expect(page.getByTestId('captain-controls')).toBeVisible();
+    await page.getByTestId('captain-science').click();
     await expect(page.getByTestId('choice-broadcast')).toBeVisible();
     await page.getByTestId('choice-broadcast').click();
     await expect(page.getByTestId('ending')).toContainText('Paz negociada');
 
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('science-score')).toHaveText('05');
+    await page.getByTestId('game-journal-toggle').click();
     await expect(page.getByTestId('ending')).toContainText('Paz negociada');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true,
       'Public endgame overflows horizontally at ' + width + 'px');
