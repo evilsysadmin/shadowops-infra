@@ -403,6 +403,10 @@ exit "${FAKE_PROBE_EXIT:-0}"
                     env = dict(os.environ, PATH=f"{root}{os.pathsep}{os.environ.get('PATH', '')}",
                                ADMITTED_SHA=admitted, GH_TOKEN='test-only',
                                FAKE_MAIN_SHA=main_sha, FAKE_GH_FAIL=failure,
+                               # Manual deploy avoids the independent automatic
+                               # receipt lookup in this source-guard unit test.
+                               GITHUB_EVENT_NAME='workflow_dispatch',
+                               ONLY_IF_NEW='false', GRANT_ADMIN='false',
                                GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(summary))
                     run = subprocess.run(['bash', '-c', guard['run']],
                                          env=env, capture_output=True, text=True, check=False)
