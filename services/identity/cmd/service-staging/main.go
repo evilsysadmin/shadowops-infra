@@ -38,6 +38,7 @@ func main() {
 		log.Fatal("staging Identity initialization denied")
 	}
 	// Avoid retaining extra operator-config references after construction.
+	cfg.AdminAliasCredential = ""
 	cfg.SigningSeed = ""
 	cfg.MongoURI = ""
 	cfg.TLSPrivateKey = ""
