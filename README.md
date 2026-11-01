@@ -40,6 +40,27 @@ make cka-lab-bootstrap
 make cka-lab-inspect
 ```
 
+After the runtime inspection succeeds, prepare the private Kubernetes cluster:
+
+```bash
+make cka-lab-cluster-bootstrap
+make cka-lab-cluster-verify
+```
+
+The first command fetches the exact current protected Infra main on the A1,
+verifies the installed runtime, then runs the pinned tool installation,
+cluster bootstrap and live verification as `shadowops-cka-lab`. It does not
+rerun the rootless-runtime installer. Allow several minutes for pinned image
+downloads and initialization on the bounded A1. The bootstrap refuses existing
+cluster state rather than adopting or deleting it; use the inspection target
+for an existing cluster. Verification uses the existing root-owned source without fetching, changing
+the checkout, installing tools or creating state.
+
+Success includes `CKA_LAB_CLUSTER_VERIFIED` with `kubernetes_ready=true` and
+ends with `CKA_LAB_OPERATOR_CLUSTER_BOOTSTRAP_COMPLETED labs_enabled=false`. This is the
+private cluster only. API credentials, the lab tunnel, browser publication and
+authenticated live acceptance remain subsequent steps.
+
 If `cloudflared` is an asdf shim without a selected version, select one you
 already have installed. For example, where version 2026.10.7 is available:
 `ASDF_CLOUDFLARED_VERSION=2026.10.7 make cka-lab-bootstrap`.

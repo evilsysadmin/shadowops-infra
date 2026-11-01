@@ -79,7 +79,7 @@ def main():
         fixture = private / "fixture"
         fixture.mkdir(mode=0o700)
         runtime = private / "runtime"
-        for name in ("config", "cluster", "controller-state"):
+        for name in ("config", "home", "home/cluster", "controller-state"):
             (runtime / name).mkdir(mode=0o700, parents=True)
         fixture_script = Path("scripts/cka_lab_api_fixture.py").resolve()
         candidate_script = Path("scripts/cka_lab_api_candidate.py").resolve()
@@ -91,9 +91,9 @@ def main():
             "--volume", str(fixture_script) + ":/test/authority.py:ro", image,
             "/test/authority.py", "generate", source, timeout=60)
         shutil.copyfile(fixture / "lab.json", runtime / "config/lab.json")
-        shutil.copyfile(workspace / "controller.yaml", runtime / "cluster/controller.yaml")
+        shutil.copyfile(workspace / "controller.yaml", runtime / "home/cluster/controller.yaml")
         (runtime / "config/tunnel.env").touch(mode=0o600)
-        for path in [runtime / "config/lab.json", runtime / "cluster/controller.yaml"]:
+        for path in [runtime / "config/lab.json", runtime / "home/cluster/controller.yaml"]:
             path.chmod(0o600)
 
         # Use the actual product Compose policy. Only paths and native platform

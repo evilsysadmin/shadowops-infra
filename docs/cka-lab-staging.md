@@ -158,6 +158,46 @@ command, ambiguous/extra output or malformed receipt all fail closed. This
 enable a tunnel or activate the browser. Select `host-preflight` for the
 existing nonprivileged capacity observation. PR checks remain offline.
 
+## Operator-only private cluster commands (source gate; no live activation)
+
+After the **first manual** installation of the dedicated rootless runtime,
+verify its installed state with `make cka-lab-inspect`. Only then, from a
+trusted operator workstation with `ssh`, `cloudflared`, Git and access to
+the existing fixed Cloudflare SSH host, use:
+
+```bash
+make cka-lab-inspect              # read-only, dedicated rootless runtime only
+make cka-lab-cluster-bootstrap    # explicit one-time private kind creation
+make cka-lab-cluster-verify       # independent read-only cluster inspection
+```
+
+All commands target the **fixed existing A1 staging operator identity**;
+`CKA_OPERATOR_SSH_KEY` may select one existing regular, non-symlink key as a
+single SSH argument. The cluster bootstrap resolves the current protected
+Infra `main` SHA, checks the root-owned checkout and its expected upstream,
+requires an already installed/verified dedicated rootless daemon **before any
+source update**, and rechecks the runtime after pinning the checkout. It then
+invokes only the existing `scripts/cka_lab_cluster.py` subcommands
+`install-tools`, `bootstrap` and `verify-cluster` as `shadowops-cka-lab`.
+The bootstrapper itself refuses unexpected existing clusters/bridges/state
+and any rootful or unbounded Docker runtime. **Do not retry a partial bootstrap
+blindly**: preserve private state for diagnosis.
+
+The separate verify target calls only the installed runtime inspector and
+`verify-cluster` under the dedicated non-root identity. It performs **no**
+Git fetch, checkout, installer action, cluster creation or attempted repair,
+and a missing private kind tools directory now fails instead of creating it.
+A passing observation emits `CKA_LAB_CLUSTER_VERIFIED` and
+`labs_enabled=false`; it does **not** admit a user, deploy the controller,
+publish a tunnel, start Pages or authorize a lab. An optional real A1 operator
+execution is a separate manual approval, **not a PR/CI side effect**.
+
+If the first rootless runtime has not actually been installed or fails its
+inspection, stop here. Neither the source code, a successful CI rootless-kind
+proof nor a successful remote capacity preflight is proof that the host is ready.
+The subsequent real Identity configuration, signed controller admission,
+private Compose/tunnel and controlled browser activation remain separate gates.
+
 ## Rootless Kubernetes bootstrap under review
 
 `scripts/cka_lab_cluster.py` creates only the fixed `cka-lab-staging` cluster
@@ -251,6 +291,14 @@ sudo -u shadowops-cka-lab python3 /opt/shadowops-infra/scripts/cka_lab_cluster.p
 sudo -u shadowops-cka-lab python3 /opt/shadowops-infra/scripts/cka_lab_cluster.py bootstrap
 sudo -u shadowops-cka-lab python3 /opt/shadowops-infra/scripts/cka_lab_cluster.py verify-cluster
 ```
+
+The CLI stores cluster files in the dedicated user's existing 0700 home:
+`/var/lib/shadowops-cka-lab-staging/runtime/home/cluster`. The root-owned runtime
+filesystem root is intentionally not writable by that user. Compose mounts only
+`controller.yaml` from this private location. Before creation the CLI rechecks
+at least 3 GiB available host memory and 4 GiB free inside its bounded private
+filesystem. Inspection refuses missing tools without creating a directory or
+downloading anything.
 
 The last command is **read-only** and emits `CKA_LAB_CLUSTER_VERIFIED`
 only after independently checking the existing rootless daemon, private

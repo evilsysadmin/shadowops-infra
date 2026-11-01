@@ -21,7 +21,7 @@ services:
     cpus: 0.1
     volumes:
       - /var/lib/shadowops-cka-lab-staging/runtime/config/lab.json:/run/secrets/cka-lab-staging.json:ro
-      - /var/lib/shadowops-cka-lab-staging/runtime/cluster/controller.yaml:/run/secrets/cka-lab-admin.yaml:ro
+      - /var/lib/shadowops-cka-lab-staging/runtime/home/cluster/controller.yaml:/run/secrets/cka-lab-admin.yaml:ro
       - /var/lib/shadowops-cka-lab-staging/runtime/controller-state:/var/lib/cka-lab
     networks: [origin, cluster, identity-egress]
     tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=32m"]
