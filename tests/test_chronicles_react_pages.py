@@ -412,7 +412,13 @@ class ParallelReactPagesTest(unittest.TestCase):
         self.assertLess(workflow.index('chronicles_api_before_pages.py "$ADMITTED_SHA"'),
                         workflow.index("scripts/chronicles_pages.py preflight"))
         self.assertNotIn("wrangler pages deploy chronicles-source/frontend", workflow)
-        self.assertIn("python3 scripts/chronicles_source_ci.py \"$sha\"", workflow)
+        # Candidate admission was extracted to a read-only script, but must
+        # remain reachable from the protected-main staging candidate job.
+        candidate = (pathlib.Path(__file__).resolve().parents[1]
+                     / "scripts/chronicles_pages_candidate.sh").read_text()
+        self.assertIn("run: bash scripts/chronicles_pages_candidate.sh", workflow)
+        self.assertIn("python3 scripts/chronicles_source_ci.py \"$sha\"", candidate)
+        self.assertIn("scripts/chronicles_pages_verified_receipt.py \"$sha\"", candidate)
         self.assertIn("source_sha: ${{ steps.check.outputs.source_sha }}", workflow)
         self.assertLess(workflow.index("scripts/pages_owner_admission.py"),
                         workflow.index("npm run build"))
