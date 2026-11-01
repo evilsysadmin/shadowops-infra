@@ -107,6 +107,13 @@ if repo.exists() or repo.is_symlink():
                 raise SystemExit("CKA_LAB_OPERATOR_BLOCKED oversized-checkout")
 CHECK_OWNERSHIP
 
+# A private cluster may only be created after the administrator has installed
+# and independently verified the bounded rootless runtime on the A1.
+# Check it before fetching or changing the operator checkout.
+if [[ "$action" == cluster-bootstrap ]]; then
+  /usr/local/sbin/shadowops-cka-lab-staging inspect >/dev/null
+fi
+
 if [[ -e "$repo" ]]; then
   [[ "$(git -c core.fsmonitor=false -C "$repo" remote get-url origin)" == "$origin" ]] || exit 65
   [[ -z "$(git -c core.fsmonitor=false -C "$repo" status --porcelain --untracked-files=normal)" ]] || {
