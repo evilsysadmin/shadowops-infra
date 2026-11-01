@@ -66,10 +66,13 @@ class ApiBeforePages(unittest.TestCase):
     def test_api_workflow_reuses_receipt_only_gate_not_artifact_count(self):
         workflow = (Path(__file__).resolve().parents[1] /
                     ".github/workflows/chronicles-api-staging.yml").read_text()
-        self.assertIn("chronicles_api_before_pages.py --receipt-only", workflow)
-        self.assertIn("CHRONICLES_API_RECEIPT_CHECK_INCONCLUSIVE", workflow)
-        self.assertIn("receipt_status != 1", workflow)
-        self.assertNotIn("count=\"$(gh api -X GET", workflow)
+        self.assertIn("run: bash scripts/chronicles_api_candidate.sh", workflow)
+        selection = (Path(__file__).resolve().parents[1] /
+                     "scripts/chronicles_api_candidate.sh").read_text(encoding="utf-8")
+        self.assertIn("chronicles_api_before_pages.py --receipt-only", selection)
+        self.assertIn("CHRONICLES_API_RECEIPT_CHECK_INCONCLUSIVE", selection)
+        self.assertIn("receipt_status != 1", selection)
+        self.assertNotIn("count=\"$(gh api -X GET", selection)
 
     def test_live_health_probe_retries_transient_and_fails_closed(self):
         calls = []
