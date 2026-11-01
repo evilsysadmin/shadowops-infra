@@ -410,7 +410,7 @@ class ParallelReactPagesTest(unittest.TestCase):
         self.assertIn("run: bash scripts/chronicles_pages_api_gate.sh", workflow)
         self.assertIn("needs: [contracts, staging-candidate, api-ready]", workflow)
         self.assertIn("if: needs.api-ready.outputs.publish == 'true'", workflow)
-        self.assertIn("CHRONICLES_PAGES_SUPERSEDED_BEFORE_RELEASE", workflow)
+        self.assertIn("CHRONICLES_PAGES_SUPERSEDED_BEFORE_RELEASE", gate)
         self.assertIn("echo 'publish=false' >> \"$GITHUB_OUTPUT\"", workflow)
         self.assertLess(workflow.index("run: bash scripts/chronicles_pages_api_gate.sh"),
                         workflow.index("scripts/chronicles_pages.py preflight"))
