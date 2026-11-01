@@ -68,8 +68,8 @@ jobs:
       attestations: read
     env:
       GH_TOKEN: ${{ github.token }}
-      FIXTURE_SOURCE_SHA: 3a25f0f321b7f86592401ff58f34bc95ae860afc
-      FIXTURE_IMAGE_DIGEST: sha256:6cca45d5a81874e8706fb667afb7677c694a6779c9c9bb06b250ceac41addae1
+      FIXTURE_SOURCE_SHA: 7fdec690b7bfe8baa485aee3041110bd8d72730c
+      FIXTURE_IMAGE_DIGEST: sha256:6ef965ebee237b0369b76614622cc804e088c409f4337656ff3384d189e034fa
     steps:
       - uses: actions/checkout@v4
         with:

@@ -22,6 +22,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python3 -m pip install --disable-pip-version-check 'cryptography==50.0.2'
       - run: python3 -m unittest discover -s tests -p 'test_cka_lab*.py' -v
       - run: sh -n host/vendor/dockerd-rootless.sh
       - name: Validate the actual Compose file without resolving private runtime files
@@ -38,6 +42,11 @@ jobs:
           systemd-analyze --user verify host/cka-lab-rootless-docker.service
   rootless-proof:
     name: Real rootless Docker cgroup enforcement (disposable CI only)
+    permissions:
+      contents: read
+      packages: read
+      actions: read
+      attestations: read
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     if: github.event_name != 'workflow_dispatch' || inputs.action != 'inspect-runtime'
@@ -137,6 +146,12 @@ jobs:
         env:
           CKA_SCENARIO_SOURCE_ROOT: ${{ github.workspace }}/.cka-contract
         run: python3 scripts/cka_lab_cluster_smoke.py
+      - name: Prove the signed published controller through real Compose and TLS Identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CKA_API_TEST_SOURCE: 7fdec690b7bfe8baa485aee3041110bd8d72730c
+          CKA_API_TEST_DIGEST: sha256:6ef965ebee237b0369b76614622cc804e088c409f4337656ff3384d189e034fa
+        run: python3 scripts/cka_lab_api_smoke.py
       - name: Diagnose only the disposable cluster on failure
         if: failure()
         run: docker logs --tail 120 cka-lab-staging-control-plane || true

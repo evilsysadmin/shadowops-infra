@@ -266,3 +266,40 @@ configuration copied from the existing CKA consumer credentials without IdP
 signing keys, an admitted image, the lab tunnel/DNS route, real A1 scenario and
 isolation receipts, and the dedicated `lab-staging` browser release. Neither the
 existing account service nor the account-only Pages build activates labs.
+
+
+## Published controller with real Compose and Kubernetes in disposable CI
+
+The rootless workflow now also runs the exact signed published controller image
+through `compose.cka-lab.staging.yaml`, using real namespace preparation,
+candidate commands, live grades and durable restart cleanup. It independently
+verifies protected-main source CI, the immutable multiarch digest and signed
+provenance before pulling the image. The program is explicitly CI-only and has
+no OCI credential, SDK or host installation path.
+
+Only private bind-file locations and the native runner platform differ from
+the real Compose definition. CPU/memory/swap/PID limits, read-only filesystem,
+capability removal, private cluster network and both disabled forwarding
+sysctls are checked on the actual running controller. No Docker socket or
+Kubernetes credential is mounted in the candidate HTTP client.
+
+A separate synthetic TLS authority issues fresh Ed25519 CKA tokens and verifies
+their exact live JTI/session relationship. Its generated CA is trusted only in
+these disposable containers, through a test-only read-only CA mount. The public
+Identity URL, hostname verification, service authentication and controller code
+remain unchanged. No real password, cookie, signing key or service credential
+is used or read. The synthetic authority is never copied into a service image.
+
+The client proves every curated exercise starts broken, accepts its scoped
+repair and passes through the actual API. It then holds an unexpired token,
+revokes the synthetic session, and requires five independent live freshness
+checks to deny capabilities/status/command/grade/finish. This prevents a local
+rate-limit denial from masquerading as revocation evidence. A still-active
+lease must remain present until a real controller restart closes, deletes and
+reconciles it. A subsequent attempt must work and leave no namespace behind.
+
+Positive evidence is `CKA_LAB_PUBLISHED_COMPOSE_API_VERIFIED`, with the tested
+source/digest, three exercises, current Identity checks, unexpired revocation,
+restart cleanup and `oci_mutations=false`. It tests a fixed signed publication;
+it does not perform live release admission, install the A1 runtime, bind a real
+pilot UUID, create a tunnel, publish Pages or establish deployed acceptance.
