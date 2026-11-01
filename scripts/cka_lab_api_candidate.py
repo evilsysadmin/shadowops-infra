@@ -34,9 +34,17 @@ def main(phase):
             return authority("/api/identity/token", case=case)["token"]
 
         def api(action, data=None, *, bearer=None, expected=200):
-            response = client.post(API + "/api/labs/" + action, headers={"Host": LAB_HOST,
-                "Origin": ORIGIN, "Authorization": "Bearer " + (token() if bearer is None else bearer)},
-                json={} if data is None else data)
+            current = token() if bearer is None else bearer
+            for _ in range(6):
+                response = client.post(API + "/api/labs/" + action, headers={"Host": LAB_HOST,
+                    "Origin": ORIGIN, "Authorization": "Bearer " + current},
+                    json={} if data is None else data)
+                # The private reaper can briefly own the serialized actor. An
+                # explicit 409 performs no candidate mutation; bounded retries
+                # are safe. Never retry timeouts, 503 or ambiguous preparation.
+                if response.status_code != 409 or expected == 409:
+                    break
+                time.sleep(1)
             assert response.status_code == expected, "Published lab API returned unexpected status for " + action
             assert response.headers.get("cache-control") == "no-store"
             assert "set-cookie" not in response.headers

@@ -3,6 +3,7 @@ import base64
 import json
 from pathlib import Path
 import sys
+import ssl
 import tempfile
 import unittest
 
@@ -67,6 +68,34 @@ class SyntheticAuthority(unittest.TestCase):
         self.assertEqual(set(self.config), {"environment", "jwks", "service_credential", "pilot_subject", "build"})
         for path in self.root.iterdir():
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+    def test_actual_strict_tls_handshake_and_wrong_hostname_without_opening_a_socket(self):
+        def handshake(hostname):
+            server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            server_context.load_cert_chain(self.root / "tls.pem", self.root / "tls.key")
+            client_context = ssl.create_default_context(cafile=str(self.root / "ca.pem"))
+            client_context.verify_flags |= ssl.VERIFY_X509_STRICT
+            incoming_client, outgoing_client = ssl.MemoryBIO(), ssl.MemoryBIO()
+            incoming_server, outgoing_server = ssl.MemoryBIO(), ssl.MemoryBIO()
+            client = client_context.wrap_bio(incoming_client, outgoing_client, server_hostname=hostname)
+            server = server_context.wrap_bio(incoming_server, outgoing_server, server_side=True)
+            for _ in range(20):
+                complete = 0
+                for connection in (client, server):
+                    try:
+                        connection.do_handshake()
+                        complete += 1
+                    except ssl.SSLWantReadError:
+                        pass
+                for outgoing, incoming in [(outgoing_client, incoming_server), (outgoing_server, incoming_client)]:
+                    if outgoing.pending:
+                        incoming.write(outgoing.read())
+                if complete == 2:
+                    return
+            self.fail("Strict TLS handshake did not complete")
+        handshake(HOST)
+        with self.assertRaises(ssl.SSLCertVerificationError):
+            handshake("wrong-identity.invalid")
 
 
 if __name__ == "__main__":
