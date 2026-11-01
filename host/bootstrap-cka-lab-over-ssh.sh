@@ -71,7 +71,9 @@ expected="${main_line%%$'\t'*}"
 readonly expected
 if [[ "$action" == cluster-bootstrap ]]; then
   printf 'Preparing private CKA cluster from protected main %s\n' "$expected"
-elif [[ "$action" == api-start || "$action" == tunnel-start ]]; then
+elif [[ "$action" == tunnel-start ]]; then
+  printf 'Starting prepared CKA tunnel from protected main %s\n' "$expected"
+elif [[ "$action" == api-start ]]; then
   printf 'Starting private CKA controller from protected main %s\n' "$expected"
 else
   printf 'Installing CKA rootless runtime from protected main %s\n' "$expected"

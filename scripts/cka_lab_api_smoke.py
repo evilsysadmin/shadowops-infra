@@ -130,9 +130,16 @@ def main():
             compose_policy(json.loads(run(*command, "config", "--no-env-resolution", "--format", "json")),
                            {"source_sha": source, "image_digest": digest}, home=runtime / "home",
                            platform="linux/" + architecture, test_ca=fixture / "ca.pem")
-            tunnel_compose_policy(json.loads(run(*command, "config", "--no-env-resolution", "--format", "json")),
-                                  {"source_sha": source, "image_digest": digest}, home=runtime / "home",
-                                  platform="linux/" + architecture, test_ca=fixture / "ca.pem")
+            connector_document = json.loads(run(*command, "config", "--no-env-resolution", "--format", "json"))
+            try:
+                tunnel_compose_policy(connector_document,
+                                      {"source_sha": source, "image_digest": digest}, home=runtime / "home",
+                                      platform="linux/" + architecture, test_ca=fixture / "ca.pem")
+            except Exception:
+                # CI has an empty connector env file and no live credentials.
+                # Print only the unresolved connector model, never Config.Env.
+                print("CKA_LAB_CI_CONNECTOR_MODEL " + json.dumps(connector_document["services"]["cka-lab-tunnel"], sort_keys=True), flush=True)
+                raise
             run(*command, "create", "--pull=never", "cka-lab", timeout=60)
             run(*common, "-d", "--name", FIXTURE, "--network", EGRESS,
                 "--network-alias", IDENTITY, "--sysctl=net.ipv4.ip_unprivileged_port_start=0",
