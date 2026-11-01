@@ -24,5 +24,38 @@ class ChroniclesPolicyConsolidationTests(unittest.TestCase):
                 self.assertIn(path, ci, f"missing consolidated policy test: {path}")
         self.assertIn("if python3 scripts/staging_read_smoke.py --run-id fixture-run --expected-map crypt", ci)
 
+
+class HistoricalGHCRTriggerTests(unittest.TestCase):
+    """Historical immutable provenance should not re-run on unrelated merges."""
+
+    def test_only_policy_changes_trigger_pr_and_push(self):
+        import re
+        workflow = (WORKFLOWS / "live-ghcr-attestation.yml").read_text(encoding="utf-8")
+        pr = re.search(r"(?m)^  pull_request:\n    paths:\n((?:      - .+\n)+)", workflow)
+        push = re.search(r"(?m)^  push:\n    branches: \[main\]\n    paths:\n((?:      - .+\n)+)", workflow)
+        self.assertIsNotNone(pr, "PR must use relevant-path filtering")
+        self.assertIsNotNone(push, "main push must use relevant-path filtering")
+        pr_paths = set(pr.group(1).splitlines())
+        push_paths = set(push.group(1).splitlines())
+        self.assertEqual(pr_paths, push_paths)
+        for expected in (
+            "live-ghcr-attestation.yml", "policy/**",
+            "scripts/verify-image-attestation.mjs",
+            "scripts/check-staging-candidate.mjs",
+            "tests/test_chronicles_ci_consolidation.py",
+        ):
+            self.assertIn(expected, pr.group(1))
+        self.assertNotIn("'docs/**'", pr.group(1))
+        self.assertNotIn("'**'", pr.group(1))
+
+    def test_manual_and_periodic_checks_preserve_immutable_admission(self):
+        workflow = (WORKFLOWS / "live-ghcr-attestation.yml").read_text(encoding="utf-8")
+        self.assertIn("  workflow_dispatch:", workflow)
+        self.assertIn("  schedule:\n    - cron: '23 5 * * 1'", workflow)
+        self.assertIn("if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'", workflow)
+        self.assertIn("scripts/check-staging-candidate.mjs", workflow)
+        self.assertIn("verifyRequiredChecks", workflow)
+        self.assertIn("verifyImage", workflow)
+
 if __name__ == "__main__":
     unittest.main()

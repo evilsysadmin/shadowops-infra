@@ -1,14 +1,42 @@
 name: Verify published Chronicles GHCR provenance
+# This is a historical, fixed-SHA provenance regression probe, not a per-commit
+# release gate. Source admission during actual deployment stays independent.
 on:
   pull_request:
+    paths:
+      - '.github/workflows/live-ghcr-attestation.yml'
+      - 'policy/**'
+      - 'scripts/verify-image-attestation.mjs'
+      - 'scripts/check-staging-candidate.mjs'
+      - 'tests/attestation.test.mjs'
+      - 'tests/required-checks.test.mjs'
+      - 'tests/release-admission.test.mjs'
+      - 'tests/staging-candidate-cli.test.mjs'
+      - 'tests/test_chronicles_ci_consolidation.py'
   push:
     branches: [main]
+    paths:
+      - '.github/workflows/live-ghcr-attestation.yml'
+      - 'policy/**'
+      - 'scripts/verify-image-attestation.mjs'
+      - 'scripts/check-staging-candidate.mjs'
+      - 'tests/attestation.test.mjs'
+      - 'tests/required-checks.test.mjs'
+      - 'tests/release-admission.test.mjs'
+      - 'tests/staging-candidate-cli.test.mjs'
+      - 'tests/test_chronicles_ci_consolidation.py'
+  # Periodic drift detection for the known immutable image, independent of merges.
+  schedule:
+    - cron: '23 5 * * 1'
+  workflow_dispatch:
 permissions:
   contents: read
   packages: read
   checks: read
 jobs:
   verify-known-image:
+    # Manual and scheduled checks use the protected branch; PRs remain read-only.
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 8
     env:
