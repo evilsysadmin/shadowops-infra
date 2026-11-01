@@ -47,7 +47,7 @@ class OperatorMake(unittest.TestCase):
         self.assertEqual(args[-2], "ubuntu@ssh-chess-studio-staging.shadowops.dpdns.org")
         self.assertIn("ProxyCommand=cloudflared access ssh --hostname %h", args)
         self.assertIn("StrictHostKeyChecking=ask", args)
-        self.assertEqual(args[-1], "sudo --non-interactive bash -se -- '" + SHA + "'")
+        self.assertEqual(args[-1], "sudo --non-interactive bash -se -- '" + SHA + "' 'bootstrap'")
         self.assertIn('rev-parse refs/remotes/origin/main', body)
         preflight = 'python3 -I host/install-cka-lab-staging.py preflight "$expected"'
         install = 'python3 -I host/install-cka-lab-staging.py install "$expected"'
@@ -66,6 +66,33 @@ class OperatorMake(unittest.TestCase):
         self.assertEqual(args[-1], "sudo --non-interactive /usr/local/sbin/shadowops-cka-lab-staging inspect")
         self.assertNotIn("BOOTSTRAP_COMPLETED", result.stdout)
 
+    def test_cluster_bootstrap_checks_installed_runtime_then_uses_fixed_kind_actions(self):
+        result, args, body, git_called = self.invoke(action="cluster-bootstrap", make=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(git_called)
+        self.assertEqual(args[-1], "sudo --non-interactive bash -se -- '" + SHA + "' 'cluster-bootstrap'")
+        self.assertIn('rev-parse refs/remotes/origin/main', body)
+        self.assertIn('/usr/local/sbin/shadowops-cka-lab-staging inspect >/dev/null', body)
+        prefix = 'sudo --non-interactive -u shadowops-cka-lab /usr/bin/python3 -I scripts/cka_lab_cluster.py '
+        positions = [body.index(prefix + verb) for verb in ('install-tools', 'bootstrap', 'verify-cluster')]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn('if [[ "$action" == bootstrap ]]', body)
+        self.assertIn('CKA_LAB_OPERATOR_CLUSTER_BOOTSTRAP_COMPLETED labs_enabled=false', result.stdout)
+        parsed = subprocess.run(["bash", "-n"], input=body, text=True, capture_output=True)
+        self.assertEqual(parsed.returncode, 0, parsed.stderr)
+
+    def test_cluster_verify_is_read_only_and_never_fetches_or_bootstraps(self):
+        result, args, body, git_called = self.invoke(action="cluster-verify", make=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(git_called)
+        self.assertEqual(body, "")
+        self.assertEqual(args[-1],
+            'sudo --non-interactive /usr/local/sbin/shadowops-cka-lab-staging inspect >/dev/null'
+            ' && sudo --non-interactive -u shadowops-cka-lab /usr/bin/python3 -I'
+            ' /opt/shadowops-infra/scripts/cka_lab_cluster.py verify-cluster')
+        self.assertNotIn("BOOTSTRAP_COMPLETED", result.stdout)
+        self.assertNotIn("bootstrap", args[-1].lower())
+
     def test_invalid_source_or_action_never_reaches_ssh(self):
         for main in ["main", "b" * 39, SHA + ";echo injected", SHA + "\n" + SHA]:
             with self.subTest(main=main):
@@ -78,7 +105,7 @@ class OperatorMake(unittest.TestCase):
         self.assertFalse(git_called)
 
     def test_failed_ssh_never_reports_success(self):
-        for action in ["bootstrap", "inspect"]:
+        for action in ["bootstrap", "inspect", "cluster-bootstrap", "cluster-verify"]:
             with self.subTest(action=action):
                 result, _, _, _ = self.invoke(action=action, ssh_exit=73, make=True)
                 self.assertNotEqual(result.returncode, 0)
@@ -105,6 +132,8 @@ class OperatorMake(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("make cka-lab-bootstrap", result.stdout)
         self.assertIn("make cka-lab-inspect", result.stdout)
+        self.assertIn("make cka-lab-cluster-bootstrap", result.stdout)
+        self.assertIn("make cka-lab-cluster-verify", result.stdout)
         self.assertNotIn("bash host/", result.stdout)
 
 
