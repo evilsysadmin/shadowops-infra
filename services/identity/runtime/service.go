@@ -37,14 +37,14 @@ var ErrServiceUnavailable = errors.New("staging Identity service unavailable")
 // ServiceConfig is a single private, operator-provisioned staging bundle.
 // No private value is accepted from an HTTP request or emitted by diagnostics.
 type ServiceConfig struct {
-	Environment    string                         `json:"environment"`
-	MongoURI       string                         `json:"mongo_uri"`
-	MongoCA        string                         `json:"mongo_ca_pem"`
-	SigningSeed    string                         `json:"signing_seed"`
-	TLSCertificate string                         `json:"tls_certificate_pem"`
-	TLSPrivateKey  string                         `json:"tls_private_key_pem"`
-	Consumers      websession.ConsumerCredentials `json:"consumers"`
-	AdminAliasCredential string `json:"chronicles_admin_alias_credential,omitempty"`
+	Environment          string                         `json:"environment"`
+	MongoURI             string                         `json:"mongo_uri"`
+	MongoCA              string                         `json:"mongo_ca_pem"`
+	SigningSeed          string                         `json:"signing_seed"`
+	TLSCertificate       string                         `json:"tls_certificate_pem"`
+	TLSPrivateKey        string                         `json:"tls_private_key_pem"`
+	Consumers            websession.ConsumerCredentials `json:"consumers"`
+	AdminAliasCredential string                         `json:"chronicles_admin_alias_credential,omitempty"`
 }
 
 func LoadServiceConfig(filename string) (ServiceConfig, error) {
@@ -88,7 +88,9 @@ func (cfg ServiceConfig) validate(now time.Time) ([]byte, tls.Certificate, *tls.
 		return bad()
 	}
 	if cfg.AdminAliasCredential != "" {
-		if _, valid := adminAliasCredentialDigest(cfg.AdminAliasCredential); !valid { return bad() }
+		if _, valid := adminAliasCredentialDigest(cfg.AdminAliasCredential); !valid {
+			return bad()
+		}
 	}
 	for app, key := range cfg.Consumers {
 		if app != issuance.ChessStudio && app != issuance.Chronicles && app != issuance.CKASimulator {
@@ -190,7 +192,9 @@ func NewStagingService(ctx context.Context, cfg ServiceConfig) (*RunningService,
 	if cfg.AdminAliasCredential != "" {
 		aliases, err = newAdminAliasHandler(cfg.AdminAliasCredential,
 			adminAliasesFromMongo(client.Database(serviceDatabase).Collection("pending_accounts")))
-		if err != nil { return nil, ErrUnsafeConfiguration }
+		if err != nil {
+			return nil, ErrUnsafeConfiguration
+		}
 	}
 	mux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == AdminAliasesPath && aliases != nil {
