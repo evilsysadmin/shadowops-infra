@@ -19,9 +19,11 @@ class PublicBrowserWorkflow(unittest.TestCase):
         self.assertIn("paths", events["pull_request"])
         candidate = next(s["run"] for s in workflow["jobs"]["staging-candidate"]["steps"]
                          if s.get("id") == "check")
-        self.assertIn("chronicles_source_ci.py", candidate)
-        self.assertIn("chronicles_pages_verified_receipt.py", candidate)
-        self.assertIn("publish=false", candidate)
+        self.assertEqual(candidate, "bash scripts/chronicles_pages_candidate.sh")
+        script = (ROOT / "scripts/chronicles_pages_candidate.sh").read_text(encoding="utf-8")
+        self.assertIn("chronicles_source_ci.py", script)
+        self.assertIn("chronicles_pages_verified_receipt.py", script)
+        self.assertIn("publish=false", script)
         self.assertEqual(workflow["jobs"]["release"]["if"],
                          "needs.api-ready.outputs.publish == 'true'")
         self.assertIn("inputs.environment != 'production'",
