@@ -15,6 +15,9 @@ jobs:
           node-version: '22'
       - run: node scripts/validate-compose.mjs
 
+      - name: CKA operator Make commands (offline, no SSH or sudo)
+        run: python3 -m unittest discover -s tests -p 'test_cka_operator_make.py' -v
+
       - name: CKA public Pages/DNS owner contracts
         run: python3 -m unittest discover -s tests -p 'test_cka_pages.py' -v
 

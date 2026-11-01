@@ -28,3 +28,39 @@ Infrastructure handoff procedures remain in
 [platform ownership](docs/platform-ownership.md). Release/deploy automation
 must continue to pass exact-SHA gates, including validated staging and
 production separation.
+
+## CKA staging operator commands
+
+From this repository on your operator workstation, with `make`, Bash, Git,
+OpenSSH and a working `cloudflared` installation:
+
+```bash
+make help
+make cka-lab-bootstrap
+make cka-lab-inspect
+```
+
+If `cloudflared` is an asdf shim without a selected version, select one you
+already have installed. For example, where version 2026.10.7 is available:
+`ASDF_CLOUDFLARED_VERSION=2026.10.7 make cka-lab-bootstrap`.
+
+`cka-lab-bootstrap` uses the existing Cloudflare SSH tunnel to
+`ubuntu@ssh-chess-studio-staging.shadowops.dpdns.org`. Sign in to Cloudflare
+Access as usual and use your already-authorized Ubuntu SSH identity with
+noninteractive sudo. For an existing non-default key, use
+`CKA_OPERATOR_SSH_KEY=/path/to/key make cka-lab-bootstrap`; the key stays on your
+workstation. Normal SSH host-key verification remains enabled.
+
+The helper resolves current protected Infra `main`, verifies the root-owned,
+clean `/opt/shadowops-infra` checkout, rechecks the exact SHA on the A1 and runs
+the existing installer preflight, installation and runtime inspection. It stops
+on local checkout changes or a moving source; it never resets or cleans your
+files. The first install creates the bounded dedicated rootless user/runtime,
+using 8 GiB of the existing boot disk and no new OCI VM or volume.
+
+Success ends with `CKA_LAB_OPERATOR_BOOTSTRAP_COMPLETED labs_enabled=false`.
+This prepares the runtime; Kubernetes, real Identity configuration, the lab
+tunnel and browser activation remain subsequent deployment steps.
+`cka-lab-inspect` only invokes the fixed installed inspector: it performs no
+Git checkout, installation, service start or repair. It fails if the runtime
+has not been installed. See the [full CKA lab runbook](docs/cka-lab-staging.md).
