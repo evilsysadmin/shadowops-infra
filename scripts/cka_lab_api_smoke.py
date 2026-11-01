@@ -16,6 +16,8 @@ import tempfile
 
 from cka_lab_cluster import NETWORK, NODE, PROBE_IMAGE, call, rootless_info, verify_cluster
 from cka_lab_private_api import compose_policy, container_policy, PROBE
+from cka_lab_tunnel import CF_IMAGE
+from cka_lab_tunnel_runtime import computed_policy as tunnel_compose_policy, tunnel_policy
 
 
 IMAGE = "ghcr.io/evilsysadmin/cka-lab-staging"
@@ -128,6 +130,16 @@ def main():
             compose_policy(json.loads(run(*command, "config", "--no-env-resolution", "--format", "json")),
                            {"source_sha": source, "image_digest": digest}, home=runtime / "home",
                            platform="linux/" + architecture, test_ca=fixture / "ca.pem")
+            connector_document = json.loads(run(*command, "config", "--no-env-resolution", "--format", "json"))
+            try:
+                tunnel_compose_policy(connector_document,
+                                      {"source_sha": source, "image_digest": digest}, home=runtime / "home",
+                                      platform="linux/" + architecture, test_ca=fixture / "ca.pem")
+            except Exception:
+                # CI has an empty connector env file and no live credentials.
+                # Print only the unresolved connector model, never Config.Env.
+                print("CKA_LAB_CI_CONNECTOR_MODEL " + json.dumps(connector_document["services"]["cka-lab-tunnel"], sort_keys=True), flush=True)
+                raise
             run(*command, "create", "--pull=never", "cka-lab", timeout=60)
             run(*common, "-d", "--name", FIXTURE, "--network", EGRESS,
                 "--network-alias", IDENTITY, "--sysctl=net.ipv4.ip_unprivileged_port_start=0",
@@ -183,6 +195,15 @@ def main():
             assert namespaces() == [], "Actual restart failed to reap the durable lease"
             candidate("after-restart")
             assert namespaces() == [], "Confirmed finish left Kubernetes resources behind"
+            # Inspect the actual vendor connector configuration without starting
+            # it, providing a token, or contacting Cloudflare from the image.
+            run("docker", "pull", "--quiet", CF_IMAGE, timeout=180)
+            run(*command, "create", "--pull=never", "cka-lab-tunnel", timeout=60)
+            connector = run(*command, "ps", "--all", "--quiet", "cka-lab-tunnel")
+            connector_info = json.loads(run("docker", "inspect", connector))[0]
+            tunnel_policy(connector_info, project=PROJECT)
+            assert connector_info['State']['Running'] is False
+            print("CKA_LAB_TUNNEL_POLICY_CREATED_NOT_STARTED", flush=True)
             print("CKA_LAB_PUBLISHED_COMPOSE_API_VERIFIED " + json.dumps({
                 "source_sha": source, "image_digest": digest, "curated_exercises": 3,
                 "fresh_identity": True, "authenticated_owners": 2, "unexpired_revocation": True, "restart_cleanup": True,
