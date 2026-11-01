@@ -47,6 +47,20 @@ class StagingConvergenceContracts(unittest.TestCase):
         self.assertIn("--receipt-only", selection)
         self.assertIn("deploy_needed=false", selection)
 
+    def test_deploy_runs_after_skipped_provision_only_with_successful_admission(self):
+        # Normal push/schedule/deploy skips the optional provision job.
+        # GitHub's implicit success() otherwise skips the downstream deploy
+        # even when admit uses always() and has deploy_needed=true.
+        admit = self.workflow["jobs"]["admit"]
+        deploy = self.workflow["jobs"]["deploy"]
+        self.assertEqual(admit["needs"], ["contracts", "provision"])
+        self.assertIn("always()", admit["if"])
+        self.assertEqual(deploy["needs"], "admit")
+        gate = deploy["if"]
+        self.assertIn("always()", gate)
+        self.assertIn("needs.admit.result == 'success'", gate)
+        self.assertIn("needs.admit.outputs.deploy_needed == 'true'", gate)
+
     def test_central_admin_requires_manual_staging_provision_and_private_secret(self):
         inputs = self.workflow["on"]["workflow_dispatch"]["inputs"]
         self.assertEqual(inputs["central_admin"]["options"], ["preserve", "enable", "disable"])
