@@ -113,6 +113,24 @@ def observed_poll_timing(calls: int, total: float, slowest: float) -> str:
             + f"slowest={bounded(slowest)}")
 
 
+def observed_poll_detail_timing(pre_calls: int, pre_seconds: float,
+                                post_calls: int, post_seconds: float,
+                                slowest_seconds: float) -> str:
+    """Local GET wall time by ACK observation; never exact delivery time.
+
+    The GET that first observes ACKED is pre_ack. Without nonterminal ACKED,
+    all GETs count as pre_ack and post_ack stays zero.
+    """
+    bounded_count = lambda n: min(99999, max(0, int(n)))
+    bounded_ms = lambda n: min(999999, max(0, int(n * 1000)))
+    return ("CHRONICLES_API_OCI_POLL_DETAIL_MS "
+            + f"pre_ack_calls={bounded_count(pre_calls)} "
+            + f"pre_ack_ms={bounded_ms(pre_seconds)} "
+            + f"post_ack_calls={bounded_count(post_calls)} "
+            + f"post_ack_ms={bounded_ms(post_seconds)} "
+            + f"slowest_ms={bounded_ms(slowest_seconds)}")
+
+
 # Summary contents are assembled exclusively from local, fixed-format
 # controller timings plus the strictly admitted host timing. Never interpolate
 # arbitrary OCI stdout, command IDs, Vault IDs, digests or failure reasons.
@@ -128,10 +146,16 @@ DELIVERY_LINE = re.compile(
 POLL_LINE = re.compile(
     r"CHRONICLES_API_OCI_POLL_SECONDS calls=[0-9]{1,5} total=[0-9]{1,5} slowest=[0-9]{1,5}"
 )
+POLL_DETAIL_LINE = re.compile(
+    r"CHRONICLES_API_OCI_POLL_DETAIL_MS pre_ack_calls=[0-9]{1,5} "
+    r"pre_ack_ms=[0-9]{1,6} post_ack_calls=[0-9]{1,5} "
+    r"post_ack_ms=[0-9]{1,6} slowest_ms=[0-9]{1,6}"
+)
 
 
 def timing_summary(phase: str, lifecycle: str = "", host: str = "",
-                   *, verified: bool, delivery: str = "", poll: str = "") -> str:
+                   *, verified: bool, delivery: str = "", poll: str = "",
+                   poll_detail: str = "") -> str:
     """Render only finite validated lines; optional host timing is not guessed."""
     if not PHASE_LINE.fullmatch(phase):
         return ""
@@ -140,6 +164,8 @@ def timing_summary(phase: str, lifecycle: str = "", host: str = "",
     if delivery and not DELIVERY_LINE.fullmatch(delivery):
         return ""
     if poll and not POLL_LINE.fullmatch(poll):
+        return ""
+    if poll_detail and not POLL_DETAIL_LINE.fullmatch(poll_detail):
         return ""
     if host and not HOST_TIMING.fullmatch(host):
         return ""
@@ -156,12 +182,16 @@ def timing_summary(phase: str, lifecycle: str = "", host: str = "",
             else "not observed before terminal; no delivery delay inferred"),
         "- OCI GET round trips (local controller): " + (
             "`" + poll + "`" if poll else "not measured"),
+        "- OCI GET latency around observed ACK (local milliseconds): " + (
+            "`" + poll_detail + "`" if poll_detail else "not measured"),
         "- Installed wrapper phases: " + (
             "`" + host + "`" if host
             else "not reported (does not prove the wrapper is outdated)"),
         "",
         "ACKED means the agent received the command, not that execution started. "
-        "All observations are taken at polling boundaries, not exact timings.",
+        "All observations are taken at polling boundaries, not exact timings. "
+        "The GET that first observes ACKED is pre_ack; without a nonterminal "
+        "ACKED, post_ack remains zero.",
         "",
     ]
     return "\n".join(result)
@@ -169,13 +199,14 @@ def timing_summary(phase: str, lifecycle: str = "", host: str = "",
 
 def append_timing_summary(phase: str, lifecycle: str = "", host: str = "",
                           *, verified: bool, path: str | None = None,
-                          delivery: str = "", poll: str = "") -> None:
+                          delivery: str = "", poll: str = "",
+                          poll_detail: str = "") -> None:
     """Optional Actions UX only: summary write failures never alter admission."""
     destination = os.environ.get("GITHUB_STEP_SUMMARY", "") if path is None else path
     if not destination:
         return
     summary = timing_summary(phase, lifecycle, host, verified=verified,
-                             delivery=delivery, poll=poll)
+                             delivery=delivery, poll=poll, poll_detail=poll_detail)
     if not summary:
         return
     try:
@@ -221,6 +252,8 @@ def execute(
     first_active = None
     first_acked = None
     poll_calls, poll_total, poll_slowest = 0, 0.0, 0.0
+    pre_ack_calls, pre_ack_elapsed = 0, 0.0
+    post_ack_calls, post_ack_elapsed = 0, 0.0
     while clock() < deadline:
         poll_start = poll_clock()
         execution = agent.get_instance_agent_command_execution(
@@ -230,6 +263,12 @@ def execute(
         poll_calls += 1
         poll_total += elapsed
         poll_slowest = max(poll_slowest, elapsed)
+        if first_acked is None:
+            pre_ack_calls += 1
+            pre_ack_elapsed += elapsed
+        else:
+            post_ack_calls += 1
+            post_ack_elapsed += elapsed
         status = str(getattr(execution, "lifecycle_state", "") or "").upper()
         # ACKED means delivery to the agent; it does not prove execution.
         # Terminal ACKED alone has no usable timestamp, so ignore it.
@@ -243,12 +282,15 @@ def execute(
             lifecycle = observed_lifecycle_timing(submitted, first_active, completed)
             delivery = observed_delivery_timing(submitted, first_acked, completed)
             poll = observed_poll_timing(poll_calls, poll_total, poll_slowest)
+            poll_detail = observed_poll_detail_timing(
+                pre_ack_calls, pre_ack_elapsed, post_ack_calls, post_ack_elapsed, poll_slowest)
             if lifecycle:
                 print(lifecycle, flush=True)
             if delivery:
                 print(delivery, flush=True)
             if poll:
                 print(poll, flush=True)
+            print(poll_detail, flush=True)
             result = getattr(execution, "content", None)
             stdout = str(getattr(result, "text", "") or "").strip()
             last = stdout.splitlines()[-1] if stdout else ""
@@ -260,7 +302,7 @@ def execute(
                 reason = next((line for line in stdout.splitlines() if BLOCKED.fullmatch(line)), "")
                 print(phase, flush=True)
                 append_timing_summary(phase, lifecycle, verified=False,
-                                      delivery=delivery, poll=poll)
+                                      delivery=delivery, poll=poll, poll_detail=poll_detail)
                 raise InventoryError("Chronicles API root-wrapper smoke did not succeed"
                                      + (" | " + reason if reason else f" | status={status}"))
             timing = trusted_host_timing(stdout)
@@ -268,7 +310,7 @@ def execute(
                 print(timing, flush=True)
             print(phase, flush=True)
             append_timing_summary(phase, lifecycle, timing, verified=True,
-                                  delivery=delivery, poll=poll)
+                                  delivery=delivery, poll=poll, poll_detail=poll_detail)
             print(marker + digest)
             return last
         pause(3)
@@ -279,16 +321,19 @@ def execute(
     lifecycle = observed_lifecycle_timing(submitted, first_active, completed)
     delivery = observed_delivery_timing(submitted, first_acked, completed)
     poll = observed_poll_timing(poll_calls, poll_total, poll_slowest)
+    poll_detail = observed_poll_detail_timing(
+        pre_ack_calls, pre_ack_elapsed, post_ack_calls, post_ack_elapsed, poll_slowest)
     if lifecycle:
         print(lifecycle, flush=True)
     if delivery:
         print(delivery, flush=True)
     if poll:
         print(poll, flush=True)
+    print(poll_detail, flush=True)
     phase = phase_timing(started, prepared, submitted, completed)
     print(phase, flush=True)
     append_timing_summary(phase, lifecycle, verified=False, delivery=delivery,
-                          poll=poll)
+                          poll=poll, poll_detail=poll_detail)
     raise InventoryError("Chronicles API OCI release timed out")
 
 

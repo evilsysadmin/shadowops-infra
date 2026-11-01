@@ -350,6 +350,7 @@ class TestOCIInventory(unittest.TestCase):
                 agent = Agent()
                 sdk.compute_instance_agent.ComputeInstanceAgentClient = lambda cfg: agent
                 ticks = iter((0, 1, 2, 3, 4, 7, 8, 16))
+                poll_ticks = iter((0, 0.25, 1, 1.5, 2, 2.75))
                 output = io.StringIO()
                 with tempfile.TemporaryDirectory() as tmp:
                     report = Path(tmp) / "timing.md"
@@ -358,13 +359,23 @@ class TestOCIInventory(unittest.TestCase):
                                    os.environ, {"GITHUB_STEP_SUMMARY": str(report)}), redirect_stdout(output):
                         result = release.execute(sdk, cp.config_from_env(sdk, ENV),
                                                  digest, pause=lambda _: None,
-                                                 clock=lambda: next(ticks))
+                                                 clock=lambda: next(ticks),
+                                                 poll_clock=lambda: next(poll_ticks))
                     summary = report.read_text()
                 self.assertEqual(result, marker)
                 self.assertEqual(output.getvalue().splitlines()[-1], marker)
                 self.assertNotIn("SECRET_REMOTE", output.getvalue() + summary)
                 self.assertNotIn(vault, output.getvalue() + summary)
                 self.assertEqual(agent.created, 1)
+                self.assertIsNone(next(poll_ticks, None))
+                expected_detail = (
+                    "CHRONICLES_API_OCI_POLL_DETAIL_MS "
+                    + ("pre_ack_calls=2 pre_ack_ms=750 post_ack_calls=1 post_ack_ms=750 "
+                       if ack_before_terminal else
+                       "pre_ack_calls=3 pre_ack_ms=1500 post_ack_calls=0 post_ack_ms=0 ")
+                    + "slowest_ms=750")
+                self.assertIn(expected_detail, summary)
+                self.assertIn(expected_detail, output.getvalue())
                 if ack_before_terminal:
                     self.assertIn(acknowledged, summary)
                     self.assertIn(acknowledged, output.getvalue())
@@ -410,12 +421,25 @@ class TestOCIInventory(unittest.TestCase):
         import oci_chronicles_api_release as release
 
         sample = "CHRONICLES_API_OCI_POLL_SECONDS calls=2 total=4 slowest=3"
+        detail = ("CHRONICLES_API_OCI_POLL_DETAIL_MS pre_ack_calls=2 "
+                  "pre_ack_ms=4000 post_ack_calls=0 post_ack_ms=0 slowest_ms=3000")
+        self.assertEqual(release.observed_poll_detail_timing(2, 4.0, 0, 0.0, 3.0), detail)
+        self.assertEqual(release.observed_poll_detail_timing(999999, -1, 1, 9999, 9999),
+                         "CHRONICLES_API_OCI_POLL_DETAIL_MS pre_ack_calls=99999 "
+                         "pre_ack_ms=0 post_ack_calls=1 post_ack_ms=999999 slowest_ms=999999")
         self.assertEqual(release.observed_poll_timing(2, 4.0, 3.0), sample)
         self.assertEqual(release.observed_poll_timing(0, 200.0, 200.0), "")
         self.assertEqual(release.observed_poll_timing(200000, -1.0, 200000.0),
                          "CHRONICLES_API_OCI_POLL_SECONDS calls=99999 total=0 slowest=99999")
         phase = "CHRONICLES_API_OCI_PHASE_SECONDS preflight=1 dispatch=0 execution=3"
         self.assertIn(sample, release.timing_summary(phase, verified=True, poll=sample))
+        self.assertIn(detail, release.timing_summary(phase, verified=True,
+                                                    poll=sample, poll_detail=detail))
+        for bad in (detail + " SECRET", "SECRET\n" + detail,
+                    detail.replace("pre_ack_calls=2", "pre_ack_calls=-2"),
+                    detail.replace("slowest_ms=3000", "slowest_ms=1234567")):
+            self.assertEqual(release.timing_summary(phase, verified=True,
+                                                    poll_detail=bad), "")
         for malformed in (sample + " SECRET", "SECRET\n" + sample,
                           sample.replace("calls=2", "calls=-2"),
                           sample.replace("slowest=3", "slowest=999999")):
@@ -467,6 +491,8 @@ class TestOCIInventory(unittest.TestCase):
         self.assertEqual(output.getvalue().splitlines()[-1], marker)
         self.assertIn(sample, output.getvalue())
         self.assertIn(sample, summary)
+        self.assertIn(detail, summary)
+        self.assertIn(detail, output.getvalue())
         self.assertNotIn("SECRET_REMOTE_LOG", output.getvalue() + summary)
         self.assertNotIn(vault, output.getvalue() + summary)
         self.assertEqual(agent.created, 1)
