@@ -33,14 +33,18 @@ class PublicBrowserWorkflow(unittest.TestCase):
         workflow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
         jobs = workflow['jobs']
         gate = next(s for s in jobs['api-ready']['steps'] if s.get('id') == 'gate')
-        self.assertIn('chronicles_api_before_pages.py', gate['run'])
-        self.assertIn('repos/evilsysadmin/shadowops-infra/commits/main', gate['run'])
-        self.assertIn('CHRONICLES_PAGES_INFRA_SUPERSEDED_BEFORE_RELEASE', gate['run'])
-        self.assertIn('CHRONICLES_PAGES_INVALID_INFRA_SHA', gate['run'])
-        self.assertIn('CHRONICLES_PAGES_SOURCE_SUPERSEDED_AFTER_API', gate['run'])
-        self.assertIn('CHRONICLES_PAGES_INVALID_SOURCE_SHA', gate['run'])
-        self.assertLess(gate['run'].index('owner_main='), gate['run'].index('source_main='))
-        self.assertLess(gate['run'].index('source_main='), gate['run'].index("echo 'publish=true'"))
+        self.assertEqual(gate['run'], 'bash scripts/chronicles_pages_api_gate.sh')
+        self.assertEqual(gate['env']['ADMITTED_SHA'],
+                         "${{ needs.staging-candidate.outputs.source_sha }}")
+        script = (ROOT / 'scripts/chronicles_pages_api_gate.sh').read_text(encoding='utf-8')
+        self.assertIn('chronicles_api_before_pages.py', script)
+        self.assertIn('repos/evilsysadmin/shadowops-infra/commits/main', script)
+        self.assertIn('CHRONICLES_PAGES_INFRA_SUPERSEDED_BEFORE_RELEASE', script)
+        self.assertIn('CHRONICLES_PAGES_INVALID_INFRA_SHA', script)
+        self.assertIn('CHRONICLES_PAGES_SOURCE_SUPERSEDED_AFTER_API', script)
+        self.assertIn('CHRONICLES_PAGES_INVALID_SOURCE_SHA', script)
+        self.assertLess(script.index('owner_main='), script.index('source_main='))
+        self.assertLess(script.index('source_main='), script.index("echo 'publish=true'"))
         self.assertEqual(jobs['release']['if'], "needs.api-ready.outputs.publish == 'true'")
         # The independent owner admission is still required before any Pages mutation.
         self.assertIn('pages_owner_admission.py',
@@ -51,8 +55,9 @@ class PublicBrowserWorkflow(unittest.TestCase):
         # Run the *real* workflow Bash with a fake API gate and a GitHub CLI
         # stub. An outage, malformed SHA or failed admission must fail closed.
         flow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
-        script = next(s['run'] for s in flow['jobs']['api-ready']['steps']
-                      if s.get('id') == 'gate')
+        command = next(s['run'] for s in flow['jobs']['api-ready']['steps']
+                       if s.get('id') == 'gate')
+        self.assertEqual(command, 'bash scripts/chronicles_pages_api_gate.sh')
         owner_sha, admitted = 'a' * 40, 'c' * 40
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -71,21 +76,24 @@ class PublicBrowserWorkflow(unittest.TestCase):
             )
             gh.chmod(0o755)
             py = root / 'python3'
-            py.write_text('#!/bin/sh\nexit 0\n')
+            py.write_text('#!/bin/sh\nexit "${FAKE_API_STATUS:-0}"\n')
             py.chmod(0o755)
             scenarios = (
                 # owner, source, failure, expected exit, output, log marker
-                (owner_sha, admitted, '', 0, 'publish=true', ''),
-                ('b' * 40, admitted, '', 0, 'publish=false',
+                (owner_sha, admitted, '', 0, 0, 'publish=true', ''),
+                ('b' * 40, admitted, '', 0, 0, 'publish=false',
                  'INFRA_SUPERSEDED_BEFORE_RELEASE'),
-                (owner_sha, 'd' * 40, '', 0, 'publish=false',
+                (owner_sha, 'd' * 40, '', 0, 0, 'publish=false',
                  'SOURCE_SUPERSEDED_AFTER_API'),
-                ('bad-owner', admitted, '', 64, '', 'INVALID_INFRA_SHA'),
-                (owner_sha, 'bad-source', '', 64, '', 'INVALID_SOURCE_SHA'),
-                (owner_sha, admitted, 'owner', 7, '', ''),
-                (owner_sha, admitted, 'source', 7, '', ''),
+                ('bad-owner', admitted, '', 0, 64, '', 'INVALID_INFRA_SHA'),
+                (owner_sha, 'bad-source', '', 0, 64, '', 'INVALID_SOURCE_SHA'),
+                (owner_sha, admitted, 'owner', 0, 7, '', ''),
+                (owner_sha, admitted, 'source', 0, 7, '', ''),
+                (owner_sha, admitted, '', 1, 1, '', 'API gate failed for current SHA'),
+                (owner_sha, 'd' * 40, '', 1, 0, 'publish=false', 'SUPERSEDED_BEFORE_RELEASE'),
+                (owner_sha, admitted, 'source', 1, 7, '', ''),
             )
-            for owner, source, failure, code, publish, marker in scenarios:
+            for owner, source, failure, api_status, code, publish, marker in scenarios:
                 with self.subTest(owner=owner, source=source, failure=failure):
                     output = root / 'output'
                     output.write_text('')
@@ -93,8 +101,10 @@ class PublicBrowserWorkflow(unittest.TestCase):
                                PATH=f"{root}{os.pathsep}{os.environ.get('PATH', '')}",
                                ADMITTED_SHA=admitted, GITHUB_SHA=owner_sha,
                                FAKE_OWNER_MAIN=owner, FAKE_SOURCE_MAIN=source,
-                               FAKE_GH_FAIL=failure, GITHUB_OUTPUT=str(output))
-                    run = subprocess.run(['bash', '-c', script], cwd=ROOT, env=env,
+                               FAKE_GH_FAIL=failure, FAKE_API_STATUS=str(api_status),
+                               GITHUB_OUTPUT=str(output))
+                    run = subprocess.run(['bash', str(ROOT / 'scripts/chronicles_pages_api_gate.sh')],
+                                         cwd=ROOT, env=env,
                                          capture_output=True, text=True, check=False)
                     self.assertEqual(run.returncode, code, run.stderr)
                     self.assertEqual(output.read_text().strip(), publish)
