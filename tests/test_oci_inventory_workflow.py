@@ -17,6 +17,23 @@ class TestTrustedOCIInventoryWorkflow(unittest.TestCase):
         self.assertNotIn("pull_request_target", text)
         self.assertNotIn("issues:", text)
 
+    def test_full_oci_suite_has_one_owner_and_probes_use_narrow_contracts(self):
+        workflows = ROOT / ".github/workflows"
+        owner = (workflows / "oci-inventory.yml").read_text()
+        host = (workflows / "oci-host-probe.yml").read_text()
+        ports = (workflows / "oci-chronicles-ports.yml").read_text()
+        suite = "-p 'test_oci_*.py'"
+        self.assertIn(suite, owner)
+        self.assertNotIn(suite, host)
+        self.assertNotIn(suite, ports)
+        self.assertIn("-p 'test_oci_host_probe.py'", host)
+        self.assertIn("-p 'test_oci_probe_admission.py'", host)
+        self.assertIn("-p 'test_oci_chronicles_ports_probe.py'", ports)
+        # Shared-suite owner must rerun when a consumer workflow changes.
+        for path in ("oci-host-probe.yml", "oci-chronicles-ports.yml",
+                     "test_oci_inventory_workflow.py"):
+            self.assertIn(path, owner)
+
     def test_no_host_mutation_or_secret_output(self):
         workflow = (ROOT / ".github/workflows/oci-inventory.yml").read_text()
         for forbidden in ("sudo ", "terraform apply", "gh secret set", "docker compose up",
