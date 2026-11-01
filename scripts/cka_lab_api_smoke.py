@@ -95,7 +95,9 @@ def main():
             "/test/authority.py", "generate", source, timeout=60)
         shutil.copyfile(fixture / "lab.json", runtime / "home/config/lab.json")
         shutil.copyfile(workspace / "controller.yaml", runtime / "home/cluster/controller.yaml")
-        (runtime / "home/config/tunnel.env").touch(mode=0o600)
+        synthetic_tunnel_token = "synthetic-ci-only-token-" + "A" * 48
+        (runtime / "home/config/tunnel.env").write_text("TUNNEL_TOKEN=" + synthetic_tunnel_token + "\n")
+        (runtime / "home/config/tunnel.env").chmod(0o600)
         for path in [runtime / "home/config/lab.json", runtime / "home/cluster/controller.yaml"]:
             path.chmod(0o600)
 
@@ -134,11 +136,13 @@ def main():
             try:
                 tunnel_compose_policy(connector_document,
                                       {"source_sha": source, "image_digest": digest}, home=runtime / "home",
-                                      platform="linux/" + architecture, test_ca=fixture / "ca.pem")
+                                      platform="linux/" + architecture, test_ca=fixture / "ca.pem", token=synthetic_tunnel_token)
+                print("CKA_LAB_COMPOSE_TOKEN_DELIVERY_VERIFIED resolved_export=" + str(bool(connector_document["services"]["cka-lab-tunnel"].get("environment"))).lower(), flush=True)
             except Exception:
-                # CI has an empty connector env file and no live credentials.
-                # Print only the unresolved connector model, never Config.Env.
-                print("CKA_LAB_CI_CONNECTOR_MODEL " + json.dumps(connector_document["services"]["cka-lab-tunnel"], sort_keys=True), flush=True)
+                # Never print environment values, including synthetic credentials.
+                diagnostic = dict(connector_document["services"]["cka-lab-tunnel"])
+                diagnostic["environment"] = sorted((diagnostic.get("environment") or {}).keys())
+                print("CKA_LAB_CI_CONNECTOR_MODEL " + json.dumps(diagnostic, sort_keys=True), flush=True)
                 raise
             run(*command, "create", "--pull=never", "cka-lab", timeout=60)
             run(*common, "-d", "--name", FIXTURE, "--network", EGRESS,
@@ -196,12 +200,12 @@ def main():
             candidate("after-restart")
             assert namespaces() == [], "Confirmed finish left Kubernetes resources behind"
             # Inspect the actual vendor connector configuration without starting
-            # it, providing a token, or contacting Cloudflare from the image.
+            # it, providing a live token, or contacting Cloudflare from the image.
             run("docker", "pull", "--quiet", CF_IMAGE, timeout=180)
             run(*command, "create", "--pull=never", "cka-lab-tunnel", timeout=60)
             connector = run(*command, "ps", "--all", "--quiet", "cka-lab-tunnel")
             connector_info = json.loads(run("docker", "inspect", connector))[0]
-            tunnel_policy(connector_info, project=PROJECT)
+            tunnel_policy(connector_info, project=PROJECT, token=synthetic_tunnel_token)
             assert connector_info['State']['Running'] is False
             print("CKA_LAB_TUNNEL_POLICY_CREATED_NOT_STARTED", flush=True)
             print("CKA_LAB_PUBLISHED_COMPOSE_API_VERIFIED " + json.dumps({

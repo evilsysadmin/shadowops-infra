@@ -104,6 +104,13 @@ class PublicationContracts(unittest.TestCase):
         legacy = copy.deepcopy(document)
         del legacy['services']['cka-lab-tunnel']['env_file']
         runtime.computed_policy(legacy, PIN)
+        resolved = copy.deepcopy(legacy)
+        resolved['services']['cka-lab-tunnel']['environment'] = {'TUNNEL_TOKEN': TOKEN}
+        runtime.computed_policy(resolved, PIN, token=TOKEN)
+        with self.assertRaises(ApiError): runtime.computed_policy(resolved, PIN)
+        with self.assertRaises(ApiError): runtime.computed_policy(resolved, PIN, token='wrong-token')
+        resolved['services']['cka-lab-tunnel']['environment']['OTHER_SECRET'] = 'forbidden'
+        with self.assertRaises(ApiError): runtime.computed_policy(resolved, PIN, token=TOKEN)
         wrong_path = copy.deepcopy(document)
         wrong_path['services']['cka-lab-tunnel']['env_file'][0]['path'] = '/etc/other-secret'
         with self.assertRaises(ApiError): runtime.computed_policy(wrong_path, PIN)
@@ -119,6 +126,10 @@ class PublicationContracts(unittest.TestCase):
             'NetworkSettings': {'Ports': {}, 'Networks': {'shadowops-cka-lab-staging-origin': {},
                                                        'shadowops-cka-lab-staging-tunnel-egress': {}}}, 'Mounts': []}
         runtime.tunnel_policy(actual)
+        with self.assertRaises(ApiError): runtime.tunnel_policy(actual, token=TOKEN)
+        actual['Config']['Env'] = ['PATH=/bin', 'TUNNEL_TOKEN=' + TOKEN]
+        runtime.tunnel_policy(actual, token=TOKEN)
+        with self.assertRaises(ApiError): runtime.tunnel_policy(actual, token='wrong-token')
         for change in [lambda x:x['HostConfig'].update(Privileged=True),
                        lambda x:x['Mounts'].append({'Source': '/secret'}),
                        lambda x:x['NetworkSettings']['Networks'].update({'shadowops-cka-lab-staging-cluster': {}})]:

@@ -458,7 +458,10 @@ The connector receives only origin/tunnel-egress networks, never the cluster
 network, administrator kubeconfig, service credential or Docker socket. Its
 128 MiB / 5% CPU / 32 PID limits remain inside the already-enforced user slice.
 The CI proof checks the actual computed connector policy and creates/inspects
-the vendor image without a token or startup; it never connects to Cloudflare.
+the vendor image with a synthetic token and without startup; it never connects to Cloudflare.
+Both unresolved env-file exports and older Compose resolved exports are checked;
+the latter may contain only the exact token just received through private stdin.
+Environment values are never printed.
 
 Only after the public exact-source API is ready, denies anonymous lab requests
 and has the expected CORS/cache boundary can the workflow upload the lab-enabled
