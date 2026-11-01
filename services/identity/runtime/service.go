@@ -44,6 +44,7 @@ type ServiceConfig struct {
 	TLSCertificate string                         `json:"tls_certificate_pem"`
 	TLSPrivateKey  string                         `json:"tls_private_key_pem"`
 	Consumers      websession.ConsumerCredentials `json:"consumers"`
+	AdminAliasCredential string `json:"chronicles_admin_alias_credential,omitempty"`
 }
 
 func LoadServiceConfig(filename string) (ServiceConfig, error) {
@@ -85,6 +86,9 @@ func (cfg ServiceConfig) validate(now time.Time) ([]byte, tls.Certificate, *tls.
 	seed, err := base64.RawURLEncoding.DecodeString(cfg.SigningSeed)
 	if err != nil || len(seed) != 32 || base64.RawURLEncoding.EncodeToString(seed) != cfg.SigningSeed {
 		return bad()
+	}
+	if cfg.AdminAliasCredential != "" {
+		if _, valid := adminAliasCredentialDigest(cfg.AdminAliasCredential); !valid { return bad() }
 	}
 	for app, key := range cfg.Consumers {
 		if app != issuance.ChessStudio && app != issuance.Chronicles && app != issuance.CKASimulator {
@@ -182,7 +186,17 @@ func NewStagingService(ctx context.Context, cfg ServiceConfig) (*RunningService,
 	if err != nil {
 		return nil, ErrUnsafeConfiguration
 	}
+	var aliases *adminAliasHandler
+	if cfg.AdminAliasCredential != "" {
+		aliases, err = newAdminAliasHandler(cfg.AdminAliasCredential,
+			adminAliasesFromMongo(client.Database(serviceDatabase).Collection("pending_accounts")))
+		if err != nil { return nil, ErrUnsafeConfiguration }
+	}
 	mux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == AdminAliasesPath && aliases != nil {
+			aliases.ServeHTTP(w, r)
+			return
+		}
 		if r.URL.Path != "/livez" && r.URL.Path != "/readyz" && r.URL.Path != "/api/identity/release" {
 			h.ServeHTTP(w, r)
 			return
