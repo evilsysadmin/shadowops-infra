@@ -31,8 +31,8 @@ class HistoricalGHCRTriggerTests(unittest.TestCase):
     def test_only_policy_changes_trigger_pr_and_push(self):
         import re
         workflow = (WORKFLOWS / "live-ghcr-attestation.yml").read_text(encoding="utf-8")
-        pr = re.search(r"(?m)^  pull_request:\\n    paths:\\n((?:      - .+\\n)+)", workflow)
-        push = re.search(r"(?m)^  push:\\n    branches: \\[main\\]\\n    paths:\\n((?:      - .+\\n)+)", workflow)
+        pr = re.search(r"(?m)^  pull_request:\n    paths:\n((?:      - .+\n)+)", workflow)
+        push = re.search(r"(?m)^  push:\n    branches: \[main\]\n    paths:\n((?:      - .+\n)+)", workflow)
         self.assertIsNotNone(pr, "PR must use relevant-path filtering")
         self.assertIsNotNone(push, "main push must use relevant-path filtering")
         pr_paths = set(pr.group(1).splitlines())
@@ -51,7 +51,7 @@ class HistoricalGHCRTriggerTests(unittest.TestCase):
     def test_manual_and_periodic_checks_preserve_immutable_admission(self):
         workflow = (WORKFLOWS / "live-ghcr-attestation.yml").read_text(encoding="utf-8")
         self.assertIn("  workflow_dispatch:", workflow)
-        self.assertIn("  schedule:\\n    - cron: '23 5 * * 1'", workflow)
+        self.assertIn("  schedule:\n    - cron: '23 5 * * 1'", workflow)
         self.assertIn("if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'", workflow)
         self.assertIn("scripts/check-staging-candidate.mjs", workflow)
         self.assertIn("verifyRequiredChecks", workflow)
