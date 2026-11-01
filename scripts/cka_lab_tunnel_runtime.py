@@ -117,7 +117,10 @@ def computed_policy(document, pin, *, home=api.HOME_DIR, platform='linux/arm64',
                                        'devices', 'entrypoint', 'environment', 'build', 'secrets', 'configs'])
             or set(item.get('networks', {})) != {'origin', 'tunnel-egress'}
             or document['networks'].get('tunnel-egress', {}).get('name') != 'shadowops-cka-lab-staging-tunnel-egress'
-            or len(files) != 1 or files[0].get('path') != str(home / 'config/tunnel.env')):
+            # Older Compose versions omit env_file from the canonical JSON even
+            # with --no-env-resolution. The fixed protected-main definition is
+            # executed directly; reject any exported alternate path or inline env.
+            or len(files) > 1 or (files and files[0].get('path') != str(home / 'config/tunnel.env'))):
         raise api.ApiError('Unsafe computed lab tunnel connector')
 
 

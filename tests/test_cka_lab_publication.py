@@ -100,6 +100,13 @@ class PublicationContracts(unittest.TestCase):
             'env_file': [{'path': str(runtime.api.HOME_DIR / 'config/tunnel.env'), 'required': True}]}
         document['services']['cka-lab-tunnel'] = item
         runtime.computed_policy(document, PIN)
+        # Actual runner Compose omits unresolved env_file in its JSON export.
+        legacy = copy.deepcopy(document)
+        del legacy['services']['cka-lab-tunnel']['env_file']
+        runtime.computed_policy(legacy, PIN)
+        wrong_path = copy.deepcopy(document)
+        wrong_path['services']['cka-lab-tunnel']['env_file'][0]['path'] = '/etc/other-secret'
+        with self.assertRaises(ApiError): runtime.computed_policy(wrong_path, PIN)
         for key, value in [('ports', ['8080:8080']), ('volumes', ['/var/run/docker.sock:/socket']),
                            ('environment', {'TUNNEL_TOKEN': 'inline-token'}), ('cpus', 1), ('user', '0:0')]:
             bad = copy.deepcopy(document)
