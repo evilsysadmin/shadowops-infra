@@ -15,6 +15,7 @@ on:
       - 'scripts/oci_host_probe.py'
       - 'scripts/oci_control_plane.py'
       - 'tests/test_oci_host_probe.py'
+      - 'tests/test_oci_probe_admission.py'
   workflow_dispatch:
     inputs:
       probe:
@@ -33,7 +34,10 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - run: python3 -m unittest discover -s tests -p 'test_oci_*.py' -v
+      - name: Only host-probe and admission contracts
+        run: |
+          python3 -m unittest discover -s tests -p 'test_oci_host_probe.py' -v
+          python3 -m unittest discover -s tests -p 'test_oci_probe_admission.py' -v
       - run: python3 scripts/oci_host_probe.py self-test
 
   probe:

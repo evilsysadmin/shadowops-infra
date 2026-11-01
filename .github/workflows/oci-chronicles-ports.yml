@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - run: python3 -m unittest discover -s tests -p 'test_oci_*.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_oci_chronicles_ports_probe.py' -v
       - run: python3 scripts/oci_chronicles_ports_probe.py self-test
 
   ports:
