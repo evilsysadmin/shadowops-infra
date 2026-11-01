@@ -22,6 +22,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python3 -m pip install --disable-pip-version-check 'cryptography==50.0.2'
       - run: python3 -m unittest discover -s tests -p 'test_cka_lab*.py' -v
       - run: sh -n host/vendor/dockerd-rootless.sh
       - name: Validate the actual Compose file without resolving private runtime files
@@ -38,6 +42,11 @@ jobs:
           systemd-analyze --user verify host/cka-lab-rootless-docker.service
   rootless-proof:
     name: Real rootless Docker cgroup enforcement (disposable CI only)
+    permissions:
+      contents: read
+      packages: read
+      actions: read
+      attestations: read
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     if: github.event_name != 'workflow_dispatch' || inputs.action != 'inspect-runtime'
@@ -115,28 +124,12 @@ jobs:
           verified = verify_cluster(workspace)
           print("CKA_LAB_CLUSTER_VERIFIED " + json.dumps(verified, sort_keys=True))
           PY
-      - name: Checkout the reviewed CKA lease and candidate driver contract
-        uses: actions/checkout@v4
-        with:
-          repository: evilsysadmin/cka-exam-simulator
-          ref: f5362874b83a51b8c4c9f06cf547cd91073de692
-          path: .cka-contract
-          persist-credentials: false
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: .cka-contract/go/go.mod
-          cache-dependency-path: .cka-contract/go/go.mod
-      - name: Build the real journal helper and install the scenario engine
-        run: |
-          cd .cka-contract/go
-          CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/cka-rootless-lease" ./cmd/cka-lease-stdio
-          cd ..
-          cp "$RUNNER_TEMP/cka-rootless-lease" cka-lease-stdio
-          cp "$(command -v kubectl)" kubectl
-      - name: Prove all curated repairs with actual rootless node limits
+      - name: Prove the signed published controller through real Compose and TLS Identity
         env:
-          CKA_SCENARIO_SOURCE_ROOT: ${{ github.workspace }}/.cka-contract
-        run: python3 scripts/cka_lab_cluster_smoke.py
+          GH_TOKEN: ${{ github.token }}
+          CKA_API_TEST_SOURCE: c337655cd11d710ca13bf68a9cab510b169de3f3
+          CKA_API_TEST_DIGEST: sha256:f990c0419d20b6e5d697ba8b471c0ddd1b7ca1ce5dbb077d104a74377cf4699f
+        run: python3 scripts/cka_lab_api_smoke.py
       - name: Diagnose only the disposable cluster on failure
         if: failure()
         run: docker logs --tail 120 cka-lab-staging-control-plane || true
