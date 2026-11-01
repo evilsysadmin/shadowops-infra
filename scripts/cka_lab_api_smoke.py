@@ -40,12 +40,7 @@ print('CKA_CANDIDATE_EGRESS_DENIED', flush=True)
 def main():
     if os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("RUNNER_OS") != "Linux":
         raise RuntimeError("Disposable Linux CI only")
-    source, digest = os.environ["CKA_API_TEST_SOURCE"], os.environ["CKA_API_TEST_DIGEST"]
-    if not re.fullmatch(r"[a-f0-9]{40}", source) or not re.fullmatch(r"sha256:[a-f0-9]{64}", digest):
-        raise RuntimeError("Immutable reviewed publication required")
-    image = IMAGE + "@" + digest
     env = dict(os.environ)
-    env["CKA_LAB_IMAGE_DIGEST"] = digest
 
     def run(*args, timeout=30, input_text=None):
         # Diagnostics are safe here: this disposable job contains only synthetic
@@ -62,8 +57,17 @@ def main():
     rootless_info(json.loads(call(["docker", "info", "--format", "{{json .}}"], env=env)))
     workspace = Path(env["RUNNER_TEMP"]) / "cka-rootless-cluster"
     verify_cluster(workspace, env=env)
-    admitted = run("node", "scripts/cka_lab_image_admission.mjs", source, digest, timeout=120)
-    assert admitted.startswith("CKA_LAB_IMAGE_ADMITTED ")
+    receipt = run("node", "scripts/cka_lab_current_publication.mjs", timeout=120)
+    assert receipt.startswith("CKA_LAB_IMAGE_ADMITTED ")
+    admitted = json.loads(receipt.removeprefix("CKA_LAB_IMAGE_ADMITTED "))
+    source, digest = admitted["source_sha"], admitted["image_digest"]
+    assert re.fullmatch(r"[a-f0-9]{40}", source)
+    assert re.fullmatch(r"sha256:[a-f0-9]{64}", digest)
+    assert admitted["signed_provenance"] is True
+    assert admitted["arm64"] is True and admitted["amd64"] is True
+    assert admitted["deployment_performed"] is False
+    image = IMAGE + "@" + digest
+    env["CKA_LAB_IMAGE_DIGEST"] = digest
     run("docker", "pull", "--quiet", image, timeout=180)
     metadata = json.loads(run("docker", "image", "inspect", image))[0]
     assert metadata["Config"]["Labels"]["org.opencontainers.image.revision"] == source

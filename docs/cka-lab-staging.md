@@ -200,12 +200,15 @@ exact source commit and SLSA provenance subject digest.
 Only an explicit `CKA_LAB_IMAGE_ADMITTED` receipt containing the immutable
 digest and source SHA is positive evidence. The check never issues a Docker
 run, Compose command, host Run Command, credential copy, environment change,
-lab enablement or OCI resource mutation. PRs exercise offline negative fixtures and a fixed **read-only** live
-positive control using a published CKA multiarch digest and its existing
-signed provenance. The positive control does not admit new artifacts or deploy
-anything, and does not replace an explicit protected-main manual admission.
-If CKA source main advances, update the reviewed positive-control fixture
-to a verified newly published commit/digest pair before expecting it to pass.
+lab enablement or OCI resource mutation. PRs exercise offline negative
+fixtures and a **read-only** live positive control that resolves the current
+CKA protected-main SHA, looks up its per-commit registry tag only to locate
+the immutable multiarch digest, then admits that digest using the exact same
+protected-main CI, manifest and signed-provenance checks. A changed source
+main, missing publication, tag mismatch, invalid signature or incomplete
+workflow blocks the check. A mutable tag is never accepted as deployment input.
+The positive control does not deploy anything and does not replace the
+explicit protected-main manual admission with operator-supplied SHA/digest.
 A missing/ambiguous/invalid receipt is not approval.
 
 This independent source admission does not replace the subsequent operator
@@ -305,6 +308,9 @@ the published image supplies the actual Go helper, candidate driver and API.
 
 Positive evidence is `CKA_LAB_PUBLISHED_COMPOSE_API_VERIFIED`, with the tested
 source/digest, three exercises, current Identity checks, unexpired revocation,
-restart cleanup and `oci_mutations=false`. It tests a fixed signed publication;
-it does not perform live release admission, install the A1 runtime, bind a real
-pilot UUID, create a tunnel, publish Pages or establish deployed acceptance.
+restart cleanup and `oci_mutations=false`. CI resolves the **current** signed
+CKA protected-main publication and pins its verified immutable digest for the
+entire disposable smoke. Source advances and incomplete publications fail closed;
+they never fall back to an older successful image. This does not perform live
+release admission, install the A1 runtime, bind a real pilot UUID, create a
+tunnel, publish Pages or establish deployed acceptance.
