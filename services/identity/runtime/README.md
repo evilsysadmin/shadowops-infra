@@ -19,6 +19,7 @@ line or logged. Schema (values below are descriptions, not usable secrets):
 | tls_certificate_pem | Valid server certificate chain with exact staging IdP DNS SAN |
 | tls_private_key_pem | Matching private key, separate from JWT signing key |
 | consumers | Application → independent 256-bit soc1_ server credential map |
+| chronicles_admin_alias_credential | Optional dedicated 256-bit `soa1_` credential for read-only Chronicles Admin alias resolution; never the existing `soc1_` freshness secret |
 
 Only explicitly configured consumers can obtain browser tokens or be selected
 as login return targets. Candidate origins for other projects stay disabled.
@@ -67,3 +68,44 @@ Chronicles login/save/logout/revocation and legacy-namespace preflight. The
 existing product logins and production are unchanged by this runtime. CI's
 `runtime/ci.sh` is **only a disposable localhost fixture**, never a deployment
 or a source of credentials to copy into staging.
+
+
+## Optional Chronicles Admin account aliases (staging only)
+
+`POST /api/identity/admin-aliases` is **disabled by default**. It is mounted
+only when a separate `chronicles_admin_alias_credential` is explicitly placed in
+the protected Identity service bundle and the service is restarted. Operators
+must provision this credential independently to **only the Chronicles API
+backend**, not to the browser, Cloudflare Pages, other products or their
+freshness RPC. The credential is not an admin login role: Chronicles must
+authenticate and authorize the requesting account as a roster administrator
+*before* it makes this server-to-server call. Do not bind it to `ADMIN_USERNAMES="*"`.
+
+The internal HTTPS request (exact pinned IdP host, no Origin/Cookie/CORS) is:
+
+```http
+POST /api/identity/admin-aliases HTTP/1.1
+Host: id-staging.shadowops.dpdns.org
+Authorization: Bearer <independent soa1_ operator secret>
+Content-Type: application/json
+
+{"subjects":["<verified staging UUIDv4>"]}
+```
+
+At most 40 unique canonical UUIDv4 subjects are accepted. The reply is
+`{"aliases":{"<subject>":"<native-account-name>"}}`; unavailable,
+suspended, non-native, wrong-environment or unknown accounts are **omitted**.
+The store projection contains only immutable subject and `alias_key`:
+password hashes, sessions, emails, roles and recovery data are never selected.
+The caller must fall back to the abbreviated technical ID if a subject is
+missing or the authority is unavailable. The endpoint denies cookie/origin
+requests, malformed and excess bodies, unauthorized credentials and unsupported
+methods. It is limited globally to 30 successful-credential requests/minute
+and 40 subjects/request, with a two-second storage deadline; responses are
+non-cacheable and have no browser CORS. Error bodies never leak database data.
+
+The rollout is a **separate operator action**: no alias secret is in Git,
+no existing staging bundle is automatically changed, and this code does not
+wire the Chronicles API client. Before enabling, review the roster admin
+authorization, credential distribution, rollback and audit contract in
+shadowops-infra issue #374. No production service is modified by this feature.
