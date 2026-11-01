@@ -6,6 +6,8 @@ on:
       - '.github/workflows/staradvs-public-browser.yml'
       - 'scripts/staradvs_public_browser_smoke.mjs'
       - 'tests/staradvs-public-browser.test.mjs'
+      - 'scripts/staradvs_browser_release_gate.mjs'
+      - 'tests/staradvs-browser-release-gate.test.mjs'
       - 'docs/staradvs-staging.md'
   push:
     branches: [main]
@@ -13,6 +15,8 @@ on:
       - '.github/workflows/staradvs-public-browser.yml'
       - 'scripts/staradvs_public_browser_smoke.mjs'
       - 'tests/staradvs-public-browser.test.mjs'
+      - 'scripts/staradvs_browser_release_gate.mjs'
+      - 'tests/staradvs-browser-release-gate.test.mjs'
   workflow_run:
     workflows: ['Star Adventures staging Pages']
     types: [completed]
@@ -32,12 +36,41 @@ jobs:
     name: Public browser contract (offline)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      upstream_published: ${{ steps.published.outputs.value }}
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
       - run: node --check scripts/staradvs_public_browser_smoke.mjs
-      - run: node --test tests/staradvs-public-browser.test.mjs
+      - run: node --test tests/staradvs-public-browser.test.mjs tests/staradvs-browser-release-gate.test.mjs
+      - name: Admit only an actual completed Pages publication
+        id: published
+        if: >-
+          github.event_name == 'workflow_run' &&
+          github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.head_branch == 'main' &&
+          github.event.workflow_run.repository.full_name == 'evilsysadmin/shadowops-infra' &&
+          github.event.workflow_run.event != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM_RUN_ID: ${{ github.event.workflow_run.id }}
+          UPSTREAM_JOBS_FILE: ${{ runner.temp }}/staradvs-upstream-jobs.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/evilsysadmin/shadowops-infra/actions/runs/${UPSTREAM_RUN_ID}/jobs?per_page=100" > "$UPSTREAM_JOBS_FILE"
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from 'node:fs';
+          import { pagesReleasePublished } from './scripts/staradvs_browser_release_gate.mjs';
+          const payload = JSON.parse(readFileSync(process.env.UPSTREAM_JOBS_FILE, 'utf8'));
+          const published = pagesReleasePublished(payload);
+          appendFileSync(process.env.GITHUB_OUTPUT, `value=${published}\n`);
+          console.log(published ? 'Verified real Pages publication; browser QA admitted' : 'No completed Pages publication; skip browser QA');
+          NODE
 
   live:
     name: Real public mobile and desktop journey
@@ -52,7 +85,8 @@ jobs:
         github.event.workflow_run.conclusion == 'success' &&
         github.event.workflow_run.head_branch == 'main' &&
         github.event.workflow_run.repository.full_name == 'evilsysadmin/shadowops-infra' &&
-        github.event.workflow_run.event != 'pull_request'))
+        github.event.workflow_run.event != 'pull_request' &&
+        needs.contracts.outputs.upstream_published == 'true'))
     runs-on: ubuntu-24.04
     timeout-minutes: 17
     environment:
