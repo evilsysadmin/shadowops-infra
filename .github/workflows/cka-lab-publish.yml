@@ -1,0 +1,150 @@
+name: CKA labs · publish authenticated staging POC
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: shadowops-cka-lab-publication
+  cancel-in-progress: false
+jobs:
+  admit:
+    if: github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+      attestations: read
+    outputs:
+      source: ${{ steps.pin.outputs.source }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - name: Admit the exact reviewed controller before any cloud mutation
+        id: pin
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module <<'JS'
+          import {readFileSync,appendFileSync} from 'node:fs';
+          import {admit} from './scripts/cka_lab_image_admission.mjs';
+          const pin=JSON.parse(readFileSync('deploy/cka-lab-staging-release.json','utf8'));
+          if(Object.keys(pin).sort().join(',')!=='image_digest,schema,source_sha'||pin.schema!==1)throw Error('Invalid release pin');
+          admit(pin.source_sha,pin.image_digest);
+          appendFileSync(process.env.GITHUB_OUTPUT,'source='+pin.source_sha+'\n');
+          JS
+  prepare-tunnel:
+    needs: admit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Require current protected Infra and CKA source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.admit.outputs.source }}
+        run: |
+          test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+          test "$(gh api repos/evilsysadmin/cka-exam-simulator/commits/main --jq .sha)" = "$SOURCE_SHA"
+      - name: Verify existing Pages ownership without creating a project
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          PYTHONPATH=scripts python - <<'PY'
+          import cka_account_pages as pages
+          if not pages.existing_project():raise SystemExit('Existing CKA staging Pages project required')
+          pages.preflight()
+          PY
+      - name: Prepare only the no-cost lab tunnel and encrypted token; stage nonsecret locator
+        env:
+          OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+          OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+          OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python scripts/cka_lab_tunnel_provision.py
+  publish-browser:
+    needs: [admit, prepare-tunnel]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: staging
+      url: https://staging.cka.shadowops.dpdns.org
+    concurrency:
+      group: shadowops-cka-account-pages-staging
+      cancel-in-progress: false
+    env:
+      SOURCE_SHA: ${{ needs.admit.outputs.source }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Wait for the operator to run make cka-lab-tunnel-start; require public exact-source API and anonymous denial
+        run: python scripts/cka_lab_public.py wait-api
+      - uses: actions/checkout@v4
+        with:
+          repository: evilsysadmin/cka-exam-simulator
+          ref: ${{ needs.admit.outputs.source }}
+          path: cka-source
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build the authenticated lab frontend without Cloudflare or OCI credentials
+        working-directory: cka-source/frontend
+        env:
+          VITE_BUILD_SHA: ${{ needs.admit.outputs.source }}
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run test:account
+          npm run test:labs
+          npm run build:lab-staging
+          node -e 'const m=require("./dist-lab-staging/release.json");if(m.build!==process.env.VITE_BUILD_SHA||m.mode!=="restricted-lab-staging")process.exit(1)'
+      - name: Recheck public API, exact source and existing Pages ownership immediately before upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+          test "$(gh api repos/evilsysadmin/cka-exam-simulator/commits/main --jq .sha)" = "$SOURCE_SHA"
+          python scripts/cka_lab_public.py api
+          python scripts/cka_account_pages.py preflight
+      - name: Publish only the existing CKA staging Pages project
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --yes wrangler@4.127.1 pages deploy cka-source/frontend/dist-lab-staging --project-name cka-account-staging --branch main --commit-hash "$SOURCE_SHA" --commit-dirty=false
+      - name: Verify exact public lab browser and API releases
+        run: python scripts/cka_lab_public.py pages
+      - name: Record deployment evidence without claiming real-user candidate acceptance
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          data={'schema':1,'environment':'staging','application':'cka-exam-simulator','mode':'restricted-lab-staging','build':os.environ['SOURCE_SHA'],'public_api_verified':True,'candidate_acceptance_verified':False}
+          (Path(os.environ['RUNNER_TEMP'])/'cka-lab-publication.json').write_text(json.dumps(data))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cka-lab-publication-${{ needs.admit.outputs.source }}
+          path: ${{ runner.temp }}/cka-lab-publication.json
+          if-no-files-found: error

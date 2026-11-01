@@ -421,3 +421,49 @@ Use the read-only API verification target to observe one that already exists.
 The private probe checks the mounted explicit access mode, exact image build,
 readiness, anonymous denial and absence of developer endpoints. It is not a
 positive authenticated-user acceptance test.
+
+## Controlled tunnel and lab browser publication
+
+After the real private API verifies, manually run
+`.github/workflows/cka-lab-publish.yml` from protected main. No push or PR can
+perform this publication. It verifies the signed controller pin, current source
+and existing CKA staging Pages ownership before preparing cloud resources.
+
+The cloud preflight requires an existing default Vault and existing enabled
+master key, a complete home/subscribed-region secret inventory below the
+conservative 150-secret free envelope, and a complete tunnel inventory below
+1,000. Existing lab resources require exact ownership/custody; no other product's
+DNS, tunnel or secret can be adopted. No master key/version or compute/storage
+allocation is created. Identical retries preserve the current secret version.
+Only aggregate capacity receipts are printed, never resource identifiers or
+tokens. Current references: [Oracle Always Free](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm),
+[Cloudflare included tunnels](https://developers.cloudflare.com/tunnel/features/tunnels-for-platforms/).
+
+The dedicated secret contains only the lab tunnel token and its release/owner
+metadata, not the CKA service credential, user sessions or Identity signing keys.
+The OCI agent writes only a private nonsecret locator under a fixed `/tmp` name.
+The root SSH handoff refuses symlinks, wrong owner/mode, stale or wrong-release
+locators, and can read only the fixed lab secret name using the existing SDK and
+instance principal. The lab user re-verifies the actual private API, writes its
+0600 connector env file and starts only the digest-pinned tunnel service.
+
+When the workflow waits for public HTTPS, use:
+
+```bash
+make cka-lab-tunnel-start
+make cka-lab-tunnel-verify
+```
+
+The connector receives only origin/tunnel-egress networks, never the cluster
+network, administrator kubeconfig, service credential or Docker socket. Its
+128 MiB / 5% CPU / 32 PID limits remain inside the already-enforced user slice.
+The CI proof checks the actual computed connector policy and creates/inspects
+the vendor image without a token or startup; it never connects to Cloudflare.
+
+Only after the public exact-source API is ready, denies anonymous lab requests
+and has the expected CORS/cache boundary can the workflow upload the lab-enabled
+static browser. It rechecks source, API and Pages ownership immediately before
+upload and verifies both public releases afterward. Cloud credentials are scoped
+to provisioning/upload steps and absent from the frontend build. The final
+publication receipt does not claim authenticated candidate acceptance; exercise
+that journey with a real staging Identity session before declaring the POC usable.

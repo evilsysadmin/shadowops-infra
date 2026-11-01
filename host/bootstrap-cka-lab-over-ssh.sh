@@ -2,8 +2,8 @@
 # Operator workstation only. The OCI agent never receives installation authority.
 set -euo pipefail
 
-if [[ $# != 1 || ( "$1" != bootstrap && "$1" != inspect && "$1" != cluster-bootstrap && "$1" != cluster-verify && "$1" != api-start && "$1" != api-verify ) ]]; then
-  printf '%s\n' 'Usage: host/bootstrap-cka-lab-over-ssh.sh bootstrap|inspect|cluster-bootstrap|cluster-verify|api-start|api-verify' >&2
+if [[ $# != 1 || ( "$1" != bootstrap && "$1" != inspect && "$1" != cluster-bootstrap && "$1" != cluster-verify && "$1" != api-start && "$1" != api-verify && "$1" != tunnel-start && "$1" != tunnel-verify ) ]]; then
+  printf '%s\n' 'Usage: host/bootstrap-cka-lab-over-ssh.sh bootstrap|inspect|cluster-bootstrap|cluster-verify|api-start|api-verify|tunnel-start|tunnel-verify' >&2
   exit 64
 fi
 readonly action="$1"
@@ -52,6 +52,11 @@ if [[ "$action" == api-verify ]]; then
     'sudo --non-interactive /usr/local/sbin/shadowops-cka-lab-staging inspect >/dev/null && sudo --non-interactive -u shadowops-cka-lab /usr/bin/python3 -I /opt/shadowops-infra/scripts/cka_lab_private_api.py verify'
   exit 0
 fi
+if [[ "$action" == tunnel-verify ]]; then
+  ssh "${ssh_options[@]}" "$destination" \
+    'sudo --non-interactive /usr/local/sbin/shadowops-cka-lab-staging inspect >/dev/null && sudo --non-interactive -u shadowops-cka-lab /usr/bin/python3 -I /opt/shadowops-infra/scripts/cka_lab_tunnel_runtime.py verify'
+  exit 0
+fi
 
 command -v git >/dev/null 2>&1 || {
   printf '%s\n' 'CKA_LAB_OPERATOR_BLOCKED missing=git' >&2
@@ -66,7 +71,7 @@ expected="${main_line%%$'\t'*}"
 readonly expected
 if [[ "$action" == cluster-bootstrap ]]; then
   printf 'Preparing private CKA cluster from protected main %s\n' "$expected"
-elif [[ "$action" == api-start ]]; then
+elif [[ "$action" == api-start || "$action" == tunnel-start ]]; then
   printf 'Starting private CKA controller from protected main %s\n' "$expected"
 else
   printf 'Installing CKA rootless runtime from protected main %s\n' "$expected"
@@ -76,7 +81,7 @@ fi
 ssh "${ssh_options[@]}" "$destination" "sudo --non-interactive bash -se -- '$expected' '$action'" <<'REMOTE_BOOTSTRAP'
 set -euo pipefail
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
-[[ $# == 2 && "$1" =~ ^[a-f0-9]{40}$ && ( "$2" == bootstrap || "$2" == cluster-bootstrap || "$2" == api-start ) && "$(id -u)" == 0 ]] || exit 77
+[[ $# == 2 && "$1" =~ ^[a-f0-9]{40}$ && ( "$2" == bootstrap || "$2" == cluster-bootstrap || "$2" == api-start || "$2" == tunnel-start ) && "$(id -u)" == 0 ]] || exit 77
 readonly expected="$1"
 readonly action="$2"
 readonly repo=/opt/shadowops-infra
@@ -117,7 +122,7 @@ CHECK_OWNERSHIP
 # A private cluster may only be created after the administrator has installed
 # and independently verified the bounded rootless runtime on the A1.
 # Check it before fetching or changing the operator checkout.
-if [[ "$action" == cluster-bootstrap || "$action" == api-start ]]; then
+if [[ "$action" == cluster-bootstrap || "$action" == api-start || "$action" == tunnel-start ]]; then
   /usr/local/sbin/shadowops-cka-lab-staging inspect >/dev/null
 fi
 
@@ -148,13 +153,18 @@ elif [[ "$action" == cluster-bootstrap ]]; then
   sudo --non-interactive -u shadowops-cka-lab /usr/bin/python3 -I scripts/cka_lab_cluster.py install-tools
   sudo --non-interactive -u shadowops-cka-lab /usr/bin/python3 -I scripts/cka_lab_cluster.py bootstrap
   sudo --non-interactive -u shadowops-cka-lab /usr/bin/python3 -I scripts/cka_lab_cluster.py verify-cluster
-else
+elif [[ "$action" == api-start ]]; then
   /usr/local/sbin/shadowops-cka-lab-staging inspect >/dev/null
   python3 -I scripts/cka_lab_private_api.py handoff
+else
+  /usr/local/sbin/shadowops-cka-lab-staging inspect >/dev/null
+  python3 -I scripts/cka_lab_tunnel_runtime.py handoff
 fi
 REMOTE_BOOTSTRAP
 
-if [[ "$action" == api-start ]]; then
+if [[ "$action" == tunnel-start ]]; then
+  printf '%s\n' 'CKA_LAB_OPERATOR_TUNNEL_STARTED public_api_verified=true'
+elif [[ "$action" == api-start ]]; then
   printf '%s\n' 'CKA_LAB_OPERATOR_PRIVATE_API_STARTED public_endpoint_enabled=false'
 elif [[ "$action" == cluster-bootstrap ]]; then
   printf '%s\n' 'CKA_LAB_OPERATOR_CLUSTER_BOOTSTRAP_COMPLETED labs_enabled=false'

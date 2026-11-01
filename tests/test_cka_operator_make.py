@@ -100,7 +100,7 @@ class OperatorMake(unittest.TestCase):
         self.assertEqual(args[-1], "sudo --non-interactive bash -se -- '" + SHA + "' 'api-start'")
         self.assertIn('python3 -I scripts/cka_lab_private_api.py handoff', body)
         self.assertIn('elif [[ "$action" == cluster-bootstrap ]]', body)
-        self.assertIn('if [[ "$action" == cluster-bootstrap || "$action" == api-start ]]', body)
+        self.assertIn('if [[ "$action" == cluster-bootstrap || "$action" == api-start || "$action" == tunnel-start ]]', body)
         self.assertIn('PRIVATE_API_STARTED public_endpoint_enabled=false', result.stdout)
         parsed = subprocess.run(["bash", "-n"], input=body, text=True, capture_output=True)
         self.assertEqual(parsed.returncode, 0, parsed.stderr)
@@ -115,6 +115,27 @@ class OperatorMake(unittest.TestCase):
             ' && sudo --non-interactive -u shadowops-cka-lab /usr/bin/python3 -I'
             ' /opt/shadowops-infra/scripts/cka_lab_private_api.py verify')
 
+    def test_tunnel_start_uses_root_secret_handoff_and_fixed_inspection(self):
+        result, args, body, git_called = self.invoke(action="tunnel-start", make=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(git_called)
+        self.assertEqual(args[-1], "sudo --non-interactive bash -se -- '" + SHA + "' 'tunnel-start'")
+        self.assertIn('python3 -I scripts/cka_lab_tunnel_runtime.py handoff', body)
+        self.assertIn('CKA_LAB_OPERATOR_TUNNEL_STARTED public_api_verified=true', result.stdout)
+        self.assertNotIn('tunnel_token', args[-1])
+        checked = subprocess.run(['bash', '-n'], input=body, capture_output=True, text=True)
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+
+    def test_tunnel_verify_never_fetches_source_or_reads_the_vault(self):
+        result, args, body, git_called = self.invoke(action="tunnel-verify", make=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(git_called)
+        self.assertEqual(body, '')
+        self.assertEqual(args[-1],
+            'sudo --non-interactive /usr/local/sbin/shadowops-cka-lab-staging inspect >/dev/null'
+            ' && sudo --non-interactive -u shadowops-cka-lab /usr/bin/python3 -I'
+            ' /opt/shadowops-infra/scripts/cka_lab_tunnel_runtime.py verify')
+
     def test_invalid_source_or_action_never_reaches_ssh(self):
         for main in ["main", "b" * 39, SHA + ";echo injected", SHA + "\n" + SHA]:
             with self.subTest(main=main):
@@ -127,7 +148,7 @@ class OperatorMake(unittest.TestCase):
         self.assertFalse(git_called)
 
     def test_failed_ssh_never_reports_success(self):
-        for action in ["bootstrap", "inspect", "cluster-bootstrap", "cluster-verify", "api-start", "api-verify"]:
+        for action in ["bootstrap", "inspect", "cluster-bootstrap", "cluster-verify", "api-start", "api-verify", "tunnel-start", "tunnel-verify"]:
             with self.subTest(action=action):
                 result, _, _, _ = self.invoke(action=action, ssh_exit=73, make=True)
                 self.assertNotEqual(result.returncode, 0)

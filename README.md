@@ -92,6 +92,45 @@ requests. It never installs, pulls or restarts anything.
 `candidate_acceptance_verified=false`: real authenticated candidate acceptance,
 dedicated tunnel/DNS and the lab-enabled browser release remain later gates.
 
+Once the real private API verifies, publish the authenticated staging POC:
+
+1. In GitHub Actions, run **CKA labs · publish authenticated staging POC** from
+   protected `main`. It admits the controller, checks existing Pages ownership,
+   prepares only the lab tunnel/DNS and encrypted token, then waits for HTTPS.
+2. When the workflow reaches **Wait for the operator to run make
+   cka-lab-tunnel-start**, run on your operator workstation:
+
+   ```bash
+   make cka-lab-tunnel-start
+   make cka-lab-tunnel-verify
+   ```
+
+3. The workflow verifies the exact public API and anonymous denial, builds the
+   dedicated lab frontend without cloud credentials, then publishes to the
+   existing `cka-account-staging` Pages project and verifies both releases.
+
+The token is stored only in the existing default OCI Vault under a lab-only
+secret name. The OCI agent stages a 0600 **nonsecret locator**, never the token
+or a root command. The operator reads the encrypted secret with the already
+installed SDK/instance principal, passes it over private stdin, and only the
+lab user writes its private env file and starts the bounded connector. No new
+OCI agent sudo permission, VM, disk, Vault or master key is introduced.
+
+Capacity checks enumerate subscribed regions/compartments and all existing
+tunnels before mutation, fail on missing permission or ambiguous custody, and
+log only aggregate counts. The guards conservatively stay within
+[150 Always Free Vault secrets](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm)
+and [1,000 no-cost tunnels](https://developers.cloudflare.com/tunnel/features/tunnels-for-platforms/).
+An identical retry does not rotate the secret or create another tunnel. Foreign
+DNS/ingress/custody is never overwritten. A failed partial preparation keeps its
+owned resources for diagnosis and an idempotent retry.
+
+Start is an initial activation, not an upgrade: if a connector already exists,
+use the verification target and rerun the publication workflow as needed.
+Publication evidence explicitly leaves `candidate_acceptance_verified=false`:
+the final real-user check is logging into staging, preparing an exercise,
+repairing it, grading and finishing it from the browser.
+
 If `cloudflared` is an asdf shim without a selected version, select one you
 already have installed. For example, where version 2026.10.7 is available:
 `ASDF_CLOUDFLARED_VERSION=2026.10.7 make cka-lab-bootstrap`.

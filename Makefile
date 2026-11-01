@@ -3,7 +3,7 @@
 # Optional existing operator key; consumed as one quoted SSH argument by the helper.
 export CKA_OPERATOR_SSH_KEY
 
-.PHONY: help cka-lab-bootstrap cka-lab-inspect cka-lab-cluster-bootstrap cka-lab-cluster-verify cka-lab-api-start cka-lab-api-verify
+.PHONY: help cka-lab-bootstrap cka-lab-inspect cka-lab-cluster-bootstrap cka-lab-cluster-verify cka-lab-api-start cka-lab-api-verify cka-lab-tunnel-start cka-lab-tunnel-verify
 
 help:
 	@printf '%s\n' \
@@ -14,6 +14,8 @@ help:
 	  '  make cka-lab-cluster-verify     Verify the existing kind cluster (read-only)' \
 	  '  make cka-lab-api-start          Start the admitted private API (no tunnel or public ports)' \
 	  '  make cka-lab-api-verify         Verify the private controller and auth boundary (read-only)' \
+	  '  make cka-lab-tunnel-start       Start only the prepared lab tunnel (during publication workflow)' \
+	  '  make cka-lab-tunnel-verify      Verify connector and public API (read-only)' \
 	  '  Optional: CKA_OPERATOR_SSH_KEY=/path/to/existing/key make <target>' \
 	  '  Bootstrap prepares the runtime; labs remain disabled until deployment.'
 
@@ -34,3 +36,9 @@ cka-lab-api-start:
 
 cka-lab-api-verify:
 	bash host/bootstrap-cka-lab-over-ssh.sh api-verify
+
+cka-lab-tunnel-start:
+	bash host/bootstrap-cka-lab-over-ssh.sh tunnel-start
+
+cka-lab-tunnel-verify:
+	bash host/bootstrap-cka-lab-over-ssh.sh tunnel-verify
