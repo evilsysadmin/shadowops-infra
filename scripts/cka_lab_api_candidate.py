@@ -62,16 +62,26 @@ def main(phase):
         assert phase == "scenarios"
         capabilities = api("capabilities")
         assert capabilities["labs_enabled"] is True and capabilities["capacity"] == 1
-        assert capabilities["current"] is None
+        assert capabilities["current"] is None and capabilities["available"] is True
         assert len(capabilities["scenarios"]) == 3
         api("capabilities", bearer=token("wrong-audience"), expected=401)
-        api("prepare", {"slug": "scale-payment-api"}, bearer=token("foreign"), expected=401)
         api("capabilities", bearer=token() + "bad", expected=401)
-        for slug, scenario in load_bank().items():
+        for index, (slug, scenario) in enumerate(load_bank().items()):
             attempt = api("prepare", {"slug": slug})
             identity, namespace = attempt["session"]["id"], attempt["scenario"]["namespace"]
             assert namespace.startswith("cka-lab-") and namespace != scenario.namespace
             assert "initial_replicas" not in json.dumps(attempt)
+            if index == 0:
+                other = api("capabilities", bearer=token("foreign"))
+                assert other["current"] is None and other["available"] is False
+                assert identity not in json.dumps(other) and namespace not in json.dumps(other)
+                for action, body in [("status", {"id": identity}),
+                                     ("command", {"id": identity, "command": "kubectl get pods"}),
+                                     ("grade", {"id": identity}), ("finish", {"id": identity})]:
+                    api(action, body, bearer=token("foreign"), expected=401)
+                api("prepare", {"slug": slug}, bearer=token("foreign"), expected=409)
+                # Denied access must preserve the owner's exact active lease.
+                assert api("capabilities")["current"]["session"]["id"] == identity
             assert not api("grade", {"id": identity})["passed"], "Exercise did not start broken"
             if scenario.scenario_type == "deployment_scale":
                 api("prepare", {"slug": slug}, expected=409)
@@ -96,6 +106,26 @@ def main(phase):
             print("CKA_LAB_PUBLISHED_API_SCENARIO_OK " + slug, flush=True)
 
         assert api("capabilities")["current"] is None
+        assert api("capabilities", bearer=token("foreign"))["available"] is True
+        second = api("prepare", {"slug": "scale-payment-api"}, bearer=token("foreign"))
+        second_id = second["session"]["id"]
+        assert second_id != identity and second["scenario"]["namespace"] != namespace
+        assert api("capabilities")["current"] is None
+        api("status", {"id": second_id}, expected=401)
+        assert not api("grade", {"id": second_id}, bearer=token("foreign"))["passed"]
+        scenario = load_bank()["scale-payment-api"]
+        api("command", {"id": second_id,
+            "command": f"kubectl scale deployment/{scenario.deployment} --replicas={scenario.target_replicas}"},
+            bearer=token("foreign"))
+        for _ in range(4):
+            time.sleep(8)
+            if api("grade", {"id": second_id}, bearer=token("foreign"))["passed"]:
+                break
+        else:
+            raise AssertionError("Second authenticated candidate could not solve their real lab")
+        api("finish", {"id": second_id}, bearer=token("foreign"))
+        assert api("capabilities")["available"] is True
+        print("CKA_LAB_PUBLISHED_API_TWO_AUTHENTICATED_OWNERS_OK", flush=True)
         attempt = api("prepare", {"slug": "scale-payment-api"})
         identity = attempt["session"]["id"]
         held = token()

@@ -65,7 +65,8 @@ class SyntheticAuthority(unittest.TestCase):
         leaf = x509.load_pem_x509_certificate((self.root / "tls.pem").read_bytes())
         names = leaf.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
         self.assertEqual(names.get_values_for_type(x509.DNSName), [HOST])
-        self.assertEqual(set(self.config), {"environment", "jwks", "service_credential", "pilot_subject", "build"})
+        self.assertEqual(set(self.config), {"environment", "jwks", "service_credential", "access_mode", "build"})
+        self.assertEqual(self.config["access_mode"], "authenticated-staging")
         for path in self.root.iterdir():
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 

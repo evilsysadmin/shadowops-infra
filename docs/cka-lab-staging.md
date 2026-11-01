@@ -6,9 +6,19 @@ This supersedes the earlier dedicated-runner requirement for this staging pilot.
 Production and untrusted multi-user laboratories still need their own reviewed
 isolation and capacity decision.
 
-The first candidate is the central ShadowOps account `evilsysadmin`. Bind its
-allowlist to the freshly verified Identity UUID; a username or browser parameter
-is never a lab authorization.
+The current requested POC admits **all freshly authenticated staging CKA users**
+through the explicit private configuration `access_mode: authenticated-staging`.
+This supersedes the original single-account pilot restriction. A username or
+browser parameter is never authorization: signatures, fixed issuer/audience,
+JTI and current central Identity session state are verified on every operation.
+The old `pilot_subject` configuration remains a closed single-UUID rollback
+mode; do not combine it with the authenticated mode.
+
+There is still only **one active lease globally**, shared by all users. Other
+users can see that the slot is occupied, without receiving the current owner's
+lease ID, namespace or exercise state. They cannot issue commands, grade or
+finish another user's lease. Verified cleanup frees the slot for the next user.
+Authenticated access does not increase the A1 CPU, RAM or disk allocation.
 
 ## Separate Compose project, same physical host
 
@@ -73,7 +83,7 @@ boot/block storage. It is not an instruction to allocate that capacity.
 
 Before enabling prepare/terminal/grade: verify actual host headroom and enforced
 limits, the installed runtime policy, fresh Identity authorization on each
-operation, pilot UUID binding, durable capacity-one leases, bounded TTL and
+operation, explicit authenticated access and owner isolation, durable capacity-one leases, bounded TTL and
 verified cleanup after expiry/restart, candidate RBAC/admission/network isolation,
 and all three curated exercises failing initially then passing after real repair.
 Verify the actual staging browser journey and that logout denies further lab
@@ -213,7 +223,7 @@ A missing/ambiguous/invalid receipt is not approval.
 
 This independent source admission does not replace the subsequent operator
 confirmation of a healthy installed rootless runtime, actual A1 scenario smoke,
-Identity pilot binding, tunnel route and controlled frontend activation.
+explicit authenticated Identity access, tunnel route and controlled frontend activation.
 The admitted digest must later be carried unchanged into
 `CKA_LAB_IMAGE_DIGEST` in the dedicated rootless Compose project.
 
@@ -222,7 +232,7 @@ The admitted digest must later be carried unchanged into
 `compose.cka-lab.staging.yaml` contains the separate controller and tunnel.
 It requires an admitted immutable `cka-lab-staging` image digest. Never execute
 it against the host Docker daemon. The controller receives only the lab
-kubeconfig, its own CKA service credential/JWKS/pilot UUID configuration and its
+kubeconfig, its own CKA service credential/JWKS/access-mode configuration and its
 durable lease directory. It has no Docker socket, host paths outside the private
 runtime, developer API, inference code or route to another product's Docker
 network. Both IP forwarding sysctls are disabled on the controller.
@@ -264,8 +274,8 @@ container-network endpoint. No external network or fake successful probe is
 substituted. The FUSE image preload uses containerd's local importer and confirms
 the resulting CRI configuration digest against the original digest-pinned pull.
 
-Activation still needs: the operator's freshly verified pilot UUID, a private
-configuration copied from the existing CKA consumer credentials without IdP
+Activation still needs: a private configuration with explicit authenticated
+staging access, copied from the existing CKA consumer credentials without IdP
 signing keys, an admitted image, the lab tunnel/DNS route, real A1 scenario and
 isolation receipts, and the dedicated `lab-staging` browser release. Neither the
 existing account service nor the account-only Pages build activates labs.
@@ -312,5 +322,26 @@ restart cleanup and `oci_mutations=false`. CI resolves the **current** signed
 CKA protected-main publication and pins its verified immutable digest for the
 entire disposable smoke. Source advances and incomplete publications fail closed;
 they never fall back to an older successful image. This does not perform live
-release admission, install the A1 runtime, bind a real pilot UUID, create a
+release admission, install the A1 runtime, configure real authenticated access, create a
 tunnel, publish Pages or establish deployed acceptance.
+
+
+## Authenticated users sharing the published runtime
+
+The disposable Compose proof uses the explicit `authenticated-staging` mode,
+with two distinct cryptographically signed subjects registered by the test
+Identity authority. While the first owns a live namespace, the second sees only
+an occupied slot, is denied all four operations against its ID, and cannot
+prepare a second namespace. Those denials must leave the first lease intact.
+After actual cleanup, the second account prepares a distinct namespace, repairs
+its broken Deployment, passes the real state grade and finishes its own lease.
+The first account is denied access to that second lease.
+
+`CKA_LAB_PUBLISHED_API_TWO_AUTHENTICATED_OWNERS_OK` is the extra acceptance
+marker. Existing checks for all three scenarios, unexpired session revocation,
+Pod egress denial and durable restart cleanup remain required. Synthetic CI
+users are evidence about the published implementation, not live A1 acceptance.
+
+The host bootstrap, private real Identity configuration, dedicated tunnel/DNS,
+Compose activation and `lab-staging` Pages publication must still complete in
+that order. Keep the account-only site until the real lab origin is ready.

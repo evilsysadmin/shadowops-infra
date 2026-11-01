@@ -82,7 +82,7 @@ def generate(directory, build):
         private_write(directory / name, key.private_bytes(serialization.Encoding.PEM,
             serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
     private_write(directory / "lab.json", json.dumps({"environment": "staging", "jwks": jwks,
-        "service_credential": SOC, "pilot_subject": OWNER, "build": build}).encode())
+        "service_credential": SOC, "access_mode": "authenticated-staging", "build": build}).encode())
 
 
 class Authority:

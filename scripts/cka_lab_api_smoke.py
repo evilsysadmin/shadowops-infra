@@ -143,6 +143,7 @@ def main():
             for setting in ("/proc/sys/net/ipv4/ip_forward", "/proc/sys/net/ipv6/conf/all/forwarding"):
                 assert run("docker", "exec", container, "cat", setting).strip() == "0"
             result = candidate("scenarios")
+            assert "CKA_LAB_PUBLISHED_API_TWO_AUTHENTICATED_OWNERS_OK" in result.splitlines()
             pending = next(line.removeprefix("CKA_LAB_API_RESTART_PENDING ") for line in result.splitlines()
                            if line.startswith("CKA_LAB_API_RESTART_PENDING "))
             namespace = json.loads(pending)["namespace"]
@@ -177,7 +178,7 @@ def main():
             assert namespaces() == [], "Confirmed finish left Kubernetes resources behind"
             print("CKA_LAB_PUBLISHED_COMPOSE_API_VERIFIED " + json.dumps({
                 "source_sha": source, "image_digest": digest, "curated_exercises": 3,
-                "fresh_identity": True, "unexpired_revocation": True, "restart_cleanup": True,
+                "fresh_identity": True, "authenticated_owners": 2, "unexpired_revocation": True, "restart_cleanup": True,
                 "candidate_egress_denied": True, "real_kubernetes": True,
                 "oci_mutations": False}, sort_keys=True))
         finally:
