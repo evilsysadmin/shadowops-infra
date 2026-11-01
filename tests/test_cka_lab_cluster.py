@@ -8,6 +8,18 @@ import cka_lab_cluster as cluster
 
 
 class FixedRootlessCluster(unittest.TestCase):
+    def test_read_only_tool_check_does_not_create_missing_directory(self):
+        import os
+        import tempfile
+        from types import SimpleNamespace
+
+        with tempfile.TemporaryDirectory() as root:
+            account = SimpleNamespace(pw_dir=root, pw_uid=os.geteuid())
+            target = Path(root) / "tools"
+            with self.assertRaises(cluster.ClusterBootstrapError):
+                cluster.tool(account, install=False)
+            self.assertFalse(target.exists())
+
     def test_rootful_or_unenforced_daemon_is_rejected(self):
         good = {"SecurityOptions": ["name=rootless"], "CgroupVersion": "2", "CgroupDriver": "systemd"}
         cluster.rootless_info(good)
