@@ -10,6 +10,8 @@ on:
       - 'scripts/chronicles_production_admission.py'
       - 'scripts/chronicles_pages_manual_target.py'
       - 'tests/test_chronicles_pages_manual_target.py'
+      - 'scripts/chronicles_pages_candidate.sh'
+      - 'tests/test_chronicles_pages_candidate.py'
       - 'tests/test_chronicles_source_ci.py'
       - 'scripts/chronicles_staging_receipt.py'
       - 'tests/test_chronicles_staging_receipt.py'
@@ -77,6 +79,8 @@ jobs:
           CHRONICLES_ONLY_IF_NEW: ${{ inputs.only_if_new }}
         run: python3 scripts/chronicles_pages_manual_target.py
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_manual_target.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_candidate.py' -v
+      - run: bash -n scripts/chronicles_pages_candidate.sh
       - run: python3 -m unittest discover -s tests -p 'test_pages_owner_admission.py' -v
       - run: python3 scripts/run_chronicles_shared_contracts.py
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_target.py' -v
@@ -116,43 +120,8 @@ jobs:
       - name: Compare current source main against verified Pages receipts
         id: check
         shell: bash
-        run: |
-          set -euo pipefail
-          sha="$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)"
-          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || exit 64
-          echo "source_sha=$sha" >> "$GITHUB_OUTPUT"
-          # An automatic source dispatch is never allowed to deploy a newer
-          # revision accidentally, or re-publish an already verified SHA.
-          if [[ "$ONLY_IF_NEW" == 'true' && "$REQUESTED_SHA" != "$sha" ]]; then
-            echo "CHRONICLES_PAGES_DISPATCH_SUPERSEDED requested=$REQUESTED_SHA"
-            echo 'publish=false' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # Fail closed: all three exact-SHA source workflows must finish green.
-          verdict="$(python3 scripts/chronicles_source_ci.py "$sha")"
-          if [[ "$verdict" != 'ready' ]]; then
-            if [[ "$GITHUB_EVENT_NAME" == 'workflow_dispatch' ]]; then
-              echo 'Chronicles source CI is not fully green' >&2
-              exit 1
-            fi
-            echo 'publish=false' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [[ "$GITHUB_EVENT_NAME" != 'workflow_dispatch' || "$ONLY_IF_NEW" == 'true' ]]; then
-            # A historical artifact alone is not proof that staging still
-            # serves this SHA. Require a successful trusted run and live HTTPS.
-            if python3 scripts/chronicles_pages_verified_receipt.py "$sha"; then
-              echo 'publish=false' >> "$GITHUB_OUTPUT"
-              exit 0
-            else
-              receipt_status=$?
-              if (( receipt_status != 1 )); then
-                echo "CHRONICLES_PAGES_RECEIPT_CHECK_INCONCLUSIVE" >&2
-                exit "$receipt_status"
-              fi
-            fi
-          fi
-          echo 'publish=true' >> "$GITHUB_OUTPUT"
+        run: bash scripts/chronicles_pages_candidate.sh
+
 
   api-ready:
     name: Wait for exact API; skip obsolete client SHAs
