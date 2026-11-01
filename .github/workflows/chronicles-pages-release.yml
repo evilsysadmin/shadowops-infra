@@ -23,6 +23,8 @@ on:
       - 'tests/test_chronicles_pages_target.py'
       - 'tests/test_chronicles_pages_verify.py'
       - 'tests/test_chronicles_react_pages.py'
+      - 'scripts/chronicles_frontend_artifacts.sh'
+      - 'tests/test_chronicles_frontend_artifacts.py'
       - 'tests/test_chronicles_public_browser_workflow.py'
       - 'scripts/chronicles_api_before_pages.py'
       - 'scripts/chronicles_pages_api_gate.sh'
@@ -87,6 +89,8 @@ jobs:
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_target.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_verify.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_react_pages.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_frontend_artifacts.py' -v
+      - run: bash -n scripts/chronicles_frontend_artifacts.sh
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_public_browser_workflow.py' -v
       - run: bash -n scripts/chronicles_pages_api_gate.sh
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_verified_receipt.py' -v
@@ -271,21 +275,8 @@ jobs:
           set -euo pipefail
           npm ci --ignore-scripts --no-audit --no-fund
           npm run build
-          # The in-app update banner must read the exact release being deployed.
-          test -s dist/release.json
-          node -e "const fs=require('node:fs');const m=JSON.parse(fs.readFileSync('dist/release.json','utf8'));if(m.build!==process.env.VITE_BUILD_SHA) process.exit(1)"
-          grep -q 'Chronicles of Matthias' dist/index.html
-          grep -q '/assets/' dist/index.html
-          # The real game, not a shell: original component, Tactics, the
-          # Three.js renderer and server-side runs must be in the bundle.
-          ls dist/assets/ChroniclesOfMatthias-*.js
-          ls dist/assets/ChroniclesOfMatthiasTactics-*.js
-          ls dist/assets/chroniclesOfMatthiasThree-*.js
-          # Runtime assets served from public/ (not the SPA fallback).
-          test -s dist/audio/orchestra/violin-fs3.mp3
-          test -s dist/models/matthias-home-canonical.glb
-          grep -lFq '/chronicles/runs' dist/assets/*.js
-          grep -lFq 'chronicles-api-staging.shadowops.dpdns.org' dist/assets/*.js
+          bash ../../scripts/chronicles_frontend_artifacts.sh staging
+
       - name: Assemble static root
         if: steps.entry_freshness.outputs.fresh == 'true' && (steps.live.outputs.already_published != 'true')
         shell: bash
@@ -645,22 +636,8 @@ jobs:
           set -euo pipefail
           npm ci --ignore-scripts --no-audit --no-fund
           npm run build
-          # The in-app update banner must read the exact release being deployed.
-          test -s dist/release.json
-          node -e "const fs=require('node:fs');const m=JSON.parse(fs.readFileSync('dist/release.json','utf8'));if(m.build!==process.env.VITE_BUILD_SHA) process.exit(1)"
-          grep -q 'Chronicles of Matthias' dist/index.html
-          grep -q '/assets/' dist/index.html
-          # The real game, not a shell: original component, Tactics, the
-          # Three.js renderer and server-side runs must be in the bundle.
-          ls dist/assets/ChroniclesOfMatthias-*.js
-          ls dist/assets/ChroniclesOfMatthiasTactics-*.js
-          ls dist/assets/chroniclesOfMatthiasThree-*.js
-          # Runtime assets served from public/ (not the SPA fallback).
-          test -s dist/audio/orchestra/violin-fs3.mp3
-          test -s dist/models/matthias-home-canonical.glb
-          grep -lFq '/chronicles/runs' dist/assets/*.js
-          grep -lFq 'chronicles-api.shadowops.dpdns.org/api' dist/assets/*.js
-          if grep -lFq 'chronicles-api-staging.' dist/assets/*.js; then echo 'staging API in production build' >&2; exit 1; fi
+          bash ../../scripts/chronicles_frontend_artifacts.sh production
+
       - name: Assemble static root
         shell: bash
         run: |
