@@ -64,3 +64,12 @@ tunnel and browser activation remain subsequent deployment steps.
 `cka-lab-inspect` only invokes the fixed installed inspector: it performs no
 Git checkout, installation, service start or repair. It fails if the runtime
 has not been installed. See the [full CKA lab runbook](docs/cka-lab-staging.md).
+
+If SSH disconnects during bootstrap, installation status is unknown: inspect
+before attempting another install. When the SSH tunnel is unavailable, run
+the GitHub Actions workflow **CKA labs · shared A1 Compose preflight** from
+`main` with `action=inspect-runtime`. This invokes only the installed read-only
+wrapper through the OCI agent and may queue behind other A1 host operations.
+The installer prints `CKA_LAB_INSTALL_STAGE` progress markers. Its APT calls
+suspend `needrestart` for that process only, simulate the dependency plan and
+reject upgrades, removals or pending configuration of existing host packages.
