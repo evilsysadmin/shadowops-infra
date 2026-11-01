@@ -367,6 +367,11 @@ class TestOCIInventory(unittest.TestCase):
                 self.assertNotIn("SECRET_REMOTE", output.getvalue() + summary)
                 self.assertNotIn(vault, output.getvalue() + summary)
                 self.assertEqual(agent.created, 1)
+                samples = ("CHRONICLES_API_OCI_DELIVERY_SAMPLES visible=0 "
+                           + ("pending=1 other=0" if ack_before_terminal
+                              else "pending=2 other=0"))
+                self.assertIn(samples, summary)
+                self.assertIn(samples, output.getvalue())
                 self.assertIsNone(next(poll_ticks, None))
                 expected_detail = (
                     "CHRONICLES_API_OCI_POLL_DETAIL_MS "
@@ -383,6 +388,79 @@ class TestOCIInventory(unittest.TestCase):
                     self.assertIn("not observed before terminal", summary)
                     self.assertNotIn("CHRONICLES_API_OCI_DELIVERY_OBSERVED_SECONDS",
                                      output.getvalue())
+
+    def test_oci_delivery_samples_classify_visible_pending_other_before_ack(self):
+        from unittest.mock import patch
+        import oci_chronicles_api_release as release
+
+        expected = "CHRONICLES_API_OCI_DELIVERY_SAMPLES visible=1 pending=1 other=1"
+        self.assertEqual(release.observed_delivery_samples(1, 1, 1), expected)
+        self.assertEqual(release.observed_delivery_samples(999999, -1, 999999),
+                         "CHRONICLES_API_OCI_DELIVERY_SAMPLES visible=99999 pending=0 other=99999")
+        phase = "CHRONICLES_API_OCI_PHASE_SECONDS preflight=0 dispatch=0 execution=0"
+        self.assertIn(expected, release.timing_summary(
+            phase, verified=True, delivery_samples=expected))
+        for bad in (expected + " PRIVATE", "PRIVATE\n" + expected,
+                    expected.replace("visible=1", "visible=-1"),
+                    expected.replace("other=1", "other=999999")):
+            self.assertEqual(release.timing_summary(phase, verified=True,
+                                                   delivery_samples=bad), "")
+
+        sdk = FakeSDK()
+        digest = "sha256:" + "a" * 64
+        marker = release.marker_for("staging") + digest
+        vault = "ocid1.vault.oc1.eu-frankfurt-1.abcdefghijkl"
+        sdk.compute_instance_agent.models = NS(
+            InstanceAgentCommandSourceViaTextDetails=lambda **kw: NS(**kw),
+            InstanceAgentCommandOutputViaTextDetails=lambda **kw: NS(**kw),
+            InstanceAgentCommandContent=lambda **kw: NS(**kw),
+            InstanceAgentCommandTarget=lambda **kw: NS(**kw),
+            CreateInstanceAgentCommandDetails=lambda **kw: NS(**kw),
+        )
+
+        class Agent:
+            def __init__(self):
+                self.create_calls = 0
+                self.responses = iter((
+                    ("ACCEPTED", "VISIBLE"),
+                    ("ACCEPTED", "PENDING"),
+                    ("ACCEPTED", "UNKNOWN_ENUM_VALUE"),
+                    ("ACCEPTED", "ACKED"),
+                    ("IN_PROGRESS", "PENDING"),  # after ACK: do not count
+                    ("SUCCEEDED", "ACKED"),     # terminal: do not count
+                ))
+                self.poll_calls = 0
+
+            def create_instance_agent_command(self, **kwargs):
+                self.create_calls += 1
+                return NS(data=NS(id="command-test"))
+
+            def get_instance_agent_command_execution(self, **kwargs):
+                self.poll_calls += 1
+                state, delivery = next(self.responses)
+                return NS(data=NS(lifecycle_state=state, delivery_state=delivery,
+                                  content=NS(text="SECRET_REMOTE\n" + marker, exit_code=0)))
+
+        agent = Agent()
+        sdk.compute_instance_agent.ComputeInstanceAgentClient = lambda cfg: agent
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = Path(tmp) / "actions.md"
+            with patch("chronicles_api_provision.resolve_vault", return_value=(
+                vault, None, None)), patch.dict(os.environ, {
+                    "GITHUB_STEP_SUMMARY": str(summary)}), redirect_stdout(output):
+                self.assertEqual(release.execute(
+                    sdk, cp.config_from_env(sdk, ENV), digest,
+                    pause=lambda _: None, clock=lambda: 100.0,
+                    poll_clock=lambda: 100.0), marker)
+            report = summary.read_text()
+        self.assertIn(expected, report)
+        self.assertIn(expected, output.getvalue())
+        self.assertNotIn("SECRET_REMOTE", report + output.getvalue())
+        self.assertNotIn(vault, report + output.getvalue())
+        self.assertEqual(output.getvalue().splitlines()[-1], marker)
+        self.assertEqual(agent.create_calls, 1)
+        self.assertEqual(agent.poll_calls, 6)
 
     def test_release_rejects_unhealthy_plugin_before_submitting_any_command(self):
         from unittest.mock import patch
