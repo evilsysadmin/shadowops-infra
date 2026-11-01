@@ -43,6 +43,8 @@ class StagingConvergenceContracts(unittest.TestCase):
         # The candidate gate is still fail-closed and receipt/idempotency aware.
         selection = next(step["run"] for step in self.workflow["jobs"]["admit"]["steps"]
                          if step.get("id") == "candidate")
+        self.assertEqual(selection, "bash scripts/chronicles_api_candidate.sh")
+        selection = (ROOT / "scripts/chronicles_api_candidate.sh").read_text(encoding="utf-8")
         self.assertIn("chronicles_source_ci.py", selection)
         self.assertIn("--receipt-only", selection)
         self.assertIn("deploy_needed=false", selection)
@@ -132,6 +134,8 @@ class StagingConvergenceContracts(unittest.TestCase):
                       admit["env"]["ONLY_IF_NEW"])
         selection = next(step["run"] for step in admit["steps"]
                          if step.get("id") == "candidate")
+        self.assertEqual(selection, "bash scripts/chronicles_api_candidate.sh")
+        selection = (ROOT / "scripts/chronicles_api_candidate.sh").read_text(encoding="utf-8")
         self.assertIn('GITHUB_EVENT_NAME', selection)
         self.assertIn("ONLY_IF_NEW", selection)
         deploy = self.workflow["jobs"]["deploy"]
@@ -511,11 +515,13 @@ exit "${FAKE_PROBE_EXIT:-0}"
         admission = next(s for s in steps if s.get("id") == "admission")
         # The trusted receipt gate checks the successful run and main
         # provenance; the workflow must not maintain its own artifact counter.
-        self.assertIn("chronicles_api_before_pages.py --receipt-only", candidate["run"])
-        self.assertIn("CHRONICLES_API_RECEIPT_CHECK_INCONCLUSIVE", candidate["run"])
-        self.assertNotIn("workflow_run.head_branch", candidate["run"])
-        self.assertIn("deploy_needed=false", candidate["run"])
-        self.assertIn("workflow_dispatch", candidate["run"])
+        self.assertEqual(candidate["run"], "bash scripts/chronicles_api_candidate.sh")
+        script = (ROOT / "scripts/chronicles_api_candidate.sh").read_text(encoding="utf-8")
+        self.assertIn("chronicles_api_before_pages.py --receipt-only", script)
+        self.assertIn("CHRONICLES_API_RECEIPT_CHECK_INCONCLUSIVE", script)
+        self.assertNotIn("workflow_run.head_branch", script)
+        self.assertIn("deploy_needed=false", script)
+        self.assertIn("workflow_dispatch", script)
         self.assertIn("gh attestation verify", admission["run"])
         self.assertIn("linux\",\"arm64", admission["run"])
         self.assertIn("--source-digest", admission["run"])
