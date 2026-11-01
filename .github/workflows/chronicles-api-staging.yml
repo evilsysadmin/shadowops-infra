@@ -298,7 +298,13 @@ jobs:
       group: shadowops-oci-host-operations
       cancel-in-progress: false
     needs: admit
-    if: needs.admit.outputs.deploy_needed == 'true'
+    # `admit` explicitly tolerates the skipped `provision` job on normal
+    # staging deploys. Override GitHub's implicit success() here too, or
+    # the deploy job is skipped despite a successful image admission.
+    # Still fail closed unless admission succeeded and requested deployment.
+    if: >-
+      always() && needs.admit.result == 'success' &&
+      needs.admit.outputs.deploy_needed == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment:
