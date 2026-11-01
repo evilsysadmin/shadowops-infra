@@ -291,5 +291,37 @@ class StagingPagesTests(unittest.TestCase):
                 s.CloudflareClient(env)
 
 
+
+class StarAdventuresWorkflowOwnershipTests(unittest.TestCase):
+    def test_pages_contracts_are_owned_by_staging_workflow_only(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        workflow_dir = root / ".github" / "workflows"
+        self.assertFalse((workflow_dir / "staradvs-pages-contracts.yml").exists(),
+                         "Legacy standalone Pages suite duplicates staging CI")
+        workflow = (workflow_dir / "staradvs-pages-staging.yml").read_text(encoding="utf-8")
+        for module in ("test_staradvs_pages.py", "test_staradvs_source_admission.py",
+                       "test_staradvs_staging_hold.py"):
+            self.assertEqual(workflow.count("-p '" + module + "' -v"), 1,
+                             "Every shared suite must have exactly one runner")
+        self.assertIn("python3 scripts/staradvs_pages.py self-test", workflow)
+        self.assertIn("python3 -m py_compile scripts/staradvs_pages.py", workflow)
+
+    def test_shared_pages_changes_trigger_staging_checks(self):
+        import re
+        root = pathlib.Path(__file__).resolve().parents[1]
+        workflow = (root / ".github/workflows/staradvs-pages-staging.yml").read_text(encoding="utf-8")
+        path_sections = re.findall(r"(?m)^    paths: \\[(.+)\\]$", workflow)
+        self.assertEqual(len(path_sections), 2)
+        pr_paths, push_paths = path_sections
+        for required in ("tests/test_staradvs_source_admission.py",
+                         "tests/test_staradvs_pages.py",
+                         "scripts/staradvs_source_admission.py",
+                         "scripts/staradvs_pages.py"):
+            self.assertIn(required, pr_paths)
+            self.assertIn(required, push_paths)
+        self.assertIn("docs/staradvs-staging.md", pr_paths)
+        self.assertNotIn("docs/staradvs-staging.md", push_paths,
+                         "Docs-only main merges should not request a live deployment")
+
 if __name__ == "__main__":
     unittest.main()
