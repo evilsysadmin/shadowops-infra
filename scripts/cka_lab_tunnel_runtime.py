@@ -76,6 +76,7 @@ def handoff():
                 raise api.ApiError('Launch the manual publication workflow first') from None
             time.sleep(3)
     value = read_bundle(location, pin)
+    api.stage('start-dedicated-connector')
     result = subprocess.run(['runuser', '--user', api.USER, '--', '/usr/bin/python3', '-I', str(Path(__file__)), 'start'],
         input=json.dumps(value), text=True, timeout=900,
         env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C.UTF-8'})
@@ -83,9 +84,11 @@ def handoff():
         raise api.ApiError('Dedicated lab connector failed')
 
 
-def tunnel_policy(row, *, project=api.PROJECT):
+def tunnel_policy(row, *, project=api.PROJECT, token=None):
     config, host = row['Config'], row['HostConfig']
     labels = config.get('Labels', {})
+    if token is not None and [item for item in config.get('Env', []) if item.startswith('TUNNEL_TOKEN=')] != ['TUNNEL_TOKEN=' + token]:
+        raise api.ApiError('Actual connector token delivery mismatch')
     if (config.get('Image') != CF_IMAGE or config.get('User') != '65532:65532' or config.get('Cmd') != CF_COMMAND
             or labels.get('com.docker.compose.project') != project
             or labels.get('com.docker.compose.service') != 'cka-lab-tunnel'
@@ -102,10 +105,15 @@ def tunnel_policy(row, *, project=api.PROJECT):
         raise api.ApiError('Unsafe actual lab tunnel connector')
 
 
-def computed_policy(document, pin, *, home=api.HOME_DIR, platform='linux/arm64', test_ca=None):
+def computed_policy(document, pin, *, home=api.HOME_DIR, platform='linux/arm64', test_ca=None, token=None):
     api.compose_policy(document, pin, home=home, platform=platform, test_ca=test_ca)
     item = document['services']['cka-lab-tunnel']
     files = item.get('env_file', [])
+    exported_env = item.get('environment') or {}
+    # Some installed Compose versions resolve env_file even with the flag.
+    # Compare its sole credential privately against the just-read bundle.
+    if exported_env and (token is None or exported_env != {'TUNNEL_TOKEN': token}):
+        raise api.ApiError('Unexpected exported connector environment')
     if (item.get('image') != CF_IMAGE or item.get('platform') != platform
             or str(item.get('user')) != '65532:65532' or item.get('command') != CF_COMMAND
             or item.get('read_only') is not True or item.get('init') is not True
@@ -114,7 +122,7 @@ def computed_policy(document, pin, *, home=api.HOME_DIR, platform='linux/arm64',
             or str(item.get('memswap_limit')).lower() not in {'128m', '134217728'}
             or float(item.get('cpus', 0)) != 0.05 or item.get('pids_limit') != 32
             or any(item.get(k) for k in ['volumes', 'ports', 'privileged', 'cap_add', 'network_mode', 'pid', 'ipc', 'uts',
-                                       'devices', 'entrypoint', 'environment', 'build', 'secrets', 'configs'])
+                                       'devices', 'entrypoint', 'build', 'secrets', 'configs'])
             or set(item.get('networks', {})) != {'origin', 'tunnel-egress'}
             or document['networks'].get('tunnel-egress', {}).get('name') != 'shadowops-cka-lab-staging-tunnel-egress'
             # Older Compose versions omit env_file from the canonical JSON even
@@ -150,16 +158,18 @@ def operate(action):
             raise api.ApiError('Existing connector requires verification, not another initial start')
         api.stage('configure-private-connector')
         api.private_file(api.HOME_DIR / 'config/tunnel.env', 'TUNNEL_TOKEN=' + value['tunnel_token'] + '\n', account.pw_uid)
-        computed_policy(json.loads(run(*command, 'config', '--no-env-resolution', '--format', 'json')), pin)
+        api.stage('verify-connector-policy')
+        computed_policy(json.loads(run(*command, 'config', '--no-env-resolution', '--format', 'json')), pin, token=value['tunnel_token'])
         api.source_checks(pin)
         api.stage('start-lab-tunnel-only')
         run('docker', 'pull', '--quiet', CF_IMAGE, timeout=180)
         run(*command, 'up', '--detach', '--no-deps', '--pull=never', 'cka-lab-tunnel', timeout=90)
+    api.stage('verify-running-connector')
     identifier = run(*command, 'ps', '--quiet', 'cka-lab-tunnel')
     if not re.fullmatch(r'[a-f0-9]{12,64}', identifier):
         raise api.ApiError('Exactly one running connector required')
     # Inspect may contain the connector token in Config.Env; never print it.
-    tunnel_policy(json.loads(run('docker', 'inspect', identifier))[0])
+    tunnel_policy(json.loads(run('docker', 'inspect', identifier))[0], token=value['tunnel_token'] if action == 'start' else None)
     if action == 'start':
         wait_api(pin, seconds=420)
     else:
