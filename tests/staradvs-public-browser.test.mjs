@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { BASE, validateRelease } from '../scripts/staradvs_public_browser_smoke.mjs';
 
 const SHA = 'a'.repeat(40);
@@ -49,4 +50,14 @@ test('refuse absent or syntactically invalid JS digests', () => {
     m.entry_js.sha256 = digest;
     assert.throws(() => validateRelease(m));
   }
+});
+
+test('live journey follows the shipped captain interface rather than the old walking controls', () => {
+  const source = readFileSync(new URL('../scripts/staradvs_public_browser_smoke.mjs', import.meta.url), 'utf8');
+  assert.match(source, /getByTestId\('captain-controls'\)/);
+  assert.match(source, /getByTestId\('captain-science'\)\.click\(\)/);
+  assert.match(source, /getByTestId\('game-journal-toggle'\)/);
+  assert.match(source, /getByTestId\('choice-broadcast'\)\.click\(\)/);
+  assert.match(source, /page\.reload\(\{ waitUntil: 'domcontentloaded' \}\)/);
+  assert.doesNotMatch(source, /getByTestId\('explore-(left|right|forward|use)'\)\.click\(\)/);
 });
