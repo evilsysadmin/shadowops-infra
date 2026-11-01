@@ -310,7 +310,7 @@ class StarAdventuresWorkflowOwnershipTests(unittest.TestCase):
         import re
         root = pathlib.Path(__file__).resolve().parents[1]
         workflow = (root / ".github/workflows/staradvs-pages-staging.yml").read_text(encoding="utf-8")
-        path_sections = re.findall(r"(?m)^    paths: \\[(.+)\\]$", workflow)
+        path_sections = re.findall(r"(?m)^    paths: \[(.+)\]$", workflow)
         self.assertEqual(len(path_sections), 2)
         pr_paths, push_paths = path_sections
         for required in ("tests/test_staradvs_source_admission.py",
