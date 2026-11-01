@@ -17,12 +17,15 @@ and [tracking issue #287](https://github.com/evilsysadmin/shadowops-infra/issues
 
 Target: separate **Identity Staging** and **Identity Production**, each serving
 all products of its own environment; no cross-env user DB, signing keys,
-cookies, secrets, issuer trust or permissions. **Not deployed yet.**
+cookies, secrets, issuer trust or permissions. Track rollout and acceptance per
+environment and consumer in the linked ADR.
 Use Strangler Fig + Branch by Abstraction + Expand–Contract to migrate the
 existing Chess Studio IdP and Chronicles SSO, with rollback and no big-bang cutover.
 
-Authenticated public CKA labs are blocked by this P0, but local kind labs,
-CI and the read-only Pages preview remain independent.
+The authenticated **CKA staging lab POC is published** on the existing A1.
+See the [live verification receipt](docs/evidence/cka-lab-staging-2026-11-01.md)
+for exact source, public checks and the remaining real-user acceptance gate.
+This staging receipt does not establish a completed production Identity migration.
 
 Infrastructure handoff procedures remain in
 [platform ownership](docs/platform-ownership.md). Release/deploy automation
