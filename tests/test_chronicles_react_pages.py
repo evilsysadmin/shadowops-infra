@@ -404,12 +404,15 @@ class ParallelReactPagesTest(unittest.TestCase):
                       'manifest.get("build") == sha',
                       "from chronicles_pages_verified_receipt import ORIGIN, read_manifest"):
             self.assertIn(guard, helper)
-        self.assertIn('chronicles_api_before_pages.py "$ADMITTED_SHA"', workflow)
+        gate = (pathlib.Path(__file__).resolve().parents[1]
+                / "scripts/chronicles_pages_api_gate.sh").read_text(encoding="utf-8")
+        self.assertIn('chronicles_api_before_pages.py "$ADMITTED_SHA"', gate)
+        self.assertIn("run: bash scripts/chronicles_pages_api_gate.sh", workflow)
         self.assertIn("needs: [contracts, staging-candidate, api-ready]", workflow)
         self.assertIn("if: needs.api-ready.outputs.publish == 'true'", workflow)
         self.assertIn("CHRONICLES_PAGES_SUPERSEDED_BEFORE_RELEASE", workflow)
         self.assertIn("echo 'publish=false' >> \"$GITHUB_OUTPUT\"", workflow)
-        self.assertLess(workflow.index('chronicles_api_before_pages.py "$ADMITTED_SHA"'),
+        self.assertLess(workflow.index("run: bash scripts/chronicles_pages_api_gate.sh"),
                         workflow.index("scripts/chronicles_pages.py preflight"))
         self.assertNotIn("wrangler pages deploy chronicles-source/frontend", workflow)
         # Candidate admission was extracted to a read-only script, but must
