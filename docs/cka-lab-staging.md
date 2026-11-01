@@ -291,12 +291,17 @@ remain unchanged. No real password, cookie, signing key or service credential
 is used or read. The synthetic authority is never copied into a service image.
 
 The client proves every curated exercise starts broken, accepts its scoped
-repair and passes through the actual API. It then holds an unexpired token,
+repair and passes through the actual API. With the controller attached to its Identity egress network, a restricted Pod
+must still fail public and metadata TCP connections against a successful external
+positive control. The client then holds an unexpired token,
 revokes the synthetic session, and requires five independent live freshness
 checks to deny capabilities/status/command/grade/finish. This prevents a local
 rate-limit denial from masquerading as revocation evidence. A still-active
 lease must remain present until a real controller restart closes, deletes and
 reconciles it. A subsequent attempt must work and leave no namespace behind.
+
+This replaces the earlier source-built driver shortcut in the rootless job;
+the published image supplies the actual Go helper, candidate driver and API.
 
 Positive evidence is `CKA_LAB_PUBLISHED_COMPOSE_API_VERIFIED`, with the tested
 source/digest, three exercises, current Identity checks, unexpired revocation,

@@ -124,28 +124,6 @@ jobs:
           verified = verify_cluster(workspace)
           print("CKA_LAB_CLUSTER_VERIFIED " + json.dumps(verified, sort_keys=True))
           PY
-      - name: Checkout the reviewed CKA lease and candidate driver contract
-        uses: actions/checkout@v4
-        with:
-          repository: evilsysadmin/cka-exam-simulator
-          ref: f5362874b83a51b8c4c9f06cf547cd91073de692
-          path: .cka-contract
-          persist-credentials: false
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: .cka-contract/go/go.mod
-          cache-dependency-path: .cka-contract/go/go.mod
-      - name: Build the real journal helper and install the scenario engine
-        run: |
-          cd .cka-contract/go
-          CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/cka-rootless-lease" ./cmd/cka-lease-stdio
-          cd ..
-          cp "$RUNNER_TEMP/cka-rootless-lease" cka-lease-stdio
-          cp "$(command -v kubectl)" kubectl
-      - name: Prove all curated repairs with actual rootless node limits
-        env:
-          CKA_SCENARIO_SOURCE_ROOT: ${{ github.workspace }}/.cka-contract
-        run: python3 scripts/cka_lab_cluster_smoke.py
       - name: Prove the signed published controller through real Compose and TLS Identity
         env:
           GH_TOKEN: ${{ github.token }}

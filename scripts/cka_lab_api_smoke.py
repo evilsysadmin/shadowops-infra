@@ -10,10 +10,11 @@ import os
 from pathlib import Path
 import re
 import shutil
+import socket
 import subprocess
 import tempfile
 
-from cka_lab_cluster import NETWORK, NODE, call, rootless_info, verify_cluster
+from cka_lab_cluster import NETWORK, NODE, PROBE_IMAGE, call, rootless_info, verify_cluster
 
 
 IMAGE = "ghcr.io/evilsysadmin/cka-lab-staging"
@@ -24,6 +25,16 @@ FIXTURE = "cka-published-api-ci-identity"
 CLIENT = "cka-published-api-ci-browser"
 RUNTIME = "/var/lib/shadowops-cka-lab-staging/runtime"
 EGRESS = "shadowops-cka-lab-staging-identity-egress"
+EGRESS_PROBE = """import socket
+for host, port in [('1.1.1.1', 443), ('169.254.169.254', 80)]:
+    try:
+        connection = socket.create_connection((host, port), timeout=2)
+    except OSError:
+        continue
+    connection.close()
+    raise SystemExit('candidate egress reachable')
+print('CKA_CANDIDATE_EGRESS_DENIED', flush=True)
+"""
 
 
 def main():
@@ -36,10 +47,11 @@ def main():
     env = dict(os.environ)
     env["CKA_LAB_IMAGE_DIGEST"] = digest
 
-    def run(*args, timeout=30):
+    def run(*args, timeout=30, input_text=None):
         # Diagnostics are safe here: this disposable job contains only synthetic
         # Identity material. Never invoke this path with live credentials.
-        result = subprocess.run(list(args), env=env, capture_output=True, text=True, timeout=timeout)
+        result = subprocess.run(list(args), env=env, capture_output=True, text=True,
+                                timeout=timeout, input=input_text)
         if result.returncode != 0:
             print((result.stderr or result.stdout)[-8000:])
             raise RuntimeError("Published CKA API proof failed")
@@ -129,7 +141,31 @@ def main():
             result = candidate("scenarios")
             pending = next(line.removeprefix("CKA_LAB_API_RESTART_PENDING ") for line in result.splitlines()
                            if line.startswith("CKA_LAB_API_RESTART_PENDING "))
-            assert namespaces() == [json.loads(pending)["namespace"]], "Revocation did not retain the still-active lease"
+            namespace = json.loads(pending)["namespace"]
+            assert namespaces() == [namespace], "Revocation did not retain the still-active lease"
+            # Repeat the pod egress gate with the real controller now attached
+            # to both private Kubernetes and its external Identity network.
+            with socket.create_connection(("1.1.1.1", 443), timeout=5):
+                pass
+            pod = {"apiVersion": "v1", "kind": "Pod", "metadata": {
+                "name": "published-api-egress", "namespace": namespace}, "spec": {
+                    "restartPolicy": "Never", "automountServiceAccountToken": False,
+                    "securityContext": {"runAsNonRoot": True, "runAsUser": 65532,
+                                        "seccompProfile": {"type": "RuntimeDefault"}},
+                    "containers": [{"name": "probe", "image": PROBE_IMAGE,
+                        "imagePullPolicy": "IfNotPresent", "command": ["python", "-c", EGRESS_PROBE],
+                        "securityContext": {"allowPrivilegeEscalation": False,
+                                            "capabilities": {"drop": ["ALL"]}},
+                        "resources": {"requests": {"memory": "32Mi", "cpu": "10m"},
+                                      "limits": {"memory": "64Mi", "cpu": "100m"}}}]}}
+            run("docker", "exec", "-i", NODE, "kubectl", "--kubeconfig=/etc/kubernetes/admin.conf",
+                "create", "-f", "-", input_text=json.dumps(pod))
+            run("docker", "exec", NODE, "kubectl", "--kubeconfig=/etc/kubernetes/admin.conf",
+                "wait", "--for=jsonpath={.status.phase}=Succeeded", "pod/published-api-egress",
+                "-n", namespace, "--timeout=30s", timeout=40)
+            assert run("docker", "exec", NODE, "kubectl", "--kubeconfig=/etc/kubernetes/admin.conf",
+                "logs", "published-api-egress", "-n", namespace).strip() == "CKA_CANDIDATE_EGRESS_DENIED"
+            print("CKA_CANDIDATE_EGRESS_DENIED", flush=True)
             run(*command, "restart", "cka-lab", timeout=60)
             run(*command, "up", "--detach", "--no-deps", "--pull=never", "--wait", "--wait-timeout=120", "cka-lab", timeout=150)
             assert namespaces() == [], "Actual restart failed to reap the durable lease"
@@ -138,7 +174,8 @@ def main():
             print("CKA_LAB_PUBLISHED_COMPOSE_API_VERIFIED " + json.dumps({
                 "source_sha": source, "image_digest": digest, "curated_exercises": 3,
                 "fresh_identity": True, "unexpired_revocation": True, "restart_cleanup": True,
-                "real_kubernetes": True, "oci_mutations": False}, sort_keys=True))
+                "candidate_egress_denied": True, "real_kubernetes": True,
+                "oci_mutations": False}, sort_keys=True))
         finally:
             for name in (CLIENT, FIXTURE):
                 subprocess.run(["docker", "rm", "--force", name], env=env, capture_output=True, timeout=30)
