@@ -97,6 +97,7 @@ jobs:
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_wrapper_check.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_identity_activation.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_cd_workflow.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_api_candidate.py' -v
       - run: bash -n scripts/chronicles_api_candidate.sh
       - run: python3 scripts/run_chronicles_shared_contracts.py
       - run: python3 -m unittest discover -s scripts -p 'test_shared_a1_host_guard.py' -v
