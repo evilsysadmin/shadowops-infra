@@ -11,6 +11,9 @@ on:
       - 'docs/cka-lab-staging.md'
       - 'tests/test_oci_control_plane.py'
       - 'docs/platform-ownership.md'
+      - '.github/workflows/oci-host-probe.yml'
+      - '.github/workflows/oci-chronicles-ports.yml'
+      - 'tests/test_oci_inventory_workflow.py'
   push:
     branches: [main]
     paths:
@@ -23,6 +26,9 @@ on:
       - 'docs/cka-lab-staging.md'
       - 'tests/test_oci_control_plane.py'
       - 'docs/platform-ownership.md'
+      - '.github/workflows/oci-host-probe.yml'
+      - '.github/workflows/oci-chronicles-ports.yml'
+      - 'tests/test_oci_inventory_workflow.py'
   workflow_dispatch:
 
 permissions:
