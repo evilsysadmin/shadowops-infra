@@ -386,16 +386,27 @@ class ParallelReactPagesTest(unittest.TestCase):
         for required in [
             "ref: ${{ needs.staging-candidate.outputs.source_sha }}",
             "CHRONICLES_SOURCE_SHA:", "CHRONICLES_DEPLOY_BASE: /",
-            "dist/audio/orchestra/violin-fs3.mp3", "dist/models/matthias-home-canonical.glb",
             "npm ci", "npm run build",
-            "test -s dist/release.json", "m.build!==process.env.VITE_BUILD_SHA",
-            "ChroniclesOfMatthias-*.js", "ChroniclesOfMatthiasTactics-*.js",
-            "chroniclesOfMatthiasThree-*.js", "/chronicles/runs",
+            "bash ../../scripts/chronicles_frontend_artifacts.sh staging",
+            "bash ../../scripts/chronicles_frontend_artifacts.sh production",
             "VITE_API_URL: https://chronicles-api-staging.shadowops.dpdns.org/api",
             'cp -a chronicles-source/frontend/dist/. "$root/"',
             'wrangler@4.127.1 pages deploy "$RUNNER_TEMP/chronicles-pages"',
         ]:
             self.assertIn(required, workflow)
+        artifact_script = (pathlib.Path(__file__).resolve().parents[1]
+                           / "scripts/chronicles_frontend_artifacts.sh").read_text()
+        for required in [
+            "dist/audio/orchestra/violin-fs3.mp3",
+            "dist/models/matthias-home-canonical.glb",
+            "test -s dist/release.json", "m.build!==process.env.VITE_BUILD_SHA",
+            "ChroniclesOfMatthias-*.js", "ChroniclesOfMatthiasTactics-*.js",
+            "chroniclesOfMatthiasThree-*.js", "/chronicles/runs",
+            "chronicles-api-staging.shadowops.dpdns.org",
+            "chronicles-api.shadowops.dpdns.org/api",
+            "staging API in production build",
+        ]:
+            self.assertIn(required, artifact_script)
         self.assertIn("EXPECTED_SHA: ${{ steps.source.outputs.sha }}", workflow)
         self.assertIn("python3 scripts/chronicles_pages_manifest_wait.py", workflow)
         helper = (pathlib.Path(__file__).resolve().parents[1]
