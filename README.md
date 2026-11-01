@@ -40,6 +40,27 @@ make cka-lab-bootstrap
 make cka-lab-inspect
 ```
 
+After the runtime inspection succeeds, prepare the private Kubernetes cluster:
+
+```bash
+make cka-lab-cluster-bootstrap
+make cka-lab-cluster-verify
+```
+
+The first command fetches the exact current protected Infra main on the A1,
+verifies the installed runtime, then runs the pinned tool installation,
+cluster bootstrap and live verification as `shadowops-cka-lab`. It does not
+rerun the rootless-runtime installer. Allow several minutes for pinned image
+downloads and initialization on the bounded A1. The bootstrap refuses existing
+cluster state rather than adopting or deleting it; use the inspection target
+for an existing cluster. Verification uses the existing root-owned source without fetching, changing
+the checkout, installing tools or creating state.
+
+Success includes `CKA_LAB_CLUSTER_VERIFIED` with `kubernetes_ready=true` and
+ends with `CKA_LAB_OPERATOR_CLUSTER_BOOTSTRAP_COMPLETED labs_enabled=false`. This is the
+private cluster only. API credentials, the lab tunnel, browser publication and
+authenticated live acceptance remain subsequent steps.
+
 If `cloudflared` is an asdf shim without a selected version, select one you
 already have installed. For example, where version 2026.10.7 is available:
 `ASDF_CLOUDFLARED_VERSION=2026.10.7 make cka-lab-bootstrap`.
@@ -64,3 +85,12 @@ tunnel and browser activation remain subsequent deployment steps.
 `cka-lab-inspect` only invokes the fixed installed inspector: it performs no
 Git checkout, installation, service start or repair. It fails if the runtime
 has not been installed. See the [full CKA lab runbook](docs/cka-lab-staging.md).
+
+If SSH disconnects during bootstrap, installation status is unknown: inspect
+before attempting another install. When the SSH tunnel is unavailable, run
+the GitHub Actions workflow **CKA labs · shared A1 Compose preflight** from
+`main` with `action=inspect-runtime`. This invokes only the installed read-only
+wrapper through the OCI agent and may queue behind other A1 host operations.
+The installer prints `CKA_LAB_INSTALL_STAGE` progress markers. Its APT calls
+suspend `needrestart` for that process only, simulate the dependency plan and
+reject upgrades, removals or pending configuration of existing host packages.

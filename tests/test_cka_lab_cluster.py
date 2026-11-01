@@ -1,7 +1,12 @@
 import copy
+import hashlib
+import os
 import sys
+import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import cka_lab_cluster as cluster
@@ -9,16 +14,51 @@ import cka_lab_cluster as cluster
 
 class FixedRootlessCluster(unittest.TestCase):
     def test_read_only_tool_check_does_not_create_missing_directory(self):
-        import os
-        import tempfile
-        from types import SimpleNamespace
-
         with tempfile.TemporaryDirectory() as root:
-            account = SimpleNamespace(pw_dir=root, pw_uid=os.geteuid())
-            target = Path(root) / "tools"
+            account = SimpleNamespace(pw_dir=root, pw_uid=os.getuid())
             with self.assertRaises(cluster.ClusterBootstrapError):
                 cluster.tool(account, install=False)
-            self.assertFalse(target.exists())
+            self.assertEqual(list(Path(root).iterdir()), [])
+
+    def test_operator_bootstrap_uses_a_writable_private_home_and_fixed_socket(self):
+        with tempfile.TemporaryDirectory() as root:
+            home = Path(root)
+            tools = home / "tools"
+            tools.mkdir(mode=0o700)
+            binary = tools / "kind"
+            binary.write_bytes(b"synthetic pinned kind")
+            binary.chmod(0o700)
+            digest = hashlib.sha256(binary.read_bytes()).hexdigest()
+            account = SimpleNamespace(pw_dir=root, pw_uid=os.getuid())
+            observed = []
+            def prepare(directory, *, env):
+                # This real mkdir catches use of a root-owned sibling of home.
+                self.assertEqual(directory, home / "cluster")
+                directory.mkdir(mode=0o700)
+                self.assertEqual(directory.stat().st_uid, os.getuid())
+                self.assertEqual(env["DOCKER_HOST"], "unix:///run/user/" + str(os.getuid()) + "/cka-lab-docker.sock")
+                observed.append(directory)
+                return {"labs_enabled": False}
+            with patch.object(cluster.pwd, "getpwnam", return_value=account), \
+                 patch.object(cluster.os, "geteuid", return_value=1000), \
+                 patch.object(cluster.sys, "argv", ["cka_lab_cluster.py", "bootstrap"]), \
+                 patch.dict(cluster.KIND_HASHES, {os.uname().machine: ("native", digest)}), \
+                 patch.object(cluster, "operator_headroom") as headroom, \
+                 patch.object(cluster, "bootstrap", side_effect=prepare), patch("builtins.print"):
+                cluster.main()
+            self.assertEqual(observed, [home / "cluster"])
+            headroom.assert_called_once_with(root)
+
+    def test_operator_headroom_refuses_low_memory_or_private_disk(self):
+        with patch.object(cluster.Path, "read_text", return_value="MemAvailable: 3145728 kB\n"), \
+             patch.object(cluster.os, "statvfs", return_value=SimpleNamespace(f_bavail=4 * 1024**2, f_frsize=1024)):
+            cluster.operator_headroom("private-home")
+        for available, blocks in [(3145727, 4 * 1024**2), (3145728, 4 * 1024**2 - 1)]:
+            with self.subTest(available=available, blocks=blocks), \
+                 patch.object(cluster.Path, "read_text", return_value=f"MemAvailable: {available} kB\n"), \
+                 patch.object(cluster.os, "statvfs", return_value=SimpleNamespace(f_bavail=blocks, f_frsize=1024)):
+                with self.assertRaises(cluster.ClusterBootstrapError):
+                    cluster.operator_headroom("private-home")
 
     def test_rootful_or_unenforced_daemon_is_rejected(self):
         good = {"SecurityOptions": ["name=rootless"], "CgroupVersion": "2", "CgroupDriver": "systemd"}

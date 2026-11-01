@@ -168,20 +168,26 @@ def bootstrap(directory: Path, *, env=None):
         + "os.execv(binary,[binary,*args])\n")
     shim.chmod(0o700)
     env["PATH"] = str(shim_dir) + os.pathsep + env.get("PATH", "/usr/local/bin:/usr/bin:/bin")
+    print("CKA_LAB_CLUSTER_STAGE private-network", flush=True)
     run("docker", "network", "create", "--internal", "--subnet", SUBNET,
         "--label", "labs.shadowops.org/managed=staging-v1", NETWORK)
     network_policy(inspect("docker", "network", "inspect", NETWORK)[0])
     # Image pulls are trusted bootstrap work in the daemon, never pod egress.
     for image in (NODE_IMAGE, FIXTURE_IMAGE, PROBE_IMAGE):
+        print("CKA_LAB_CLUSTER_STAGE pull-image " + image.split("@")[0], flush=True)
         run("docker", "pull", "--quiet", image, timeout=300)
+    print("CKA_LAB_CLUSTER_STAGE create-node", flush=True)
     run("kind", "create", "cluster", "--name", NAME, "--image", NODE_IMAGE,
         "--config", str(config), "--kubeconfig", str(kubeconfig), "--retain", "--wait", "300s", timeout=600)
     kubeconfig.chmod(0o600)
     run("docker", "update", "--memory=2g", "--memory-swap=2g", "--cpus=0.4",
         "--pids-limit=768", "--restart=unless-stopped", NODE)
     node_policy(inspect("docker", "inspect", NODE)[0])
+    print("CKA_LAB_CLUSTER_STAGE preload-fixture", flush=True)
     preload(FIXTURE_IMAGE)
+    print("CKA_LAB_CLUSTER_STAGE preload-probe", flush=True)
     preload(PROBE_IMAGE)
+    print("CKA_LAB_CLUSTER_STAGE verify-ready", flush=True)
     run("docker", "exec", NODE, "kubectl", "--kubeconfig=/etc/kubernetes/admin.conf",
         "--request-timeout=10s", "wait", "--for=condition=Ready", "node/" + NODE, "--timeout=120s", timeout=130)
     # Compose can mount a separate config using the TLS SAN already minted by kind.
@@ -243,12 +249,16 @@ def verify_cluster(directory: Path, *, env=None):
             "labs_enabled": False}
 
 
+def digest_file(path):
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
 def tool(account, *, install):
     architecture, expected = KIND_HASHES[os.uname().machine]
     directory = Path(account.pw_dir) / "tools"
     if directory.is_symlink():
         raise ClusterBootstrapError("Private tool directory required")
-    # Verification must never create even an empty tools directory.
     if install:
         directory.mkdir(mode=0o700, exist_ok=True)
     elif not directory.is_dir():
@@ -271,7 +281,7 @@ def tool(account, *, install):
                         if size > 32 * 1024**2:
                             raise ClusterBootstrapError("Oversized tool distribution")
                         output.write(chunk)
-            if hashlib.file_digest(temporary.open("rb"), "sha256").hexdigest() != expected:
+            if digest_file(temporary) != expected:
                 raise ClusterBootstrapError("Unreviewed kind binary rejected")
             temporary.chmod(0o700)
             os.link(temporary, target)
@@ -279,9 +289,17 @@ def tool(account, *, install):
             temporary.unlink(missing_ok=True)
     if (target.is_symlink() or not target.is_file() or target.stat().st_uid != account.pw_uid
             or target.stat().st_mode & 0o077
-            or hashlib.file_digest(target.open("rb"), "sha256").hexdigest() != expected):
+            or digest_file(target) != expected):
         raise ClusterBootstrapError("Reviewed private kind binary required")
     return directory
+
+
+def operator_headroom(home):
+    available = next(int(line.split()[1]) for line in Path("/proc/meminfo").read_text().splitlines()
+                     if line.startswith("MemAvailable:"))
+    disk = os.statvfs(home)
+    if available < 3 * 1024**2 or disk.f_bavail * disk.f_frsize < 4 * 1024**3:
+        raise ClusterBootstrapError("Insufficient host memory or private disk reserve")
 
 
 def main():
@@ -290,6 +308,8 @@ def main():
     account = pwd.getpwnam("shadowops-cka-lab")
     if os.getuid() != account.pw_uid:
         raise ClusterBootstrapError("Dedicated lab runtime user required")
+    if sys.argv[1] == "bootstrap":
+        operator_headroom(account.pw_dir)
     tools = tool(account, install=sys.argv[1] == "install-tools")
     if sys.argv[1] == "install-tools":
         print("CKA_LAB_KIND_TOOL_VERIFIED v0.31.0")
@@ -297,7 +317,9 @@ def main():
     env = {"PATH": str(tools) + ":/usr/local/bin:/usr/bin:/bin", "LANG": "C.UTF-8",
            "HOME": account.pw_dir, "XDG_RUNTIME_DIR": "/run/user/" + str(account.pw_uid),
            "DOCKER_HOST": "unix:///run/user/" + str(account.pw_uid) + "/cka-lab-docker.sock"}
-    directory = Path("/var/lib/shadowops-cka-lab-staging/runtime/cluster")
+    # The filesystem root belongs to root. Only this already-private home is
+    # writable by the dedicated user; root must not create files beneath it.
+    directory = Path(account.pw_dir) / "cluster"
     if sys.argv[1] == "verify-cluster":
         receipt = verify_cluster(directory, env=env)
         print("CKA_LAB_CLUSTER_VERIFIED " + json.dumps(receipt, sort_keys=True))

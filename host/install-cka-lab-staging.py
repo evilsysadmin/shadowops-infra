@@ -35,13 +35,45 @@ FILES = {"host/vendor/dockerd-rootless.sh": "/usr/local/libexec/cka-lab-staging/
          "host/cka-lab-rootless.sudoers": "/etc/sudoers.d/107-shadowops-cka-lab-staging"}
 
 
+STAGE = "source-preflight"
+
+
+def stage(name):
+    global STAGE
+    STAGE = name
+    print("CKA_LAB_INSTALL_STAGE " + name, flush=True)
+
+
 def run(args, *, timeout=30):
+    environment = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8",
+                   "LC_ALL": "C", "DEBIAN_FRONTEND": "noninteractive"}
+    if args[0] == "apt-get":
+        # Scope this to our APT children. Noble's -m u hook can force automatic
+        # restarts even in a noninteractive installer; do not cycle shared SSH,
+        # tunnels, Docker or other product services during this bootstrap.
+        environment.update(NEEDRESTART_SUSPEND="1", NEEDRESTART_MODE="l")
     result = subprocess.run(args, capture_output=True, text=True, timeout=timeout,
-                            env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8",
-                                 "DEBIAN_FRONTEND": "noninteractive"})
+                            env=environment)
     if result.returncode or len(result.stdout) > 1_048_576:
         raise ValueError("Fixed installation operation failed")
     return result.stdout.strip()
+
+
+def install_packages(packages):
+    """New prerequisite packages only; reject upgrades/removals of host packages."""
+    run(["apt-get", "update"], timeout=180)
+    command = ["apt-get", "--yes", "--no-install-recommends", "--no-upgrade", "--no-remove", "install", *packages]
+    plan = run(["apt-get", "--simulate", *command[1:]], timeout=60)
+    added = set()
+    for line in plan.splitlines():
+        if line.startswith("Remv ") or (line.startswith("Inst ") and re.match(r"Inst \S+ \[", line)):
+            raise ValueError("Prerequisites would change an existing host package")
+        if line.startswith("Inst "):
+            added.add(line.split()[1])
+    for line in plan.splitlines():
+        if line.startswith("Conf ") and line.split()[1] not in added:
+            raise ValueError("Existing host package configuration needs operator attention")
+    run(command, timeout=300)
 
 
 def root_path(path, *, directory=False):
@@ -145,6 +177,7 @@ def publish(path, data, *, mode=0o644):
 def install(sha, policy):
     # These packages add rootless prerequisites; never install/replace/restart
     # the shared Docker engine and never execute a downloaded install script.
+    stage("prerequisite-packages")
     required = {"newuidmap": "uidmap", "newgidmap": "uidmap", "rootlesskit": "rootlesskit",
                 "slirp4netns": "slirp4netns", "fuse-overlayfs": "fuse-overlayfs",
                 "dbus-run-session": "dbus-user-session"}
@@ -152,8 +185,8 @@ def install(sha, policy):
     if not Path("/usr/lib/systemd/user/dbus.socket").is_file() and "dbus-user-session" not in packages:
         packages.append("dbus-user-session")
     if packages:
-        run(["apt-get", "update"], timeout=180)
-        run(["apt-get", "install", "--yes", "--no-install-recommends", *packages], timeout=300)
+        install_packages(packages)
+    stage("runtime-account")
     directory(policy.ROOT, 0o711)
     directory(policy.RUNTIME)
     directory(policy.CONFIG)
@@ -179,6 +212,7 @@ def install(sha, policy):
             options += [flag, f"{start}-{start + policy.MAP_COUNT - 1}"]
     if options:
         run(["usermod", *options, policy.USER])
+    stage("private-runtime-disk")
     image = policy.ROOT / "runtime.ext4"
     if not image.exists() and not image.is_symlink():
         fd = os.open(image, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
@@ -191,6 +225,7 @@ def install(sha, policy):
                 or run(["blkid", "-s", "LABEL", "-o", "value", str(image)]) != "cka-lab-stage"
                 or run(["blkid", "-s", "TYPE", "-o", "value", str(image)]) != "ext4"):
             raise ValueError("Foreign runtime backing filesystem")
+    stage("installed-policy")
     for source, target in FILES.items():
         mode = 0o755 if target.endswith(".sh") or target.endswith("shadowops-cka-lab-staging") else 0o644
         if "/sudoers.d/" in target:
@@ -213,6 +248,7 @@ def install(sha, policy):
         publish(path, body)
     run(["visudo", "--check", "--file", "/etc/sudoers.d/107-shadowops-cka-lab-staging"])
     run(["systemctl", "daemon-reload"])
+    stage("mount-private-runtime")
     if os.path.ismount(policy.RUNTIME):
         # Never stack another mount over an existing (possibly foreign) disk.
         run(["systemctl", "is-active", "--quiet", "shadowops-cka-lab-disk.service"])
@@ -232,12 +268,14 @@ def install(sha, policy):
     # Never let root traverse or create paths below a user-writable home.
     run(["runuser", "--user", policy.USER, "--", "/usr/bin/python3", "-I",
          "/usr/local/libexec/cka-lab-staging/enable-rootless.py"])
+    stage("policy-receipt")
     hashes = {str(Path(target)): hashlib.sha256((REPO / source).read_bytes()).hexdigest()
               for source, target in FILES.items()}
     hashes.update({str(path): hashlib.sha256(body.encode()).hexdigest() for path, body in generated.items()})
     receipt = {"schema": 1, "source_sha": sha, "files": hashes,
                "uid": user.pw_uid, "gid": user.pw_gid, "subordinate_start": start}
     publish(policy.CONFIG / "policy.json", json.dumps(receipt, sort_keys=True) + "\n", mode=0o400)
+    stage("start-dedicated-daemon")
     run(["loginctl", "enable-linger", policy.USER])
     run(["systemctl", "start", f"user@{user.pw_uid}.service"])
     run(["runuser", "--user", policy.USER, "--", "env", f"XDG_RUNTIME_DIR=/run/user/{user.pw_uid}",
@@ -245,10 +283,12 @@ def install(sha, policy):
          "cka-lab-rootless-docker.service"], timeout=100)
     # Check actual container limits on this A1, not just daemon-reported
     # support. The approved public fixture has no network, secrets or mounts.
+    stage("verify-container-limits")
     proof = run(["runuser", "--user", policy.USER, "--", "/usr/bin/docker", "--host",
                  f"unix:///run/user/{user.pw_uid}/cka-lab-docker.sock", *policy.proof_args()], timeout=180)
     if proof != policy.PROOF_MARKER:
         raise ValueError("Actual runtime container limits did not verify")
+    stage("inspect-runtime")
     run(["/usr/local/sbin/shadowops-cka-lab-staging", "inspect"])
 
 
@@ -268,7 +308,7 @@ def main():
         else:
             print("CKA_LAB_OPERATOR_SOURCE_PREFLIGHT_OK source_sha=" + sha)
     except Exception:
-        print("CKA_LAB_RUNTIME_INSTALL_BLOCKED", file=sys.stderr)
+        print("CKA_LAB_RUNTIME_INSTALL_BLOCKED stage=" + STAGE, file=sys.stderr)
         return 1
     return 0
 

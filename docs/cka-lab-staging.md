@@ -292,6 +292,14 @@ sudo -u shadowops-cka-lab python3 /opt/shadowops-infra/scripts/cka_lab_cluster.p
 sudo -u shadowops-cka-lab python3 /opt/shadowops-infra/scripts/cka_lab_cluster.py verify-cluster
 ```
 
+The CLI stores cluster files in the dedicated user's existing 0700 home:
+`/var/lib/shadowops-cka-lab-staging/runtime/home/cluster`. The root-owned runtime
+filesystem root is intentionally not writable by that user. Compose mounts only
+`controller.yaml` from this private location. Before creation the CLI rechecks
+at least 3 GiB available host memory and 4 GiB free inside its bounded private
+filesystem. Inspection refuses missing tools without creating a directory or
+downloading anything.
+
 The last command is **read-only** and emits `CKA_LAB_CLUSTER_VERIFIED`
 only after independently checking the existing rootless daemon, private
 internal bridge, bounded/running kind node, private 0600 credentials,

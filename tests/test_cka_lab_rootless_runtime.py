@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,6 +15,39 @@ import cka_lab_rootless_policy as policy
 spec = importlib.util.spec_from_file_location("cka_rootless_installer", ROOT / "host/install-cka-lab-staging.py")
 installer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(installer)
+
+
+class PackageIsolation(unittest.TestCase):
+    def test_restart_suppression_is_passed_to_actual_apt_children_only(self):
+        result = SimpleNamespace(returncode=0, stdout="done")
+        original = dict(os.environ)
+        with patch.object(installer.subprocess, "run", return_value=result) as execute:
+            installer.run(["apt-get", "update"])
+            environment = execute.call_args.kwargs["env"]
+            self.assertEqual(environment["NEEDRESTART_SUSPEND"], "1")
+            self.assertEqual(environment["NEEDRESTART_MODE"], "l")
+            installer.run(["systemctl", "is-active", "example"])
+            self.assertNotIn("NEEDRESTART_SUSPEND", execute.call_args.kwargs["env"])
+        self.assertEqual(dict(os.environ), original)
+
+    def test_only_new_packages_are_installed_after_simulation(self):
+        plan = "Inst uidmap (1.0 Ubuntu:24.04/noble [arm64])\nConf uidmap (1.0 Ubuntu:24.04/noble [arm64])"
+        with patch.object(installer, "run", side_effect=["", plan, ""]) as execute:
+            installer.install_packages(["uidmap"])
+        self.assertEqual(execute.call_count, 3)
+        self.assertIn("--simulate", execute.call_args_list[1].args[0])
+        actual = execute.call_args_list[2].args[0]
+        self.assertIn("--no-upgrade", actual)
+        self.assertIn("--no-remove", actual)
+        self.assertNotIn("--simulate", actual)
+
+    def test_upgrades_removals_and_foreign_pending_configuration_block_before_install(self):
+        for plan in ["Inst systemd [1.0] (2.0 Ubuntu [arm64])",
+                     "Remv docker.io [1.0]", "Conf openssh-server (1.0 Ubuntu [arm64])"]:
+            with self.subTest(plan=plan), patch.object(installer, "run", side_effect=["", plan]) as execute:
+                with self.assertRaises(ValueError):
+                    installer.install_packages(["uidmap"])
+                self.assertEqual(execute.call_count, 2)
 
 
 class IdentityMappings(unittest.TestCase):
