@@ -1,0 +1,33 @@
+name: CKA labs · reviewed controller release pin
+on:
+  pull_request:
+    paths: ['deploy/cka-lab-staging-release.json', '.github/workflows/cka-lab-release-pin.yml']
+  push:
+    branches: [main]
+    paths: ['deploy/cka-lab-staging-release.json', '.github/workflows/cka-lab-release-pin.yml']
+permissions:
+  contents: read
+  packages: read
+  actions: read
+  attestations: read
+jobs:
+  admit-reviewed-pin:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - name: Admit the exact reviewed source and immutable multiarch digest
+        run: |
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {admit} from './scripts/cka_lab_image_admission.mjs';
+          const pin=JSON.parse(readFileSync('deploy/cka-lab-staging-release.json','utf8'));
+          if(Object.keys(pin).sort().join(',')!=='image_digest,schema,source_sha'||pin.schema!==1)throw Error('Invalid release pin');
+          const result=admit(pin.source_sha,pin.image_digest);
+          console.log('CKA_LAB_REVIEWED_PIN_ADMITTED '+JSON.stringify(result));
+          JS

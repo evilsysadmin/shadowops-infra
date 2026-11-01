@@ -61,6 +61,37 @@ ends with `CKA_LAB_OPERATOR_CLUSTER_BOOTSTRAP_COMPLETED labs_enabled=false`. Thi
 private cluster only. API credentials, the lab tunnel, browser publication and
 authenticated live acceptance remain subsequent steps.
 
+After the private cluster verifies, start the authenticated controller privately:
+
+```bash
+make cka-lab-api-start
+make cka-lab-api-verify
+```
+
+The start target resolves protected Infra main and uses the immutable release in
+`deploy/cka-lab-staging-release.json`, whose exact source, four source workflows,
+two architectures and signed provenance are admitted by CI when the pin changes.
+The A1 command rechecks current CKA main/CI and the pulled ARM64 image revision.
+A superseded pin fails closed and must be reviewed/admitted again; it never
+falls back to an older image or mutable tag. Normal unrelated Infra checks keep
+using the dynamic published-image proof.
+
+The operator root process reads only the existing CKA account configuration,
+fetches current public Identity keys over verified HTTPS and passes the narrow
+authenticated-staging configuration over a private stdin pipe to the lab user.
+No credential is passed in shell arguments, environment, logs or artifacts.
+That user writes 0600 files and 0700 state under its existing private home.
+The existing account service and Identity signing keys are not modified.
+
+Only `cka-lab` starts, with the existing Compose limits and no host port or
+tunnel. Initial start refuses any existing controller project; inspect it
+instead of blindly repeating start. Verification checks the actual container
+mounts, networks, cgroups, release, readiness and rejection of anonymous lab
+requests. It never installs, pulls or restarts anything.
+`CKA_LAB_PRIVATE_API_VERIFIED` still reports `public_endpoint_enabled=false` and
+`candidate_acceptance_verified=false`: real authenticated candidate acceptance,
+dedicated tunnel/DNS and the lab-enabled browser release remain later gates.
+
 If `cloudflared` is an asdf shim without a selected version, select one you
 already have installed. For example, where version 2026.10.7 is available:
 `ASDF_CLOUDFLARED_VERSION=2026.10.7 make cka-lab-bootstrap`.
