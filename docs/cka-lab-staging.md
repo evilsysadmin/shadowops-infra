@@ -393,3 +393,31 @@ users are evidence about the published implementation, not live A1 acceptance.
 The host bootstrap, private real Identity configuration, dedicated tunnel/DNS,
 Compose activation and `lab-staging` Pages publication must still complete in
 that order. Keep the account-only site until the real lab origin is ready.
+
+## First private controller on the verified A1 cluster
+
+After `make cka-lab-cluster-verify` succeeds:
+
+```bash
+make cka-lab-api-start
+make cka-lab-api-verify
+```
+
+These are operator SSH commands. They do not add an OCI agent sudo capability.
+The start command uses the reviewed immutable controller release pin, verifies
+it remains current with all four source checks green, then copies only the
+existing CKA consumer credential and current public keys to the dedicated
+runtime through private stdin. It does not read Identity's private bundle or
+signing keys. Root never writes below the user-owned home. Configuration and
+controller lease state use `runtime/home/config` and
+`runtime/home/controller-state`; the cluster kubeconfig remains in
+`runtime/home/cluster`. All remain inside the existing bounded filesystem.
+
+The actual Compose policy is checked before start and the running controller is
+checked afterward. Only the controller starts; tunnel creation, DNS and Pages
+are not part of this step. There is no new OCI resource. The initial start
+refuses an existing controller project rather than interrupting a candidate.
+Use the read-only API verification target to observe one that already exists.
+The private probe checks the mounted explicit access mode, exact image build,
+readiness, anonymous denial and absence of developer endpoints. It is not a
+positive authenticated-user acceptance test.

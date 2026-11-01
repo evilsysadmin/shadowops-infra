@@ -15,6 +15,7 @@ import subprocess
 import tempfile
 
 from cka_lab_cluster import NETWORK, NODE, PROBE_IMAGE, call, rootless_info, verify_cluster
+from cka_lab_private_api import compose_policy, container_policy, PROBE
 
 
 IMAGE = "ghcr.io/evilsysadmin/cka-lab-staging"
@@ -79,7 +80,7 @@ def main():
         fixture = private / "fixture"
         fixture.mkdir(mode=0o700)
         runtime = private / "runtime"
-        for name in ("config", "home", "home/cluster", "controller-state"):
+        for name in ("home", "home/config", "home/cluster", "home/controller-state"):
             (runtime / name).mkdir(mode=0o700, parents=True)
         fixture_script = Path("scripts/cka_lab_api_fixture.py").resolve()
         candidate_script = Path("scripts/cka_lab_api_candidate.py").resolve()
@@ -90,10 +91,10 @@ def main():
         run(*common, "--network=none", "--volume", str(fixture) + ":/fixture",
             "--volume", str(fixture_script) + ":/test/authority.py:ro", image,
             "/test/authority.py", "generate", source, timeout=60)
-        shutil.copyfile(fixture / "lab.json", runtime / "config/lab.json")
+        shutil.copyfile(fixture / "lab.json", runtime / "home/config/lab.json")
         shutil.copyfile(workspace / "controller.yaml", runtime / "home/cluster/controller.yaml")
-        (runtime / "config/tunnel.env").touch(mode=0o600)
-        for path in [runtime / "config/lab.json", runtime / "home/cluster/controller.yaml"]:
+        (runtime / "home/config/tunnel.env").touch(mode=0o600)
+        for path in [runtime / "home/config/lab.json", runtime / "home/cluster/controller.yaml"]:
             path.chmod(0o600)
 
         # Use the actual product Compose policy. Only paths and native platform
@@ -124,6 +125,9 @@ def main():
 
         try:
             assert namespaces() == [], "Prior smoke left dirty candidate namespaces"
+            compose_policy(json.loads(run(*command, "config", "--no-env-resolution", "--format", "json")),
+                           {"source_sha": source, "image_digest": digest}, home=runtime / "home",
+                           platform="linux/" + architecture, test_ca=fixture / "ca.pem")
             run(*command, "create", "--pull=never", "cka-lab", timeout=60)
             run(*common, "-d", "--name", FIXTURE, "--network", EGRESS,
                 "--network-alias", IDENTITY, "--sysctl=net.ipv4.ip_unprivileged_port_start=0",
@@ -133,6 +137,9 @@ def main():
             run(*command, "up", "--detach", "--no-deps", "--pull=never", "--wait", "--wait-timeout=120", "cka-lab", timeout=150)
             container = run(*command, "ps", "--quiet", "cka-lab").strip()
             controller = json.loads(run("docker", "inspect", container))[0]
+            container_policy(controller, {"source_sha": source, "image_digest": digest},
+                             home=runtime / "home", project=PROJECT, test_ca=fixture / "ca.pem")
+            assert run("docker", "exec", container, "python", "-c", PROBE, source).strip() == "CKA_LAB_PRIVATE_API_HEALTH_VERIFIED"
             policy = controller["HostConfig"]
             assert policy["ReadonlyRootfs"] and policy["Memory"] == 256 * 1024**2
             assert policy["MemorySwap"] == policy["Memory"] and policy["PidsLimit"] == 64

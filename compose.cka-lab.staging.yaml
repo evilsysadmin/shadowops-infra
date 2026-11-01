@@ -20,9 +20,9 @@ services:
     memswap_limit: 256m
     cpus: 0.1
     volumes:
-      - /var/lib/shadowops-cka-lab-staging/runtime/config/lab.json:/run/secrets/cka-lab-staging.json:ro
+      - /var/lib/shadowops-cka-lab-staging/runtime/home/config/lab.json:/run/secrets/cka-lab-staging.json:ro
       - /var/lib/shadowops-cka-lab-staging/runtime/home/cluster/controller.yaml:/run/secrets/cka-lab-admin.yaml:ro
-      - /var/lib/shadowops-cka-lab-staging/runtime/controller-state:/var/lib/cka-lab
+      - /var/lib/shadowops-cka-lab-staging/runtime/home/controller-state:/var/lib/cka-lab
     networks: [origin, cluster, identity-egress]
     tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=32m"]
   cka-lab-tunnel:
@@ -39,7 +39,7 @@ services:
     mem_limit: 128m
     memswap_limit: 128m
     cpus: 0.05
-    env_file: [/var/lib/shadowops-cka-lab-staging/runtime/config/tunnel.env]
+    env_file: [/var/lib/shadowops-cka-lab-staging/runtime/home/config/tunnel.env]
     networks: [origin, tunnel-egress]
     depends_on:
       cka-lab:
