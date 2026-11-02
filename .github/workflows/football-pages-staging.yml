@@ -72,11 +72,6 @@ jobs:
       SOURCE_SHA: ${{ needs.candidate.outputs.source_sha }}
       ARTIFACT_ID: ${{ needs.candidate.outputs.artifact_id }}
       ARTIFACT_DIGEST: ${{ needs.candidate.outputs.artifact_digest }}
-      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
-      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
-      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
-      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
-      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -115,11 +110,22 @@ jobs:
           python3 scripts/football_delivery.py runtime football-release "$SOURCE_SHA"
           python3 scripts/football_pages.py project
           python3 scripts/football_pages.py identity-policy
+      - uses: actions/setup-python@v5
+        if: inputs.identity_binding == 'activate'
+        with:
+          python-version: '3.13'
+      - name: Install the pinned Identity custody client
+        if: inputs.identity_binding == 'activate'
+        run: python3 -m pip install --disable-pip-version-check 'oci==2.185.2'
       - name: Activate only the isolated Football Identity edge proof when requested
         if: inputs.identity_binding == 'activate'
-        run: |
-          python3 -m pip install --disable-pip-version-check 'oci==2.185.2'
-          python3 scripts/football_identity.py
+        env:
+          OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+          OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+          OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+        run: python3 scripts/football_identity.py
       - name: Deploy the exact tested standalone frontend
         run: |
           set -euo pipefail

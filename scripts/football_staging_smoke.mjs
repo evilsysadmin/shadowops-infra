@@ -60,13 +60,21 @@ try{
     await page.keyboard.down('KeyD');await page.waitForTimeout(400);await page.keyboard.up('KeyD');
     await page.screenshot({path:out+'/1280-authenticated-real-match.png'});
    }
-   assert.deepEqual(errors,[]);captures.push({viewport,authenticated:true,page_errors:errors});await context.close();
+   assert.deepEqual(errors,[]);captures.push({viewport,authenticated:true,page_errors:errors});
+   if(viewport.width===390){
+    const retained=(await context.cookies(origin)).find(value=>value.name==='__Host-football_staging');assert.ok(retained?.httpOnly&&retained?.secure);
+    const claims=JSON.parse(Buffer.from(retained.value.split('.')[1],'base64url').toString());
+    assert.ok(claims.exp>Math.floor(Date.now()/1000)+30,'retained token is still cryptographically unexpired');
+    await page.getByRole('button',{name:'Salir de ShadowOps ID',exact:true}).click();
+    await page.getByRole('link',{name:'Entrar con ShadowOps ID',exact:true}).waitFor({timeout:30000});
+    assert.equal(await page.locator('.chess-football-entry').count(),0);
+    const replay=await native('/api/identity/token',{},centralCookie);assert.equal(replay.status,401);
+    const replayEdge=await fetch(origin+'/api/football/session',{headers:{Cookie:retained.name+'='+retained.value}});
+    assert.equal(replayEdge.status,401,'edge rejects the unexpired token after real global logout');
+    centralCookie=null;
+   }
+   await context.close();
   }
-  const loggedOut=await native('/api/identity/logout',{},centralCookie);assert.equal(loggedOut.status,204);
-  // Replaying the revoked central cookie must fail, as must a retained Football
-  // cookie (tested at the edge with real signed tokens in the source CI).
-  const replay=await native('/api/identity/token',{},centralCookie);assert.equal(replay.status,401);
-  centralCookie=null;
   console.log('FOOTBALL_REAL_IDENTITY_BROWSER_OK source_sha='+release.source_sha);
  }
  await writeFile(out+'/proof.json',JSON.stringify({source_sha:release.source_sha,authentication:release.authentication,captures},null,2));
