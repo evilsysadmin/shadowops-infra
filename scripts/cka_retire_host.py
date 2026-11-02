@@ -194,6 +194,7 @@ def retire(plan):
         try:pwd.getpwnam('shadowops-cka-factory')
         except KeyError:pass
         else:run(['userdel','shadowops-cka-factory'])
+        if any(line.startswith('shadowops-cka-factory:') for line in Path('/etc/group').read_text().splitlines()):run(['groupdel','shadowops-cka-factory'])
     run(['systemctl','daemon-reload'])
     after={v['Id']:(v['State']['Status'],v['State'].get('StartedAt')) for v in inspect(host)}
     if any(after.get(k)!=v for k,v in other.items()):raise RetireError('Another product changed during retirement')
