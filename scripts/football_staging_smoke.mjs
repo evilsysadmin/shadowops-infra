@@ -15,7 +15,7 @@ try {
  const captures=[];
  for(const viewport of [{width:1280,height:800},{width:390,height:844}]) {
   // Desktop and phone represent separate devices, including GPU processes.
-  browser=await chromium.launch({headless:true});
+  browser=await chromium.launch({headless:true,args:['--enable-webgl','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
   const page=await browser.newPage({viewport,hasTouch:viewport.width===390,isMobile:viewport.width===390});const errors=[];const messages=[];
   page.on('console',message=>{if(['warning','error'].includes(message.type())&&messages.length<100)messages.push(message.type()+': '+message.text());});
   page.on('pageerror',error=>errors.push(String(error)));
@@ -36,13 +36,14 @@ try {
   const frame=page.frames().find(frame=>frame.url()===release.runtime.index);
   assert.ok(frame,'exact immutable runtime loaded');
   assert.equal(await frame.locator('canvas').count(),1);
+  const renderer=await frame.evaluate(()=>{const gl=document.querySelector('canvas')?.getContext('webgl2');if(!gl)return null;const info=gl.getExtension('WEBGL_debug_renderer_info');return info?gl.getParameter(info.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER);});
   // Match the canonical Web smoke's settling budget for first-use GPU textures.
   await page.waitForTimeout(5000);
   const canvas=frame.locator('canvas');await canvas.click();
   await page.keyboard.down('KeyD');await page.waitForTimeout(400);await page.keyboard.up('KeyD');
   await page.screenshot({path:out+'/'+viewport.width+'-real-match.png'});
   assert.deepEqual(errors,[]);
-  captures.push({viewport,runtime:frame.url(),ready:true,page_errors:errors,console_messages:messages});await page.close();await browser.close();browser=null;
+  captures.push({viewport,runtime:frame.url(),ready:true,renderer,page_errors:errors,console_messages:messages});await page.close();await browser.close();browser=null;
  }
  await writeFile(out+'/proof.json',JSON.stringify({source_sha:release.source_sha,captures},null,2));
  console.log('FOOTBALL_PUBLIC_BROWSER_DESKTOP_MOBILE_WASM_OK source_sha='+release.source_sha);
