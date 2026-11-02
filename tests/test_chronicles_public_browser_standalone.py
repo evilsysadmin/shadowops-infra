@@ -72,6 +72,17 @@ class BrowserOnlyReleaseTest(unittest.TestCase):
         self.assertIn("frontend/chronicles-combat-*.png", evidence["with"]["path"])
         self.assertEqual(y["jobs"]["browser"]["environment"]["name"], "staging")
         self.assertIn("github.ref == 'refs/heads/main'", y["jobs"]["browser"]["if"])
+        # A source-only Chronicles change does not trigger an Infra paths
+        # push. Catch real deployed combat regressions at a modest cadence
+        # without creating releases or re-running on every Infra main commit.
+        self.assertEqual(y["on"]["schedule"], [{"cron": "32 6 * * *"}])
+        self.assertEqual(y["permissions"], {"contents": "read"})
+        self.assertEqual(y["jobs"]["browser"]["timeout-minutes"], "15")
+        self.assertIn("github.event_name != 'pull_request'", y["jobs"]["browser"]["if"])
+        self.assertEqual(y["jobs"]["browser"]["needs"], "contracts")
+        self.assertNotIn("workflow_run", y["on"])
+        self.assertNotIn("repository_dispatch", y["on"])
+
 
 
 if __name__ == "__main__":
