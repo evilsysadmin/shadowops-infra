@@ -1,3 +1,7 @@
 identity-links-*.json
 identity-link-*.json
 .private-identity/
+
+# Bytecode is local interpreter output, never source or deployment evidence.
+__pycache__/
+*.py[cod]
