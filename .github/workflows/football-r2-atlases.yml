@@ -1,0 +1,81 @@
+name: Football · bounded R2 atlas publication
+on:
+  pull_request:
+    paths: ['.github/workflows/football-r2-atlases.yml', 'scripts/football_atlas_publication.py', 'tests/test_football_atlas_publication.py']
+  push:
+    branches: [main]
+    paths: ['.github/workflows/football-r2-atlases.yml', 'scripts/football_atlas_publication.py', 'tests/test_football_atlas_publication.py']
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        type: string
+        required: true
+        description: Full 40-character admitted Football main SHA containing the six atlas candidates
+permissions:
+  contents: read
+  actions: read
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - run: python3 -m unittest discover -s tests -p test_football_atlas_publication.py -v
+      - run: python3 -m unittest discover -s tests -p test_football_delivery.py -v
+  publish:
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    # Only cloud writes serialize with the existing Football Pages deployment;
+    # PR contract checks must never displace one another from its queue.
+    concurrency:
+      group: shadowops-football-staging-pages
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: staging
+      url: https://staging.football.shadowops.dpdns.org/
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      FOOTBALL_R2_API_TOKEN: ${{ secrets.FOOTBALL_R2_API_TOKEN }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Admit only exact current Football main CI and the matching source archive
+        id: candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os,sys
+          from pathlib import Path
+          sys.path.insert(0, "scripts")
+          import football_atlas_publication as atlas
+          data=atlas.admitted_source(os.environ["SOURCE_SHA"])
+          with open(os.environ["GITHUB_OUTPUT"],"a") as output:
+              output.write("artifact_id="+str(data["artifact_id"])+"\n")
+              output.write("artifact_digest="+data["artifact_digest"]+"\n")
+          print("FOOTBALL_ATLAS_SOURCE_ADMITTED sha="+data["source_sha"])
+          PY
+      - name: Verify source ZIP digest before strict extraction or any cloud mutation
+        shell: bash
+        env:
+          ARTIFACT_ID: ${{ steps.candidate.outputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ steps.candidate.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          [[ "$ARTIFACT_ID" =~ ^[0-9]+$ && "$ARTIFACT_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+          gh api "repos/evilsysadmin/football-of-matthias/actions/artifacts/$ARTIFACT_ID/zip" > "$RUNNER_TEMP/football-atlases.zip"
+          echo "${ARTIFACT_DIGEST#sha256:}  $RUNNER_TEMP/football-atlases.zip" | sha256sum --check
+          python3 scripts/football_atlas_publication.py validate "$RUNNER_TEMP/football-atlases.zip" "$SOURCE_SHA"
+      - name: Recheck installed publisher and exact Football source, then bounded immutable publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in scripts/football_atlas_publication.py scripts/football_delivery.py .github/workflows/football-r2-atlases.yml; do
+            test "$(gh api "repos/evilsysadmin/shadowops-infra/contents/$path?ref=main" --jq .sha)" = "$(git rev-parse "HEAD:$path")"
+          done
+          test "$(gh api repos/evilsysadmin/football-of-matthias/commits/main --jq .sha)" = "$SOURCE_SHA"
+          python3 scripts/football_atlas_publication.py publish "$RUNNER_TEMP/football-atlases.zip" "$SOURCE_SHA"
