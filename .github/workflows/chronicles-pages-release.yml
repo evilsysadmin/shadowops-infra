@@ -390,8 +390,9 @@ jobs:
           # packages only if Chromium's host-library probe actually needs them.
           bash smoke/ensure-chromium.sh
           # These are independent public journeys with unique ephemeral accounts
-          # and non-overlapping screenshot names. Exercise them concurrently,
-          # but ALWAYS wait for both (including cleanup) and fail if either fails.
+          # and non-overlapping screenshot names. Run the lightweight pair
+          # concurrently; after both finish, exercise real combat separately
+          # to avoid three Chromium instances competing for runner resources.
           node smoke/public-staging.mjs &
           public_pid=$!
           # End-to-end first-hour flow with a separate real Chronicles API
@@ -402,8 +403,17 @@ jobs:
           journey_rc=0
           wait "$public_pid" || public_rc=$?
           wait "$journey_pid" || journey_rc=$?
-          printf 'CHRONICLES_PUBLIC_SMOKE_RESULTS public=%s journey=%s\\n' "$public_rc" "$journey_rc"
-          (( public_rc == 0 && journey_rc == 0 ))
+          combat_rc=0
+          if (( public_rc == 0 && journey_rc == 0 )); then
+            # The crypt uses its own temporary account and always cleans it up.
+            # Its exit status is required before the verified Pages receipt.
+            node smoke/public-staging-combat.mjs || combat_rc=$?
+          else
+            echo 'CHRONICLES_PUBLIC_COMBAT_SKIPPED prerequisite browser smoke failed'
+            combat_rc=125
+          fi
+          printf 'CHRONICLES_PUBLIC_SMOKE_RESULTS public=%s journey=%s combat=%s\\n' "$public_rc" "$journey_rc" "$combat_rc"
+          (( public_rc == 0 && journey_rc == 0 && combat_rc == 0 ))
       - name: Preserve public-browser screenshots as deployment evidence
         if: steps.entry_freshness.outputs.fresh == 'true' && (always() && (steps.live.outputs.already_published == 'true' || steps.deploy.outputs.published == 'true'))
         uses: actions/upload-artifact@v4
@@ -412,6 +422,7 @@ jobs:
           path: |
             chronicles-source/frontend/chronicles-public-*.png
             chronicles-source/frontend/chronicles-journey-*.png
+            chronicles-source/frontend/chronicles-combat-*.png
           if-no-files-found: ignore
           retention-days: 7
       - name: Reject superseded source before writing verified receipt
@@ -458,6 +469,7 @@ jobs:
               "api_verified_before_pages": True,
               "manifest_verified": True,
               "public_browser_smoke_passed": True,
+              "public_combat_smoke_passed": True,
               "workflow_run": os.environ["GITHUB_SERVER_URL"] + "/" + os.environ["GITHUB_REPOSITORY"] + "/actions/runs/" + os.environ["GITHUB_RUN_ID"],
           }
           # Changelog enrichment is optional: never fail an otherwise verified
