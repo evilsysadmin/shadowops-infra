@@ -34,7 +34,8 @@ try{
  const forged=await fetch(origin+'/api/football/session',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({token:'unsigned.claims.value'})});
  assert.ok([401,503].includes(forged.status));
  if(process.env.FOOTBALL_REAL_IDENTITY_SMOKE==='true'){
-  const username='football-smoke-'+randomBytes(5).toString('hex'),password=randomBytes(32).toString('base64url');
+  const username='football_smoke_'+randomBytes(5).toString('hex'),password=randomBytes(32).toString('base64url');
+  assert.match(username,/^[a-z][a-z0-9_]{2,31}$/);
   const registered=await native('/api/identity/register',{username,password});
   assert.equal(registered.status,201,'native ordinary staging registration');await registered.body?.cancel();
   const signed=await native('/api/identity/login',{username,password});assert.equal(signed.status,204,'native staging login');
