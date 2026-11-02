@@ -23,6 +23,7 @@ CDN='https://assets.chess-studio.shadowops.dpdns.org'
 HEX=re.compile(r'[a-f0-9]{40}')
 BUDGET=7_000_000_000
 FOOTBALL_BUDGET=536_870_912
+PUBLIC_HEADERS={'User-Agent':'ShadowOps-Football-Delivery/1.0 (+https://github.com/evilsysadmin/shadowops-infra)'}
 
 class DeliveryError(ValueError):pass
 
@@ -34,7 +35,7 @@ def github(path):
  except Exception:raise DeliveryError('Football source evidence unavailable') from None
 
 def public_release():
- request=urllib.request.Request('https://'+HOST+'/release.json',headers={'Cache-Control':'no-cache'})
+ request=urllib.request.Request('https://'+HOST+'/release.json',headers={**PUBLIC_HEADERS,'Cache-Control':'no-cache'})
  try:
   with urllib.request.urlopen(request,timeout=8) as response:return json.loads(response.read(65536))
  except (OSError,ValueError):return None
@@ -154,7 +155,7 @@ def verify_public(sha):
   if current and current.get('application')=='football-of-matthias' and current.get('environment')=='staging' and current.get('source_sha')==sha:
    runtime=current.get('runtime',{});uri=runtime.get('index','')
    if uri!=f'{CDN}/{PREFIX}/releases/{runtime.get("release")}/index.html' or runtime.get('sourceSha')!=sha:raise DeliveryError('Public runtime identity mismatch')
-   with urllib.request.urlopen(uri,timeout=20) as response:
+   with urllib.request.urlopen(urllib.request.Request(uri,headers=PUBLIC_HEADERS),timeout=20) as response:
     if response.status==200 and b'Engine' in response.read(100000):
      print('FOOTBALL_STAGING_PUBLIC_VERIFIED source_sha='+sha+' host='+HOST);return
   time.sleep(8)
