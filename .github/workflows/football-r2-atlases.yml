@@ -14,9 +14,6 @@ on:
 permissions:
   contents: read
   actions: read
-concurrency:
-  group: shadowops-football-staging-pages
-  cancel-in-progress: false
 jobs:
   contracts:
     runs-on: ubuntu-24.04
@@ -28,6 +25,11 @@ jobs:
   publish:
     needs: contracts
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    # Only cloud writes serialize with the existing Football Pages deployment;
+    # PR contract checks must never displace one another from its queue.
+    concurrency:
+      group: shadowops-football-staging-pages
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment:
