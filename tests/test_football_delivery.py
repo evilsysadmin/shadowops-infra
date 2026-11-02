@@ -22,7 +22,8 @@ def fixture(root):
   entries[p.name]={'sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw)}
  release_id=hashes.hexdigest()[:16]
  pointer={'version':1,'release':release_id,'sourceSha':SHA,'index':f'{delivery.CDN}/{delivery.PREFIX}/releases/{release_id}/index.html'}
- release={'application':'football-of-matthias','environment':'staging','source_sha':SHA,'runtime':pointer,'files':entries}
+ release={'application':'football-of-matthias','environment':'staging','source_sha':SHA,'authentication':delivery.AUTHENTICATION,'runtime':pointer,'files':entries}
+ (root/'web/_worker.js').write_text('export default {fetch(){return new Response("authentication required",{status:401})}}')
  (root/'web/release.json').write_text(json.dumps(release));(root/'web/runtime.json').write_text(json.dumps(pointer));(root/'web/index.html').write_text('Football')
  files={p.relative_to(root).as_posix():{'sha256':hashlib.sha256(p.read_bytes()).hexdigest(),'bytes':p.stat().st_size} for p in root.rglob('*') if p.is_file()}
  (root/'delivery.json').write_text(json.dumps({'application':'football-of-matthias','environment':'staging','source_sha':SHA,'files':files}))
@@ -42,6 +43,22 @@ class FootballDelivery(unittest.TestCase):
     if fault=='extra':(root/'web/unreviewed.js').write_text('injected')
     if fault=='symlink':(root/'runtime/leak').symlink_to('/etc/passwd')
     with self.assertRaises(delivery.DeliveryError):delivery.validate(root,'b'*40 if fault=='source' else SHA)
+ def test_anonymous_source_is_rejected_even_when_artifact_hashes_match(self):
+  with tempfile.TemporaryDirectory() as directory:
+   root=Path(directory);fixture(root)
+   release=json.loads((root/'web/release.json').read_text());release.pop('authentication')
+   (root/'web/release.json').write_text(json.dumps(release))
+   manifest=json.loads((root/'delivery.json').read_text());file=root/'web/release.json'
+   manifest['files']['web/release.json']={'sha256':hashlib.sha256(file.read_bytes()).hexdigest(),'bytes':file.stat().st_size}
+   (root/'delivery.json').write_text(json.dumps(manifest))
+   with self.assertRaises(delivery.DeliveryError):delivery.validate(root,SHA)
+ def test_edge_quota_exhaustion_cannot_expose_unprotected_assets(self):
+  project={'deployment_configs':{'production':{'fail_open':False},'preview':{'fail_open':False}}}
+  with patch.object(pages,'existing_project',return_value=True),patch.object(pages,'project_path',return_value='/owned'),patch.object(pages,'request',return_value=(200,project)) as request:
+   pages.ensure_identity_policy()
+   self.assertEqual(request.call_args_list[0].args,('PATCH','/owned',project))
+   project['deployment_configs']['production']['fail_open']=True
+   with self.assertRaises(RuntimeError):pages.ensure_identity_policy()
  def test_budget_counts_shared_bucket_and_own_prefix_with_no_bypass(self):
   delivery.budget({'other/keep':1},{delivery.PREFIX+'/new':1})
   with self.assertRaises(delivery.DeliveryError):delivery.budget({'other/keep':delivery.BUDGET},{delivery.PREFIX+'/new':1})

@@ -142,6 +142,20 @@ def ensure_project() -> None:
     print("FOOTBALL_PAGES_PROJECT_OK")
 
 
+
+def ensure_identity_policy() -> None:
+    if not existing_project():
+        raise RuntimeError('Football project missing: refusing policy mutation')
+    request('PATCH', project_path(), {'deployment_configs': {
+        'production': {'fail_open': False}, 'preview': {'fail_open': False},
+    }})
+    _, project = request('GET', project_path())
+    configs = project.get('deployment_configs', {}) if isinstance(project, dict) else {}
+    if any(configs.get(mode, {}).get('fail_open') is not False for mode in ('production', 'preview')):
+        raise RuntimeError('Football edge must deny access when Functions are unavailable')
+    print('FOOTBALL_IDENTITY_FAIL_CLOSED_POLICY_VERIFIED')
+
+
 def ensure_domain() -> None:
     if not existing_project():
         raise RuntimeError("FOOTBALL project missing: refusing DNS mutation")
@@ -176,6 +190,8 @@ def main() -> None:
             preflight()
         elif cmd == "project":
             ensure_project()
+        elif cmd == "identity-policy":
+            ensure_identity_policy()
         elif cmd == "domain":
             ensure_domain()
         elif cmd == "verify" and len(sys.argv) == 3:

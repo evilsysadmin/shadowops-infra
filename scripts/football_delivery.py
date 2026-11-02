@@ -21,6 +21,7 @@ BUCKET='chess-studio-assets'
 PREFIX='football-of-matthias/staging'
 CDN='https://assets.chess-studio.shadowops.dpdns.org'
 HEX=re.compile(r'[a-f0-9]{40}')
+AUTHENTICATION={'provider':'shadowops-id','audience':'football','required':True}
 BUDGET=7_000_000_000
 FOOTBALL_BUDGET=536_870_912
 PUBLIC_HEADERS={'User-Agent':'ShadowOps-Football-Delivery/1.0 (+https://github.com/evilsysadmin/shadowops-infra)'}
@@ -82,6 +83,7 @@ def validate(root,sha):
   total+=item['bytes']
  if total>200_000_000:raise DeliveryError('Release exceeds bounded static budget')
  release=json.loads((root/'web/release.json').read_text());runtime=json.loads((root/'web/runtime.json').read_text())
+ if release.get('authentication')!=AUTHENTICATION or not (root/'web/_worker.js').is_file():raise DeliveryError('ShadowOps ID edge gate required; anonymous release rejected')
  if release.get('source_sha')!=sha or release.get('application')!='football-of-matthias' or release.get('environment')!='staging' or release.get('runtime')!=runtime:raise DeliveryError('Frontend release differs from runtime')
  if runtime.get('version')!=1 or runtime.get('sourceSha')!=sha or not re.fullmatch(r'[a-f0-9]{16}',runtime.get('release','')):raise DeliveryError('Invalid runtime identity')
  expected=f'{CDN}/{PREFIX}/releases/{runtime["release"]}/index.html'
@@ -152,7 +154,7 @@ def verify_public(sha):
  deadline=time.monotonic()+420
  while time.monotonic()<deadline:
   current=public_release()
-  if current and current.get('application')=='football-of-matthias' and current.get('environment')=='staging' and current.get('source_sha')==sha:
+  if current and current.get('application')=='football-of-matthias' and current.get('environment')=='staging' and current.get('source_sha')==sha and current.get('authentication')==AUTHENTICATION:
    runtime=current.get('runtime',{});uri=runtime.get('index','')
    if uri!=f'{CDN}/{PREFIX}/releases/{runtime.get("release")}/index.html' or runtime.get('sourceSha')!=sha:raise DeliveryError('Public runtime identity mismatch')
    with urllib.request.urlopen(urllib.request.Request(uri,headers=PUBLIC_HEADERS),timeout=20) as response:
@@ -169,7 +171,7 @@ def main():
   if candidate is None:
    with output.open('a') as f:f.write('publish=false\n')
    print('FOOTBALL_WAITING_FOR_SOURCE_CI');return
-  current=public_release();publish=not(current and current.get('source_sha')==candidate['source_sha'] and current.get('application')=='football-of-matthias')
+  current=public_release();publish=os.environ.get('FOOTBALL_FORCE_REDEPLOY')=='true' or not(current and current.get('source_sha')==candidate['source_sha'] and current.get('application')=='football-of-matthias' and current.get('authentication')==AUTHENTICATION)
   with output.open('a') as f:
    for key,value in candidate.items():f.write(f'{key}={value}\n')
    f.write('publish='+str(publish).lower()+'\n')

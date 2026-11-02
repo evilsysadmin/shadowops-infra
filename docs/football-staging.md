@@ -8,6 +8,13 @@ Cada frontend fija su runtime por hash; una subida parcial de R2 nunca cambia un
 
 El workflow se ejecuta al cambiar esta entrega, manualmente o a los minutos 13 y 43. Si el SHA ya está publicado, no despliega otra vez; si la CI de origen sigue pendiente, espera a la siguiente reconciliación. El recibo final es `FOOTBALL_STAGING_PUBLIC_VERIFIED source_sha=<sha>`. Sólo después de verificarlo se corta el host antiguo y se habilita el enlace en el portal. Producción permanece sin publicar.
 
-El staging inicial conserva acceso directo y carreras por navegador. Un dominio no puede leer otro Web Storage: la transferencia de carrera es explícita y valida sólo el journal de Football. Ninguna cuenta/perfil de Chess se copia ni se convierte en autoridad en el cliente.
+El staging exige ShadowOps ID en el edge y conserva carreras por navegador, separadas por el UUID verificado. Un dominio no puede leer otro Web Storage: la transferencia de carrera es explícita y valida sólo el journal de Football. Ninguna cuenta/perfil de Chess se copia ni se convierte en autoridad en el cliente.
 
 R2 uses the existing operator R2 credential delivered encrypted as `FOOTBALL_R2_API_TOKEN` in Infra Actions. Pages/DNS retain `CLOUDFLARE_API_TOKEN`; its scope does not include object inventory. No token value is logged or stored in the source repository.
+
+
+El edge conserva `fail_open=false` en producción y previews: una cuota agotada o función no disponible no convierte el sitio en público. El artefacto debe acreditar `authentication={provider:shadowops-id,audience:football,required:true}` e incluir `_worker.js`; una entrega anónima se rechaza antes de mutar recursos.
+
+La activación usa el consumidor admitido por Infra #422. El operador instala el wrapper mediante `make identity-staging-bootstrap`; Actions preserva la custodia, hace backup y despliega la imagen Identity admitida. Un despacho de Football con `force=true` e `identity_binding=activate` copia únicamente su `soc1_` al binding secreto del edge y vuelve a entregar el mismo SHA acreditado. No desactiva hashes, gates ni límites gratuitos. Los despliegues normales preservan el binding.
+
+El smoke público normal prueba denegación anónima y tokens falsos en desktop/móvil. `real_identity_smoke=true` es una comprobación puntual explícita de activación: crea una cuenta ordinaria de staging con credencial aleatoria sólo en memoria, obtiene una sesión nativa y verifica entrada, mánager, WASM de escritorio y revocación/logout. No toca cuentas reales ni concede roles. La cuenta sintética permanece sin sesiones activas; no se crean cuentas en cada reconciliación. Los artefactos excluyen credenciales y cookies. El renderizado del partido en viewport móvil tiene una incidencia visual aparte y no se acredita por el handshake del motor.

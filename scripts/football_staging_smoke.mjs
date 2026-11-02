@@ -1,42 +1,77 @@
-// Read-only validation of the actual public staging and its cross-origin WASM.
+// Read-only by default. The explicit activation journey uses one ordinary,
+// disposable staging account; credentials stay in memory and all sessions revoke.
 import {chromium} from 'playwright';
+import {randomBytes} from 'node:crypto';
 import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
 const origin='https://staging.football.shadowops.dpdns.org';
+const issuer='https://id-staging.shadowops.dpdns.org';
 const out=process.env.FOOTBALL_SCREENSHOTS;
 assert.ok(out);await mkdir(out,{recursive:true});
-const browser=await chromium.launch({headless:true});
-try {
- const release=await (await fetch(origin+'/release.json')).json();
- assert.equal(release.application,'football-of-matthias');
- assert.equal(release.environment,'staging');
- assert.match(release.source_sha,/^[a-f0-9]{40}$/);
- if(process.env.SOURCE_SHA)assert.equal(release.source_sha,process.env.SOURCE_SHA);
- const captures=[];
- for(const viewport of [{width:1280,height:800},{width:390,height:844}]) {
-  const page=await browser.newPage({viewport});const errors=[];
-  page.on('pageerror',error=>errors.push(String(error)));
-  await page.goto(origin);await page.getByRole('button',{name:/Modo mánager/}).waitFor();
+const release=await (await fetch(origin+'/release.json')).json();
+assert.equal(release.application,'football-of-matthias');assert.equal(release.environment,'staging');
+assert.deepEqual(release.authentication,{provider:'shadowops-id',audience:'football',required:true});
+assert.match(release.source_sha,/^[a-f0-9]{40}$/);
+if(process.env.SOURCE_SHA)assert.equal(release.source_sha,process.env.SOURCE_SHA);
+const captures=[];let centralCookie=null;
+const browser=await chromium.launch({headless:true,args:['--enable-webgl','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+async function native(path,body,cookie){return fetch(issuer+path,{method:'POST',headers:{Origin:issuer,'Content-Type':'application/json','User-Agent':'ShadowOps-Football-Smoke/1.0',...(cookie?{Cookie:cookie}:{})},body:JSON.stringify(body),redirect:'error'});}
+try{
+ for(const viewport of [{width:1280,height:800},{width:390,height:844}]){
+  const page=await browser.newPage({viewport,hasTouch:viewport.width===390,isMobile:viewport.width===390});
+  const response=await page.goto(origin);assert.ok([401,503].includes(response.status()));
+  const login=page.getByRole('link',{name:'Entrar con ShadowOps ID',exact:true});await login.waitFor();
+  assert.equal(await login.getAttribute('href'),issuer+'/login?app=football');
+  assert.equal(await page.locator('.chess-football-entry,iframe').count(),0);
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
-  await page.screenshot({path:out+'/'+viewport.width+'-welcome.png'});
-  await page.getByRole('button',{name:/Modo mánager/}).click();
-  await page.getByRole('button',{name:'Elegir FC Matthias',exact:true}).waitFor();
-  await page.screenshot({path:out+'/'+viewport.width+'-manager.png'});
-  await page.goto(origin);
-  await page.locator('.chess-football-entry__choice--quick').click();
-  const host=page.locator('.chess-football-godot-host');
-  await host.waitFor();
-  await page.waitForFunction(()=>document.querySelector('.chess-football-godot-host')?.dataset.runtimeReady==='true',null,{timeout:120000});
-  if(viewport.width===390)await page.setViewportSize({width:844,height:390});
-  const frame=page.frames().find(frame=>frame.url()===release.runtime.index);
-  assert.ok(frame,'exact immutable runtime loaded');
-  assert.equal(await frame.locator('canvas').count(),1);
-  const canvas=frame.locator('canvas');await canvas.click();
-  await page.keyboard.down('KeyD');await page.waitForTimeout(400);await page.keyboard.up('KeyD');
-  await page.screenshot({path:out+'/'+viewport.width+'-real-match.png'});
-  assert.deepEqual(errors,[]);
-  captures.push({viewport,runtime:frame.url(),ready:true,page_errors:errors});await page.close();
+  await page.screenshot({path:out+'/'+viewport.width+'-login.png'});
+  for(const path of ['/api/football/session','/runtime.json']){
+   const denied=await page.request.get(origin+path);assert.ok([401,503].includes(denied.status()));
+  }
+  captures.push({viewport,anonymous_denied:true});await page.close();
  }
- await writeFile(out+'/proof.json',JSON.stringify({source_sha:release.source_sha,captures},null,2));
- console.log('FOOTBALL_PUBLIC_BROWSER_DESKTOP_MOBILE_WASM_OK source_sha='+release.source_sha);
-}finally{await browser.close();}
+ // A different Pages hostname must never become an unauthenticated mirror.
+ const forged=await fetch(origin+'/api/football/session',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({token:'unsigned.claims.value'})});
+ assert.ok([401,503].includes(forged.status));
+ if(process.env.FOOTBALL_REAL_IDENTITY_SMOKE==='true'){
+  const username='football-smoke-'+randomBytes(5).toString('hex'),password=randomBytes(32).toString('base64url');
+  const registered=await native('/api/identity/register',{username,password});
+  assert.equal(registered.status,201,'native ordinary staging registration');await registered.body?.cancel();
+  const signed=await native('/api/identity/login',{username,password});assert.equal(signed.status,204,'native staging login');
+  const cookie=signed.headers.getSetCookie().find(value=>value.startsWith('__Host-shadowops_sso_staging='));assert.ok(cookie);
+  centralCookie=cookie.split(';')[0];
+  for(const viewport of [{width:1280,height:800},{width:390,height:844}]){
+   const context=await browser.newContext({viewport,hasTouch:viewport.width===390,isMobile:viewport.width===390});
+   await context.addCookies([{name:'__Host-shadowops_sso_staging',value:centralCookie.slice(centralCookie.indexOf('=')+1),url:issuer+'/',secure:true,httpOnly:true,sameSite:'Lax'}]);
+   const page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(String(error)));
+   await page.goto(origin);await page.getByRole('button',{name:/Modo mánager/}).waitFor({timeout:60000});
+   const me=await page.request.get(origin+'/api/football/session');assert.equal(me.status(),200);
+   const identity=await me.json();assert.match(identity.subject,/^[0-9a-f-]{36}$/);
+   await page.getByRole('button',{name:'Salir de ShadowOps ID',exact:true}).click({trial:true});
+   await page.screenshot({path:out+'/'+viewport.width+'-authenticated-welcome.png'});
+   await page.getByRole('button',{name:/Modo mánager/}).click();
+   await page.getByRole('button',{name:'Elegir FC Matthias',exact:true}).waitFor();
+   await page.screenshot({path:out+'/'+viewport.width+'-authenticated-manager.png'});
+   if(viewport.width===1280){
+    await page.goto(origin);await page.locator('.chess-football-entry__choice--quick').click();
+    await page.waitForFunction(()=>document.querySelector('.chess-football-godot-host')?.dataset.runtimeReady==='true',null,{timeout:120000});
+    const frame=page.frames().find(frame=>frame.url()===release.runtime.index);assert.ok(frame);
+    await page.waitForTimeout(5000);await frame.locator('canvas').click();
+    await page.keyboard.down('KeyD');await page.waitForTimeout(400);await page.keyboard.up('KeyD');
+    await page.screenshot({path:out+'/1280-authenticated-real-match.png'});
+   }
+   assert.deepEqual(errors,[]);captures.push({viewport,authenticated:true,page_errors:errors});await context.close();
+  }
+  const loggedOut=await native('/api/identity/logout',{},centralCookie);assert.equal(loggedOut.status,204);
+  // Replaying the revoked central cookie must fail, as must a retained Football
+  // cookie (tested at the edge with real signed tokens in the source CI).
+  const replay=await native('/api/identity/token',{},centralCookie);assert.equal(replay.status,401);
+  centralCookie=null;
+  console.log('FOOTBALL_REAL_IDENTITY_BROWSER_OK source_sha='+release.source_sha);
+ }
+ await writeFile(out+'/proof.json',JSON.stringify({source_sha:release.source_sha,authentication:release.authentication,captures},null,2));
+ console.log('FOOTBALL_PUBLIC_IDENTITY_GATE_OK source_sha='+release.source_sha);
+}finally{
+ if(centralCookie){try{await native('/api/identity/logout',{},centralCookie);}catch{/* Never log the credential or private response. */}}
+ await browser.close();
+}
