@@ -64,6 +64,16 @@ class Retirement(unittest.TestCase):
         self.assertFalse(after['dns']);self.assertFalse(after['projects'])
         self.assertEqual(len(after['tunnels']),2)
         self.assertFalse(any(m=='DELETE' and '/cfd_tunnel/' in p for m,p,_ in cf.writes))
+    def test_deletion_waits_for_transient_oci_state_and_refuses_failed_state(self):
+        states=iter(['ACTIVE','SCHEDULING_DELETION','PENDING_DELETION'])
+        client=NS(get_secret=lambda _:NS(data=NS(lifecycle_state=next(states))))
+        cloud.wait_deletion(client,'synthetic',clock=lambda:0,sleep=lambda _:None)
+        with self.assertRaises(cloud.ProvisionError):
+            cloud.wait_deletion(NS(get_secret=lambda _:NS(data=NS(lifecycle_state='FAILED'))),'synthetic')
+    def test_tunnel_purge_requires_no_live_connections(self):
+        cf=Cloudflare();plan=cloud.cloud_plan(cf)
+        self.assertTrue(cloud.disconnected(cf,plan))
+        cf.connected=True;self.assertFalse(cloud.disconnected(cf,plan))
     def test_foreign_resources_fail_before_any_write(self):
         for foreign in ['dns','page','ingress']:
             cf=Cloudflare();cf.foreign=foreign

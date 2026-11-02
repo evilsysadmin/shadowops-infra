@@ -7,6 +7,7 @@ import json
 import os
 import re
 import sys
+import time
 from urllib.parse import urlencode
 from chronicles_api_provision import Cloudflare, ProvisionError, resolve_vault
 from oci_control_plane import config_from_env, resolve_existing_host
@@ -105,7 +106,7 @@ def vault_plan(sdk,env):
         if own:
             response=client.get_secret(own[0].id);meta=response.data
             if (meta.vault_id!=vault or meta.key_id!=key or meta.freeform_tags!={'application':application,'environment':'staging','managed-by':'shadowops-infra'}
-                    or meta.lifecycle_state not in {'ACTIVE','PENDING_DELETION'}):raise ProvisionError('Foreign CKA secret')
+                    or meta.lifecycle_state not in {'ACTIVE','SCHEDULING_DELETION','PENDING_DELETION'}):raise ProvisionError('Foreign CKA secret')
             selected.append((name,meta.id,meta.lifecycle_state,response.headers['etag']))
     own=[s for s in rows if s.secret_name==SECRET_NAME and s.lifecycle_state!='DELETED']
     if len(own)!=1 or own[0].lifecycle_state!='ACTIVE':raise ProvisionError('Shared Identity custody must exist')
@@ -132,6 +133,18 @@ def retire_cloud(cf,plan,*,purge=True):
         if connections:raise ProvisionError('CKA connector still running; run make cka-retire-host then retry')
         cf.call('DELETE',f'/accounts/{cf.account}/cfd_tunnel/{identity}')
 
+def wait_deletion(client,identity,*,clock=time.monotonic,sleep=time.sleep):
+    deadline=clock()+180
+    while True:
+        state=client.get_secret(identity).data.lifecycle_state
+        if state in {'PENDING_DELETION','DELETED'}:return
+        if state not in {'ACTIVE','SCHEDULING_DELETION'} or clock()>=deadline:
+            raise ProvisionError('CKA secret deletion is not scheduled')
+        sleep(2)
+
+def disconnected(cf,plan):
+    return not any(cf.call('GET',f'/accounts/{cf.account}/cfd_tunnel/{identity}/connections') for _,identity in plan['tunnels'])
+
 def execute(sdk,env,cf,*,mutate=False,purge=True):
     plan=cloud_plan(cf)
     client,secrets,identity=vault_plan(sdk,env)
@@ -139,6 +152,7 @@ def execute(sdk,env,cf,*,mutate=False,purge=True):
             'dedicated_secrets':len(secrets),'shared_identity_cka_consumer':'cka-simulator' in identity[2]['consumers']}
     print('CKA_RETIRE_CLOUD_PLAN '+json.dumps(report,sort_keys=True),flush=True)
     if not mutate:return
+    purge=purge or disconnected(cf,plan)
     retire_cloud(cf,plan,purge=purge)
     sid,etag,before,after=identity
     if before!=after:
@@ -152,8 +166,7 @@ def execute(sdk,env,cf,*,mutate=False,purge=True):
     verify=cloud_plan(cf)
     if any(verify[k] for k in (('dns','projects','tunnels') if purge else ('dns','projects'))):raise ProvisionError('CKA cloud resources remain')
     for name,sid,state,etag in secrets:
-        if client.get_secret(sid).data.lifecycle_state not in {'PENDING_DELETION','DELETED'}:
-            raise ProvisionError('CKA secret deletion is not scheduled')
+        wait_deletion(client,sid)
     print('CKA_RETIRE_CLOUD_VERIFIED dns=0 pages=0 tunnels=0 dedicated_secrets=pending_deletion shared_identity=preserved' if purge else 'CKA_RETIRE_PUBLIC_WITHDRAWN dns=0 pages=0 origins=404 host_cleanup=pending tunnels='+str(len(verify['tunnels'])))
 
 if __name__=='__main__':
