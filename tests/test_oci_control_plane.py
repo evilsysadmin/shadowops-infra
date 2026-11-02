@@ -462,6 +462,105 @@ class TestOCIInventory(unittest.TestCase):
         self.assertEqual(agent.create_calls, 1)
         self.assertEqual(agent.poll_calls, 6)
 
+    def test_poll_delay_is_fast_for_early_poll_and_ack_or_active(self):
+        import oci_chronicles_api_release as release
+
+        for samples, acked, active, expected in (
+            (0, None, None, 3),
+            (1, None, None, 3),
+            (2, None, None, 3),
+            (3, None, None, 6),
+            (30, None, None, 6),
+            (30, 7.0, None, 3),
+            (30, None, 8.0, 3),
+        ):
+            with self.subTest(samples=samples, acked=acked, active=active):
+                self.assertEqual(release.poll_delay_seconds(
+                    first_acked=acked, first_active=active,
+                    pre_delivery_samples=samples), expected)
+
+    def test_adaptive_oci_polling_resumes_fast_and_never_skips_terminal(self):
+        from unittest.mock import patch
+        import oci_chronicles_api_release as release
+
+        digest = "sha256:" + "a" * 64
+        marker = release.marker_for("staging") + digest
+        vault = "ocid1.vault.oc1.eu-frankfurt-1.abcdefghijkl"
+        scenarios = (
+            (
+                # Long VISIBLE delivery, ACKED, then IN_PROGRESS; zero mutation changes.
+                (("ACCEPTED", "VISIBLE"), ("ACCEPTED", "VISIBLE"),
+                 ("ACCEPTED", "VISIBLE"), ("ACCEPTED", "VISIBLE"),
+                 ("ACCEPTED", "ACKED"), ("IN_PROGRESS", "ACKED"),
+                 ("SUCCEEDED", "ACKED")),
+                [3, 3, 6, 6, 3, 3],
+            ),
+            (
+                # OCI may transition to IN_PROGRESS without a previously observed ACK.
+                (("ACCEPTED", "VISIBLE"), ("ACCEPTED", "VISIBLE"),
+                 ("ACCEPTED", "VISIBLE"), ("IN_PROGRESS", "VISIBLE"),
+                 ("SUCCEEDED", "ACKED")),
+                [3, 3, 6, 3],
+            ),
+            (
+                # Fast delivery must never pay the slower cadence.
+                (("ACCEPTED", "VISIBLE"), ("ACCEPTED", "ACKED"),
+                 ("SUCCEEDED", "ACKED")),
+                [3, 3],
+            ),
+        )
+        for responses, expected_waits in scenarios:
+            with self.subTest(responses=responses):
+                sdk = FakeSDK()
+                sdk.compute_instance_agent.models = NS(
+                    InstanceAgentCommandSourceViaTextDetails=lambda **kw: NS(**kw),
+                    InstanceAgentCommandOutputViaTextDetails=lambda **kw: NS(**kw),
+                    InstanceAgentCommandContent=lambda **kw: NS(**kw),
+                    InstanceAgentCommandTarget=lambda **kw: NS(**kw),
+                    CreateInstanceAgentCommandDetails=lambda **kw: NS(**kw),
+                )
+
+                class Agent:
+                    def __init__(self):
+                        self.states = iter(responses)
+                        self.polls = 0
+                        self.creates = 0
+
+                    def create_instance_agent_command(self, **kwargs):
+                        self.creates += 1
+                        return NS(data=NS(id="synthetic-command"))
+
+                    def get_instance_agent_command_execution(self, **kwargs):
+                        self.polls += 1
+                        state, delivery = next(self.states)
+                        return NS(data=NS(
+                            lifecycle_state=state, delivery_state=delivery,
+                            content=NS(text="PRIVATE_HOST_LOG\n" + marker,
+                                       exit_code=0 if state == "SUCCEEDED" else None)))
+
+                agent = Agent()
+                waits = []
+                sdk.compute_instance_agent.ComputeInstanceAgentClient = lambda _: agent
+                out = io.StringIO()
+                with tempfile.TemporaryDirectory() as folder:
+                    summary = Path(folder) / "summary.md"
+                    with patch("chronicles_api_provision.resolve_vault",
+                               return_value=(vault, None, None)), patch.dict(
+                                   os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}
+                               ), redirect_stdout(out):
+                        result = release.execute(
+                            sdk, cp.config_from_env(sdk, ENV), digest,
+                            pause=waits.append, clock=lambda: 100.0,
+                            poll_clock=lambda: 100.0)
+                    verified = summary.read_text()
+                self.assertEqual(result, marker)
+                self.assertEqual(waits, expected_waits)
+                self.assertEqual(agent.polls, len(responses))
+                self.assertEqual(agent.creates, 1)
+                self.assertIn("Verified wrapper smoke: yes", verified)
+                self.assertNotIn("PRIVATE_HOST_LOG", verified + out.getvalue())
+                self.assertEqual(out.getvalue().splitlines()[-1], marker)
+
     def test_release_rejects_unhealthy_plugin_before_submitting_any_command(self):
         from unittest.mock import patch
         import oci_chronicles_api_release as release
