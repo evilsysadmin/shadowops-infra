@@ -31,6 +31,18 @@ class BrowserOnlyReleaseTest(unittest.TestCase):
         self.assertLess(read, names.index(checkout_name))
         self.assertLess(names.index(checkout_name), names.index(assert_name))
         self.assertLess(names.index(assert_name), names.index(install_name))
+        install = next(s for s in steps if s.get("name") == install_name)
+        self.assertEqual(install["working-directory"], "frontend")
+        self.assertEqual(install["env"]["VITE_API_URL"],
+                         "https://chronicles-api-staging.shadowops.dpdns.org/api")
+        self.assertEqual(install["env"]["VITE_BUILD_SHA"], "${{ steps.current.outputs.sha }}")
+        self.assertEqual(install["env"]["CHRONICLES_DEPLOY_BASE"], "/")
+        self.assertIn("CHRONICLES_CENTRAL_IDENTITY_STAGING",
+                      install["env"]["VITE_SHADOWOPS_IDENTITY"])
+        self.assertLess(install["run"].index("npm ci"), install["run"].index("npm run build"))
+        self.assertLess(install["run"].index("npm run build"),
+                        install["run"].index("bash smoke/ensure-chromium.sh"))
+        self.assertNotIn("npm install --no-save", install["run"])
         checkout = next(s for s in steps if s.get("name") == checkout_name)
         self.assertEqual(checkout["with"]["repository"], "evilsysadmin/chronicles-of-matthias")
         self.assertEqual(checkout["with"]["ref"], "${{ steps.current.outputs.sha }}")
