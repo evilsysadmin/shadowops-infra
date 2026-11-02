@@ -44,6 +44,20 @@ class BrowserOnlyReleaseTest(unittest.TestCase):
         self.assertEqual(browser["env"]["CHRONICLES_SOURCE_SHA"], "${{ steps.current.outputs.sha }}")
         self.assertEqual(browser["env"]["CHRONICLES_STAGING_INVITE_CODE"],
                          "${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}")
+        combat_name = "Validate real public Chronicles combat and checkpoint"
+        combat = next(s for s in steps if s.get("name") == combat_name)
+        self.assertLess(names.index("Validate the actual public Chronicles game in desktop and mobile"),
+                        names.index(combat_name))
+        self.assertLess(names.index(combat_name),
+                        names.index("Keep only temporary-account browser screenshots"))
+        self.assertEqual(combat["working-directory"], "frontend")
+        self.assertEqual(combat["run"], "node smoke/public-staging-combat.mjs")
+        self.assertEqual(combat["env"], browser["env"])
+        evidence = next(s for s in steps if s.get("name") ==
+                        "Keep only temporary-account browser screenshots")
+        self.assertEqual(evidence["if"], "always()")
+        self.assertIn("frontend/chronicles-public-*.png", evidence["with"]["path"])
+        self.assertIn("frontend/chronicles-combat-*.png", evidence["with"]["path"])
         self.assertEqual(y["jobs"]["browser"]["environment"]["name"], "staging")
         self.assertIn("github.ref == 'refs/heads/main'", y["jobs"]["browser"]["if"])
 
