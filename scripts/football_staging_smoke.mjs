@@ -23,11 +23,13 @@ try {
   await page.getByRole('button',{name:'Elegir FC Matthias',exact:true}).waitFor();
   await page.screenshot({path:out+'/'+viewport.width+'-manager.png'});
   await page.goto(origin);
+  // Set landscape before the user gesture requests real fullscreen. Chromium
+  // refuses window bounds changes while that fullscreen transition is active.
+  if(viewport.width===390)await page.setViewportSize({width:844,height:390});
   await page.locator('.chess-football-entry__choice--quick').click();
   const host=page.locator('.chess-football-godot-host');
   await host.waitFor();
   await page.waitForFunction(()=>document.querySelector('.chess-football-godot-host')?.dataset.runtimeReady==='true',null,{timeout:120000});
-  if(viewport.width===390)await page.setViewportSize({width:844,height:390});
   const frame=page.frames().find(frame=>frame.url()===release.runtime.index);
   assert.ok(frame,'exact immutable runtime loaded');
   assert.equal(await frame.locator('canvas').count(),1);
