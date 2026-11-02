@@ -270,8 +270,11 @@ exit 0
             steps.index(gate))
         self.assertLess(steps.index(gate), steps.index(named[
             "Record the verified Chronicles Pages source generation"]))
-        self.assertIn("CHRONICLES_PAGES_SUPERSEDED_AFTER_SMOKE", gate["run"])
-        self.assertIn("fresh=false", gate["run"])
+        self.assertEqual(gate["run"],
+                         "bash scripts/chronicles_pages_source_freshness.sh after-smoke")
+        helper = (ROOT / "scripts/chronicles_pages_source_freshness.sh").read_text()
+        self.assertIn("CHRONICLES_PAGES_SUPERSEDED_AFTER_SMOKE", helper)
+        self.assertIn("fresh=false", helper)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             gh = root / "gh"
@@ -302,7 +305,7 @@ printf '%s\\n' "$FAKE_SOURCE_MAIN"
                            "FAKE_SOURCE_MAIN": current,
                            "FAKE_GH_FAIL": "true" if fails else "false"}
                     result = subprocess.run(["bash", "-euo", "pipefail", "-c", gate["run"]],
-                                            cwd=root, env=env, capture_output=True,
+                                            cwd=ROOT, env=env, capture_output=True,
                                             text=True, timeout=10)
                     self.assertEqual(result.returncode, expected_rc, result.stderr)
                     self.assertEqual(out.read_text().strip(), expected_output)
