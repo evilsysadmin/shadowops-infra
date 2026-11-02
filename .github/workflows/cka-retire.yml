@@ -51,5 +51,9 @@ jobs:
       - name: Require current protected source; remove only exact owned CKA resources
         run: |
           set -euo pipefail
-          test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+          # Other products may advance main while this job is queued. Require
+          # our admitted retirement code and workflow to remain exactly current.
+          for path in scripts/cka_retire_cloud.py .github/workflows/cka-retire.yml; do
+            test "$(gh api "repos/evilsysadmin/shadowops-infra/contents/$path?ref=main" --jq .sha)" = "$(git rev-parse "HEAD:$path")"
+          done
           python3 scripts/cka_retire_cloud.py "$ACTION"
