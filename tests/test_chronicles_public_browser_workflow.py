@@ -91,6 +91,11 @@ class PublicBrowserWorkflow(unittest.TestCase):
                 (owner_sha, admitted, 'source', 0, 7, '', ''),
                 (owner_sha, admitted, '', 1, 1, '', 'API gate failed for current SHA'),
                 (owner_sha, 'd' * 40, '', 1, 0, 'publish=false', 'SUPERSEDED_BEFORE_RELEASE'),
+                # A malformed GitHub reply after a failed API wait is NOT
+                # positive evidence of supersession; fail closed.
+                (owner_sha, 'bad-source', '', 1, 64, '', 'INVALID_SOURCE_SHA_AFTER_API_FAILURE'),
+                (owner_sha, '', '', 1, 64, '', 'INVALID_SOURCE_SHA_AFTER_API_FAILURE'),
+                (owner_sha, 'A' * 40, '', 1, 64, '', 'INVALID_SOURCE_SHA_AFTER_API_FAILURE'),
                 (owner_sha, admitted, 'source', 1, 7, '', ''),
             )
             for owner, source, failure, api_status, code, publish, marker in scenarios:
