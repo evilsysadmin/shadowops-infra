@@ -24,9 +24,9 @@ on:
         description: Provision custody/tunnel/DNS, or deploy an admitted image through the installed staging wrapper
       cka_consumer:
         type: choice
-        options: [preserve, enable]
+        options: [preserve]
         default: preserve
-        description: Provision only; explicitly add an independent CKA staging consumer after installing updated root policy
+        description: Provision only; CKA online is retired; existing non-CKA consumers are preserved
       source_sha:
         type: string
         required: false

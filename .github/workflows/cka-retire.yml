@@ -1,0 +1,52 @@
+name: CKA · retire online resources (keep repository)
+on:
+  pull_request:
+    paths: ['scripts/cka_retire*', 'host/*cka-retire*', 'tests/test_cka_retire.py', '.github/workflows/cka-retire.yml']
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Run make cka-retire-host first; plan is read-only
+        type: choice
+        options: [plan, retire]
+        default: plan
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - run: python3 -m pip install --disable-pip-version-check 'cryptography==50.0.2'
+      - run: python3 -m unittest discover -s tests -p test_cka_retire.py -v
+      - run: bash -n host/cka-retire-over-ssh.sh
+  cloud:
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    concurrency:
+      group: shadowops-oci-host-operations
+      cancel-in-progress: false
+    environment: staging
+    env:
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: eu-frankfurt-1
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      GH_TOKEN: ${{ github.token }}
+      ACTION: ${{ inputs.action }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - run: python3 -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Require current protected source; remove only exact owned CKA resources
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+          python3 scripts/cka_retire_cloud.py "$ACTION"

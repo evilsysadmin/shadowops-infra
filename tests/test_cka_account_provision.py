@@ -95,10 +95,10 @@ class ProvisionTests(unittest.TestCase):
         with self.assertRaises(provision.ProvisionError):self.runtime(cf,secret_state='PENDING_DELETION')
         self.assertTrue(all(method=='GET' for method,_,_ in cf.calls))
 
-    def test_identity_activation_requires_installed_cka_policy_before_cf_or_custody_mutation(self):
+    def test_retired_identity_activation_denied_before_cf_or_custody_mutation(self):
         cf=Cloudflare()
         with patch.object(idp,'config_from_env',return_value={}),patch.object(idp,'resolve_existing_host',return_value=('c','i')),patch.object(idp,'resolve_vault',return_value=('v','k',None)),patch.object(release,'execute',side_effect=AccountError('policy absent')):
-            with self.assertRaises(AccountError):idp.provision(NS(),{'IDENTITY_STAGING_CKA':'enable'},cf)
+            with self.assertRaises(provision.ProvisionError):idp.provision(NS(),{'IDENTITY_STAGING_CKA':'enable'},cf)
         self.assertEqual(cf.calls,[])
 
 if __name__=='__main__':unittest.main()

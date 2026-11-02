@@ -1,3 +1,4 @@
+# Retired online: keep contracts/history only. Use cka-retire.yml for cleanup.
 name: CKA Simulator · public static Pages preview
 on:
   pull_request:
@@ -21,7 +22,7 @@ jobs:
   publish:
     name: Publish isolated CKA static preview and verify HTTPS
     needs: contracts
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: ${{ false && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra') }} # CKA online retired
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     environment:

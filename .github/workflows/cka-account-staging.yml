@@ -1,3 +1,4 @@
+# Retired online: keep contracts/history only. Use cka-retire.yml for cleanup.
 name: CKA shared account · isolated staging handoff
 on:
   pull_request:
@@ -30,7 +31,7 @@ jobs:
       - run: sudo visudo -cf host/cka-account-staging.sudoers
   admit:
     needs: contracts
-    if: github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy' || inputs.action == 'pages' || inputs.action == 'admit') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: ${{ false && (github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy' || inputs.action == 'pages' || inputs.action == 'admit') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra') }} # CKA online retired
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -68,7 +69,7 @@ jobs:
           echo "CKA_ACCOUNT_SOURCE_ADMITTED sha=$sha digest=$digest"
   operate:
     needs: [contracts, admit]
-    if: always() && needs.contracts.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.action != 'pages' && inputs.action != 'admit' && (inputs.action != 'deploy' || needs.admit.result == 'success') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: ${{ false && (always() && needs.contracts.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.action != 'pages' && inputs.action != 'admit' && (inputs.action != 'deploy' || needs.admit.result == 'success') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra') }} # CKA online retired
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     environment: staging
@@ -141,7 +142,7 @@ jobs:
           if-no-files-found: error
   pages:
     needs: [contracts,admit]
-    if: github.event_name == 'workflow_dispatch' && inputs.action == 'pages' && needs.admit.result == 'success' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: ${{ false && (github.event_name == 'workflow_dispatch' && inputs.action == 'pages' && needs.admit.result == 'success' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra') }} # CKA online retired
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment:
