@@ -86,7 +86,7 @@ def validate(bundle: dict) -> None:
         raise BundleError('Invalid independent signing seed')
     consumers = bundle['consumers']
     if (not isinstance(consumers, dict) or 'chronicles' not in consumers
-            or not set(consumers) <= {'chronicles', 'cka-simulator'}
+            or not set(consumers) <= {'chronicles', 'cka-simulator', 'football'}
             or any(not isinstance(v, str) or not re.fullmatch('soc1_[A-Za-z0-9_-]{43}', v) for v in consumers.values())
             or len(set(consumers.values())) != len(consumers)
             or any(v[5:] in {bundle['signing_seed'], bundle['backup_key'].rstrip('=')} for v in consumers.values())):
@@ -125,5 +125,16 @@ def enable_cka(bundle: dict) -> dict:
     result['consumers'] = dict(bundle['consumers'])
     if 'cka-simulator' not in result['consumers']:
         result['consumers']['cka-simulator'] = 'soc1_' + random32()
+    validate(result)
+    return result
+
+
+def enable_football(bundle: dict) -> dict:
+    """Explicit Football-only opt-in; preserve every established key and consumer."""
+    validate(bundle)
+    result = dict(bundle)
+    result['consumers'] = dict(bundle['consumers'])
+    if 'football' not in result['consumers']:
+        result['consumers']['football'] = 'soc1_' + random32()
     validate(result)
     return result

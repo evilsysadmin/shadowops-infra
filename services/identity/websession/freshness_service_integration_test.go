@@ -16,7 +16,7 @@ import (
 
 func testCredentials() ConsumerCredentials {
 	keys := make(ConsumerCredentials)
-	for index, app := range []issuance.Application{issuance.ChessStudio, issuance.Chronicles, issuance.CKASimulator} {
+	for index, app := range []issuance.Application{issuance.ChessStudio, issuance.Chronicles, issuance.CKASimulator, issuance.Football} {
 		keys[app] = "soc1_" + base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{byte(index + 10)}, 32))
 	}
 	return keys
@@ -103,7 +103,7 @@ func TestServiceExposesOnlyExplicitlyRegisteredConsumerOriginsAndReturnTargets(t
 	for _, tc := range []struct {
 		app  string
 		want int
-	}{{"chronicles", 200}, {"chess-studio", 400}, {"cka-simulator", 400}} {
+	}{{"chronicles", 200}, {"chess-studio", 400}, {"cka-simulator", 400}, {"football", 400}} {
 		r, _ := http.NewRequest("GET", server.URL+"/login?app="+tc.app, nil)
 		r.Host = stagingHost
 		response, err := server.Client().Do(r)

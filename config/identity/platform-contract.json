@@ -52,6 +52,11 @@
           "audience": "cka-simulator",
           "origin": "https://staging.cka.shadowops.dpdns.org",
           "status": "proposed-not-deployed"
+        },
+        {
+          "audience": "football",
+          "origin": "https://staging.football.shadowops.dpdns.org",
+          "status": "staging-only-admission-pending"
         }
       ]
     },

@@ -20,11 +20,12 @@ class IdentityPlatformContractTests(unittest.TestCase):
         self.assertEqual(set(self.data["environments"]), {"staging", "production"})
         self.assertIn("/issues/287", self.data["issue"])
 
-    def test_identical_product_audiences_but_distinct_environment_origins(self):
+    def test_explicit_staging_only_football_and_distinct_environment_origins(self):
         stage = {a["audience"]: a["origin"] for a in self.stage["consumers"]}
         prod = {a["audience"]: a["origin"] for a in self.prod["consumers"]}
-        self.assertEqual(set(stage), {"chess-studio", "chronicles", "cka-simulator"})
-        self.assertEqual(set(stage), set(prod))
+        self.assertEqual(set(stage), {"chess-studio", "chronicles", "cka-simulator", "football"})
+        self.assertEqual(set(stage) - set(prod), {"football"})
+        self.assertEqual(set(prod), {"chess-studio", "chronicles", "cka-simulator"})
         self.assertFalse(set(stage.values()) & set(prod.values()))
         for origin in stage.values():
             self.assertEqual(urlsplit(origin).scheme, "https")

@@ -27,6 +27,11 @@ on:
         options: [preserve]
         default: preserve
         description: Provision only; CKA online is retired; existing non-CKA consumers are preserved
+      football_consumer:
+        type: choice
+        options: [preserve, enable]
+        default: preserve
+        description: Provision only — enable the isolated Football staging consumer without changing existing keys
       source_sha:
         type: string
         required: false
@@ -44,6 +49,7 @@ jobs:
       - run: python3 -m pip install --disable-pip-version-check 'oci==2.185.2'
       - run: python3 -m unittest discover -s tests -p 'test_identity_staging_*.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_identity_activation.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_identity_football.py' -v
       - run: bash -n host/install-identity-staging.sh && bash -n host/bootstrap-identity-staging-over-ssh.sh
       - run: bash -n host/install-shared-identity-staging.sh
       - run: sudo visudo -cf host/identity-staging.sudoers
@@ -63,6 +69,7 @@ jobs:
       cancel-in-progress: false
     env:
       IDENTITY_STAGING_CKA: ${{ inputs.cka_consumer || 'preserve' }}
+      IDENTITY_STAGING_FOOTBALL: ${{ inputs.football_consumer || 'preserve' }}
       OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
       OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
       OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
