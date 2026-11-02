@@ -1,3 +1,4 @@
+# Retired online: keep contracts/history only. Use cka-retire.yml for cleanup.
 name: CKA labs · publish authenticated staging POC
 on:
   workflow_dispatch:
@@ -8,7 +9,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   admit:
-    if: github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: ${{ false && (github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra') }} # CKA online retired
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     permissions:
@@ -37,6 +38,7 @@ jobs:
           appendFileSync(process.env.GITHUB_OUTPUT,'source='+pin.source_sha+'\n');
           JS
   prepare-tunnel:
+    if: ${{ false }} # CKA online retired
     needs: admit
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -77,6 +79,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: python scripts/cka_lab_tunnel_provision.py
   publish-browser:
+    if: ${{ false }} # CKA online retired
     needs: [admit, prepare-tunnel]
     runs-on: ubuntu-24.04
     timeout-minutes: 30

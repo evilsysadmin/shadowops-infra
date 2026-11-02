@@ -1,3 +1,4 @@
+# Retired online: keep contracts/history only. Use cka-retire.yml for cleanup.
 name: CKA Workers AI factory · staging source preflight (no inference)
 on:
   pull_request:
@@ -43,7 +44,7 @@ jobs:
   preflight:
     name: Pin CKA source and prove OCI factory dry run (no OCI access)
     needs: contracts
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: ${{ false && (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra') }} # CKA online retired
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     concurrency:

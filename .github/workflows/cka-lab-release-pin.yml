@@ -1,3 +1,4 @@
+# Retired online: keep contracts/history only. Use cka-retire.yml for cleanup.
 name: CKA labs · reviewed controller release pin
 on:
   pull_request:
@@ -12,6 +13,7 @@ permissions:
   attestations: read
 jobs:
   admit-reviewed-pin:
+    if: ${{ false }} # CKA online retired
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     env:

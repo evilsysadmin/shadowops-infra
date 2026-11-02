@@ -1,3 +1,5 @@
+> **CKA pasa a local.** Su repositorio e historial se conservan en `evilsysadmin/cka-exam-simulator`. Los workflows antiguos de publicación de CKA están bloqueados; usa [la retirada operativa](docs/cka-retirement.md) para eliminar sus servicios, Pages, DNS, túneles y secretos dedicados. Identity y los demás proyectos permanecen activos.
+
 # ShadowOps Infra
 
 **Canonical infrastructure control plane for ShadowOps products**: Chess Studio, Chronicles, CKA Simulator and future games/services.

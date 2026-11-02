@@ -1,3 +1,4 @@
+# Retired online: keep contracts/history only. Use cka-retire.yml for cleanup.
 name: CKA labs · shared A1 Compose preflight
 on:
   pull_request:
@@ -49,7 +50,7 @@ jobs:
       attestations: read
     runs-on: ubuntu-24.04
     timeout-minutes: 25
-    if: github.event_name != 'workflow_dispatch' || inputs.action != 'inspect-runtime'
+    if: ${{ false && (github.event_name != 'workflow_dispatch' || inputs.action != 'inspect-runtime') }} # CKA online retired
     env:
       DOCKERD_ROOTLESS_ROOTLESSKIT_DETACH_NETNS: 'false'
     steps:
@@ -140,7 +141,7 @@ jobs:
   preflight:
     name: Observe shared host without workload changes
     needs: contracts
-    if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.action == 'host-preflight')) && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: ${{ false && ((github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.action == 'host-preflight')) && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra') }} # CKA online retired
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     concurrency:
@@ -169,7 +170,7 @@ jobs:
   runtime-inspect:
     name: Verify installed rootless runtime (read-only, opt-in)
     needs: contracts
-    if: github.event_name == 'workflow_dispatch' && inputs.action == 'inspect-runtime' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: ${{ false && (github.event_name == 'workflow_dispatch' && inputs.action == 'inspect-runtime' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra') }} # CKA online retired
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     concurrency:

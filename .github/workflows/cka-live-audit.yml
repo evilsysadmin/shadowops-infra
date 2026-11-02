@@ -1,3 +1,4 @@
+# Retired online: keep contracts/history only. Use cka-retire.yml for cleanup.
 name: CKA public live release audit (read-only)
 on:
   pull_request:
@@ -8,6 +9,7 @@ permissions:
   actions: read
 jobs:
   audit:
+    if: ${{ false }} # CKA online retired
     name: Verify CKA Pages push job and exact public release
     runs-on: ubuntu-24.04
     timeout-minutes: 8

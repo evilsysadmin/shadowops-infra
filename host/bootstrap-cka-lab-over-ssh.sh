@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # Operator workstation only. The OCI agent never receives installation authority.
 set -euo pipefail
+# Retained only for historical inspection; provisioning cannot be reactivated.
+case "${1:-}" in
+  bootstrap|cluster-bootstrap|api-start|tunnel-start)
+    printf '%s\n' 'CKA online is retired; use make up in cka-exam-simulator.' >&2
+    exit 1 ;;
+esac
 
 if [[ $# != 1 || ( "$1" != bootstrap && "$1" != inspect && "$1" != cluster-bootstrap && "$1" != cluster-verify && "$1" != api-start && "$1" != api-verify && "$1" != tunnel-start && "$1" != tunnel-verify ) ]]; then
   printf '%s\n' 'Usage: host/bootstrap-cka-lab-over-ssh.sh bootstrap|inspect|cluster-bootstrap|cluster-verify|api-start|api-verify|tunnel-start|tunnel-verify' >&2

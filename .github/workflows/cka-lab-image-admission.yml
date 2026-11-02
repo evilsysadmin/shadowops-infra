@@ -1,3 +1,4 @@
+# Retired online: keep contracts/history only. Use cka-retire.yml for cleanup.
 name: CKA labs · signed image admission (read-only)
 on:
   pull_request:
@@ -32,7 +33,7 @@ jobs:
   verify-image:
     name: Verify CKA protected-main CI, multiarch digest and signed source
     needs: contracts
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: ${{ false && (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra') }} # CKA online retired
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     permissions:
@@ -60,7 +61,7 @@ jobs:
     # Latest protected-main publication is resolved by SHA tag to a digest.
     # The digest is admitted only after all green source checks and provenance.
     # Read-only CI control: it is not release approval or deployment.
-    if: github.event_name == 'pull_request' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: ${{ false && (github.event_name == 'pull_request' && github.repository == 'evilsysadmin/shadowops-infra') }} # CKA online retired
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     permissions:
