@@ -67,8 +67,8 @@ class AtlasPublicationContracts(unittest.TestCase):
         from email.message import Message
         class MockResponse:
             status = 200
-            headers = Message()
             def __init__(self, headers):
+                self.headers = Message()
                 for key, value in headers.items():
                     self.headers[key] = value
             def read(self, _n): return b"RIFF0000WEBP"
