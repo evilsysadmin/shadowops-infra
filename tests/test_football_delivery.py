@@ -78,6 +78,17 @@ class FootballDelivery(unittest.TestCase):
    project['domains'].append('someone-else.pages.dev')
    with self.assertRaises(RuntimeError):pages.existing_project()
   with self.assertRaises(RuntimeError):pages.project_target({'subdomain':'another.pages.dev'})
+ def test_public_probe_identifies_itself_without_default_python_bot_signature(self):
+  import io
+  from contextlib import contextmanager
+  seen=[]
+  @contextmanager
+  def response(request,**kwargs):
+   seen.append(request)
+   yield io.BytesIO(b'{"application":"football-of-matthias"}')
+  with patch.object(delivery.urllib.request,'urlopen',side_effect=response):
+   self.assertEqual(delivery.public_release()['application'],'football-of-matthias')
+  self.assertEqual(seen[0].get_header('User-agent'),delivery.PUBLIC_HEADERS['User-Agent'])
  def test_upload_never_creates_compute_bucket_tunnel_or_deletes_others(self):
   source=(ROOT/'scripts/football_delivery.py').read_text()
   self.assertNotIn("r2_request('DELETE'",source)
