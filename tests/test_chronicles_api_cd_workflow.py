@@ -356,14 +356,16 @@ exit "${FAKE_PROBE_EXIT:-0}"
         guard = "Reject a superseded staging source before touching OCI"
         self.assertLess(labels.index(guard), labels.index("Execute only the restricted Chronicles API deployer"))
         code = next(step["run"] for step in steps if step.get("name") == guard)
-        self.assertIn("commits/main", code)
+        self.assertIn('bash scripts/chronicles_api_current_sha.sh "$ADMITTED_SHA"', code)
+        helper = (ROOT / "scripts/chronicles_api_current_sha.sh").read_text()
+        self.assertIn("commits/main", helper)
         self.assertIn("ADMITTED_SHA", code)
         self.assertEqual(next(step['id'] for step in steps if step.get('name') == guard),
                          'staging_freshness')
         self.assertIn('CHRONICLES_OCI_STALE_SOURCE_SKIPPED', code)
         self.assertIn("fresh=false' >> \"$GITHUB_OUTPUT\"", code)
         self.assertIn("fresh=true' >> \"$GITHUB_OUTPUT\"", code)
-        self.assertIn('CHRONICLES_OCI_INVALID_SOURCE', code)
+        self.assertIn('CHRONICLES_OCI_INVALID_SOURCE', helper)
         self.assertEqual(
             next(step["if"] for step in steps if step.get("name") == guard),
             "inputs.environment != 'production' && steps.staging_preflight.outputs.fresh == 'true'")
@@ -376,10 +378,13 @@ exit "${FAKE_PROBE_EXIT:-0}"
         self.assertLess(steps.index(preflight),
                         next(i for i, s in enumerate(steps) if s.get('uses') == 'actions/setup-python@v5'))
         self.assertLess(steps.index(preflight), steps.index(late))
-        self.assertIn('commits/main', preflight['run'])
+        sha_helper = (ROOT / "scripts/chronicles_api_current_sha.sh").read_text()
+        self.assertIn('commits/main', sha_helper)
+        self.assertIn('CHRONICLES_OCI_INVALID_MAIN_SHA', sha_helper)
+        self.assertIn('CHRONICLES_OCI_INVALID_SOURCE', sha_helper)
+        self.assertIn('bash scripts/chronicles_api_current_sha.sh "$ADMITTED_SHA"', preflight['run'])
+        self.assertIn('bash scripts/chronicles_api_current_sha.sh "$ADMITTED_SHA"', late['run'])
         self.assertIn('CHRONICLES_OCI_STALE_SOURCE_PRECHECK_SKIPPED', preflight['run'])
-        self.assertIn('CHRONICLES_OCI_INVALID_MAIN_SHA', preflight['run'])
-        self.assertIn('CHRONICLES_OCI_INVALID_MAIN_SHA', late['run'])
 
     def test_preflight_rejects_unverifiable_main_and_skips_stale(self):
         guard = next(s for s in self.workflow['jobs']['deploy']['steps']
