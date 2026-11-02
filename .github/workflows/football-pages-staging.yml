@@ -1,13 +1,27 @@
 name: Football · independent staging Pages
 on:
   pull_request:
-    paths: ['.github/workflows/football-pages-staging.yml', 'scripts/football_*', 'tests/test_football_delivery.py', 'docs/football-staging.md']
+    paths: ['.github/workflows/football-pages-staging.yml', 'scripts/football_*', 'tests/test_football*.py', 'docs/football-staging.md']
   push:
     branches: [main]
-    paths: ['.github/workflows/football-pages-staging.yml', 'scripts/football_*', 'tests/test_football_delivery.py', 'docs/football-staging.md']
+    paths: ['.github/workflows/football-pages-staging.yml', 'scripts/football_*', 'tests/test_football*.py', 'docs/football-staging.md']
   schedule:
     - cron: '13,43 * * * *'
   workflow_dispatch:
+    inputs:
+      force:
+        type: boolean
+        default: false
+        description: Re-deliver the admitted source even if already published; does not bypass any source/capacity checks
+      identity_binding:
+        type: choice
+        options: [preserve, activate]
+        default: preserve
+        description: Activate only Football's explicitly provisioned ShadowOps ID proof in the Pages edge
+      real_identity_smoke:
+        type: boolean
+        default: false
+        description: Once per activation, exercise native signup/login/logout using one ordinary disposable staging test account
 permissions:
   contents: read
   actions: read
@@ -22,6 +36,7 @@ jobs:
         with:
           persist-credentials: false
       - run: python3 -m unittest discover -s tests -p test_football_delivery.py -v
+      - run: python3 -m unittest discover -s tests -p test_football_identity.py -v
   candidate:
     needs: contracts
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
@@ -39,6 +54,7 @@ jobs:
       - id: admit
         env:
           GH_TOKEN: ${{ github.token }}
+          FOOTBALL_FORCE_REDEPLOY: ${{ inputs.force || false }}
         run: python3 scripts/football_delivery.py candidate
   publish:
     needs: candidate
@@ -56,6 +72,11 @@ jobs:
       SOURCE_SHA: ${{ needs.candidate.outputs.source_sha }}
       ARTIFACT_ID: ${{ needs.candidate.outputs.artifact_id }}
       ARTIFACT_DIGEST: ${{ needs.candidate.outputs.artifact_digest }}
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -87,12 +108,18 @@ jobs:
         run: |
           set -euo pipefail
           test "$(gh api repos/evilsysadmin/football-of-matthias/commits/main --jq .sha)" = "$SOURCE_SHA"
-          for path in scripts/football_delivery.py scripts/football_pages.py .github/workflows/football-pages-staging.yml; do
+          for path in scripts/football_delivery.py scripts/football_pages.py scripts/football_identity.py .github/workflows/football-pages-staging.yml; do
             test "$(gh api "repos/evilsysadmin/shadowops-infra/contents/$path?ref=main" --jq .sha)" = "$(git rev-parse "HEAD:$path")"
           done
           python3 scripts/football_pages.py preflight
           python3 scripts/football_delivery.py runtime football-release "$SOURCE_SHA"
           python3 scripts/football_pages.py project
+          python3 scripts/football_pages.py identity-policy
+      - name: Activate only the isolated Football Identity edge proof when requested
+        if: inputs.identity_binding == 'activate'
+        run: |
+          python3 -m pip install --disable-pip-version-check 'oci==2.185.2'
+          python3 scripts/football_identity.py
       - name: Deploy the exact tested standalone frontend
         run: |
           set -euo pipefail
@@ -101,13 +128,14 @@ jobs:
           python3 scripts/football_pages.py domain
           python3 scripts/football_delivery.py verify "$SOURCE_SHA"
   browser:
-    name: Football · public browser and WASM
+    name: Football · public ShadowOps ID gate
     needs: [contracts, candidate, publish]
     if: always() && needs.contracts.result == 'success' && (github.event_name == 'pull_request' || needs.publish.result == 'success')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
       SOURCE_SHA: ${{ needs.candidate.outputs.source_sha }}
+      FOOTBALL_REAL_IDENTITY_SMOKE: ${{ inputs.real_identity_smoke || false }}
       FOOTBALL_SCREENSHOTS: ${{ github.workspace }}/.artifacts/football-public
     steps:
       - uses: actions/checkout@v4
