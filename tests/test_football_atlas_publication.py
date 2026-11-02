@@ -69,7 +69,8 @@ class AtlasPublicationContracts(unittest.TestCase):
             status = 200
             headers = Message()
             def __init__(self, headers):
-                self.headers.update(headers)
+                for key, value in headers.items():
+                    self.headers[key] = value
             def read(self, _n): return b"RIFF0000WEBP"
             def __enter__(self): return self
             def __exit__(self, *_args): return False
