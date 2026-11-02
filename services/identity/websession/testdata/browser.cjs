@@ -5,6 +5,7 @@ const path = require('node:path');
 
 const identity = 'https://id-staging.shadowops.dpdns.org';
 const origins = {
+  football: 'https://staging.football.shadowops.dpdns.org',
   chronicles: 'https://staging.chronicles.shadowops.dpdns.org',
   'chess-studio': 'https://staging.chess-studio.shadowops.dpdns.org',
   'cka-simulator': 'https://staging.cka.shadowops.dpdns.org',
@@ -84,6 +85,6 @@ let browser;
     check(await page.evaluate(() => window.fixtureStatus) === 200, 'recovered account could not enter synthetic consumer');
     check(errors.length === 0, 'browser JavaScript errors');
     await context.close();
-    console.log(`${name}: real registration/login/recovery, TLS cookies, CORS for three synthetic consumers, JWT signatures and logout passed`);
+    console.log(`${name}: real registration/login/recovery, TLS cookies, CORS for four synthetic consumers, JWT signatures and logout passed`);
   }
 })().catch(error => { console.error(error.message); process.exitCode = 1; }).finally(async () => { if (browser) await browser.close(); });

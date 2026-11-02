@@ -12,9 +12,9 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
-var sharedApplications = []Application{ChessStudio, Chronicles, CKASimulator}
+var sharedApplications = []Application{ChessStudio, Chronicles, CKASimulator, Football}
 
-func TestOneCentralSessionIssuesThreeAudienceBoundTokens(t *testing.T) {
+func TestOneCentralSessionIssuesFourAudienceBoundTokens(t *testing.T) {
 	client, db := replica(t)
 	syntheticActive(t, db)
 	ctx := context.Background()
@@ -59,7 +59,7 @@ func TestOneCentralSessionIssuesThreeAudienceBoundTokens(t *testing.T) {
 		}
 		checkers[app] = checker
 	}
-	// Full 3x3 audience isolation matrix: exactly three accepts and six denials.
+	// Full 4x4 audience isolation matrix: four accepts and twelve denials.
 	for _, consumer := range sharedApplications {
 		for _, tokenApp := range sharedApplications {
 			claim := claims[tokenApp]
@@ -86,10 +86,10 @@ func TestOneCentralSessionIssuesThreeAudienceBoundTokens(t *testing.T) {
 	if count, err := db.Collection("pending_accounts").CountDocuments(ctx, bson.D{}); err != nil || count != 1 {
 		t.Fatal("application token issuance created extra accounts", err)
 	}
-	if count, err := db.Collection(appTokenCollection).CountDocuments(ctx, bson.D{}); err != nil || count != 3 {
-		t.Fatal("not all three application bindings were registered", err)
+	if count, err := db.Collection(appTokenCollection).CountDocuments(ctx, bson.D{}); err != nil || count != 4 {
+		t.Fatal("not all four application bindings were registered", err)
 	}
-	// Central logout revokes ALL three application tokens, but no other browser.
+	// Central logout revokes ALL four application tokens, but no other browser.
 	otherHandle, err := issuer.Issue(ctx, alice, secret)
 	if err != nil {
 		t.Fatal(err)
