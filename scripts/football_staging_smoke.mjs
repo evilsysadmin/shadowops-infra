@@ -41,11 +41,24 @@ try{
   const signed=await native('/api/identity/login',{username,password});assert.equal(signed.status,204,'native staging login');
   const cookie=signed.headers.getSetCookie().find(value=>value.startsWith('__Host-shadowops_sso_staging='));assert.ok(cookie);
   centralCookie=cookie.split(';')[0];
+  // Isolate service exchange failures before waiting for browser rendering.
+  // Only fixed stage/status diagnostics may leave this ordinary test session.
+  const tokenResponse=await fetch(issuer+'/api/identity/token',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json',Cookie:centralCookie},body:'{}',redirect:'error'});
+  assert.equal(tokenResponse.status,200,'native Football audience issuance');
+  const ephemeral=await tokenResponse.json();
+  const exchange=await fetch(origin+'/api/football/session',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({token:ephemeral.token}),redirect:'error'});
+  const allowedStages=new Set(['edge_configuration','identity_keys','identity_freshness','edge_runtime','session']);
+  const stage=exchange.headers.get('X-Football-Identity-Error');
+  assert.equal(exchange.status,200,'native edge session exchange stage='+(allowedStages.has(stage)?stage:'unreported'));
+  await exchange.body?.cancel();
   for(const viewport of [{width:1280,height:800},{width:390,height:844}]){
    const context=await browser.newContext({viewport,hasTouch:viewport.width===390,isMobile:viewport.width===390});
    await context.addCookies([{name:'__Host-shadowops_sso_staging',value:centralCookie.slice(centralCookie.indexOf('=')+1),url:issuer+'/',secure:true,httpOnly:true,sameSite:'Lax'}]);
    const page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(String(error)));
-   await page.goto(origin);await page.getByRole('button',{name:/Modo mánager/}).waitFor({timeout:60000});
+   const network=[];
+   page.on('response',response=>{const url=new URL(response.url());if([origin,issuer].includes(url.origin)&&['/api/identity/token','/api/football/session','/_shadowops/session.js'].includes(url.pathname))network.push({origin:url.origin,path:url.pathname,status:response.status()});});
+   try{await page.goto(origin);await page.getByRole('button',{name:/Modo mánager/}).waitFor({timeout:60000});}
+   catch(error){await page.screenshot({path:out+'/'+viewport.width+'-handoff-failure.png'});await writeFile(out+'/handoff-network.json',JSON.stringify(network,null,2));throw error;}
    const me=await page.request.get(origin+'/api/football/session');assert.equal(me.status(),200);
    const identity=await me.json();assert.match(identity.subject,/^[0-9a-f-]{36}$/);
    await page.getByRole('button',{name:'Salir de ShadowOps ID',exact:true}).click({trial:true});
