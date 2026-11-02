@@ -86,11 +86,19 @@ jobs:
           CHRONICLES_SOURCE_SHA: ${{ steps.current.outputs.sha }}
           CHRONICLES_STAGING_INVITE_CODE: ${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}
         run: node smoke/public-staging.mjs
+      - name: Validate real public Chronicles combat and checkpoint
+        working-directory: frontend
+        env:
+          CHRONICLES_SOURCE_SHA: ${{ steps.current.outputs.sha }}
+          CHRONICLES_STAGING_INVITE_CODE: ${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}
+        run: node smoke/public-staging-combat.mjs
       - name: Keep only temporary-account browser screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: chronicles-public-browser-${{ github.run_id }}
-          path: frontend/chronicles-public-*.png
+          path: |
+            frontend/chronicles-public-*.png
+            frontend/chronicles-combat-*.png
           if-no-files-found: ignore
           retention-days: 7
