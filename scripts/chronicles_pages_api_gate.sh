@@ -34,6 +34,12 @@ if python3 scripts/chronicles_api_before_pages.py "$ADMITTED_SHA"; then
   exit 0
 fi
 current="$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)"
+# A malformed source lookup is not proof that another SHA superseded this run.
+# Never downgrade a failed API admission to a successful no-op on bad evidence.
+[[ "$ADMITTED_SHA" =~ ^[0-9a-f]{40}$ && "$current" =~ ^[0-9a-f]{40}$ ]] || {
+  echo 'CHRONICLES_PAGES_INVALID_SOURCE_SHA_AFTER_API_FAILURE' >&2
+  exit 64
+}
 if [[ "$current" != "$ADMITTED_SHA" ]]; then
   echo "CHRONICLES_PAGES_SUPERSEDED_BEFORE_RELEASE sha=$ADMITTED_SHA"
   echo 'publish=false' >> "$GITHUB_OUTPUT"
