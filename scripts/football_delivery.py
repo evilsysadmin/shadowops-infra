@@ -98,7 +98,7 @@ def validate(root,sha):
  return release
 
 def r2_request(method,path,*,data=None,content_type='application/json'):
- req=urllib.request.Request(pages.API+path,method=method,data=data,headers={'Authorization':'Bearer '+pages.required('CLOUDFLARE_API_TOKEN'),'Content-Type':content_type,'Accept':'application/json','cf-r2-storage-class':'Standard'})
+ req=urllib.request.Request(pages.API+path,method=method,data=data,headers={'Authorization':'Bearer '+pages.required('FOOTBALL_R2_API_TOKEN'),'Content-Type':content_type,'Accept':'application/json','cf-r2-storage-class':'Standard'})
  try:
   with urllib.request.urlopen(req,timeout=60) as response:body=json.load(response)
  except urllib.error.HTTPError as error:raise DeliveryError('R2 operation rejected HTTP '+str(error.code)) from None
