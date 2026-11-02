@@ -75,11 +75,18 @@ jobs:
           test "$(git rev-parse HEAD)" = "$PUBLIC_SHA"
       - name: Install Chromium for the public smoke
         working-directory: frontend
+        env:
+          # Match the actual Pages build; public-staging.mjs compares entrypoint
+          # asset hashes with the local dist/index.html for this exact SHA.
+          VITE_API_URL: https://chronicles-api-staging.shadowops.dpdns.org/api
+          VITE_SHADOWOPS_IDENTITY: ${{ vars.CHRONICLES_CENTRAL_IDENTITY_STAGING == 'enabled' && 'central-staging' || '' }}
+          VITE_BUILD_SHA: ${{ steps.current.outputs.sha }}
+          CHRONICLES_DEPLOY_BASE: /
         run: |
           set -euo pipefail
           npm ci --ignore-scripts --no-audit --no-fund
-          npm install --no-save --no-audit --no-fund playwright@1
-          npx playwright install --with-deps chromium
+          npm run build
+          bash smoke/ensure-chromium.sh
       - name: Validate the actual public Chronicles game in desktop and mobile
         working-directory: frontend
         env:
