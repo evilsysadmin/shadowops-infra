@@ -52,6 +52,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      FOOTBALL_R2_API_TOKEN: ${{ secrets.FOOTBALL_R2_API_TOKEN }}
       SOURCE_SHA: ${{ needs.candidate.outputs.source_sha }}
       ARTIFACT_ID: ${{ needs.candidate.outputs.artifact_id }}
       ARTIFACT_DIGEST: ${{ needs.candidate.outputs.artifact_digest }}

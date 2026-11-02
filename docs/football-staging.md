@@ -9,3 +9,5 @@ Cada frontend fija su runtime por hash; una subida parcial de R2 nunca cambia un
 El workflow se ejecuta al cambiar esta entrega, manualmente o a los minutos 13 y 43. Si el SHA ya está publicado, no despliega otra vez; si la CI de origen sigue pendiente, espera a la siguiente reconciliación. El recibo final es `FOOTBALL_STAGING_PUBLIC_VERIFIED source_sha=<sha>`. Sólo después de verificarlo se corta el host antiguo y se habilita el enlace en el portal. Producción permanece sin publicar.
 
 El staging inicial conserva acceso directo y carreras por navegador. Un dominio no puede leer otro Web Storage: la transferencia de carrera es explícita y valida sólo el journal de Football. Ninguna cuenta/perfil de Chess se copia ni se convierte en autoridad en el cliente.
+
+R2 uses the existing operator R2 credential delivered encrypted as `FOOTBALL_R2_API_TOKEN` in Infra Actions. Pages/DNS retain `CLOUDFLARE_API_TOKEN`; its scope does not include object inventory. No token value is logged or stored in the source repository.
