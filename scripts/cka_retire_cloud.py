@@ -106,7 +106,7 @@ def vault_plan(sdk,env):
     updated=remove_consumer(bundle)
     return client,selected,(own[0].id,after.headers['etag'],bundle,updated)
 
-def retire_cloud(cf,plan):
+def retire_cloud(cf,plan,*,purge=True):
     # Withdraw origins first, even if a later deletion needs an operator retry.
     for name,identity in plan['tunnels']:
         cf.call('PUT',f'/accounts/{cf.account}/cfd_tunnel/{identity}/configurations',{'config':{'ingress':[{'service':'http_status:404'}]}})
@@ -115,20 +115,21 @@ def retire_cloud(cf,plan):
         if custom:cf.call('DELETE',f'/accounts/{cf.account}/pages/projects/{name}/domains/{host}')
         # Project deletion also deletes all of its production and preview deployments.
         cf.call('DELETE',f'/accounts/{cf.account}/pages/projects/{name}')
+    if not purge:return
     for name,identity in plan['tunnels']:
         # Cloudflare requires no live connectors. Stop them with make cka-retire-host.
         connections=cf.call('GET',f'/accounts/{cf.account}/cfd_tunnel/{identity}/connections')
         if connections:raise ProvisionError('CKA connector still running; run make cka-retire-host then retry')
         cf.call('DELETE',f'/accounts/{cf.account}/cfd_tunnel/{identity}')
 
-def execute(sdk,env,cf,*,mutate=False):
+def execute(sdk,env,cf,*,mutate=False,purge=True):
     plan=cloud_plan(cf)
     client,secrets,identity=vault_plan(sdk,env)
     report={'dns':len(plan['dns']),'pages':len(plan['projects']),'tunnels':len(plan['tunnels']),
             'dedicated_secrets':len(secrets),'shared_identity_cka_consumer':'cka-simulator' in identity[2]['consumers']}
     print('CKA_RETIRE_CLOUD_PLAN '+json.dumps(report,sort_keys=True),flush=True)
     if not mutate:return
-    retire_cloud(cf,plan)
+    retire_cloud(cf,plan,purge=purge)
     sid,etag,before,after=identity
     if before!=after:
         content=sdk.vault.models.Base64SecretContentDetails(content_type='BASE64',stage='CURRENT',
@@ -139,17 +140,17 @@ def execute(sdk,env,cf,*,mutate=False):
             client.schedule_secret_deletion(sid,sdk.vault.models.ScheduleSecretDeletionDetails(
                 time_of_deletion=datetime.now(timezone.utc)+timedelta(days=2)),if_match=etag)
     verify=cloud_plan(cf)
-    if any(verify[k] for k in ('dns','projects','tunnels')):raise ProvisionError('CKA cloud resources remain')
+    if any(verify[k] for k in (('dns','projects','tunnels') if purge else ('dns','projects'))):raise ProvisionError('CKA cloud resources remain')
     for name,sid,state,etag in secrets:
         if client.get_secret(sid).data.lifecycle_state not in {'PENDING_DELETION','DELETED'}:
             raise ProvisionError('CKA secret deletion is not scheduled')
-    print('CKA_RETIRE_CLOUD_VERIFIED dns=0 pages=0 tunnels=0 dedicated_secrets=pending_deletion shared_identity=preserved')
+    print('CKA_RETIRE_CLOUD_VERIFIED dns=0 pages=0 tunnels=0 dedicated_secrets=pending_deletion shared_identity=preserved' if purge else 'CKA_RETIRE_PUBLIC_WITHDRAWN dns=0 pages=0 origins=404 host_cleanup=pending tunnels='+str(len(verify['tunnels'])))
 
 if __name__=='__main__':
     try:
         import oci
-        if sys.argv[1:] not in (['plan'],['retire']):raise ProvisionError('Use plan|retire')
-        execute(oci,os.environ,Cloudflare(os.environ),mutate=sys.argv[1]=='retire')
+        if sys.argv[1:] not in (['plan'],['withdraw'],['retire']):raise ProvisionError('Use plan|retire')
+        execute(oci,os.environ,Cloudflare(os.environ),mutate=sys.argv[1]!='plan',purge=sys.argv[1]=='retire')
     except Exception as error:
         # No config, bundle, bearer, tunnel token or SDK response in logs.
         print('CKA_RETIRE_CLOUD_BLOCKED '+(str(error) if isinstance(error,ProvisionError) else 'type='+type(error).__name__),file=sys.stderr)

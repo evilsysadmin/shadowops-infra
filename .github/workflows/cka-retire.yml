@@ -1,5 +1,8 @@
 name: CKA · retire online resources (keep repository)
 on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/cka-retire.yml']
   pull_request:
     paths: ['scripts/cka_retire*', 'host/*cka-retire*', 'tests/test_cka_retire.py', '.github/workflows/cka-retire.yml']
   workflow_dispatch:
@@ -23,7 +26,7 @@ jobs:
       - run: bash -n host/cka-retire-over-ssh.sh
   cloud:
     needs: contracts
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     concurrency:
@@ -39,7 +42,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       GH_TOKEN: ${{ github.token }}
-      ACTION: ${{ inputs.action }}
+      ACTION: ${{ github.event_name == 'push' && 'withdraw' || inputs.action }}
     steps:
       - uses: actions/checkout@v5
         with:

@@ -2,6 +2,8 @@
 
 Decisión del propietario: CKA se usa solo en local mediante `make up` en `evilsysadmin/cka-exam-simulator`. No eliminar el repositorio, su historial ni los recursos compartidos de ShadowOps.
 
+Al integrar esta retirada, Actions ejecuta automáticamente `withdraw`: quita DNS y Pages, hace que los orígenes respondan 404, revoca el consumidor CKA en Vault y programa la eliminación de sus secretos dedicados. No necesita esperar al SSH para cerrar el acceso público; los conectores y el runtime se retiran a continuación. El recibo parcial es `CKA_RETIRE_PUBLIC_WITHDRAWN`, todavía no el recibo final.
+
 Desde la estación de operador con la misma clave/Cloudflare Access de los bootstraps anteriores:
 
 ```sh

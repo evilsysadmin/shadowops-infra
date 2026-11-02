@@ -56,6 +56,13 @@ class Retirement(unittest.TestCase):
             self.assertNotIn('identity-staging',path)
             self.assertNotIn('chess',path)
         writes=len(cf.writes);cloud.retire_cloud(cf,after);self.assertEqual(writes,len(cf.writes))
+    def test_withdraw_removes_public_routes_without_deleting_live_connectors(self):
+        cf=Cloudflare();cf.connected=True
+        cloud.retire_cloud(cf,cloud.cloud_plan(cf),purge=False)
+        after=cloud.cloud_plan(cf)
+        self.assertFalse(after['dns']);self.assertFalse(after['projects'])
+        self.assertEqual(len(after['tunnels']),2)
+        self.assertFalse(any(m=='DELETE' and '/cfd_tunnel/' in p for m,p,_ in cf.writes))
     def test_foreign_resources_fail_before_any_write(self):
         for foreign in ['dns','page','ingress']:
             cf=Cloudflare();cf.foreign=foreign
