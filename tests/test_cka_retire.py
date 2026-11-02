@@ -35,6 +35,7 @@ class Cloudflare:
         if '/pages/projects?' in path:return [{'name':n} for n in cloud.PAGES if f'/accounts/{self.account}/pages/projects/{n}' not in self.deleted]
         if '/pages/projects/' in path:
             name=path.rsplit('/',1)[1]
+            if path in self.deleted:raise cloud.ProvisionError('Cloudflare GET project returned HTTP 404')
             return {'name':name,'subdomain':name+'.pages.dev','domains':[cloud.PAGES[name]]+(['other.shadowops.dpdns.org'] if self.foreign=='page' else [])}
         if '/cfd_tunnel?' in path:return [t for t in self.tunnels if f'/accounts/{self.account}/cfd_tunnel/{t["id"]}' not in self.deleted]
         if path.endswith('/configurations'):

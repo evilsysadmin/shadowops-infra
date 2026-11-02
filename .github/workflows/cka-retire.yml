@@ -2,7 +2,7 @@ name: CKA · retire online resources (keep repository)
 on:
   push:
     branches: [main]
-    paths: ['.github/workflows/cka-retire.yml']
+    paths: ['.github/workflows/cka-retire.yml', 'scripts/cka_retire_cloud.py']
   pull_request:
     paths: ['scripts/cka_retire*', 'host/*cka-retire*', 'tests/test_cka_retire.py', '.github/workflows/cka-retire.yml']
   workflow_dispatch:

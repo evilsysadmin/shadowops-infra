@@ -29,13 +29,23 @@ def list_cf(cf,path,**query):
         if len(rows)<100:return values
     raise ProvisionError('Cloudflare inventory too large')
 
+def optional(cf,path):
+    try:return cf.call('GET',path)
+    except ProvisionError as error:
+        # The shared client deliberately exposes only sanitized HTTP status.
+        if str(error).endswith('returned HTTP 404'):return None
+        raise
+
 def cloud_plan(cf):
     if not re.fullmatch(r'[a-f0-9]{32}',cf.account):raise ProvisionError('Fixed Cloudflare account required')
     zones=cf.call('GET','/zones?'+urlencode({'name':ZONE,'account.id':cf.account}))
     if len(zones)!=1 or zones[0].get('name')!=ZONE:raise ProvisionError('Exact zone required')
     zone=zones[0]['id']
     if not re.fullmatch(r'[a-f0-9]{32}',zone):raise ProvisionError('Invalid zone')
-    projects=list_cf(cf,f'/accounts/{cf.account}/pages/projects')
+    projects=[]
+    for name in PAGES:
+        value=optional(cf,f'/accounts/{cf.account}/pages/projects/{name}')
+        if value is not None:projects.append(value)
     tunnels=list_cf(cf,f'/accounts/{cf.account}/cfd_tunnel',is_deleted='false')
     owned_projects=[];owned_tunnels=[];dns=[]
     for name,host in PAGES.items():
