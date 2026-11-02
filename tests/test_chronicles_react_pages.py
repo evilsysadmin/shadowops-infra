@@ -453,9 +453,15 @@ class PagesSupersededReleaseTests(unittest.TestCase):
         workflow = self.staging_workflow()
         block = workflow.split("      - name: " + name + "\n", 1)[1].split(
             "\n      - name:", 1)[0]
-        source = block.split("\n        run: |\n", 1)[1]
-        lines = source.splitlines()
-        script = "\n".join(line[10:] for line in lines if line.startswith("          "))
+        if "\n        run: |\n" in block:
+            source = block.split("\n        run: |\n", 1)[1]
+            lines = source.splitlines()
+            script = "\n".join(line[10:] for line in lines if line.startswith("          "))
+        else:
+            self.assertEqual(name, "Skip superseded source before Pages mutations")
+            script = block.split("\n        run: ", 1)[1].split("\n", 1)[0]
+            self.assertEqual(
+                script, "bash scripts/chronicles_pages_source_freshness.sh before-publish")
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             fake_gh = root / "gh"
@@ -475,8 +481,9 @@ class PagesSupersededReleaseTests(unittest.TestCase):
                    "GITHUB_OUTPUT": str(output),
                    "GITHUB_STEP_SUMMARY": str(summary),
                    "RUNNER_TEMP": directory}
-            process = subprocess.run(["bash", "-c", script], env=env,
-                                     stdout=subprocess.PIPE,
+            process = subprocess.run(["bash", "-c", script],
+                                     cwd=pathlib.Path(__file__).resolve().parents[1],
+                                     env=env, stdout=subprocess.PIPE,
                                      stderr=subprocess.PIPE, text=True)
             return (process.returncode, process.stdout,
                     output.read_text() if output.exists() else "",
