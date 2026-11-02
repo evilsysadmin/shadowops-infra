@@ -14,7 +14,8 @@ try {
  if(process.env.SOURCE_SHA)assert.equal(release.source_sha,process.env.SOURCE_SHA);
  const captures=[];
  for(const viewport of [{width:1280,height:800},{width:390,height:844}]) {
-  const page=await browser.newPage({viewport});const errors=[];
+  const page=await browser.newPage({viewport,hasTouch:viewport.width===390,isMobile:viewport.width===390});const errors=[];const messages=[];
+  page.on('console',message=>{if(['warning','error'].includes(message.type())&&messages.length<100)messages.push(message.type()+': '+message.text());});
   page.on('pageerror',error=>errors.push(String(error)));
   await page.goto(origin);await page.getByRole('button',{name:/Modo mánager/}).waitFor();
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
@@ -34,12 +35,12 @@ try {
   assert.ok(frame,'exact immutable runtime loaded');
   assert.equal(await frame.locator('canvas').count(),1);
   // Match the canonical Web smoke's settling budget for first-use GPU textures.
-  await page.waitForTimeout(2500);
+  await page.waitForTimeout(5000);
   const canvas=frame.locator('canvas');await canvas.click();
   await page.keyboard.down('KeyD');await page.waitForTimeout(400);await page.keyboard.up('KeyD');
   await page.screenshot({path:out+'/'+viewport.width+'-real-match.png'});
   assert.deepEqual(errors,[]);
-  captures.push({viewport,runtime:frame.url(),ready:true,page_errors:errors});await page.close();
+  captures.push({viewport,runtime:frame.url(),ready:true,page_errors:errors,console_messages:messages});await page.close();
  }
  await writeFile(out+'/proof.json',JSON.stringify({source_sha:release.source_sha,captures},null,2));
  console.log('FOOTBALL_PUBLIC_BROWSER_DESKTOP_MOBILE_WASM_OK source_sha='+release.source_sha);
