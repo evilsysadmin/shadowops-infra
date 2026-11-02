@@ -146,12 +146,21 @@ def ensure_project() -> None:
 def ensure_identity_policy() -> None:
     if not existing_project():
         raise RuntimeError('Football project missing: refusing policy mutation')
-    request('PATCH', project_path(), {'deployment_configs': {
-        'production': {'fail_open': False}, 'preview': {'fail_open': False},
-    }})
+    _, current = request('GET', project_path())
+    settings = {}
+    for mode in ('production', 'preview'):
+        flags = current.get('deployment_configs', {}).get(mode, {}).get('compatibility_flags') or []
+        if not isinstance(flags, list) or any(not isinstance(flag, str) for flag in flags):
+            raise RuntimeError('Invalid Football compatibility flags')
+        if 'global_fetch_private_origin' in flags:
+            raise RuntimeError('Football Identity requires public HTTPS routing')
+        settings[mode] = {'fail_open': False, 'compatibility_flags': sorted(set(flags) | {'global_fetch_strictly_public'})}
+    # Identity is behind this zone's existing Tunnel. Route subrequests through
+    # its public HTTPS hostname instead of Cloudflare's same-zone origin path.
+    request('PATCH', project_path(), {'deployment_configs': settings})
     _, project = request('GET', project_path())
     configs = project.get('deployment_configs', {}) if isinstance(project, dict) else {}
-    if any(configs.get(mode, {}).get('fail_open') is not False for mode in ('production', 'preview')):
+    if any(configs.get(mode, {}).get('fail_open') is not False or 'global_fetch_strictly_public' not in (configs.get(mode, {}).get('compatibility_flags') or []) for mode in ('production', 'preview')):
         raise RuntimeError('Football edge must deny access when Functions are unavailable')
     print('FOOTBALL_IDENTITY_FAIL_CLOSED_POLICY_VERIFIED')
 
