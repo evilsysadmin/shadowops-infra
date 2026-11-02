@@ -129,9 +129,12 @@ class PublicBrowserWorkflow(unittest.TestCase):
         action = next(s for s in steps if s.get("name") == browser)
         self.assertIn("smoke/public-staging.mjs", action["run"])
         self.assertIn("smoke/public-staging-journey.mjs", action["run"])
+        self.assertIn("smoke/public-staging-combat.mjs", action["run"])
         self.assertLess(action["run"].index("smoke/public-staging.mjs"),
                         action["run"].index("smoke/public-staging-journey.mjs"))
         self.assertIn("chronicles-journey-*.png", PATH.read_text())
+        self.assertIn("chronicles-combat-*.png", PATH.read_text())
+        self.assertIn('"public_combat_smoke_passed": True', PATH.read_text())
         self.assertIn("bash smoke/ensure-chromium.sh", action["run"])
         self.assertNotIn("playwright install --with-deps", action["run"])
         self.assertEqual(action["env"]["CHRONICLES_SOURCE_SHA"],
@@ -146,9 +149,9 @@ class PublicBrowserWorkflow(unittest.TestCase):
         self.assertNotIn("environment=production", action["run"])
 
 
-    def test_public_browser_journeys_overlap_and_both_results_are_required(self):
-        # Execute the workflow's actual shell orchestration with a stub Node.
-        # A serial regression would deadlock until the bounded peer check fails.
+    def test_public_browser_journeys_overlap_and_combat_is_mandatory(self):
+        # Exercise the workflow's actual shell with a fake Node. The first two
+        # journeys must overlap; combat runs only after both have completed.
         workflow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
         steps = workflow["jobs"]["release"]["steps"]
         browser = next(step for step in steps if step.get("name") ==
@@ -156,7 +159,8 @@ class PublicBrowserWorkflow(unittest.TestCase):
         command = browser["run"].split("bash smoke/ensure-chromium.sh\n", 1)[1]
         self.assertIn('wait "$public_pid"', command)
         self.assertIn('wait "$journey_pid"', command)
-        self.assertIn("public_rc == 0 && journey_rc == 0", command)
+        self.assertIn("node smoke/public-staging-combat.mjs || combat_rc=$?", command)
+        self.assertIn("public_rc == 0 && journey_rc == 0 && combat_rc == 0", command)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             fake = root / "node"
@@ -164,21 +168,24 @@ class PublicBrowserWorkflow(unittest.TestCase):
 case "$1" in
  *public-staging-journey.mjs) id=journey; peer=public;;
  *public-staging.mjs) id=public; peer=journey;;
+ *public-staging-combat.mjs) id=combat; peer=;;
  *) exit 90;;
 esac
 touch "$BROWSER_TEST_DIR/$id.started"
-i=0
-while [ ! -f "$BROWSER_TEST_DIR/$peer.started" ]; do
-  i=$((i + 1))
-  [ "$i" -lt 80 ] || exit 91
-  sleep 0.02
-done
+if [ -n "$peer" ]; then
+  i=0
+  while [ ! -f "$BROWSER_TEST_DIR/$peer.started" ]; do
+    i=$((i + 1))
+    [ "$i" -lt 80 ] || exit 91
+    sleep 0.02
+  done
+fi
 touch "$BROWSER_TEST_DIR/$id.finished"
 if [ "$FAIL_BROWSER" = "$id" ]; then exit 17; fi
 exit 0
 """)
             fake.chmod(0o755)
-            for failing in ("", "public", "journey"):
+            for failing in ("", "public", "journey", "combat"):
                 with self.subTest(failing=failing):
                     for file in root.glob("*.started"):
                         file.unlink()
@@ -192,8 +199,16 @@ exit 0
                     self.assertEqual(run.returncode == 0, not failing, run.stderr)
                     self.assertTrue((root / "public.finished").exists())
                     self.assertTrue((root / "journey.finished").exists())
+                    self.assertEqual((root / "combat.finished").exists(),
+                                     failing not in ("public", "journey"))
                     self.assertIn("CHRONICLES_PUBLIC_SMOKE_RESULTS", run.stdout)
-
+                    if failing in ("public", "journey"):
+                        self.assertIn("CHRONICLES_PUBLIC_COMBAT_SKIPPED", run.stdout)
+                        self.assertIn("combat=125", run.stdout)
+                    elif failing == "combat":
+                        self.assertIn("combat=17", run.stdout)
+                    else:
+                        self.assertIn("combat=0", run.stdout)
 
     def test_same_sha_can_retry_public_smokes_without_redeployment(self):
         workflow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
