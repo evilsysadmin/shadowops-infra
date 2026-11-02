@@ -53,12 +53,21 @@ class FootballDelivery(unittest.TestCase):
    (root/'delivery.json').write_text(json.dumps(manifest))
    with self.assertRaises(delivery.DeliveryError):delivery.validate(root,SHA)
  def test_edge_quota_exhaustion_cannot_expose_unprotected_assets(self):
-  project={'deployment_configs':{'production':{'fail_open':False},'preview':{'fail_open':False}}}
+  project={'deployment_configs':{mode:{'fail_open':False,'compatibility_flags':['global_fetch_strictly_public']} for mode in ('production','preview')}}
   with patch.object(pages,'existing_project',return_value=True),patch.object(pages,'project_path',return_value='/owned'),patch.object(pages,'request',return_value=(200,project)) as request:
    pages.ensure_identity_policy()
-   self.assertEqual(request.call_args_list[0].args,('PATCH','/owned',project))
+   self.assertEqual(request.call_args_list[1].args,('PATCH','/owned',project))
    project['deployment_configs']['production']['fail_open']=True
    with self.assertRaises(RuntimeError):pages.ensure_identity_policy()
+ def test_public_identity_routing_preserves_other_flags_and_rejects_private_override(self):
+  project={'deployment_configs':{mode:{'fail_open':False,'compatibility_flags':['global_fetch_strictly_public','nodejs_compat']} for mode in ('production','preview')}}
+  with patch.object(pages,'existing_project',return_value=True),patch.object(pages,'project_path',return_value='/owned'),patch.object(pages,'request',return_value=(200,project)) as request:
+   pages.ensure_identity_policy()
+   self.assertEqual(request.call_args_list[1].args[2],project)
+   project['deployment_configs']['preview']['compatibility_flags'].append('global_fetch_private_origin')
+   request.reset_mock()
+   with self.assertRaises(RuntimeError):pages.ensure_identity_policy()
+   self.assertFalse(any(call.args[0]=='PATCH' for call in request.call_args_list))
  def test_budget_counts_shared_bucket_and_own_prefix_with_no_bypass(self):
   delivery.budget({'other/keep':1},{delivery.PREFIX+'/new':1})
   with self.assertRaises(delivery.DeliveryError):delivery.budget({'other/keep':delivery.BUDGET},{delivery.PREFIX+'/new':1})
