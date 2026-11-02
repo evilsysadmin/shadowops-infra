@@ -311,7 +311,7 @@ func TestHTTPSLoginOnceFourAppsRefreshAndCentralLogout(t *testing.T) {
 		f.fresh(t, c, true)
 		old = append(old, c)
 	}
-	for collection, want := range map[string]int64{"pending_accounts": 1, "sessions": 1, "staging_cka_tokens": 3} {
+	for collection, want := range map[string]int64{"pending_accounts": 1, "sessions": 1, "staging_cka_tokens": 4} {
 		got, err := f.db.Collection(collection).CountDocuments(context.Background(), bson.D{})
 		if err != nil || got != want {
 			t.Fatalf("%s count=%d want=%d: %v", collection, got, want, err)
