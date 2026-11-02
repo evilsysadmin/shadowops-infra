@@ -1,10 +1,10 @@
 name: Football · independent staging Pages
 on:
   pull_request:
-    paths: ['.github/workflows/football-pages-staging.yml', 'scripts/football_*.py', 'tests/test_football_delivery.py', 'docs/football-staging.md']
+    paths: ['.github/workflows/football-pages-staging.yml', 'scripts/football_*', 'tests/test_football_delivery.py', 'docs/football-staging.md']
   push:
     branches: [main]
-    paths: ['.github/workflows/football-pages-staging.yml', 'scripts/football_*.py', 'tests/test_football_delivery.py', 'docs/football-staging.md']
+    paths: ['.github/workflows/football-pages-staging.yml', 'scripts/football_*', 'tests/test_football_delivery.py', 'docs/football-staging.md']
   schedule:
     - cron: '13,43 * * * *'
   workflow_dispatch:
@@ -100,3 +100,31 @@ jobs:
           npx --yes wrangler@4.127.1 pages deploy football-release/web --project-name football-staging --branch main --commit-hash "$SOURCE_SHA" --commit-dirty=false
           python3 scripts/football_pages.py domain
           python3 scripts/football_delivery.py verify "$SOURCE_SHA"
+  browser:
+    name: Football · public browser and WASM
+    needs: [contracts, candidate, publish]
+    if: always() && needs.contracts.result == 'success' && (github.event_name == 'pull_request' || needs.publish.result == 'success')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      SOURCE_SHA: ${{ needs.candidate.outputs.source_sha }}
+      FOOTBALL_SCREENSHOTS: ${{ github.workspace }}/.artifacts/football-public
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - name: Install pinned isolated browser runner
+        run: |
+          npm install --prefix "$RUNNER_TEMP/football-browser" --no-audit --no-fund playwright@1.64.1
+          "$RUNNER_TEMP/football-browser/node_modules/.bin/playwright" install chromium
+          cp scripts/football_staging_smoke.mjs "$RUNNER_TEMP/football-browser/smoke.mjs"
+      - name: Exercise the public frontend and immutable Godot runtime
+        run: node "$RUNNER_TEMP/football-browser/smoke.mjs"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: football-public-browser-${{ github.sha }}
+          path: .artifacts/football-public
+          if-no-files-found: error
+          retention-days: 7
