@@ -33,6 +33,8 @@ try {
   const frame=page.frames().find(frame=>frame.url()===release.runtime.index);
   assert.ok(frame,'exact immutable runtime loaded');
   assert.equal(await frame.locator('canvas').count(),1);
+  // Match the canonical Web smoke's settling budget for first-use GPU textures.
+  await page.waitForTimeout(2500);
   const canvas=frame.locator('canvas');await canvas.click();
   await page.keyboard.down('KeyD');await page.waitForTimeout(400);await page.keyboard.up('KeyD');
   await page.screenshot({path:out+'/'+viewport.width+'-real-match.png'});
