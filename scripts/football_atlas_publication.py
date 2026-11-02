@@ -59,6 +59,8 @@ def validate_pack(payload: bytes) -> dict[str, bytes]:
                         or str(PurePosixPath(name)) != name):
                     raise delivery.DeliveryError("Unsafe atlas archive entry")
             manifest = json.loads(archive.read("atlas-manifest-v1.json"))
+            if not isinstance(manifest, dict):
+                raise delivery.DeliveryError("Atlas manifest must be an object")
             if (manifest.get("schema") != 1 or manifest.get("codec") != "webp-lossless"
                     or manifest.get("cell") != {"width": 128, "height": 144}):
                 raise delivery.DeliveryError("Unexpected atlas manifest contract")
@@ -67,6 +69,8 @@ def validate_pack(payload: bytes) -> dict[str, bytes]:
                 raise delivery.DeliveryError("Six exact atlas records required")
             result = {}
             for item in rows:
+                if not isinstance(item, dict):
+                    raise delivery.DeliveryError("Atlas item must be an object")
                 team, family, name = item.get("team"), item.get("family"), item.get("file")
                 if (team not in TEAMS or family not in FAMILIES
                         or name != f"{team}_{family}_v1.webp" or name in result
@@ -138,6 +142,11 @@ def publish(pack: dict[str, bytes], source_sha: str) -> None:
     existing = {name for name in pack if PREFIX + name in current}
     additions = {PREFIX + name: len(payload) for name, payload in pack.items() if name not in existing}
     delivery.budget(current, additions)  # Shared free-tier headroom before first write
+    # football_delivery.budget tracks its Pages runtime prefix; account also
+    # for these separate shared CDN atlas keys in Football's 512 MiB budget.
+    atlas_used = sum(size for key, size in current.items() if key.startswith("football/"))
+    if atlas_used + sum(additions.values()) > delivery.FOOTBALL_BUDGET:
+        raise delivery.DeliveryError("Football atlas free-tier allocation exhausted")
     if existing:
         verify_public(pack, existing)
     # Recheck the original main/CI provenance just before any mutation.
