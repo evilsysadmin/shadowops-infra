@@ -10,6 +10,11 @@ on:
     paths:
       - '.github/workflows/chronicles-public-browser-smoke.yml'
       - 'tests/test_chronicles_public_browser_standalone.py'
+  schedule:
+    # Exercise the SHA actually public in staging once daily. Offset from
+    # Chronicles API (:17) and Pages (:47) hourly reconciliations to avoid
+    # routine overlap; never dispatch or deploy from this workflow.
+    - cron: '32 6 * * *'
 
 permissions:
   contents: read
