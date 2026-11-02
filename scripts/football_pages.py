@@ -70,6 +70,22 @@ def dns_path() -> str:
     return "/zones/" + zone_id() + "/dns_records"
 
 
+def project_target(project: dict) -> str:
+    target = project.get('subdomain', '')
+    if not isinstance(target, str) or not re.fullmatch(r'football-staging(?:-[a-z0-9]+)?\.pages\.dev', target):
+        raise RuntimeError('Unexpected Football Pages assigned subdomain')
+    return target
+
+
+def dns_target() -> str:
+    status, project = request('GET', project_path())
+    if status == 404:
+        return TARGET
+    if not existing_project() or not isinstance(project, dict):
+        raise RuntimeError('Cannot identify Football DNS target')
+    return project_target(project)
+
+
 def dns_record() -> dict | None:
     status, rows = request("GET", dns_path() + "?" + urllib.parse.urlencode({"name": HOST}))
     if status != 200 or not isinstance(rows, list):
@@ -80,7 +96,7 @@ def dns_record() -> dict | None:
     if matching:
         record = matching[0]
         if (record.get("type") != "CNAME" or record.get("proxied") is not True
-                or str(record.get("content", "")).rstrip(".") != TARGET):
+                or str(record.get("content", "")).rstrip(".") != dns_target()):
             raise RuntimeError("Refusing to overwrite an existing foreign FOOTBALL DNS record")
         return record
     return None
@@ -94,7 +110,7 @@ def existing_project() -> bool:
         raise RuntimeError("Cannot inspect FOOTBALL Pages project")
     if project.get("name") != PROJECT or project.get("production_branch") != "main":
         raise RuntimeError("Unexpected FOOTBALL Pages project identity or branch")
-    if project.get('source') or set(project.get('domains') or []) - {HOST,TARGET}:
+    if project.get('source') or set(project.get('domains') or []) - {HOST,project_target(project)}:
         raise RuntimeError('Refusing a foreign Football project integration/domain')
     return True
 
@@ -140,7 +156,7 @@ def ensure_domain() -> None:
         raise RuntimeError("Pages domain has an error state")
     if dns_record() is None:
         status, _ = request("POST", dns_path(), {
-            "type": "CNAME", "name": HOST, "content": TARGET, "proxied": True,
+            "type": "CNAME", "name": HOST, "content": dns_target(), "proxied": True,
             "ttl": 1,
         })
         if status not in (200, 201):

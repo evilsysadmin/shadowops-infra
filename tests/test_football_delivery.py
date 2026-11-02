@@ -70,6 +70,14 @@ class FootballDelivery(unittest.TestCase):
    if fault=='artifact':
     with self.assertRaises(delivery.DeliveryError):delivery.admit(changed)
    else:self.assertIsNone(delivery.admit(changed))
+ def test_pages_generated_subdomain_is_used_without_adopting_foreign_domains(self):
+  project={'name':pages.PROJECT,'production_branch':'main','subdomain':'football-staging-aha.pages.dev','domains':['football-staging-aha.pages.dev']}
+  with patch.dict(os.environ,{'CLOUDFLARE_ACCOUNT_ID':'a'*32}),patch.object(pages,'request',return_value=(200,project)):
+   self.assertTrue(pages.existing_project())
+   self.assertEqual(pages.dns_target(),'football-staging-aha.pages.dev')
+   project['domains'].append('someone-else.pages.dev')
+   with self.assertRaises(RuntimeError):pages.existing_project()
+  with self.assertRaises(RuntimeError):pages.project_target({'subdomain':'another.pages.dev'})
  def test_upload_never_creates_compute_bucket_tunnel_or_deletes_others(self):
   source=(ROOT/'scripts/football_delivery.py').read_text()
   self.assertNotIn("r2_request('DELETE'",source)
