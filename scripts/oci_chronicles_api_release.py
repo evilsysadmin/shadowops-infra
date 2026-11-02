@@ -111,6 +111,20 @@ def observed_delivery_samples(visible: int, pending: int, other: int) -> str:
             + f"other={bounded(other)}")
 
 
+def poll_delay_seconds(*, first_acked: float | None,
+                       first_active: float | None, pre_delivery_samples: int) -> int:
+    """Avoid expensive OCI GET churn during long undelivered Run Commands.
+
+    The first three nonterminal polls remain at 3s for fast deliveries. After
+    that, poll at 6s only while neither ACKED nor IN_PROGRESS was observed.
+    Return to 3s immediately on either signal. Terminal states are handled
+    before sleeping, and the existing 650s release deadline stays unchanged.
+    """
+    if first_acked is not None or first_active is not None or pre_delivery_samples < 3:
+        return 3
+    return 6
+
+
 def observed_poll_timing(calls: int, total: float, slowest: float) -> str:
     """Local OCI GET round-trip durations, never host execution time."""
     if calls <= 0:
@@ -344,7 +358,11 @@ def execute(
                                   delivery_samples=samples)
             print(marker + digest)
             return last
-        pause(3)
+        # Before OCI Run Command delivery, each GET has measurable cost.
+        # Preserve quick recognition early and after observed ACK/progress.
+        pause(poll_delay_seconds(
+            first_acked=first_acked, first_active=first_active,
+            pre_delivery_samples=visible_samples + pending_samples + other_samples))
     # A non-terminal OCI wait is precisely when the controller's timings are
     # most useful. Do not claim a successful smoke or infer unobserved states.
     # All values come from the local monotonic clock, never remote stdout.
