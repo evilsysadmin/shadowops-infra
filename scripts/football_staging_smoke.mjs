@@ -5,7 +5,7 @@ import {mkdir,writeFile} from 'node:fs/promises';
 const origin='https://staging.football.shadowops.dpdns.org';
 const out=process.env.FOOTBALL_SCREENSHOTS;
 assert.ok(out);await mkdir(out,{recursive:true});
-const browser=await chromium.launch({headless:true});
+let browser;
 try {
  const release=await (await fetch(origin+'/release.json')).json();
  assert.equal(release.application,'football-of-matthias');
@@ -14,6 +14,8 @@ try {
  if(process.env.SOURCE_SHA)assert.equal(release.source_sha,process.env.SOURCE_SHA);
  const captures=[];
  for(const viewport of [{width:1280,height:800},{width:390,height:844}]) {
+  // Desktop and phone represent separate devices, including GPU processes.
+  browser=await chromium.launch({headless:true});
   const page=await browser.newPage({viewport,hasTouch:viewport.width===390,isMobile:viewport.width===390});const errors=[];const messages=[];
   page.on('console',message=>{if(['warning','error'].includes(message.type())&&messages.length<100)messages.push(message.type()+': '+message.text());});
   page.on('pageerror',error=>errors.push(String(error)));
@@ -40,8 +42,8 @@ try {
   await page.keyboard.down('KeyD');await page.waitForTimeout(400);await page.keyboard.up('KeyD');
   await page.screenshot({path:out+'/'+viewport.width+'-real-match.png'});
   assert.deepEqual(errors,[]);
-  captures.push({viewport,runtime:frame.url(),ready:true,page_errors:errors,console_messages:messages});await page.close();
+  captures.push({viewport,runtime:frame.url(),ready:true,page_errors:errors,console_messages:messages});await page.close();await browser.close();browser=null;
  }
  await writeFile(out+'/proof.json',JSON.stringify({source_sha:release.source_sha,captures},null,2));
  console.log('FOOTBALL_PUBLIC_BROWSER_DESKTOP_MOBILE_WASM_OK source_sha='+release.source_sha);
-}finally{await browser.close();}
+}finally{await browser?.close();}
