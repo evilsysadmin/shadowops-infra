@@ -356,3 +356,61 @@ cutover/rollback. In particular, merely attaching an R2 binding
 to the current publicly accessible shared bucket is not safe.
 No credentials, bucket, DNS, Pages project or game release are
 created by this PR.
+
+## Dedicated private R2 bucket: ownership preflight (read only)
+
+The **intended future bucket** is exactly `pawn-action-staging-private`
+in the existing Cloudflare account; the future Worker's R2 binding must
+be `PAWN_ACTION_PRIVATE_R2`. Never point that binding or the publisher
+at the existing public `chess-studio-assets` bucket.
+
+The script `scripts/pawn_action_private_r2.py` checks three independent
+Cloudflare API facts before reporting `private=true`:
+
+1. The exact bucket exists and is owned by the configured 32-character
+   Cloudflare account ID.
+2. Its managed `r2.dev` domain explicitly reports `enabled=false`.
+3. Its custom-domain inventory is **complete and empty**. Disabled custom
+   domains are still rejected, to prevent accidental later exposure.
+
+It fails closed for malformed/partial inventories, the wrong bucket, a
+public domain, missing permissions or unknown public-access state.
+An absent bucket is `bucket=absent,private=false`, **not** a verified
+private bucket. `require-private` exits nonzero unless all checks pass.
+
+Local offline tests and the only planned live operations:
+
+```sh
+python3 scripts/pawn_action_private_r2.py self-test
+python3 -m unittest discover -s tests -p 'test_pawn_action_private_r2.py' -v
+
+# Only after supplying *read-only* Cloudflare inventory credentials:
+python3 scripts/pawn_action_private_r2.py inventory
+python3 scripts/pawn_action_private_r2.py require-private
+```
+
+The existing `Pawn Action · staging Pages DNS preflight` workflow now
+runs these offline tests on PRs and `main`. Manual dispatch on protected
+`main` runs read-only Pages/DNS **and** private bucket inventory.
+Its optional `require_private_bucket=true` input makes the run **fail**
+when the dedicated bucket is absent or unverified. Required permissions
+include bucket metadata and both R2 domain read endpoints; the API token
+must not grant object write access merely for this preflight.
+
+The actual Cloudflare endpoints checked are:
+
+- `GET /accounts/{account_id}/r2/buckets/pawn-action-staging-private`
+- `GET /accounts/{account_id}/r2/buckets/pawn-action-staging-private/domains/managed`
+- `GET /accounts/{account_id}/r2/buckets/pawn-action-staging-private/domains/custom`
+
+This confirms the **native R2 public-domain settings**; it cannot prove
+that no other user-controlled Worker with a bucket binding proxies these
+objects. Before publication, audit Worker bindings, access policies and
+DNS routes and test external unauthenticated requests. No bucket is created
+or written in this PR, no cloud inventory has been run yet, and the
+authenticated delivery Worker remains a non-deployed candidate.
+
+Next gated increment: a **manual create-only** provisioner for the exact
+bucket, followed by read-only private admission before issuing **dedicated
+bucket-scoped credentials** and implementing an immutable private publisher.
+The legacy public uploader's `apply` remains disabled.
