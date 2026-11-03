@@ -112,3 +112,55 @@ credentials are needed. The R2 prefix and legacy pointer remain unchanged.
 Before any subsequent live publish, Infra must revalidate the source receipt,
 the contents, the storage budget, Cloudflare ownership, access policy and
 public HTTPS/browser runtime on the agreed staging hostname.
+
+## Create-once R2 upload, manual gate only
+
+`scripts/pawn_action_r2_immutable.py` is an operator-only uploader for the
+existing `chess-studio-assets` bucket. It writes **exclusively** keys under
+`pawn-action/releases/<content-digest>/`, never `pawn-action/current.json`
+or Chess Studio's `pawn-slug-godot/current.json`. It never deletes assets,
+creates buckets or changes DNS/Pages/production.
+
+Cloudflare documents atomic **S3-compatible** `PutObject` writes with
+`If-None-Match: *`. The uploader uses that create-once condition rather
+than relying on a non-atomic list-then-PUT with the legacy REST API. It reads
+the **whole shared bucket inventory**, fails closed on malformed/truncated
+results and enforces strict byte limits: 7,000,000,000 bytes total projected
+and 536,870,912 bytes under `pawn-action/`; there is no capacity override.
+Existing immutable keys must match the manifest's exact size and SHA-256
+before any writes. Every newly uploaded object is read back and verified.
+Conflicting concurrent writes never overwrite the pre-existing object.
+
+Preview a verified offline release, without dependencies, credentials or
+network access:
+
+```sh
+python3 scripts/pawn_action_r2_immutable.py plan \
+  --candidate ./pawn-action-candidate \
+  --source-sha <admitted-current-main-sha>
+```
+
+Actual object upload is a **separate, manual-only future operation**. It
+requires `boto3`, `GH_TOKEN` with source Actions access, Cloudflare account
+ID, and dedicated **bucket-scoped S3** credentials in Infra operator custody
+(`PAWN_ACTION_R2_ACCESS_KEY_ID`, `PAWN_ACTION_R2_SECRET_ACCESS_KEY`).
+Before opening R2, the command rechecks the exact source main SHA and green
+main browser CI + both artifact digests. It additionally requires the exact
+`--confirm-immutable-upload pawn-action/releases/<content-digest>` flag.
+
+```sh
+python3 scripts/pawn_action_r2_immutable.py apply \
+  --candidate ./pawn-action-candidate \
+  --source-sha <admitted-current-main-sha> \
+  --confirm-immutable-upload pawn-action/releases/<content-digest>
+```
+
+**No workflow runs `apply`, and this contract does not authorize running
+it yet.** Bucket-scoped S3 keys still have broader bucket access than a
+per-object prefix: the CLI restricts its own keys, but actual least privilege
+also depends on how Cloudflare credentials are provisioned and kept in Infra.
+No dedicated R2 credentials have been provisioned by these code changes.
+The inventory-based capacity gate is a preflight, not a global lock against
+other unrelated publishers; keep publication serialized by the Infra owner.
+Server-side access policy, CDN checks, own Pages staging host, mutable pointer
+ownership and rollback remain separate future gates.
