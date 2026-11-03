@@ -1,0 +1,55 @@
+name: Pawn Action · exact source Web artifact admission
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/pawn-action-source-admission.yml'
+      - 'scripts/pawn_action_source_admission.py'
+      - 'tests/test_pawn_action_source_admission.py'
+      - 'docs/pawn-action-staging.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/pawn-action-source-admission.yml'
+      - 'scripts/pawn_action_source_admission.py'
+      - 'tests/test_pawn_action_source_admission.py'
+      - 'docs/pawn-action-staging.md'
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'Exact current Pawn Action main SHA for read-only admission'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: Pawn Action · offline source provenance and ZIP tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_pawn_action_source_admission.py' -v
+
+  admission:
+    name: Pawn Action · read-only exact main and artifact gate
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require source main green Godot and real Chromium with SHA256 artifact
+        run: python3 scripts/pawn_action_source_admission.py check "$SOURCE_SHA"
