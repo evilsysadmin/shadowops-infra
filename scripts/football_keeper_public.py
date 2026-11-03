@@ -11,7 +11,6 @@ import json
 from pathlib import Path
 import re
 import sys
-import urllib.parse
 import urllib.request
 
 STAGING_ORIGIN = "https://staging.football.shadowops.dpdns.org"
@@ -45,6 +44,10 @@ def verify_manifest(meta: dict, *, opener=urllib.request.urlopen) -> bool:
     entries = meta.get("entries")
     if not isinstance(entries, list) or len(entries) != 2:
         raise KeeperR2Error("Expected exactly two original keeper atlases")
+    # Reject duplicate/missing teams before initiating any remote request.
+    teams = [entry.get("team") if isinstance(entry, dict) else None for entry in entries]
+    if set(teams) != set(FILENAMES) or len(set(teams)) != len(teams):
+        raise KeeperR2Error("Duplicated or missing keeper team")
     remaining = dict(FILENAMES)
     for entry in entries:
         if not isinstance(entry, dict):
