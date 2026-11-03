@@ -6,8 +6,10 @@ on:
       - '.github/workflows/pawn-action-source-admission.yml'
       - 'scripts/pawn_action_source_admission.py'
       - 'scripts/pawn_action_web_package.py'
+      - 'scripts/pawn_action_r2_immutable.py'
       - 'tests/test_pawn_action_source_admission.py'
       - 'tests/test_pawn_action_web_package.py'
+      - 'tests/test_pawn_action_r2_immutable.py'
       - 'docs/pawn-action-staging.md'
   push:
     branches: [main]
@@ -15,8 +17,10 @@ on:
       - '.github/workflows/pawn-action-source-admission.yml'
       - 'scripts/pawn_action_source_admission.py'
       - 'scripts/pawn_action_web_package.py'
+      - 'scripts/pawn_action_r2_immutable.py'
       - 'tests/test_pawn_action_source_admission.py'
       - 'tests/test_pawn_action_web_package.py'
+      - 'tests/test_pawn_action_r2_immutable.py'
       - 'docs/pawn-action-staging.md'
   workflow_dispatch:
     inputs:
@@ -39,6 +43,7 @@ jobs:
           persist-credentials: false
       - run: python3 -m unittest discover -s tests -p 'test_pawn_action_source_admission.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_pawn_action_web_package.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_pawn_action_r2_immutable.py' -v
 
   admission:
     name: Pawn Action · read-only exact main and artifact gate
