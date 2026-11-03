@@ -16,7 +16,7 @@ test('real workerd: sign, exchange, CSRF deny and live revocation',async t=>{
  const proof='soc1_'+Buffer.alloc(32,3).toString('base64url');
  let active=true,calls=0;
  const mf=new Miniflare({
-  cf:false,modules:true,compatibilityDate:'2026-10-01',
+  cf:false,modules:true,compatibilityDate:'2026-07-30',
   scriptPath:'tests/fixtures/pawn_action_session_workerd.mjs',
   bindings:{SHADOWOPS_PAWN_ACTION_SERVICE_CREDENTIAL:proof},
   serviceBindings:{
@@ -57,7 +57,7 @@ test('real workerd: sign, exchange, CSRF deny and live revocation',async t=>{
  assert.equal(calls,4);
 });
 test('real workerd: locked Pages shell still rejects WASM and home',async t=>{
- const mf=new Miniflare({cf:false,modules:true,compatibilityDate:'2026-10-01',
+ const mf=new Miniflare({cf:false,modules:true,compatibilityDate:'2026-07-30',
   scriptPath:'workers/pawn-action-staging/edge.mjs',
   bindings:{PAWN_ACTION_STAGING_ENABLED:'true'}});
  t.after(()=>mf.dispose());
