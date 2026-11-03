@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {webcrypto} from 'node:crypto';
 import {handleSessionExchange,SESSION_PATH,ORIGIN} from '../workers/pawn-action-staging/session-exchange.mjs';
 import {COOKIE,ISSUER,AUDIENCE,authorizeRequest} from '../workers/pawn-action-staging/identity-gate.mjs';
-import {handle as locked} from '../workers/pawn-action-staging/edge.mjs';
+import worker from '../workers/pawn-action-staging/edge.mjs';
+const locked = worker.fetch;
 const b64=x=>Buffer.from(JSON.stringify(x)).toString('base64url');
 async function fixture(){
  const pair=await webcrypto.subtle.generateKey({name:'Ed25519'},true,['sign','verify']);

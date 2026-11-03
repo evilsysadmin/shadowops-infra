@@ -1,6 +1,6 @@
 // Pawn Action staging holding edge: fail closed until ShadowOps ID consumer exists.
 // No cookie, JWT, spoofed header or environment flag can enable gameplay.
-export const HOST = 'staging.pawnaction.shadowops.dpdns.org';
+const HOST = 'staging.pawnaction.shadowops.dpdns.org';
 const HEADERS = {
   'Cache-Control': 'no-store, max-age=0',
   'X-Content-Type-Options': 'nosniff',
@@ -22,7 +22,7 @@ function respond(body, status, contentType, method) {
   return new Response(method === 'HEAD' ? null : body,
     {status, headers: {...HEADERS, 'Content-Type': contentType}});
 }
-export function handle(request, _env) {
+function handle(request, _env) {
   let url;
   try { url = new URL(request.url); }
   catch { return respond('Not found', 404, 'text/plain; charset=utf-8', request.method); }

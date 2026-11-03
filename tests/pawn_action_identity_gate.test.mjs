@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {webcrypto} from 'node:crypto';
 import {AUDIENCE, ISSUER, COOKIE, IdentityDenied, verifyIdentityToken, authorize, sessionToken, authorizeRequest} from '../workers/pawn-action-staging/identity-gate.mjs';
-import {handle as lockedHandle, HOST} from '../workers/pawn-action-staging/edge.mjs';
+import worker from '../workers/pawn-action-staging/edge.mjs';
+const lockedHandle = worker.fetch;
+const HOST = 'staging.pawnaction.shadowops.dpdns.org';
 
 const origin = 'https://' + HOST;
 const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url');

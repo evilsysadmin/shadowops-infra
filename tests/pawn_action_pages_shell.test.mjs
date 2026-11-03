@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {handle, HOST} from '../workers/pawn-action-staging/edge.mjs';
+import worker from '../workers/pawn-action-staging/edge.mjs';
+const handle = worker.fetch;
+const HOST = 'staging.pawnaction.shadowops.dpdns.org';
 const origin = 'https://' + HOST;
 const env = {ASSETS: {fetch() { throw Error('Static game asset leak'); }},
   PAWN_ACTION_STAGING_ENABLED: 'true',
