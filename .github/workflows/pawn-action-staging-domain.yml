@@ -17,6 +17,7 @@ on:
       - 'tests/pawn_action_session_workerd.test.mjs'
       - 'tests/fixtures/pawn_action_session_workerd.mjs'
       - 'tests/pawn_action_private_delivery.test.mjs'
+      - 'tests/pawn_action_browser_auth.test.mjs'
       - 'tests/pawn_action_private_delivery_workerd.test.mjs'
       - 'tests/fixtures/pawn_action_private_delivery_workerd.mjs'
       - 'docs/pawn-action-staging.md'
@@ -37,6 +38,7 @@ on:
       - 'tests/pawn_action_session_workerd.test.mjs'
       - 'tests/fixtures/pawn_action_session_workerd.mjs'
       - 'tests/pawn_action_private_delivery.test.mjs'
+      - 'tests/pawn_action_browser_auth.test.mjs'
       - 'tests/pawn_action_private_delivery_workerd.test.mjs'
       - 'tests/fixtures/pawn_action_private_delivery_workerd.mjs'
       - 'docs/pawn-action-staging.md'
@@ -72,6 +74,7 @@ jobs:
       - run: node --test tests/pawn_action_identity_gate.test.mjs
       - run: node --test tests/pawn_action_session_exchange.test.mjs
       - run: node --test tests/pawn_action_private_delivery.test.mjs
+      - run: node --test tests/pawn_action_browser_auth.test.mjs
       - name: Install pinned real workerd harness, offline test only
         run: npm install --no-save --no-package-lock --ignore-scripts --no-audit --no-fund miniflare@4.20260730.0
       - name: Exercise Pawn Action exchange in real workerd
