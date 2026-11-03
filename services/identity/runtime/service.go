@@ -80,7 +80,7 @@ func (cfg ServiceConfig) validate(now time.Time) ([]byte, tls.Certificate, *tls.
 	bad := func() ([]byte, tls.Certificate, *tls.Config, error) {
 		return nil, tls.Certificate{}, nil, ErrUnsafeConfiguration
 	}
-	if cfg.Environment != "staging" || len(cfg.Consumers) == 0 || len(cfg.Consumers) > 4 {
+	if cfg.Environment != "staging" || len(cfg.Consumers) == 0 || len(cfg.Consumers) > 5 {
 		return bad()
 	}
 	seed, err := base64.RawURLEncoding.DecodeString(cfg.SigningSeed)
@@ -93,7 +93,7 @@ func (cfg ServiceConfig) validate(now time.Time) ([]byte, tls.Certificate, *tls.
 		}
 	}
 	for app, key := range cfg.Consumers {
-		if app != issuance.ChessStudio && app != issuance.Chronicles && app != issuance.CKASimulator && app != issuance.Football {
+		if app != issuance.ChessStudio && app != issuance.Chronicles && app != issuance.CKASimulator && app != issuance.Football && app != issuance.PawnAction {
 			return bad()
 		}
 		if len(key) != 48 || !strings.HasPrefix(key, "soc1_") {

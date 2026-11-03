@@ -52,7 +52,7 @@ func (h *Handler) page(w http.ResponseWriter, r *http.Request) bool {
 			origin = candidate
 		}
 	}
-	labels := map[issuance.Application]string{issuance.ChessStudio: "Chess Studio", issuance.Chronicles: "Chronicles", issuance.CKASimulator: "CKA", issuance.Football: "Football of Matthias"}
+	labels := map[issuance.Application]string{issuance.ChessStudio: "Chess Studio", issuance.Chronicles: "Chronicles", issuance.CKASimulator: "CKA", issuance.Football: "Football of Matthias", issuance.PawnAction: "Pawn Action"}
 	if origin == "" || (h.enabled != nil && !h.enabled[app]) {
 		http.Error(w, "application denied", http.StatusBadRequest)
 		return true

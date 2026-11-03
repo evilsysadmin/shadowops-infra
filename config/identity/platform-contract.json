@@ -57,6 +57,11 @@
           "audience": "football",
           "origin": "https://staging.football.shadowops.dpdns.org",
           "status": "staging-only-admission-pending"
+        },
+        {
+          "audience": "pawn-action",
+          "origin": "https://staging.pawnaction.shadowops.dpdns.org",
+          "status": "explicit-opt-in-required-not-activated"
         }
       ]
     },

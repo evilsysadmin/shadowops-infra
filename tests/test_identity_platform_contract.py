@@ -20,12 +20,15 @@ class IdentityPlatformContractTests(unittest.TestCase):
         self.assertEqual(set(self.data["environments"]), {"staging", "production"})
         self.assertIn("/issues/287", self.data["issue"])
 
-    def test_explicit_staging_only_football_and_distinct_environment_origins(self):
+    def test_explicit_staging_only_consumers_and_distinct_environment_origins(self):
         stage = {a["audience"]: a["origin"] for a in self.stage["consumers"]}
         prod = {a["audience"]: a["origin"] for a in self.prod["consumers"]}
-        self.assertEqual(set(stage), {"chess-studio", "chronicles", "cka-simulator", "football"})
-        self.assertEqual(set(stage) - set(prod), {"football"})
+        self.assertEqual(set(stage), {"chess-studio", "chronicles", "cka-simulator", "football", "pawn-action"})
+        self.assertEqual(set(stage) - set(prod), {"football", "pawn-action"})
         self.assertEqual(set(prod), {"chess-studio", "chronicles", "cka-simulator"})
+        self.assertEqual(stage['pawn-action'], 'https://staging.pawnaction.shadowops.dpdns.org')
+        self.assertEqual(next(c for c in self.stage['consumers'] if c['audience'] == 'pawn-action')['status'], 'explicit-opt-in-required-not-activated')
+        self.assertNotIn('pawn-action', prod)
         self.assertFalse(set(stage.values()) & set(prod.values()))
         for origin in stage.values():
             self.assertEqual(urlsplit(origin).scheme, "https")

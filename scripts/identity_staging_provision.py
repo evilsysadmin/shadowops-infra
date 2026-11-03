@@ -8,7 +8,7 @@ import os
 import urllib.parse
 
 from chronicles_api_provision import Cloudflare, ProvisionError, UUID_RE, resolve_vault
-from identity_staging_bundle import HOST, BundleError, generate, validate, enable_football
+from identity_staging_bundle import HOST, BundleError, generate, validate, enable_football, enable_pawn_action
 from oci_control_plane import config_from_env, resolve_existing_host
 
 TUNNEL_NAME = 'identity-staging'
@@ -107,6 +107,9 @@ def provision(sdk, env, cf):
     football = env.get('IDENTITY_STAGING_FOOTBALL', 'preserve')
     if football not in {'preserve', 'enable'}:
         raise ProvisionError('Invalid Football consumer opt-in')
+    pawn_action = env.get('IDENTITY_STAGING_PAWN_ACTION', 'preserve')
+    if pawn_action not in {'preserve', 'enable'}:
+        raise ProvisionError('Invalid Pawn Action consumer opt-in')
     config = config_from_env(sdk, env)
     compartment, _ = resolve_existing_host(sdk, config)
     vault, key, _ = resolve_vault(sdk, config, compartment)
@@ -119,6 +122,8 @@ def provision(sdk, env, cf):
     bundle['tunnel_token'] = token
     if football == 'enable':
         bundle = enable_football(bundle)
+    if pawn_action == 'enable':
+        bundle = enable_pawn_action(bundle)
     validate(bundle)
     if existing is None or token != old_token or bundle['consumers'] != existing['consumers']:
         store(sdk, config, compartment, vault, key, bundle)

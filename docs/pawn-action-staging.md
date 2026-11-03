@@ -167,8 +167,8 @@ ownership and rollback remain separate future gates.
 
 ## Locked Cloudflare Pages holding shell (not deployed)
 
-Pawn Action is **not yet** an explicitly registered ShadowOps Identity staging
-consumer. Never reuse Football's audience, cookie, signing proof or service
+Pawn Action's Identity contract is being introduced, but its dedicated staging
+consumer is **not yet activated**. Never reuse Football's audience, cookie, signing proof or service
 credential. Until the Identity source contract, IdP activation and
 server-side token-signature + live-revocation checks are implemented and
 verified, the Pages staging host must fail closed.
@@ -201,3 +201,28 @@ status must never be confused with playable staging acceptance.
 modify Chess Studio or provision ShadowOps ID.** Registering Pawn Action's
 own Identity consumer, securely binding its proof, and server-side checks
 before gameplay delivery are separate future reviewed increments.
+
+
+## ShadowOps ID: independent staging-only consumer opt-in
+
+The candidate staging audience is exactly `pawn-action` and its only allowed
+browser origin is `https://staging.pawnaction.shadowops.dpdns.org`.
+No new production consumer is defined. The Identity Go service understands
+this audience only from explicitly pinned server-side origin configuration.
+A Vault bundle **without** a `pawn-action` consumer continues to deny tokens,
+login return and service freshness authorization for Pawn Action.
+
+The operator bundle uses `enable_pawn_action` to create a unique
+`soc1_` service proof independently of Football, Chronicles, signing seeds,
+database credentials and all other custody fields. Existing bundles are
+unchanged unless the operator explicitly dispatches the existing
+`identity-staging-operations.yml` **provision** action with
+`pawn_action_consumer=enable`; its default remains `preserve`.
+
+**The feature's merge does not provision the Vault credential**, reload
+the running Identity service or make the Pages shell playable. Do not enable
+the live consumer until the secure Pawn Action edge worker verifies JWT
+Ed25519 signatures, pinned issuer/audience, session validity, and the
+server-to-server authenticated freshness/revocation response. Review its
+workerd tests and origin/CSRF protections first. Never copy the Football
+credential or turn off the locked Pages holding shell as a shortcut.
