@@ -25,6 +25,16 @@ var ErrInvalidStore = errors.New("identity staging session store requires isolat
 
 type Store struct{ collection *mongo.Collection }
 
+// OpenExistingStaging binds to the already provisioned session collection
+// without creating indexes or requiring schema privileges. The caller must
+// independently verify the database identity and its principal's privileges.
+func OpenExistingStaging(db *mongo.Database) (*Store, error) {
+	if db == nil || db.Name() != StagingDatabase {
+		return nil, ErrInvalidStore
+	}
+	return &Store{collection: db.Collection(collectionName, options.Collection().SetReadPreference(readpref.Primary()))}, nil
+}
+
 var _ session.Store = (*Store)(nil)
 
 type document struct {

@@ -8,13 +8,38 @@ import (
 	"time"
 
 	"github.com/evilsysadmin/shadowops-infra/services/identity/admininventory"
+	"github.com/evilsysadmin/shadowops-infra/services/identity/mongostore"
 	"github.com/evilsysadmin/shadowops-infra/services/identity/session"
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/mongo/readconcern"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
 )
+
+// StagingAdminInventoryReader exposes only the inventory transaction, not
+// registration or session issuance, for a dedicated database principal.
+type StagingAdminInventoryReader struct{ issuer *Issuer }
+
+func NewStagingAdminInventoryReader(client *mongo.Client) (*StagingAdminInventoryReader, error) {
+	if client == nil {
+		return nil, ErrDenied
+	}
+	db := client.Database(stagingDatabase)
+	store, err := mongostore.OpenExistingStaging(db)
+	if err != nil {
+		return nil, ErrStore
+	}
+	return &StagingAdminInventoryReader{issuer: &Issuer{client: client, accounts: db.Collection("pending_accounts"), sessions: store}}, nil
+}
+
+func (r *StagingAdminInventoryReader) StagingAdminInventory(ctx context.Context, handle, after string, limit int) (admininventory.Page, error) {
+	if r == nil {
+		return admininventory.Page{}, ErrDenied
+	}
+	return r.issuer.StagingAdminInventory(ctx, handle, after, limit)
+}
 
 // StagingAdminInventory authenticates an opaque central session and reads the
 // inventory only for a native active platform admin. It records the successful

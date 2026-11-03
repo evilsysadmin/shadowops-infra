@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/evilsysadmin/shadowops-infra/services/identity/admininventory"
+	"github.com/evilsysadmin/shadowops-infra/services/identity/issuance"
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
@@ -25,7 +26,11 @@ func TestAdminInventoryTransportUsesRealIdentitySession(t *testing.T) {
 		t.Fatal(err)
 	}
 	cookie := f.login(t, f.web)
-	handler, err := NewStagingAdminInventoryHandler(f.issuer)
+	reader, err := issuance.NewStagingAdminInventoryReader(f.client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewStagingAdminInventoryHandler(reader)
 	if err != nil {
 		t.Fatal(err)
 	}

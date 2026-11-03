@@ -12,9 +12,8 @@ import (
 	"github.com/evilsysadmin/shadowops-infra/services/identity/issuance"
 )
 
-// AdminInventoryPath is a same-origin-only staging API. The handler is not
-// mounted by the existing runtime; a future deployment must provision and
-// verify an independent principal for its account, session and audit writes.
+// AdminInventoryPath is a same-origin-only staging API. The runtime mounts it
+// only when an independent inventory principal is explicitly configured.
 const AdminInventoryPath = "/api/identity/admin/accounts"
 
 type adminInventoryReader func(context.Context, string, string, int) (admininventory.Page, error)
@@ -25,11 +24,11 @@ type adminInventoryHandler struct {
 
 // NewStagingAdminInventoryHandler binds authentication and auditing to the
 // server-side issuer. The requesting browser can never provide its role or ID.
-func NewStagingAdminInventoryHandler(issuer *issuance.Issuer) (http.Handler, error) {
-	if issuer == nil {
+func NewStagingAdminInventoryHandler(reader *issuance.StagingAdminInventoryReader) (http.Handler, error) {
+	if reader == nil {
 		return nil, issuance.ErrDenied
 	}
-	return &adminInventoryHandler{read: issuer.StagingAdminInventory}, nil
+	return &adminInventoryHandler{read: reader.StagingAdminInventory}, nil
 }
 
 func (h *adminInventoryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
