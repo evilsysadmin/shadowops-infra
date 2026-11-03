@@ -164,3 +164,40 @@ The inventory-based capacity gate is a preflight, not a global lock against
 other unrelated publishers; keep publication serialized by the Infra owner.
 Server-side access policy, CDN checks, own Pages staging host, mutable pointer
 ownership and rollback remain separate future gates.
+
+## Locked Cloudflare Pages holding shell (not deployed)
+
+Pawn Action is **not yet** an explicitly registered ShadowOps Identity staging
+consumer. Never reuse Football's audience, cookie, signing proof or service
+credential. Until the Identity source contract, IdP activation and
+server-side token-signature + live-revocation checks are implemented and
+verified, the Pages staging host must fail closed.
+
+The canonical-only Worker at `workers/pawn-action-staging/edge.mjs`
+responds with a fixed **503 maintenance page** at the home URL, and
+HTTP **503** for every game asset, R2 pointer, release manifest, API or
+mutation; it deliberately never forwards requests to static gameplay
+assets. `/_shadowops/status` returns only
+`{"application":"pawn-action","environment":"staging","state":"locked","game_ready":false}`.
+Wrong-host Pages preview aliases return 404. Cookie, token and
+environment spoofing do not unlock the edge. All responses are noncacheable
+and apply restrictive security headers.
+
+The offline, reproducible Pages holding shell is built with:
+
+```sh
+python3 scripts/pawn_action_pages_shell.py build --out ./pawn-action-pages-locked
+python3 scripts/pawn_action_pages_shell.py verify --out ./pawn-action-pages-locked
+node --test tests/pawn_action_pages_shell.test.mjs
+```
+
+Output has **only** `_worker.js`, a text-only safe fallback
+`index.html` and restrictive `_headers`. Even if the Worker fails,
+the static fallback contains no game files, links, secrets or privileged
+JavaScript. The offline CI is not a deployed service and the public locked
+status must never be confused with playable staging acceptance.
+
+**This change does not deploy Pages, create DNS/projects, upload R2,
+modify Chess Studio or provision ShadowOps ID.** Registering Pawn Action's
+own Identity consumer, securely binding its proof, and server-side checks
+before gameplay delivery are separate future reviewed increments.
