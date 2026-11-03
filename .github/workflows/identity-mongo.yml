@@ -26,6 +26,15 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 20
+      inventory-mongo:
+        image: mongo:7.0
+        ports:
+          - 27097:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ping:1})'"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v6
@@ -36,4 +45,5 @@ jobs:
         working-directory: services/identity
         env:
           IDENTITY_MONGO_TEST_URL: mongodb://127.0.0.1:27017
-        run: go test -race -count=1 -v ./mongostore ./pendingaccounts
+          IDENTITY_INVENTORY_TEST_MONGO: mongodb://127.0.0.1:27097
+        run: go test -race -count=1 -v ./mongostore ./pendingaccounts ./admininventory
