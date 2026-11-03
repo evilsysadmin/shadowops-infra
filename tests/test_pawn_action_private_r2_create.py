@@ -38,7 +38,7 @@ class ReadOnlyCloudflare:
                 return 404, None
             return 200, {"name": BUCKET}
         if path == root + "/domains/managed":
-            return 200, {"enabled": self.state != "public"}
+            return 200, {"enabled": self.state == "public"}
         if path == root + "/domains/custom":
             return 200, {"domains": []}
         raise AssertionError("Unexpected endpoint " + path)
