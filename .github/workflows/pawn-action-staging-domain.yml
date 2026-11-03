@@ -1,0 +1,50 @@
+name: Pawn Action · staging Pages DNS preflight
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/pawn-action-staging-domain.yml'
+      - 'scripts/pawn_action_pages.py'
+      - 'tests/test_pawn_action_pages.py'
+      - 'docs/pawn-action-staging.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/pawn-action-staging-domain.yml'
+      - 'scripts/pawn_action_pages.py'
+      - 'tests/test_pawn_action_pages.py'
+      - 'docs/pawn-action-staging.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: Pawn Action · offline hostname/ownership contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 scripts/pawn_action_pages.py self-test
+      - run: python3 -m unittest discover -s tests -p 'test_pawn_action_pages.py' -v
+
+  inventory:
+    name: Pawn Action · Cloudflare read-only inventory
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment:
+      name: staging
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inspect only the Pawn Action Pages project and DNS
+        run: python3 scripts/pawn_action_pages.py inventory
