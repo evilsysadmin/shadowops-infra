@@ -1,0 +1,76 @@
+name: Pawn Action · private R2 create-once
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/pawn-action-private-r2-create.yml'
+      - 'scripts/pawn_action_private_r2_create.py'
+      - 'scripts/pawn_action_private_r2.py'
+      - 'tests/test_pawn_action_private_r2_create.py'
+      - 'tests/test_pawn_action_private_r2.py'
+      - 'docs/pawn-action-staging.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/pawn-action-private-r2-create.yml'
+      - 'scripts/pawn_action_private_r2_create.py'
+      - 'scripts/pawn_action_private_r2.py'
+      - 'tests/test_pawn_action_private_r2_create.py'
+      - 'tests/test_pawn_action_private_r2.py'
+      - 'docs/pawn-action-staging.md'
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Offline plan or exact bucket creation, no assets"
+        required: true
+        type: choice
+        options: [plan, create]
+        default: plan
+      confirm_bucket:
+        description: "For create ONLY: type pawn-action-staging-private"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: Private R2 · offline create-once contract tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_pawn_action_private_r2.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_pawn_action_private_r2_create.py' -v
+      - run: python3 scripts/pawn_action_private_r2_create.py plan
+
+  create:
+    name: Private R2 · manual create-once with mandatory privacy recheck
+    needs: contracts
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      inputs.operation == 'create' &&
+      inputs.confirm_bucket == 'pawn-action-staging-private'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment:
+      name: staging
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      PAWN_ACTION_R2_PROVISION_TOKEN: ${{ secrets.PAWN_ACTION_R2_PROVISION_TOKEN }}
+      CONFIRM_BUCKET: ${{ inputs.confirm_bucket }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Create only exact private bucket; deny ambiguity and recheck privacy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/pawn_action_private_r2_create.py create --confirm-bucket "$CONFIRM_BUCKET"
