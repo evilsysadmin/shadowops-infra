@@ -414,3 +414,70 @@ Next gated increment: a **manual create-only** provisioner for the exact
 bucket, followed by read-only private admission before issuing **dedicated
 bucket-scoped credentials** and implementing an immutable private publisher.
 The legacy public uploader's `apply` remains disabled.
+
+## Private R2 create-once provisioner (manual only, no live creation yet)
+
+Cloudflare's R2 create-bucket API is `POST /accounts/{account_id}/r2/buckets`
+with a minimal `{"name":"pawn-action-staging-private"}` body. Cloudflare
+documents new R2 buckets as private by default, **but this workflow does
+not assume that as proof**: it must re-query the dedicated bucket's
+managed `r2.dev` setting and custom-domain inventory after creation.
+
+The new `scripts/pawn_action_private_r2_create.py` supports:
+
+```sh
+# Safe offline preview, no Cloudflare credentials:
+python3 scripts/pawn_action_private_r2_create.py plan
+
+# MANUAL ONLY, when operator has independently checked target account:
+# The two distinct Cloudflare API tokens must be set in the protected
+# staging GitHub environment. No secret values may be written to logs.
+python3 scripts/pawn_action_private_r2_create.py create \
+  --confirm-bucket pawn-action-staging-private
+```
+
+The guarded GitHub Actions entry point is
+`Pawn Action · private R2 create-once` in ShadowOps Infra.
+PRs and pushes run **offline unit tests only** and have no Cloudflare
+secrets. A manual `workflow_dispatch` from the protected `main`
+branch, with `operation=create` and exact
+`confirm_bucket=pawn-action-staging-private`, is the **only** job path
+that receives a provisioning credential under environment `staging`.
+
+The operator must configure:
+
+- `CLOUDFLARE_ACCOUNT_ID` — existing exact 32-hex account identity.
+- `CLOUDFLARE_API_TOKEN` — read-only token permitted to GET bucket,
+  managed r2.dev settings and custom domains.
+- `PAWN_ACTION_R2_PROVISION_TOKEN` — **different** Cloudflare API
+  token with R2 create/write permission, reserved for this manual job.
+  Do **not** reuse the read-only token or a Chess Studio publisher key.
+
+The implementation can issue **at most one** Cloudflare write, a
+POST creating only the exact new bucket name. It never tries to
+modify/remove buckets, toggle public access, attach a domain, upload
+files or adjust the shared `chess-studio-assets` bucket.
+
+Safety behavior:
+
+- An absent bucket is the only state in which creation may be attempted;
+  a matching already-private bucket returns `already_private` with no
+  writes; public or unverified existing buckets are rejected.
+- The explicit confirmation, account equality and separate API token
+  checks all run **before** any Cloudflare write.
+- API conflicts, timeouts, unexpected response/status or ownership mismatch
+  **never trigger automatic retries**. An unknown outcome requires a new
+  read-only inventory and operator inspection.
+- After the POST, read-only privacy checks must prove that
+  `r2.dev enabled=false` and the custom-domain list is empty.
+  Otherwise the run fails and **must not** authorize any object upload;
+  there is no automatic deletion/rollback on an unverified bucket.
+
+**This PR provisions nothing automatically**, and no bucket has been
+observed or created live. A verified private bucket is necessary but
+not sufficient to publish: the next separately reviewed increment must
+introduce a **private-bucket-only immutable uploader** with exact-source
+admission, SHA256 readback, bounded capacity and Cloudflare bindings audit.
+The public shared uploader's `apply` remains disabled. The locked
+Pages holding shell still returns HTTP 503 and the source migration PR
+in `evilsysadmin/pawn-action` remains Draft.
