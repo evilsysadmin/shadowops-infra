@@ -10,6 +10,7 @@ on:
       - 'tests/test_pawn_action_pages.py'
       - 'tests/test_pawn_action_pages_shell.py'
       - 'tests/pawn_action_pages_shell.test.mjs'
+      - 'tests/pawn_action_identity_gate.test.mjs'
       - 'docs/pawn-action-staging.md'
   push:
     branches: [main]
@@ -21,6 +22,7 @@ on:
       - 'tests/test_pawn_action_pages.py'
       - 'tests/test_pawn_action_pages_shell.py'
       - 'tests/pawn_action_pages_shell.test.mjs'
+      - 'tests/pawn_action_identity_gate.test.mjs'
       - 'docs/pawn-action-staging.md'
   workflow_dispatch:
 
@@ -43,6 +45,7 @@ jobs:
         with:
           node-version: '22'
       - run: node --test tests/pawn_action_pages_shell.test.mjs
+      - run: node --test tests/pawn_action_identity_gate.test.mjs
       - name: Assemble and verify locked Pages shell (offline only)
         shell: bash
         run: |
