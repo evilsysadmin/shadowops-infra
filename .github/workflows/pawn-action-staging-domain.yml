@@ -11,6 +11,9 @@ on:
       - 'tests/test_pawn_action_pages_shell.py'
       - 'tests/pawn_action_pages_shell.test.mjs'
       - 'tests/pawn_action_identity_gate.test.mjs'
+      - 'tests/pawn_action_session_exchange.test.mjs'
+      - 'tests/pawn_action_session_workerd.test.mjs'
+      - 'tests/fixtures/pawn_action_session_workerd.mjs'
       - 'docs/pawn-action-staging.md'
   push:
     branches: [main]
@@ -23,6 +26,9 @@ on:
       - 'tests/test_pawn_action_pages_shell.py'
       - 'tests/pawn_action_pages_shell.test.mjs'
       - 'tests/pawn_action_identity_gate.test.mjs'
+      - 'tests/pawn_action_session_exchange.test.mjs'
+      - 'tests/pawn_action_session_workerd.test.mjs'
+      - 'tests/fixtures/pawn_action_session_workerd.mjs'
       - 'docs/pawn-action-staging.md'
   workflow_dispatch:
 
@@ -46,6 +52,11 @@ jobs:
           node-version: '22'
       - run: node --test tests/pawn_action_pages_shell.test.mjs
       - run: node --test tests/pawn_action_identity_gate.test.mjs
+      - run: node --test tests/pawn_action_session_exchange.test.mjs
+      - name: Install pinned real workerd harness, offline test only
+        run: npm install --no-save --no-package-lock --ignore-scripts --no-audit --no-fund miniflare@4.20260730.0
+      - name: Exercise Pawn Action exchange in real workerd
+        run: node --test tests/pawn_action_session_workerd.test.mjs
       - name: Assemble and verify locked Pages shell (offline only)
         shell: bash
         run: |
