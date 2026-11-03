@@ -226,3 +226,39 @@ Ed25519 signatures, pinned issuer/audience, session validity, and the
 server-to-server authenticated freshness/revocation response. Review its
 workerd tests and origin/CSRF protections first. Never copy the Football
 credential or turn off the locked Pages holding shell as a shortcut.
+
+## Prepared independent edge authority (still LOCKED, no deployment)
+
+`workers/pawn-action-staging/identity-gate.mjs` is a staging-only
+server-side verification module **not imported by the deployed/packaged
+holding shell**. Its `verifyIdentityToken` verifies the Go issuer's
+Ed25519-signed JWT via pinned HTTPS JWKS, checks the canonical issuer,
+`aud=pawn-action`, UUIDv4 subject, `sv`, exact `jti`, time bounds
+(maximum 120 seconds), algorithm and signature. No client-provided JWKS URL,
+JWT algorithm, audience, issuer or signing key is trusted.
+
+`authorize` requires the **Pawn Action-specific** server-only
+`SHADOWOPS_PAWN_ACTION_SERVICE_CREDENTIAL` and makes a fresh, bounded,
+no-redirect HTTPS `POST /api/identity/freshness` for each call. It
+requires that the authenticated service's issuer/audience, subject,
+session version, JTI, timestamp and the three live-state flags exactly
+match. Missing proof, unavailable IdP, revoked tokens, stale responses,
+wrong audiences, bad signatures and malformed JWKS are denied. No positive
+JWT-only authorization is possible.
+
+`sessionToken` and `authorizeRequest` provide strict canonical-host
+and single `__Host-pawnaction_staging` cookie extraction for a future
+server-owned session exchange. **No cookie exchange endpoint, session
+creation or access to game files is wired yet.** The checked-in
+`workers/pawn-action-staging/edge.mjs` still responds with HTTP 503 and
+the Pages shell builder still emits only three deny-only files.
+CI tests use ephemeral Ed25519 keys and an injected synthetic IdP, never a
+real account or secret. The default native fetch transport is also
+tested for the `workerd` global receiver contract.
+
+Next separate gates: implement and test host-only Secure/HttpOnly cookie
+exchange with strict Origin/CSRF handling, run end-to-end tests under
+Cloudflare workerd, provision the consumer's real proof to the
+correct edge binding, and only then consider a reviewed rollout. This
+module alone does **not** authorize setting `pawn_action_consumer=enable`
+or publishing a publicly accessible Pages application.
