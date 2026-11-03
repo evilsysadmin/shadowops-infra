@@ -562,3 +562,58 @@ Draft rather than an admitted current-`main` release. No real R2
 upload is performed by this PR or its automatic GitHub Actions jobs.
 The `Pawn Action · exact source Web artifact admission` workflow
 only executes the new offline publisher tests on PR/push.
+
+## Browser ShadowOps ID bootstrap on the private-delivery candidate (no live rollout)
+
+The *candidate-only* private-delivery Worker now has a browser entrypoint.
+Previously an anonymous `GET /` returned JSON 401 with no way to obtain
+the server-owned cookie, and the official Identity return path
+`/?shadowops=central` was rejected as a query. Both are blockers to
+actual authenticated Godot gameplay, despite a green signature/R2 test.
+
+The new `browser-auth.mjs` presents an accessible Spanish login page
+on unauthenticated `/` or `/index.html`, and on **only** the pinned
+Identity callback `/?shadowops=central`. The page offers the canonical
+`https://id-staging.shadowops.dpdns.org/login?app=pawn-action` login
+link and loads the fixed `/_shadowops/session.js` from the same origin.
+No dynamic input or user-supplied redirect appears in the page/script.
+This is a static, uncached, CSP-restricted login surface: no Godot
+R2 object is read to render it. Cross-origin IdP credentialed fetches
+are permitted by the login page's specific CSP without loosening
+COOP/COEP on protected gameplay assets.
+
+The browser script does exactly one automatic attempt, without storing
+the JWT in URL, storage, logs or HTML:
+
+1. `POST /api/identity/token` to the pinned IdP with
+   `credentials: include`, fixed `{}` JSON body, `no-store`.
+2. On an issued token, `POST /api/pawn-action/session` to its own
+   origin, `credentials: same-origin`, short JWT in the JSON request
+   body. The existing server-side exchange verifies Ed25519 and live
+   account/session/JTI freshness and sets a short, host-only
+   `Secure; HttpOnly` cookie.
+3. Only on successful exchange, `location.replace('/')`. Missing
+   account session or Identity outages show a useful status and
+   retain the explicit login link rather than looping or exposing
+   private objects.
+
+The public bootstrap script is limited to exact GET/HEAD on the
+canonical staging host. Other query strings, aliases, cross-host
+requests, and query-bearing requests for protected WASM/PCK/JS
+remain 404. Every protected GET/HEAD still requires signature and
+live freshness before reading the private R2 binding.
+
+Node VM tests exercise browser credential options, success/failure,
+no navigation on failed exchange, strict callback parsing, CSP and
+denial of game assets. The real-workerd suite exercises anonymous
+login, callback, script and protected WASM denial. These tests run
+in the Pawn Action Pages DNS/holding-shell workflow.
+
+**Not deployed:** The active `workers/pawn-action-staging/edge.mjs`
+continues to return 503 and **does not import** the bootstrap or
+protected delivery candidate. No Cloudflare token, bucket, Pages,
+DNS or release was changed in this PR. The standalone source
+`evilsysadmin/pawn-action` PR #1 still requires human visual
+acceptance and an admitted green `main` release. Next acceptance:
+test a real browser login and gameplay lifecycle once the private
+bucket and trusted staging service identity actually exist.

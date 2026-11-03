@@ -3,6 +3,7 @@
 // No public assets URL, no env.ASSETS, no public CDN fallback.
 import {authorizeRequest, IdentityDenied} from './identity-gate.mjs';
 import {handleSessionExchange} from './session-exchange.mjs';
+import {SCRIPT_PATH, loginPage, sessionScript} from './browser-auth.mjs';
 
 const HOST = 'staging.pawnaction.shadowops.dpdns.org';
 const PREFIX = 'pawn-action/releases/';
@@ -81,7 +82,21 @@ async function handle(request, env, options = {}) {
   let url;
   try { url = new URL(request.url); }
   catch { return json({error: 'not_found'}, 404, request.method); }
-  if (!canonical(url)) return json({error: 'not_found'}, 404, request.method);
+  if (!canonical(url)) {
+    // The IdP's pinned return target is /?shadowops=central. Admit only
+    // this exact landing marker, never queries on protected game assets.
+    const callback = url.protocol === 'https:' && url.hostname === HOST &&
+      !url.port && !url.username && !url.password && !url.hash &&
+      url.pathname === '/' && url.search === '?shadowops=central' &&
+      ['GET', 'HEAD'].includes(request.method);
+    return callback ? loginPage(401, request.method) :
+      json({error: 'not_found'}, 404, request.method);
+  }
+  if (url.pathname === SCRIPT_PATH) {
+    return ['GET', 'HEAD'].includes(request.method) ?
+      sessionScript(request.method) :
+      json({error: 'method_not_allowed'}, 405, request.method);
+  }
   if (url.pathname === '/_shadowops/status' && (request.method === 'GET' || request.method === 'HEAD')) {
     return json({application: 'pawn-action', environment: 'staging',
       state: 'candidate_not_deployed', game_ready: false}, 200, request.method);
@@ -98,6 +113,9 @@ async function handle(request, env, options = {}) {
     await authorizeRequest(request, env, options);
   } catch (error) {
     const status = error instanceof IdentityDenied ? error.status : 503;
+    // Anonymous home needs a way to exchange the central SSO cookie for
+    // the short server-only host cookie. Never return any Godot bytes here.
+    if (file === 'index.html') return loginPage(status, request.method);
     return json({error: status === 401 ? 'authentication_required' : 'access_unavailable'}, status, request.method);
   }
   // Never accept partial transfers: every chunk must come through a newly

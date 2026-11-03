@@ -86,3 +86,28 @@ test('workerd: session exchange enforces CSRF before private access; disabled R2
  const unsupported=await mf.dispatchFetch(HOST+'/release.json');
  assert.equal(unsupported.status,404);
 });
+
+test('workerd: anonymous login and central callback work, scripts do not expose Godot or the locked shell',async t=>{
+ const mf=new Miniflare({cf:false,modules:true,compatibilityDate:'2026-07-30',
+  scriptPath:'workers/pawn-action-staging/private-delivery.mjs',
+  bindings:{PAWN_ACTION_PRIVATE_RELEASE:REVISION}});
+ t.after(()=>mf.dispose());
+ const publicLogin=await mf.dispatchFetch(HOST+'/');
+ assert.equal(publicLogin.status,401);
+ assert.match(await publicLogin.text(),/Entrar con ShadowOps ID/);
+ assert.equal(publicLogin.headers.get('Cross-Origin-Embedder-Policy'),null);
+ const callback=await mf.dispatchFetch(HOST+'/?shadowops=central');
+ assert.equal(callback.status,401);
+ assert.match(await callback.text(),/\/_shadowops\/session.js/);
+ const js=await mf.dispatchFetch(HOST+'/_shadowops/session.js');
+ assert.equal(js.status,200);
+ const code=await js.text();
+ assert.match(code,/\/api\/pawn-action\/session/);
+ assert.match(code,/id-staging\.shadowops\.dpdns\.org\/api\/identity\/token/);
+ const forbidden=await mf.dispatchFetch(HOST+'/index.wasm');
+ assert.equal(forbidden.status,401);
+ const shortcut=await mf.dispatchFetch(HOST+'/index.wasm?shadowops=central');
+ assert.equal(shortcut.status,404);
+ const publicAlias=await mf.dispatchFetch('https://pawn-action-staging.pages.dev/?shadowops=central');
+ assert.equal(publicAlias.status,404);
+});
