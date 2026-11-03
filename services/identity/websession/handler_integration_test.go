@@ -258,7 +258,7 @@ func TestHTTPSLoginPagePinsReturnTargetAndServesOnlyOwnAssets(t *testing.T) {
 		path string
 		want int
 	}{
-		{"/login?app=chronicles", 200}, {"/login?app=chess-studio", 200}, {"/login?app=cka-simulator", 200}, {"/login?app=football", 200},
+		{"/login?app=chronicles", 200}, {"/login?app=chess-studio", 200}, {"/login?app=cka-simulator", 200}, {"/login?app=football", 200}, {"/login?app=pawn-action", 200},
 		{"/login?app=chronicles&returnTo=https://evil.example", 400},
 		{"/login?app=chronicles&app=cka-simulator", 400}, {"/login?app=https://evil.example", 400},
 		{"/login", 400}, {"/assets/login.js", 200}, {"/assets/login.css", 200},
@@ -299,7 +299,7 @@ func (f *fixture) fresh(t *testing.T, c claims, want bool) {
 	}
 }
 
-func TestHTTPSLoginOnceFourAppsRefreshAndCentralLogout(t *testing.T) {
+func TestHTTPSLoginAllAppsRefreshAndCentralLogout(t *testing.T) {
 	f := setup(t)
 	cookie := f.login(t, f.web)
 	// Keep an independent browser with the stale original handle to test replay.
@@ -311,7 +311,7 @@ func TestHTTPSLoginOnceFourAppsRefreshAndCentralLogout(t *testing.T) {
 		f.fresh(t, c, true)
 		old = append(old, c)
 	}
-	for collection, want := range map[string]int64{"pending_accounts": 1, "sessions": 1, "staging_cka_tokens": 4} {
+	for collection, want := range map[string]int64{"pending_accounts": 1, "sessions": 1, "staging_cka_tokens": int64(len(consumers))} {
 		got, err := f.db.Collection(collection).CountDocuments(context.Background(), bson.D{})
 		if err != nil || got != want {
 			t.Fatalf("%s count=%d want=%d: %v", collection, got, want, err)
