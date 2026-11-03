@@ -17,7 +17,7 @@ import zipfile
 
 from pawn_action_source_admission import AdmissionError, SHA, verify_archive
 
-ORIGIN = "https://assets.chess-studio.shadowops.dpdns.org"
+ORIGIN = "https://staging.pawnaction.shadowops.dpdns.org"
 PREFIX = "pawn-action"
 PAGES_FILE_LIMIT = 25 * 1024 * 1024
 MAX_OUTPUT_BYTES = 256 * 1024 * 1024
@@ -76,7 +76,7 @@ def _build_manifest(contents: dict[str, bytes], source_sha: str, artifact_digest
             "sha256": hashes[name],
             "bytes": len(data),
             "contentType": CONTENT_TYPES.get(Path(name).suffix.lower(), "application/octet-stream"),
-            "url": f"{ORIGIN}/{key}",
+            "url": f"{ORIGIN}/{name}",
         }
     return {
         "schema": 1,

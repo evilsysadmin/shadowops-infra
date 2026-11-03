@@ -7,6 +7,9 @@ on:
       - 'scripts/pawn_action_source_admission.py'
       - 'scripts/pawn_action_web_package.py'
       - 'scripts/pawn_action_r2_immutable.py'
+      - 'scripts/pawn_action_private_r2_publish.py'
+      - 'scripts/pawn_action_private_r2.py'
+      - 'tests/test_pawn_action_private_r2_publish.py'
       - 'tests/test_pawn_action_source_admission.py'
       - 'tests/test_pawn_action_web_package.py'
       - 'tests/test_pawn_action_r2_immutable.py'
@@ -18,6 +21,9 @@ on:
       - 'scripts/pawn_action_source_admission.py'
       - 'scripts/pawn_action_web_package.py'
       - 'scripts/pawn_action_r2_immutable.py'
+      - 'scripts/pawn_action_private_r2_publish.py'
+      - 'scripts/pawn_action_private_r2.py'
+      - 'tests/test_pawn_action_private_r2_publish.py'
       - 'tests/test_pawn_action_source_admission.py'
       - 'tests/test_pawn_action_web_package.py'
       - 'tests/test_pawn_action_r2_immutable.py'
@@ -44,6 +50,7 @@ jobs:
       - run: python3 -m unittest discover -s tests -p 'test_pawn_action_source_admission.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_pawn_action_web_package.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_pawn_action_r2_immutable.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_pawn_action_private_r2_publish.py' -v
 
   admission:
     name: Pawn Action · read-only exact main and artifact gate
