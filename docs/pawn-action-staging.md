@@ -262,3 +262,41 @@ Cloudflare workerd, provision the consumer's real proof to the
 correct edge binding, and only then consider a reviewed rollout. This
 module alone does **not** authorize setting `pawn_action_consumer=enable`
 or publishing a publicly accessible Pages application.
+
+## Safe session-exchange candidate (still offline, no rollout)
+
+The review-only `workers/pawn-action-staging/session-exchange.mjs`
+implements a strict `POST /api/pawn-action/session` handler. It is
+**not imported** by the actual deny-all `edge.mjs` or the Pages shell
+builder. It does not serve game files or accept secrets from a URL.
+
+The candidate accepts precisely one JSON `token` string (no ambiguous or
+duplicate JSON keys), at most 8 KiB. It requires the canonical HTTPS
+host, exact matching `Origin`, `Sec-Fetch-Site: same-origin` when
+present, JSON content type, POST method and no query/Authorization or
+compressed request. It signs nothing and cannot mint tokens. The
+existing `identity-gate.mjs` must verify Ed25519, the pinned
+`aud=pawn-action`, 120-second expiry and **live** account/session/JTI
+freshness for every successful exchange before returning a cookie.
+
+Successful responses set only `__Host-pawnaction_staging` with
+`Path=/; Secure; HttpOnly; SameSite=Lax` (no Domain), and a
+`Max-Age` no longer than the actual token's remaining life or
+120 seconds. The JSON response does not contain the token.
+All responses are `no-store`; errors do not echo credentials, IdP
+diagnostics or claims. Central logout/revocation is still managed
+by the IdP: clearing a browser cookie alone does not revoke it.
+
+The tests run both adversarial Node Fetch/WebCrypto cases and a pinned
+Miniflare **4.20260730.0** local `workerd` instance. The latter
+checks real Worker request/response and cookie handling against a
+synthetic IdP service binding (ephemeral Ed25519 fixture; never real
+credentials or external writes), including CSRF and revocation. A
+second workerd test executes the unchanged locked Pages shell and
+ensures it still denies WASM and all gameplay.
+
+**No Pages/DNS/R2 deployment is performed**, the origin remains locked,
+and the Identity staging consumer proof is not provisioned. The next
+security gate must review safe activation and integration of this
+candidate with the edge, then separately authorize staging rollout;
+do not mistake passing offline workerd tests for a live deployment.
