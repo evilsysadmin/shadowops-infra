@@ -481,3 +481,84 @@ admission, SHA256 readback, bounded capacity and Cloudflare bindings audit.
 The public shared uploader's `apply` remains disabled. The locked
 Pages holding shell still returns HTTP 503 and the source migration PR
 in `evilsysadmin/pawn-action` remains Draft.
+
+## Private immutable release publisher (reviewed CLI; no uploads yet)
+
+The previous generic candidate manifest emitted
+`https://assets.chess-studio.shadowops.dpdns.org/pawn-action/releases/...`
+URLs, which would bypass server-side authentication if copied into a
+public bucket. **Newly generated candidates** now use protected
+`https://staging.pawnaction.shadowops.dpdns.org/<filename>` URLs
+instead. The immutable physical object keys remain
+`pawn-action/releases/<16hex>/<filename>`. Old candidates using the
+public URLs are deliberately rejected by the package validator and must
+be reproduced from their exact source ZIP before an upload.
+
+`scripts/pawn_action_private_r2_publish.py` provides an offline
+`plan` and a **manual-only** `apply`, separate from the disabled
+public bucket uploader. It only ever addresses
+`pawn-action-staging-private`, and only nine explicitly reviewed
+Godot Web filenames are allowed. It is designed for the independently
+protected `PAWN_ACTION_PRIVATE_R2` binding; **there is no CDN
+fallback**. It does not create a bucket or change domain access.
+
+A private upload requires **all** of these conditions:
+
+- A candidate created by `pawn_action_web_package.py prepare` using
+  the exact Actions ZIP digest, source SHA and run/artifact IDs.
+- `GH_TOKEN` can read Pawn Action source CI, and
+  `admit(GithubReader(...), source_sha)` proves the SHA is **current
+  `pawn-action/main`**, with successful Godot export and real
+  Chromium gameplay evidence. A draft migration branch is not eligible.
+- The provided candidate and every per-file digest are reproduced
+  locally, and its visual/source CI receipt matches the verified run.
+- Cloudflare `CLOUDFLARE_API_TOKEN` can read bucket and domain settings;
+  `inspect` proves the exact bucket is private, with `r2.dev`
+  disabled and no custom domains, **both before and after** the upload.
+- A separate, narrowly scoped R2 S3 token is provisioned only for
+  bucket `pawn-action-staging-private` as
+  `PAWN_ACTION_PRIVATE_R2_ACCESS_KEY_ID` and
+  `PAWN_ACTION_PRIVATE_R2_SECRET_ACCESS_KEY`. The S3 endpoint uses
+  the exact `CLOUDFLARE_ACCOUNT_ID`, and the script uses the exact
+  bucket name on **every** list/get/put request.
+- The bucket inventory is bounded, fully paginated and restricted to
+  the `pawn-action/releases/` namespace. The projected private
+  bucket budget must not exceed **512 MiB**.
+- All existing release-key content is verified with full SHA-256
+  readback before a new upload. New writes require atomic
+  `If-None-Match: *`, then SHA-256 readback. A concurrent 412 is
+  accepted only if the object has the exact expected bytes.
+  Connection errors are not automatically retried.
+
+Offline preparation:
+
+```sh
+python3 scripts/pawn_action_private_r2_publish.py plan \
+  --candidate /path/to/verified-candidate \
+  --source-sha <exact-40-character-main-sha>
+```
+
+The following is the **operator-only** form, which must not run
+until the private bucket and correctly scoped credentials are
+independently verified:
+
+```sh
+python3 scripts/pawn_action_private_r2_publish.py apply \
+  --candidate /path/to/verified-candidate \
+  --source-sha <exact-40-character-main-sha> \
+  --confirm-immutable-upload pawn-action/releases/<verified-16hex-revision>
+```
+
+This does not write `pawn-action/current.json`, does not touch
+`pawn-slug-godot/current.json`, does not change Pages or DNS, and
+does not unlock the holding-shell Worker. A successful private R2
+upload would still require a later, independently approved
+`PAWN_ACTION_PRIVATE_RELEASE` binding, session-capable bootstrap
+and end-to-end browser acceptance before gameplay can be revealed.
+
+**Release status:** The actual private bucket has not yet been
+observed/created, and `evilsysadmin/pawn-action` PR #1 is still
+Draft rather than an admitted current-`main` release. No real R2
+upload is performed by this PR or its automatic GitHub Actions jobs.
+The `Pawn Action · exact source Web artifact admission` workflow
+only executes the new offline publisher tests on PR/push.

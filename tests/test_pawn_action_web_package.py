@@ -44,7 +44,12 @@ class PawnActionPackageTests(unittest.TestCase):
             result = pkg.prepare(zip_path, digest(raw), SHA, 55, 77, out)
             self.assertEqual(pkg.validate(out, SHA), result)
             self.assertEqual(result["index"],
-                             f'{pkg.ORIGIN}/pawn-action/releases/{result["release"]}/index.html')
+                             f'{pkg.ORIGIN}/index.html')
+            self.assertEqual(result["files"]["index.wasm"]["url"],
+                             pkg.ORIGIN + "/index.wasm")
+            self.assertNotIn("assets.chess-studio", json.dumps(result))
+            self.assertEqual(result["files"]["index.wasm"]["key"],
+                             f'pawn-action/releases/{result["release"]}/index.wasm')
             self.assertEqual(result["sourceArtifact"]["artifactId"], 77)
             self.assertFalse(result["publishAuthorized"])
             self.assertEqual(result["pages"]["filesTooLargeForPages"], [])
