@@ -45,13 +45,29 @@ func TestInventoryStagingPaginationAndIsolation(t *testing.T) {
 		if index == 3 {
 			environment = "production"
 		}
-		docs = append(docs, bson.M{"_id": id, "environment": environment, "source": source, "alias_key": "player", "state": "active", "credentials_disabled": false, "created_at": time.Now(), "credential_hash": "secret-hash", "recovery_digest": "secret-recovery"})
+		docs = append(docs, bson.M{"_id": id, "environment": environment, "source": source, "alias_key": "player", "state": "active", "credentials_disabled": index == 1, "session_version": int64(2), "created_at": time.Now(), "credential_hash": "secret-hash", "recovery_digest": "secret-recovery"})
 	}
 	if _, err := collection.InsertMany(ctx, docs); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		_, _ = collection.DeleteMany(context.Background(), bson.M{"_id": bson.M{"$in": ids}})
+	})
+	now := time.Now().UTC()
+	sessions := db.Collection("sessions")
+	sessionDocs := []any{
+		bson.M{"_id": "inventory-current", "environment": "staging", "subject": ids[0], "session_version": int64(2), "issued_at": now, "expires_at": now.Add(time.Hour), "digest": "secret-session"},
+		bson.M{"_id": "inventory-old-version", "environment": "staging", "subject": ids[0], "session_version": int64(1), "issued_at": now, "expires_at": now.Add(time.Hour)},
+		bson.M{"_id": "inventory-expired", "environment": "staging", "subject": ids[0], "session_version": int64(2), "issued_at": now.Add(-time.Hour), "expires_at": now.Add(-time.Minute)},
+		bson.M{"_id": "inventory-too-long", "environment": "staging", "subject": ids[0], "session_version": int64(2), "issued_at": now, "expires_at": now.Add(25 * time.Hour)},
+		bson.M{"_id": "inventory-other-env", "environment": "production", "subject": ids[0], "session_version": int64(2), "issued_at": now, "expires_at": now.Add(time.Hour)},
+		bson.M{"_id": "inventory-disabled", "environment": "staging", "subject": ids[1], "session_version": int64(2), "issued_at": now, "expires_at": now.Add(time.Hour)},
+	}
+	if _, err := sessions.InsertMany(ctx, sessionDocs); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = sessions.DeleteMany(context.Background(), bson.M{"_id": bson.M{"$in": []string{"inventory-current", "inventory-old-version", "inventory-expired", "inventory-too-long", "inventory-other-env", "inventory-disabled"}}})
 	})
 	inventory, err := NewStaging(db)
 	if err != nil {
@@ -61,14 +77,14 @@ func TestInventoryStagingPaginationAndIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(first.Accounts) != 1 || first.Accounts[0].Subject != ids[0] || first.Next != ids[0] {
+	if len(first.Accounts) != 1 || first.Accounts[0].Subject != ids[0] || first.Accounts[0].CurrentSessions != 1 || first.Next != ids[0] {
 		t.Fatalf("unexpected first page: %+v", first)
 	}
 	next, err := inventory.List(ctx, first.Next, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(next.Accounts) != 1 || next.Accounts[0].Subject != ids[1] || next.Next != "" {
+	if len(next.Accounts) != 1 || next.Accounts[0].Subject != ids[1] || next.Accounts[0].CurrentSessions != 0 || next.Next != "" {
 		t.Fatalf("unexpected second page: %+v", next)
 	}
 	encoded, _ := json.Marshal(first)
