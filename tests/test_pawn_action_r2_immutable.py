@@ -170,10 +170,12 @@ class ImmutablePublisherTests(unittest.TestCase):
             arguments = ["pawn_action_r2_immutable.py", "apply", "--candidate", str(out),
                          "--source-sha", SHA, "--confirm-immutable-upload",
                          r2.PREFIX + manifest["release"]]
-            with patch.object(sys, "argv", arguments), \\
-                 patch.object(r2, "GithubReader") as reader, \\
-                 patch.object(r2, "admit") as admit, \\
-                 patch.object(r2, "create_client") as client:
+            with (
+                patch.object(sys, "argv", arguments),
+                patch.object(r2, "GithubReader") as reader,
+                patch.object(r2, "admit") as admit,
+                patch.object(r2, "create_client") as client,
+            ):
                 self.assertEqual(r2.main(), 1)
                 reader.assert_not_called()
                 admit.assert_not_called()
