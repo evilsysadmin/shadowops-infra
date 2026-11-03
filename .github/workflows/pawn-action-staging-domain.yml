@@ -5,14 +5,22 @@ on:
     paths:
       - '.github/workflows/pawn-action-staging-domain.yml'
       - 'scripts/pawn_action_pages.py'
+      - 'scripts/pawn_action_pages_shell.py'
+      - 'workers/pawn-action-staging/**'
       - 'tests/test_pawn_action_pages.py'
+      - 'tests/test_pawn_action_pages_shell.py'
+      - 'tests/pawn_action_pages_shell.test.mjs'
       - 'docs/pawn-action-staging.md'
   push:
     branches: [main]
     paths:
       - '.github/workflows/pawn-action-staging-domain.yml'
       - 'scripts/pawn_action_pages.py'
+      - 'scripts/pawn_action_pages_shell.py'
+      - 'workers/pawn-action-staging/**'
       - 'tests/test_pawn_action_pages.py'
+      - 'tests/test_pawn_action_pages_shell.py'
+      - 'tests/pawn_action_pages_shell.test.mjs'
       - 'docs/pawn-action-staging.md'
   workflow_dispatch:
 
@@ -30,6 +38,19 @@ jobs:
           persist-credentials: false
       - run: python3 scripts/pawn_action_pages.py self-test
       - run: python3 -m unittest discover -s tests -p 'test_pawn_action_pages.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_pawn_action_pages_shell.py' -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/pawn_action_pages_shell.test.mjs
+      - name: Assemble and verify locked Pages shell (offline only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/pawn_action_pages_shell.py build --out "$RUNNER_TEMP/pawn-action-pages-locked"
+          python3 scripts/pawn_action_pages_shell.py verify --out "$RUNNER_TEMP/pawn-action-pages-locked"
+          test ! -e "$RUNNER_TEMP/pawn-action-pages-locked/index.wasm"
+          test ! -e "$RUNNER_TEMP/pawn-action-pages-locked/release.json"
 
   inventory:
     name: Pawn Action · Cloudflare read-only inventory
