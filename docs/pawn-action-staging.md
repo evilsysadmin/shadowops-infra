@@ -72,3 +72,43 @@ The workflow has no Cloudflare credentials, and **never** creates Pages/DNS,
 uploads R2, modifies Chess Studio's legacy pointer, authenticates users or
 publishes staging. Release permission, server-side access policy and actual
 staging verification remain separate later gates.
+
+## Offline R2 release candidate (no deployment)
+
+The actual Godot Web ZIP can contain a 39.5 MB `index.wasm` and therefore
+**must not** be shipped directly as a Cloudflare Pages static file (25 MiB
+per-file limit). Stage the large immutable payloads separately in R2.
+The future Pages host and server-side authentication gate are not in this
+package and must be validated separately.
+
+After exact-main CI admission, download the Web ZIP by the **admitted run and
+artifact ID** and verify its **Actions digest**. Prepare the same source bytes
+without re-exporting/rebuilding Godot:
+
+```sh
+python3 scripts/pawn_action_web_package.py prepare \
+  --zip ./pawn-action-web.zip \
+  --digest sha256:<admitted-actions-zip-digest> \
+  --source-sha <admitted-40-hex-main-sha> \
+  --run-id <admitted-run-id> \
+  --artifact-id <admitted-artifact-id> \
+  --out ./pawn-action-candidate
+python3 scripts/pawn_action_web_package.py validate \
+  --out ./pawn-action-candidate \
+  --source-sha <admitted-40-hex-main-sha>
+```
+
+The output is an immutable `runtime/` tree and deterministic
+`release.json`. The release digest uses **the same filenames, SHA256 hashes
+and file-size hashing algorithm as Pawn Action's Godot bundle publisher**.
+Each manifest entry fixes the SHA256, exact size, content type and intended
+`pawn-action/releases/<release-id>/...` R2 URL. Oversized Pages assets
+are enumerated explicitly. It records the originating CI run, artifact ID
+and archive digest as supplied by the admitted source receipt.
+
+This package is **a candidate, not a deployment**: `publishAuthorized=false`,
+no `current.json` or public Pages host is generated, and no Cloudflare
+credentials are needed. The R2 prefix and legacy pointer remain unchanged.
+Before any subsequent live publish, Infra must revalidate the source receipt,
+the contents, the storage budget, Cloudflare ownership, access policy and
+public HTTPS/browser runtime on the agreed staging hostname.
