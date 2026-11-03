@@ -30,3 +30,32 @@ El workflow [`football-r2-atlases.yml`](../.github/workflows/football-r2-atlases
 Se admiten **exactamente seis WebP** y `atlas-manifest-v1.json`, bajo `football/atlases/v1/` en el bucket compartido `chess-studio-assets`. Antes del primer PUT se verifica integridad, layout (128×144; 8 celdas por fila), procedencia, inventario completo y presupuesto gratuito. Ningún archivo preexistente se sobrescribe: en reintentos se compara su SHA-256 público. Después se exige que cada WebP público coincida byte a byte con la fuente y que permita CORS para `https://staging.football.shadowops.dpdns.org` y `Cache-Control: immutable`; si faltan estas garantías, **no se declara publicación correcta** y debe investigarse la configuración CDN sin cambiar versiones publicadas. El publicador no actualiza el runtime ni los punteros de Pages.
 
 Tras la publicación acreditada, un PR **por familia** podrá conectar las hojas usando el cargador opcional `ChessFootballR2AtlasLoader` (hash + dimensiones + fallback local). Nunca retirar el canon local ni la compatibilidad offline solo porque exista la URL pública.
+
+
+## Recepción de porteros: R2 independiente (staging)
+
+Los **dos** atlas WebP de recepción de porteros activados en Football #30 son
+distintos de los seis atlas históricos del publicador manual anterior. El
+operador los sirve desde el bucket independiente `football`, claves
+`atlases/v1/fc_matthias_keeper_catch_v1.webp` y
+`atlases/v1/real_enroque_keeper_catch_v1.webp`, a través de
+`https://pub-cda6a24cd2f94f7eaaf4d112351bf526.r2.dev/atlases/v1/`.
+**No moverlos** al bucket compartido `chess-studio-assets`. Ese bucket
+continúa publicando exclusivamente el runtime grande e histórico.
+
+Antes de cualquier mutación de Pages o R2 compartido, Infra lee el manifiesto
+opcional `games/chess-football-godot/optional_keeper_catch_v1.json` desde el
+**SHA de Football admitido**, nunca desde un HEAD mutable. Si está activado,
+`scripts/football_keeper_public.py` verifica desde la URL exacta del
+operador ambas respuestas (HTTP 200, no redirect, WebP, tamaño ≤4 MiB,
+SHA-256 fijado por el manifiesto, CORS para
+`https://staging.football.shadowops.dpdns.org`). El fallo impide publicar una
+versión del partido cuyos sprites no podrían obtenerse desde staging. La
+comprobación no necesita ni registra credenciales de Cloudflare y nunca
+escribe en el bucket `football`.
+
+La URL `r2.dev` es **temporal para staging** y tiene límites de uso.
+Cuando se configure el dominio personalizado propio, actualizar juntos el
+manifiesto versionado de Football y la raíz permitida por el contrato
+de Infra en una iteración verificada. No reducir los controles CORS ni
+permitir hosts arbitrarios para sustituir el origen.
