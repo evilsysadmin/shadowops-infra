@@ -239,6 +239,15 @@ def main() -> int:
                 "mutablePointers": 0, "writes": 0,
             }, sort_keys=True))
             return 0
+        # Security gate: shared chess-studio-assets has a public CDN origin.
+        # Writing a protected game's assets here would bypass the session
+        # verifier even if Pages itself were correctly authenticated.
+        # Keep offline plan and atomic uploader tests, but require a separate
+        # private-bucket provision/publisher PR before any real upload.
+        raise AdmissionError(
+            "Protected Pawn Action assets cannot be uploaded to the public "
+            "shared R2 bucket; provision a non-public dedicated bucket first"
+        )
         confirmation = f"{PREFIX}{manifest['release']}"
         if args.confirm_immutable_upload != confirmation:
             raise AdmissionError("Manual apply requires exact --confirm-immutable-upload "
