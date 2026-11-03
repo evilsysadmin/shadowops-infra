@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import pawn_action_r2_immutable as r2
@@ -162,6 +163,23 @@ class ImmutablePublisherTests(unittest.TestCase):
                         "NextContinuationToken": "loop"}
         with self.assertRaises(AdmissionError):
             r2.inventory(StaleCursor())
+
+    def test_public_bucket_cli_apply_retires_before_identity_or_cloud_io(self):
+        with tempfile.TemporaryDirectory() as td:
+            out, manifest, receipt = fixture(Path(td))
+            arguments = ["pawn_action_r2_immutable.py", "apply", "--candidate", str(out),
+                         "--source-sha", SHA, "--confirm-immutable-upload",
+                         r2.PREFIX + manifest["release"]]
+            with (
+                patch.object(sys, "argv", arguments),
+                patch.object(r2, "GithubReader") as reader,
+                patch.object(r2, "admit") as admit,
+                patch.object(r2, "create_client") as client,
+            ):
+                self.assertEqual(r2.main(), 1)
+                reader.assert_not_called()
+                admit.assert_not_called()
+                client.assert_not_called()
 
     def test_plan_is_offline_and_does_not_require_aws_secret(self):
         with tempfile.TemporaryDirectory() as td:

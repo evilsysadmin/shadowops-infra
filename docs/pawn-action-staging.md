@@ -300,3 +300,59 @@ and the Identity staging consumer proof is not provisioned. The next
 security gate must review safe activation and integration of this
 candidate with the edge, then separately authorize staging rollout;
 do not mistake passing offline workerd tests for a live deployment.
+
+
+## Private authenticated asset delivery candidate (not deployed)
+
+**Important security finding:** The earlier release manifest and
+`pawn_action_r2_immutable.py` target the shared
+`chess-studio-assets` bucket and public
+`https://assets.chess-studio.shadowops.dpdns.org` origin. Serving the
+same game there would **bypass authentication on the Pawn Action Pages
+host**. Therefore the old uploader's `apply` CLI is now explicitly
+**blocked**, before GitHub token or Cloudflare credential access.
+`plan` and offline integrity/capacity tests remain available for
+audit and migration. Do not run alternate scripts to upload the
+protected release into the public shared bucket; existing public
+Chess Studio content remains untouched.
+
+A new **review-only** Worker
+`workers/pawn-action-staging/private-delivery.mjs` combines the
+existing short-lived session exchange with `authorizeRequest` on
+each GET/HEAD, performing Ed25519 and an uncached, authenticated
+Identity session/JTI freshness check **before any object read**.
+It reads only via the Cloudflare R2 binding
+`PAWN_ACTION_PRIVATE_R2` from a **separately provisioned private
+staging bucket**, pinned by a 16-hex
+`PAWN_ACTION_PRIVATE_RELEASE`. It never fetches
+`assets.chess-studio.shadowops.dpdns.org`, calls
+`env.ASSETS.fetch`, or redirects the browser to a public R2 URL.
+
+The Worker pins the exact nine filenames observed in the admitted
+Godot Web release (including `index.wasm`,
+`index.audio.worklet.js` and icons) and refuses arbitrary
+pointers, manifests, paths, methods and query strings. Streaming
+responses support a WASM larger than Cloudflare Pages' 25 MiB
+per-file limit without buffering it in the Worker. Assets are
+`private, no-store`, use extension-defined content types, and emit
+same-origin COOP/COEP/CORP headers for Godot's isolated runtime.
+Unknown or missing R2 bindings, bad release IDs, unavailable Identity
+or revoked JWTs fail closed without reading an asset.
+
+CI exercises unauthorized requests, public-domain aliases,
+CSRF, expired/foreign tokens, direct-CDN bypass attempts,
+revocation, R2 exceptions, and large (>25 MiB) streaming with a
+**synthetic private bucket and real local workerd**.
+
+**This candidate is NOT the published Pages Worker.** The existing
+`edge.mjs` holding shell stays at HTTP 503; its three-file builder
+does not include this candidate or any game asset. Before delivery:
+provision a dedicated R2 bucket **without r2.dev or custom-domain
+public access**, verify effective access denial externally, create
+the private-only immutable publisher with source-SHA and integrity
+controls, bind only that bucket to Pawn Action staging, complete
+authenticated browser gameplay tests, and explicitly review the
+cutover/rollback. In particular, merely attaching an R2 binding
+to the current publicly accessible shared bucket is not safe.
+No credentials, bucket, DNS, Pages project or game release are
+created by this PR.
