@@ -11,7 +11,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import shutil
 import sys
 import tempfile
 import zipfile
@@ -160,11 +159,12 @@ def validate(destination: Path, source_sha: str) -> dict:
     root = destination / "runtime"
     if not root.is_dir():
         raise AdmissionError("Candidate runtime directory missing")
-    files = sorted(root.rglob("*"))
-    if any(p.is_symlink() for p in (destination, root, *files)):
+    paths = sorted(root.rglob("*"))
+    if any(p.is_symlink() for p in (destination, root, *paths)):
         raise AdmissionError("Symlink in candidate")
-    if any(not p.is_file() for p in files):
-        raise AdmissionError("Unexpected directory in candidate")
+    if any(not (p.is_file() or p.is_dir()) for p in paths):
+        raise AdmissionError("Unexpected filesystem entry in candidate")
+    files = [p for p in paths if p.is_file()]
     if {p.relative_to(root).as_posix() for p in files} != set(entries):
         raise AdmissionError("Unexpected or missing candidate file")
     if set(p.name for p in destination.iterdir()) != {"runtime", "release.json"}:
