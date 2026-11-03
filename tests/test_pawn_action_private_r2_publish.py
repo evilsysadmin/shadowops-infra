@@ -60,7 +60,7 @@ class FakePrivateReader:
             # Switch to public when the second post-upload verification runs.
             inspected = sum(p == root for p in self.calls)
             return 200, {"enabled": self.state == "public" or
-                         (self.change_after and inspected >= self.change_after)}
+                         (self.change_after > 0 and inspected >= self.change_after)}
         if path == root + "/domains/custom":
             return 200, {"domains": [] if self.state != "custom" else
                          [{"domain": "public.example", "enabled": False}]}
