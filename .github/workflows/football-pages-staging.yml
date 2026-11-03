@@ -37,6 +37,7 @@ jobs:
           persist-credentials: false
       - run: python3 -m unittest discover -s tests -p test_football_delivery.py -v
       - run: python3 -m unittest discover -s tests -p test_football_identity.py -v
+      - run: python3 -m unittest discover -s tests -p test_football_keeper_public.py -v
   candidate:
     needs: contracts
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
@@ -107,6 +108,12 @@ jobs:
             test "$(gh api "repos/evilsysadmin/shadowops-infra/contents/$path?ref=main" --jq .sha)" = "$(git rev-parse "HEAD:$path")"
           done
           python3 scripts/football_pages.py preflight
+          # Get the pinned optional R2 contract from the admitted Football SHA,
+          # not from mutable main or Infra's older shared-atlas manifest.
+          gh api "repos/evilsysadmin/football-of-matthias/contents/games/chess-football-godot/optional_keeper_catch_v1.json?ref=$SOURCE_SHA" --jq '.content' | base64 --decode > "$RUNNER_TEMP/keeper-manifest.json"
+          python3 scripts/football_keeper_public.py "$RUNNER_TEMP/keeper-manifest.json"
+          # Only after HTTP 200 / exact source hash / staging CORS are proven
+          # may this job mutate the shared delivery bucket or Pages.
           python3 scripts/football_delivery.py runtime football-release "$SOURCE_SHA"
           python3 scripts/football_pages.py project
           python3 scripts/football_pages.py identity-policy
