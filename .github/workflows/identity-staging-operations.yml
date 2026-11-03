@@ -6,6 +6,9 @@ on:
       - 'host/*identity-staging*'
       - 'scripts/identity_staging_*.py'
       - 'tests/test_identity_staging_*.py'
+      - 'tests/test_identity_pawn_action.py'
+      - 'tests/test_identity_platform_contract.py'
+      - 'config/identity/platform-contract.json'
       - '.github/workflows/identity-staging-operations.yml'
   push:
     branches: [main]
@@ -14,6 +17,9 @@ on:
       - 'host/*identity-staging*'
       - 'scripts/identity_staging_*.py'
       - 'tests/test_identity_staging_*.py'
+      - 'tests/test_identity_pawn_action.py'
+      - 'tests/test_identity_platform_contract.py'
+      - 'config/identity/platform-contract.json'
       - '.github/workflows/identity-staging-operations.yml'
   workflow_dispatch:
     inputs:
@@ -32,6 +38,11 @@ on:
         options: [preserve, enable]
         default: preserve
         description: Provision only — enable the isolated Football staging consumer without changing existing keys
+      pawn_action_consumer:
+        type: choice
+        options: [preserve, enable]
+        default: preserve
+        description: Provision only — add Pawn Action's own staging audience, preserving all existing credentials
       source_sha:
         type: string
         required: false
@@ -50,6 +61,8 @@ jobs:
       - run: python3 -m unittest discover -s tests -p 'test_identity_staging_*.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_identity_activation.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_identity_football.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_identity_pawn_action.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_identity_platform_contract.py' -v
       - run: bash -n host/install-identity-staging.sh && bash -n host/bootstrap-identity-staging-over-ssh.sh
       - run: bash -n host/install-shared-identity-staging.sh
       - run: sudo visudo -cf host/identity-staging.sudoers
@@ -70,6 +83,7 @@ jobs:
     env:
       IDENTITY_STAGING_CKA: ${{ inputs.cka_consumer || 'preserve' }}
       IDENTITY_STAGING_FOOTBALL: ${{ inputs.football_consumer || 'preserve' }}
+      IDENTITY_STAGING_PAWN_ACTION: ${{ inputs.pawn_action_consumer || 'preserve' }}
       OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
       OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
       OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
