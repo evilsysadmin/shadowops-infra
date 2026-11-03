@@ -72,8 +72,9 @@ async function readPrivateAsset(env, file, method) {
       (method !== 'HEAD' && (!object.body || typeof object.body.getReader !== 'function'))) {
     return json({error: 'access_unavailable'}, 503, method);
   }
-  const headers = {...SECURITY, 'Content-Type': FILES[file],
-    'Content-Length': String(object.size)};
+  // R2 streams are length-bound by their own metadata. Do not set a
+  // synthetic Content-Length on a streamed Worker Response.
+  const headers = {...SECURITY, 'Content-Type': FILES[file]};
   return new Response(method === 'HEAD' ? null : object.body, {status: 200, headers});
 }
 async function handle(request, env, options = {}) {

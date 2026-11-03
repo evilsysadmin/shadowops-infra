@@ -54,7 +54,7 @@ test('workerd: private R2-only delivery rejects anonymous, lets signed session s
  assert.equal(yes.headers.get('Content-Type'),'application/wasm');
  assert.equal(yes.headers.get('Cross-Origin-Embedder-Policy'),'require-corp');
  assert.equal(yes.headers.get('Cross-Origin-Resource-Policy'),'same-origin');
- assert.equal(Number(yes.headers.get('Content-Length')),payload.byteLength);
+ assert.equal(yes.headers.get('Content-Length'),null);
  const received=new Uint8Array(await yes.arrayBuffer());
  assert.equal(received.length,payload.byteLength);
  assert.equal(received[0],0);assert.equal(received[received.length-1],23);
@@ -77,7 +77,7 @@ test('workerd: session exchange enforces CSRF before private access; disabled R2
   bindings:{PAWN_ACTION_PRIVATE_RELEASE:REVISION}});
  t.after(()=>mf.dispose());
  const anon=await mf.dispatchFetch(HOST+'/index.pck');
- assert.equal(anon.status,503,'missing proof must not expose a public bucket');
+ assert.equal(anon.status,401,'anonymous access must never reach R2');
  const csrf=await mf.dispatchFetch(HOST+'/api/pawn-action/session',{
   method:'POST',headers:{Origin:'https://staging.football.shadowops.dpdns.org','Content-Type':'application/json'},
   body:'{"token":"fake"}',
