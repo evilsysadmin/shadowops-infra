@@ -14,6 +14,11 @@ func TestURIRequiresAuthenticatedTLSWithoutUnsafeOptions(t *testing.T) {
 		valid bool
 	}{
 		{"mongodb://user:password@db.example/?tls=true&authSource=admin", true},
+		{"mongodb+srv://user:password@cluster.example/shadowops_identity_staging?tls=true&authSource=admin", true},
+		{"mongodb+srv://user:password@cluster.example/?tls=false", false},
+		{"mongodb+srv://user:password@cluster.example/?tls=true&tlsInsecure=true", false},
+		{"mongodb+srv://user:password@cluster.example:27017/?tls=true", false},
+		{"mongodb+srv://user:password@cluster.example/?tls=true&directConnection=true", false},
 		{"mongodb://user:password@db.example/?tls=false", false}, {"mongodb://user:password@db.example/", false}, {"mongodb://db.example/?tls=true", false},
 		{"mongodb://user:password@db.example/?tls=true&tlsInsecure=true", false}, {"mongodb://user:password@db.example/?tls=true&TLS=false", false},
 		{"mongodb://user:password@db.example/?tls=true&tlsAllowInvalidCertificates=true", false}, {"mongodb://user:password@db.example/?tls=true&unknown=1", false},
