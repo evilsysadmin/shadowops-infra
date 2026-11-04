@@ -180,3 +180,11 @@ separate mode-0400 Atlas service and backup configuration files, preserving the
 current live file. Existing different Atlas files fail closed. The command is
 not installed or invoked by the current workflow and does not deploy, connect
 to Atlas or verify a backup.
+
+The reviewed Identity operator installer also installs the Atlas preparation,
+backup and policy modules under fixed root-owned paths. It does not install a
+new timer or start Atlas. The `atlas-prepare` staging workflow invokes only the
+fixed preparation command through the existing OCI host channel; it requires
+separate Atlas custody and a previously installed matching operator revision.
+It writes separate Atlas files, leaves the active Mongo-local service config
+untouched, and does not perform preflight, backup, deployment or cutover.
