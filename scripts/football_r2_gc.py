@@ -160,9 +160,11 @@ def r2_delete(account, key):
 def run(action, rollback="", expected=""):
     if action not in {"plan", "delete"}:
         raise GCError("Only plan and delete actions exist")
+    event = os.environ.get("GITHUB_EVENT_NAME")
     if (os.environ.get("GITHUB_REF") != "refs/heads/main"
-        or os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch"):
-        raise GCError("Only explicit manual dispatch from Infra main is allowed")
+        or event not in {"push", "workflow_dispatch"}
+        or (action == "delete" and event != "workflow_dispatch")):
+        raise GCError("Only main read-only plan or manual main deletion is allowed")
     account = pages.required("CLOUDFLARE_ACCOUNT_ID")
     if not ACCOUNT_ID.fullmatch(account):
         raise GCError("Exact Cloudflare account ID required")
