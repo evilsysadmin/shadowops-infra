@@ -156,12 +156,14 @@ class FootballR2GC(unittest.TestCase):
 
     def test_main_push_only_runs_read_only_plan(self):
         objects, live = example()
-        with patch.dict("os.environ", {"GITHUB_EVENT_NAME": "push",
-                                       "GITHUB_REF": "refs/heads/main"}), \\
-             patch.object(gc.pages, "required", return_value="0" * 32), \\
-             patch.object(delivery, "inventory", return_value=objects), \\
-             patch.object(gc, "live_pointer", return_value=live), \\
-             patch.object(gc, "r2_delete") as forbidden:
+        with (
+            patch.dict("os.environ", {"GITHUB_EVENT_NAME": "push",
+                                      "GITHUB_REF": "refs/heads/main"}),
+            patch.object(gc.pages, "required", return_value="0" * 32),
+            patch.object(delivery, "inventory", return_value=objects),
+            patch.object(gc, "live_pointer", return_value=live),
+            patch.object(gc, "r2_delete") as forbidden,
+        ):
             gc.run("plan")
             with self.assertRaises(gc.GCError):
                 gc.run("delete", B, gc.make_plan(objects, live, B)["digest"])
