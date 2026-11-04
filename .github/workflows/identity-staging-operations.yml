@@ -43,6 +43,11 @@ on:
         options: [preserve, enable]
         default: preserve
         description: Provision only — add Pawn Action's own staging audience, preserving all existing credentials
+      admin_inventory:
+        type: choice
+        options: [preserve, enable]
+        default: preserve
+        description: Provision only — add independent staging inventory custody; does not grant an account admin role
       source_sha:
         type: string
         required: false
@@ -84,6 +89,7 @@ jobs:
       IDENTITY_STAGING_CKA: ${{ inputs.cka_consumer || 'preserve' }}
       IDENTITY_STAGING_FOOTBALL: ${{ inputs.football_consumer || 'preserve' }}
       IDENTITY_STAGING_PAWN_ACTION: ${{ inputs.pawn_action_consumer || 'preserve' }}
+      IDENTITY_STAGING_ADMIN_INVENTORY: ${{ inputs.admin_inventory || 'preserve' }}
       OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
       OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
       OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}

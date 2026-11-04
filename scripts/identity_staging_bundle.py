@@ -70,7 +70,7 @@ def generate(tunnel_token: str) -> dict:
 
 
 def validate(bundle: dict) -> None:
-    if not isinstance(bundle, dict) or set(bundle) != KEYS or type(bundle['schema']) is not int or bundle['schema'] != SCHEMA or bundle['environment'] != 'staging':
+    if not isinstance(bundle, dict) or set(bundle) not in (KEYS, KEYS | {'admin_inventory'}) or type(bundle['schema']) is not int or bundle['schema'] != SCHEMA or bundle['environment'] != 'staging':
         raise BundleError('Invalid staging operator schema')
     for key in KEYS - {'schema', 'consumers'}:
         if not isinstance(bundle[key], str) or not bundle[key] or '\x00' in bundle[key]:
@@ -82,6 +82,10 @@ def validate(bundle: dict) -> None:
             raise BundleError('Invalid isolated database credential')
     if bundle['mongo_root_password'] == bundle['mongo_application_password']:
         raise BundleError('Independent database credentials required')
+    if 'admin_inventory' in bundle:
+        admin=bundle['admin_inventory']
+        if not isinstance(admin,dict) or set(admin)!={'mongo_password','access_history'} or admin['access_history'] is not True or not isinstance(admin['mongo_password'],str) or not re.fullmatch('[a-f0-9]{64}',admin['mongo_password']) or admin['mongo_password'] in {bundle['mongo_root_password'],bundle['mongo_application_password']}:
+            raise BundleError('Independent administrative database credential required')
     if not re.fullmatch('[A-Za-z0-9_-]{43}', bundle['signing_seed']):
         raise BundleError('Invalid independent signing seed')
     consumers = bundle['consumers']
@@ -107,7 +111,7 @@ def validate(bundle: dict) -> None:
 
 def service_config(bundle: dict) -> dict:
     validate(bundle)
-    return {
+    result = {
         'environment': 'staging',
         'mongo_uri': 'mongodb://identity_runtime:' + bundle['mongo_application_password'] +
             '@identity-mongo:27017/' + DATABASE +
@@ -116,6 +120,20 @@ def service_config(bundle: dict) -> dict:
         'tls_certificate_pem': bundle['tls_certificate_pem'],
         'tls_private_key_pem': bundle['tls_private_key_pem'], 'consumers': bundle['consumers'],
     }
+    if 'admin_inventory' in bundle:
+        result['admin_inventory_mongo_uri'] = 'mongodb://identity_inventory:' + bundle['admin_inventory']['mongo_password'] + '@identity-mongo:27017/' + DATABASE + '?replicaSet=identity-staging-rs&tls=true&authSource=' + DATABASE
+        result['admin_inventory_access_history'] = True
+    return result
+
+
+def enable_admin_inventory(bundle: dict) -> dict:
+    """Add independent staging inventory custody once; preserve all existing material."""
+    validate(bundle)
+    result=dict(bundle)
+    if 'admin_inventory' not in result:
+        result['admin_inventory']={'mongo_password':secrets.token_hex(32),'access_history':True}
+    validate(result)
+    return result
 
 
 def enable_cka(bundle: dict) -> dict:

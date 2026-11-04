@@ -14,7 +14,7 @@ from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'scripts'))
-from identity_staging_bundle import generate,service_config
+from identity_staging_bundle import generate,service_config,enable_admin_inventory
 import identity_staging_backup as backup
 spec=importlib.util.spec_from_file_location('identity_host_stack',ROOT/'host/identity-staging-deploy.py')
 host=importlib.util.module_from_spec(spec)
@@ -136,13 +136,34 @@ print('REAL_IMAGE_ACCOUNT_SESSION_AND_REVOCATION_OK');
       time.sleep(1)
     docker('start',identity);healthy()
     self.assertIn('REAL_IMAGE_ACCOUNT_SESSION_AND_REVOCATION_OK',shell(node.replace('REGISTER','false')))
+    # Enable only the synthetic admin service after an existing account exists.
+    # Repeated bootstrap preserves credentials and never grants an admin role.
+    docker('stop',identity)
+    base_bundle=copy.deepcopy(bundle)
+    bundle=enable_admin_inventory(bundle)
+    self.assertIn('IDENTITY_STAGING_DATABASE_READY',shell(host.bootstrap_script(bundle)))
+    with self.assertRaises(AssertionError):shell(host.bootstrap_script(base_bundle))
+    self.assertIn('IDENTITY_STAGING_DATABASE_READY',shell(host.bootstrap_script(bundle)))
+    root_prefix='const a=db.getSiblingDB("admin"); a.auth("identity_root",'+json.dumps(bundle['mongo_root_password'])+'); const d=db.getSiblingDB("shadowops_identity_staging"); '
+    shell(root_prefix+'d.admin_inventory_audit.createIndex({at:1},{expireAfterSeconds:60,name:"unsafe_ttl"});')
+    with self.assertRaises(AssertionError):shell(host.bootstrap_script(bundle))
+    shell(root_prefix+'d.admin_inventory_audit.dropIndex("unsafe_ttl"); d.grantRolesToUser("identity_inventory",[{role:"read",db:d.getName()}]);')
+    with self.assertRaises(AssertionError):shell(host.bootstrap_script(bundle))
+    shell(root_prefix+'d.revokeRolesFromUser("identity_inventory",[{role:"read",db:d.getName()}]);')
+    wrong=copy.deepcopy(bundle);wrong['admin_inventory']['mongo_password']='d'*64
+    with self.assertRaises(AssertionError):shell(host.bootstrap_script(wrong))
+    shell('const a=db.getSiblingDB("admin"); a.auth("identity_root",'+json.dumps(bundle['mongo_root_password'])+'); const d=db.getSiblingDB("shadowops_identity_staging"); if (d.pending_accounts.findOne({alias_key:"stack_player"}).role!=="user") quit(1); d.pending_accounts.updateOne({alias_key:"stack_player"},{$set:{role:"admin"}});')
+    (path/'service.json').write_text(json.dumps(service_config(bundle)))
+    docker('run','--rm','--network','none','--mount','type=volume,src='+config_volume+',dst=/out','--mount','type=bind,src='+temp+',dst=/fixture,readonly','--entrypoint','bash',host.MONGO_IMAGE,'-c','cp /fixture/service.json /out/service.json && chown 65532:65532 /out/service.json && chmod 400 /out/service.json')
+    docker('start',identity);healthy()
+    admin_node=node.replace('REGISTER','false').replace("const claims=JSON.parse", "const summary=JSON.parse((await call('/api/identity/admin/accounts',{after:'',limit:20},central,cookie,null,200)).body); assert(summary.accessHistoryAvailable && summary.accounts.some(a=>a.name==='stack_player' && a.accessHistory.some(h=>h.application==='chronicles')));\nconst claims=JSON.parse")
+    self.assertIn('REAL_IMAGE_ACCOUNT_SESSION_AND_REVOCATION_OK',shell(admin_node))
     # Capture an actual active session in an encrypted snapshot, revoke it,
     # then restore into an empty disposable database. Restoration must not
     # resurrect that cookie/JWT or the account's old password.
     keep=node.replace('REGISTER','false').replace("await call('/api/identity/logout',{},origin,cookie,null,204);\nawait call('/api/identity/freshness',proof,null,null,credential,401);", "print('FIXTURE_PROOF='+JSON.stringify({cookie,proof}));")
     proof_output=shell(keep)
     saved=json.loads(next(line[len('FIXTURE_PROOF='):] for line in proof_output.splitlines() if line.startswith('FIXTURE_PROOF=')))
-    shell('const a=db.getSiblingDB("admin"); a.auth("identity_root",'+json.dumps(bundle['mongo_root_password'])+'); const d=db.getSiblingDB("shadowops_identity_staging"), s='+json.dumps(saved['proof']['subject'])+'; d.pending_accounts.updateOne({_id:s},{$set:{role:"admin"}}); d.staging_application_access_history.insertOne({_id:s+":chronicles",environment:"staging",subject:s,application:"chronicles",first_at:new Date("2026-01-01T00:00:00Z"),last_at:new Date("2026-02-01T00:00:00Z")}); d.admin_inventory_audit.insertOne({_id:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",environment:"staging",actor:s,action:"list_accounts",at:new Date("2026-02-01T00:00:00Z"),returned:1});')
     snapshot=json.loads(shell(backup.export_script(bundle['mongo_root_password'])))
     self.assertEqual(snapshot['schema'],2)
     self.assertEqual(len(snapshot['collections']['staging_application_access_history']),1)
