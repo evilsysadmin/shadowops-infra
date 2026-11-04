@@ -98,8 +98,9 @@ class HoldGateTests(unittest.TestCase):
         self.assertIn("STARADVS_STAGING_ALREADY_LIVE", workflow)
         self.assertIn("STARADVS_STAGING_PUBLIC_READY", workflow)
         self.assertIn("STARADVS_STAGING_SUPERSEDED", workflow)
-        # A docs-only update should also request a new trusted reconciliation.
-        self.assertIn("'docs/staradvs-staging.md']", workflow)
+        # Documentation-only merges must not trigger a live publish.
+        push_block = workflow.split('  push:', 1)[1].split('  schedule:', 1)[0]
+        self.assertNotIn("'docs/staradvs-staging.md'", push_block)
 
     def test_default_repo_state_leaves_existing_automatic_staging_enabled(self):
         state = hold.load_hold(ROOT / "config" / "staradvs-staging-hold.json", NOW)

@@ -4,7 +4,7 @@ on:
     paths: ['.github/workflows/staradvs-pages-staging.yml', 'config/staradvs-staging-hold.json', 'scripts/staradvs_staging_hold.py', 'tests/test_staradvs_staging_hold.py', 'scripts/staradvs_source_admission.py', 'scripts/staradvs_pages.py', 'tests/test_staradvs_pages.py', 'tests/test_staradvs_source_admission.py', 'docs/staradvs-staging.md']
   push:
     branches: [main]
-    paths: ['.github/workflows/staradvs-pages-staging.yml', '.github/workflows/staradvs-rollback-inventory.yml', 'config/staradvs-staging-hold.json', 'scripts/staradvs_staging_hold.py', 'tests/test_staradvs_staging_hold.py', 'scripts/staradvs_source_admission.py', 'scripts/staradvs_pages.py', 'scripts/staradvs_rollback_evidence.py', 'tests/test_staradvs_pages.py', 'tests/test_staradvs_source_admission.py', 'docs/staradvs-staging.md']
+    paths: ['.github/workflows/staradvs-pages-staging.yml', '.github/workflows/staradvs-rollback-inventory.yml', 'config/staradvs-staging-hold.json', 'scripts/staradvs_staging_hold.py', 'tests/test_staradvs_staging_hold.py', 'scripts/staradvs_source_admission.py', 'scripts/staradvs_pages.py', 'scripts/staradvs_rollback_evidence.py', 'tests/test_staradvs_pages.py', 'tests/test_staradvs_source_admission.py']
   schedule:
     # Reconcile green game main even when optional cross-repo dispatch is missing.
     # An already-current release is a read-only no-op.
