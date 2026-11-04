@@ -65,7 +65,8 @@ class AutomaticFootballGC(unittest.TestCase):
                     "files": {name: {"bytes": 7} for name in gc.REQUIRED}}
         self.assertEqual(auto.pick_rollback(objects, live, history=lambda: [
             (z["created_on"], z["deployment_trigger"]["metadata"]["commit_hash"], z["url"])
-            for z in rows], fetch_release=candidate), B)
+            for z in rows], fetch_release=candidate,
+            artifact_release=lambda sha: (_ for _ in ()).throw(auto.AutoGCError('not verified'))), B)
         with self.assertRaises(auto.AutoGCError):
             auto.pick_rollback(objects, live, history=lambda: [], fetch_release=candidate)
 
