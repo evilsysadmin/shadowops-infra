@@ -244,13 +244,19 @@ def pick_rollback(objects, live, *, history=successful_history,
     raise AutoGCError("No independently verified previous Pages runtime; nothing deleted")
 
 
-def verify_rollback_payload(proof, *, opener=None):
-    """Read *all* rollback runtime bytes from the actual CDN, hash against CI.
+class NoR2Redirect(urllib.request.HTTPRedirectHandler):
+    """Never forward our scoped R2 API token to a redirected destination."""
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        raise AutoGCError("Authenticated R2 origin unexpectedly redirected")
 
-    R2 inventory sizes only prove that objects are listed: this proves that
-    the preserved immutable release can still be downloaded and is intact.
-    Every request is constructed from the exact owned prefix and source
-    manifest (never a URL supplied by a deployment).
+
+def verify_rollback_payload(proof, *, opener=None, account=None, token=None):
+    """Read all retained rollback bytes from authenticated R2, hash against CI.
+
+    Public CDN routes may return 404 for older revisions; the actual object
+    storage authority is the R2 origin. Verify origin bytes, not a mutable
+    edge cache or only inventory sizes. This does not claim historical Pages
+    URLs are still published.
     """
     if not isinstance(proof, dict):
         raise AutoGCError("Rollback payload needs verified release proof")
@@ -259,6 +265,11 @@ def verify_rollback_payload(proof, *, opener=None):
         or not isinstance(files, dict) or not gc.REQUIRED <= set(files)
         or len(files) > 400):
         raise AutoGCError("Malformed rollback payload manifest")
+    account = account if account is not None else pages.required("CLOUDFLARE_ACCOUNT_ID")
+    token = token if token is not None else pages.required("FOOTBALL_R2_API_TOKEN")
+    if (not isinstance(account, str) or not gc.ACCOUNT_ID.fullmatch(account)
+        or not isinstance(token, str) or not token.strip()):
+        raise AutoGCError("Exact R2 account and scoped token required")
     validated = []
     total = 0
     for name, meta in sorted(files.items()):
@@ -274,18 +285,21 @@ def verify_rollback_payload(proof, *, opener=None):
         if total > 200_000_000:
             raise AutoGCError("Rollback exceeds source runtime byte budget")
         validated.append((name, meta))
+    safe_opener = urllib.request.build_opener(NoR2Redirect())
     for name, meta in validated:
-        url = f"{delivery.CDN}/{gc.ROOT}{rid}/{name}"
+        key = gc.ROOT + rid + "/" + name
+        url = (pages.API + f"/accounts/{account}/r2/buckets/{delivery.BUCKET}/objects/"
+               + urllib.parse.quote(key, safe="/-._~"))
         request = urllib.request.Request(url, headers={
-            **delivery.PUBLIC_HEADERS, "Accept-Encoding": "identity",
-            "Cache-Control": "no-cache",
+            "Authorization": "Bearer " + token,
+            "Accept-Encoding": "identity", "Accept": "application/octet-stream",
         })
         try:
             response = (opener(request) if opener else
-                        urllib.request.urlopen(request, timeout=30))
+                        safe_opener.open(request, timeout=30))
             with response as stream:
                 if stream.status != 200 or stream.geturl() != request.full_url:
-                    raise AutoGCError("Rollback CDN redirect or unexpected status: " + name)
+                    raise AutoGCError("Rollback R2 origin redirect or unexpected status: " + name)
                 digest = hashlib.sha256()
                 size = 0
                 while True:
@@ -299,8 +313,8 @@ def verify_rollback_payload(proof, *, opener=None):
                 if size != meta["bytes"] or digest.hexdigest() != meta["sha256"]:
                     raise AutoGCError("Rollback object does not match CI source: " + name)
         except (OSError, ValueError) as exc:
-            raise AutoGCError("Rollback CDN unreadable: " + name) from exc
-    print("FOOTBALL_R2_ROLLBACK_CONTENT_VERIFIED release=" + rid
+            raise AutoGCError("Rollback R2 origin unreadable: " + name) from exc
+    print("FOOTBALL_R2_ROLLBACK_ORIGIN_VERIFIED release=" + rid
           + " objects=" + str(len(validated)) + " bytes=" + str(total))
 
 

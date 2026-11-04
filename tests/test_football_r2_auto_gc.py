@@ -249,7 +249,7 @@ class AutomaticFootballGC(unittest.TestCase):
                                artifact_release=lambda sha: dict(prior, source_sha="0"*40))
 
 
-    def test_cdn_readback_checks_every_rollback_object_and_exact_hash(self):
+    def test_r2_origin_readback_checks_every_rollback_object_and_exact_hash(self):
         import hashlib
         files = {"index.html": b"Godot HTML",
                  "index.js": b"Godot script",
@@ -274,10 +274,12 @@ class AutomaticFootballGC(unittest.TestCase):
             key = request.full_url.partition("/" + gc.ROOT + B + "/")[2]
             return Response(files[key], request.full_url)
 
-        auto.verify_rollback_payload(proof, opener=read_ok)
+        auto.verify_rollback_payload(proof, account="0" * 32, token="test-token", opener=read_ok)
         self.assertEqual(len(called), len(files))
-        self.assertTrue(all(uri.startswith(delivery.CDN + "/" + gc.ROOT + B + "/")
-                            for uri in called))
+        origin = (auto.pages.API + "/accounts/" + "0" * 32
+                  + "/r2/buckets/" + delivery.BUCKET + "/objects/"
+                  + gc.ROOT + B + "/")
+        self.assertTrue(all(uri.startswith(origin) for uri in called))
 
         def corrupt(request):
             key = request.full_url.partition("/" + gc.ROOT + B + "/")[2]
@@ -285,21 +287,27 @@ class AutomaticFootballGC(unittest.TestCase):
             return Response(raw, request.full_url)
 
         with self.assertRaises(auto.AutoGCError):
-            auto.verify_rollback_payload(proof, opener=corrupt)
+            auto.verify_rollback_payload(proof, account="0" * 32, token="test-token", opener=corrupt)
         with self.assertRaises(auto.AutoGCError):
-            auto.verify_rollback_payload(proof, opener=lambda req:
+            auto.verify_rollback_payload(proof, account="0" * 32, token="test-token", opener=lambda req:
                 Response(b"", "https://foreign.example/not-the-object"))
         with self.assertRaises(auto.AutoGCError):
-            auto.verify_rollback_payload(proof, opener=lambda req:
+            auto.verify_rollback_payload(proof, account="0" * 32, token="test-token", opener=lambda req:
                 Response(b"", req.full_url))
+        with self.assertRaises(auto.AutoGCError):
+            auto.verify_rollback_payload(proof, account="not-an-account",
+                                         token="test-token", opener=read_ok)
+        with self.assertRaises(auto.AutoGCError):
+            auto.verify_rollback_payload(proof, account="0" * 32,
+                                         token="", opener=read_ok)
         wrong = copy.deepcopy(proof)
         wrong["files"]["index.pck"].pop("sha256")
         with self.assertRaises(auto.AutoGCError):
-            auto.verify_rollback_payload(wrong, opener=read_ok)
+            auto.verify_rollback_payload(wrong, account="0" * 32, token="test-token", opener=read_ok)
         wrong = copy.deepcopy(proof)
         wrong["files"]["../foreign.pck"] = {"bytes": 1, "sha256": "0" * 64}
         with self.assertRaises(auto.AutoGCError):
-            auto.verify_rollback_payload(wrong, opener=read_ok)
+            auto.verify_rollback_payload(wrong, account="0" * 32, token="test-token", opener=read_ok)
 
     def test_failed_pre_delete_readback_preserves_every_object(self):
         original, live = objects_and_live()

@@ -104,11 +104,13 @@ El contrato de inventario de R2 acredita tamaños, pero no que un
 `GET` del CDN devuelva los datos esperados. El GC automático ahora conserva
 el **manifiesto completo** del rollback elegido (acreditado por el artefacto
 original y CI), y antes del primer DELETE y **después** del último DELETE
-realiza readback por HTTPS de **todos sus archivos**, incluidos
-`index.html`, `index.js`, `index.wasm`, `index.pck` y recursos auxiliares.
-Cada respuesta debe ser HTTP 200, no estar redirigida y coincidir en bytes y
-SHA-256 con el origen. Las rutas se derivan del CDN y prefijo exclusivos,
-nunca de una URL suministrada por un despliegue histórico.
+realiza readback por HTTPS **autenticado contra la API de R2** de
+**todos sus archivos**, incluidos `index.html`, `index.js`,
+`index.wasm`, `index.pck` y recursos auxiliares. Cada respuesta debe ser
+HTTP 200 sin redirecciones, y coincidir en bytes y SHA-256 con el artefacto
+original. Las rutas se derivan del bucket y prefijo exclusivos, nunca de
+una URL suministrada por un despliegue histórico. La cuenta y el token
+proceden del entorno de staging y no se envían a otro destino.
 
 Si falla la primera comprobación, no se borra nada. Si falla después de
 haber limpiado versiones obsoletas, el publicador **no continúa** con el
@@ -117,7 +119,18 @@ rollback verificado un mero objeto listado por R2 o un tamaño correcto.
 
 El probe de `main` añade la misma lectura completa, **sin DELETE**, para
 confirmar accesibilidad de los bytes incluso cuando hoy no haga falta GC.
-El marcador de éxito es `FOOTBALL_R2_ROLLBACK_CONTENT_VERIFIED`. No debe
+El marcador de éxito es `FOOTBALL_R2_ROLLBACK_ORIGIN_VERIFIED`. No debe
 confundirse un workflow exitoso con una lectura correcta: el probe es
-`continue-on-error` para evitar bloquear unrelated releases si el CDN
+`continue-on-error` para evitar bloquear otras entregas si el origen
 falla temporalmente, y hay que revisar su recibo específico.
+
+**Distinción importante:** el probe real inicial #453 comprobó que los
+manifiestos históricos de Pages pueden devolver HTTP 404; una lectura
+del CDN para una release antigua tampoco es una prueba fiable de que sus
+objetos almacenados sean recuperables. La API oficial R2 `Get Object`
+retorna el cuerpo binario exacto; verificamos esa fuente de autoridad y
+no damos por hecho que una URL histórica de Pages/CDN siga publicada.
+La comprobación de disponibilidad del frontend público corresponde al
+smoke de navegador de la release activa.
+
+Referencia: [Cloudflare R2 Get Object](https://developers.cloudflare.com/api/resources/r2/subresources/buckets/subresources/objects/methods/get/).
