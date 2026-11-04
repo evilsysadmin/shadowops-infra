@@ -383,6 +383,9 @@ def read_only_probe():
     rollback_proof = pick_rollback(objects, live)
     rollback = rollback_proof["release"]
     plan = gc.make_plan(objects, live, rollback)
+    # Read-only smoke on main: prove that R2 actually serves the preserved
+    # previous release, even when no new publication needs capacity today.
+    verify_rollback_payload(rollback_proof)
     print("FOOTBALL_R2_AUTO_GC_ROLLBACK_PROVEN " + json.dumps({
         "active": plan["active"], "rollback": rollback,
         "obsolete_objects": len(plan["delete"]), "potential_reclaim_bytes": plan["reclaim_bytes"],
