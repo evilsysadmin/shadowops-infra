@@ -153,3 +153,21 @@ func TestServiceConfigRequiresIndependentSafeInventoryMongo(t *testing.T) {
 		}
 	}
 }
+
+func TestServiceConfigAcceptsSeparateAtlasSRVUsersWithSystemRoots(t *testing.T) {
+	cfg := syntheticServiceConfig(t)
+	cfg.MongoCA = ""
+	cfg.MongoURI = "mongodb+srv://runtime:synthetic@cluster.example/shadowops_identity_staging?tls=true&authSource=admin"
+	cfg.AdminInventoryMongoURI = "mongodb+srv://inventory:synthetic@cluster.example/shadowops_identity_staging?tls=true&authSource=admin"
+	_, _, tlsConfig, err := cfg.validate(time.Now())
+	if err != nil {
+		t.Fatal("valid Atlas-style configuration rejected", err)
+	}
+	if tlsConfig.RootCAs != nil || tlsConfig.InsecureSkipVerify {
+		t.Fatal("Atlas must use verified system trust roots")
+	}
+	cfg.AdminInventoryMongoURI = "mongodb+srv://inventory:synthetic@other.example/shadowops_identity_staging?tls=true&authSource=admin"
+	if _, _, _, err := cfg.validate(time.Now()); err == nil {
+		t.Fatal("inventory from a different cluster accepted")
+	}
+}

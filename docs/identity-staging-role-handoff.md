@@ -78,7 +78,7 @@ verify the transaction and sign-in with the subject.
 `services/identity/cmd/role-operator` invokes the three existing operations
 `schema`, `bootstrap` and `change`; it does not provision any identity or
 read backup custody. Set `IDENTITY_ROLE_ENVIRONMENT=staging` and supply a
-separately provisioned principal in `IDENTITY_ROLE_MONGO_URI`. The URI must
+separately provisioned principal in `IDENTITY_ROLE_MONGO_URI`. The URI may use `mongodb` or `mongodb+srv` (Atlas), must
 contain username and password, explicitly enable TLS, and may only contain
 `tls`, `tlsCAFile`, `authSource`, `replicaSet`, and `directConnection`
 options. Driver errors are not printed. Each operation needs its own

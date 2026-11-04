@@ -27,7 +27,7 @@ type connector func(string) (*mongo.Client, error)
 // driver must never be allowed to disable certificate or hostname checking.
 func validateURI(raw string) error {
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "mongodb" || u.Host == "" || u.User == nil || u.Fragment != "" {
+	if err != nil || (u.Scheme != "mongodb" && u.Scheme != "mongodb+srv") || u.Host == "" || u.User == nil || u.Fragment != "" {
 		return errConfiguration
 	}
 	password, ok := u.User.Password()
@@ -49,6 +49,9 @@ func validateURI(raw string) error {
 		if normalized == "tls" && value[0] != "true" {
 			return errConfiguration
 		}
+	}
+	if u.Scheme == "mongodb+srv" && (u.Port() != "" || strings.Contains(u.Host, ",") || seen["directconnection"]) {
+		return errConfiguration
 	}
 	if !seen["tls"] {
 		return errConfiguration
