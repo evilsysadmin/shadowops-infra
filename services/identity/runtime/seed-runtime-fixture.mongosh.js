@@ -6,6 +6,13 @@ if (fixtureTopology.setName !== 'identity-runtime-rs' || !Array.isArray(fixtureT
 const auth = db.getSiblingDB('admin').auth('identity_root', process.env.RUNTIME_ROOT_PASS);
 if (!(auth === true || auth === 1 || auth.ok === 1)) throw new Error('fixture root authentication failed');
 const stage = db.getSiblingDB('shadowops_identity_staging');
+stage.createCollection('admin_inventory_audit');
+stage.createRole({ role: 'identity_inventory', roles: [], privileges: [
+  { resource: { db: stage.getName(), collection: 'pending_accounts' }, actions: ['find', 'update'] },
+  { resource: { db: stage.getName(), collection: 'sessions' }, actions: ['find', 'update'] },
+  { resource: { db: stage.getName(), collection: 'admin_inventory_audit' }, actions: ['insert'] },
+] });
+stage.createUser({ user: 'identity_inventory', pwd: process.env.RUNTIME_INVENTORY_PASS, roles: [{ role: 'identity_inventory', db: stage.getName() }] });
 stage.createRole({ role: 'identity_runtime', roles: [], privileges: [
   { resource: { db: stage.getName(), collection: 'pending_accounts' }, actions: ['find', 'insert', 'update', 'createIndex', 'listIndexes'] },
   { resource: { db: stage.getName(), collection: 'sessions' }, actions: ['find', 'insert', 'update', 'remove', 'createIndex', 'listIndexes'] },

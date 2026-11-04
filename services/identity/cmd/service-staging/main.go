@@ -41,6 +41,7 @@ func main() {
 	cfg.AdminAliasCredential = ""
 	cfg.SigningSeed = ""
 	cfg.MongoURI = ""
+	cfg.AdminInventoryMongoURI = ""
 	cfg.TLSPrivateKey = ""
 	cfg.Consumers = nil
 	if port := os.Getenv("IDENTITY_INTERNAL_PORT"); port != "" {
@@ -58,6 +59,9 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_ = service.Server.Shutdown(ctx)
+		if service.AdminClient != nil {
+			_ = service.AdminClient.Disconnect(ctx)
+		}
 		_ = service.Client.Disconnect(ctx)
 	}()
 	log.Print("staging Identity TLS service started")

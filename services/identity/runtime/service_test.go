@@ -121,3 +121,25 @@ func TestServiceConfigDeniesCrossEnvironmentAndInsecureMongoTLS(t *testing.T) {
 		})
 	}
 }
+
+func TestServiceConfigRequiresIndependentSafeInventoryMongo(t *testing.T) {
+	base := syntheticServiceConfig(t)
+	valid := base
+	valid.AdminInventoryMongoURI = "mongodb://inventory:synthetic-password@127.0.0.1:27019/shadowops_identity_staging?tls=true"
+	if _, _, _, err := valid.validate(time.Now()); err != nil {
+		t.Fatal("valid separate inventory connection rejected", err)
+	}
+	for _, uri := range []string{
+		base.MongoURI,
+		"mongodb://inventory:password@other.example:27019/shadowops_identity_staging?tls=true",
+		"mongodb://inventory:password@127.0.0.1:27019/shadowops_identity_production?tls=true",
+		"mongodb://inventory:password@127.0.0.1:27019/shadowops_identity_staging?tls=false",
+		"mongodb://inventory:password@127.0.0.1:27019/shadowops_identity_staging?tlsAllowInvalidCertificates=true",
+	} {
+		cfg := base
+		cfg.AdminInventoryMongoURI = uri
+		if _, _, _, err := cfg.validate(time.Now()); err == nil {
+			t.Fatal("unsafe inventory URI accepted", uri)
+		}
+	}
+}

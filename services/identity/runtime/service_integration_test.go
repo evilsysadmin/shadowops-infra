@@ -16,6 +16,9 @@ import (
 	"time"
 
 	"github.com/evilsysadmin/shadowops-infra/services/identity/issuance"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 func runtimeFixture(t *testing.T) ServiceConfig {
@@ -93,6 +96,7 @@ func TestServiceRuntimeStartsOnlyWithNarrowTLSRoleAndServesRealAccountFlow(t *te
 	}
 	request("/livez", "", "", "", nil, 200)
 	request("/readyz", "", "", "", nil, 200)
+	request("/api/identity/admin/accounts", "https://"+serviceHost, `{"after":"","limit":20}`, "", nil, 404)
 	_, release := request("/api/identity/release", "", "", "", nil, 200)
 	var receipt map[string]string
 	if json.Unmarshal(release, &receipt) != nil || len(receipt) != 3 || receipt["service"] != "shadowops-identity" || receipt["environment"] != "staging" || receipt["source_sha"] != BuildSHA {
@@ -166,4 +170,137 @@ func TestServiceRuntimeRejectsAdminBroadIncompleteAndUntrustedTLSClients(t *test
 		}
 		t.Fatal("untrusted Mongo TLS certificate accepted")
 	}
+}
+
+func TestServiceRuntimeAdminInventoryOptInAndRoles(t *testing.T) {
+	cfg := runtimeFixture(t)
+	cfg.AdminInventoryMongoURI = os.Getenv("IDENTITY_RUNTIME_INVENTORY_URI")
+	checkLocalRuntimeURI(t, cfg.AdminInventoryMongoURI)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	for _, uri := range []string{cfg.MongoURI, os.Getenv("IDENTITY_RUNTIME_BROAD_URI"), os.Getenv("IDENTITY_RUNTIME_INCOMPLETE_URI"), os.Getenv("IDENTITY_RUNTIME_ADMIN_URI")} {
+		bad := cfg
+		bad.AdminInventoryMongoURI = uri
+		service, err := NewStagingService(ctx, bad)
+		if service != nil {
+			if service.AdminClient != nil {
+				_ = service.AdminClient.Disconnect(ctx)
+			}
+			_ = service.Client.Disconnect(ctx)
+			t.Fatal("unsafe admin Mongo role accepted")
+		}
+		if err == nil {
+			t.Fatal("unsafe admin Mongo role accepted")
+		}
+	}
+	service, err := NewStagingService(ctx, cfg)
+	if err != nil {
+		t.Fatal("inventory service did not start", err)
+	}
+	t.Cleanup(func() {
+		_ = service.AdminClient.Disconnect(context.Background())
+		_ = service.Client.Disconnect(context.Background())
+	})
+	narrow := service.AdminClient.Database(serviceDatabase)
+	if err := narrow.Collection("admin_inventory_audit").FindOne(ctx, bson.M{}).Err(); err == nil || errors.Is(err, mongo.ErrNoDocuments) {
+		t.Fatal("inventory principal can read audit history")
+	}
+	if _, err := narrow.Collection("pending_accounts").InsertOne(ctx, bson.M{"_id": "forbidden-inventory-insert"}); err == nil {
+		t.Fatal("inventory principal can create accounts")
+	}
+	if _, err := narrow.Collection("sessions").DeleteOne(ctx, bson.M{"digest": "forbidden"}); err == nil {
+		t.Fatal("inventory principal can delete sessions")
+	}
+	server := httptest.NewUnstartedServer(service.Server.Handler)
+	server.TLS = service.Server.TLSConfig
+	server.StartTLS()
+	defer server.Close()
+	getPage := func(want int) {
+		t.Helper()
+		r, _ := http.NewRequest(http.MethodGet, server.URL+"/admin", nil)
+		r.Host = serviceHost
+		response, err := server.Client().Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		if response.StatusCode != want {
+			t.Fatalf("admin page status %d, want %d", response.StatusCode, want)
+		}
+	}
+	getPage(200)
+	request := func(path, body string, cookie *http.Cookie, want int) (http.Header, []byte) {
+		t.Helper()
+		r, err := http.NewRequest(http.MethodPost, server.URL+path, strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Host = serviceHost
+		r.Header.Set("Origin", "https://"+serviceHost)
+		r.Header.Set("Content-Type", "application/json")
+		if cookie != nil {
+			r.AddCookie(cookie)
+		}
+		response, err := server.Client().Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		data, err := io.ReadAll(response.Body)
+		if err != nil || response.StatusCode != want {
+			t.Fatalf("%s status=%d want=%d err=%v body=%s", path, response.StatusCode, want, err, data)
+		}
+		return response.Header, data
+	}
+	credentials := `{"username":"inventory_admin","password":"synthetic-inventory-password-2026"}`
+	request("/api/identity/register", credentials, nil, 201)
+	headers, _ := request("/api/identity/login", credentials, nil, 204)
+	cookies := (&http.Response{Header: headers}).Cookies()
+	if len(cookies) != 1 {
+		t.Fatal("missing login cookie")
+	}
+	request("/api/identity/admin/accounts", `{"after":"","limit":20}`, cookies[0], 401)
+	_, _, tlsConfig, err := cfg.validate(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := mongo.Connect(options.Client().ApplyURI(os.Getenv("IDENTITY_RUNTIME_ADMIN_URI")).SetTLSConfig(tlsConfig))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Disconnect(context.Background())
+	accounts := root.Database(serviceDatabase).Collection("pending_accounts")
+	if _, err := accounts.UpdateOne(ctx, bson.M{"alias_key": "inventory_admin", "source": "shadowops-identity"}, bson.M{"$set": bson.M{"role": "admin"}}); err != nil {
+		t.Fatal(err)
+	}
+	_, data := request("/api/identity/admin/accounts", `{"after":"","limit":20}`, cookies[0], 200)
+	var page struct {
+		Accounts []struct {
+			Name string `json:"name"`
+		} `json:"accounts"`
+	}
+	if json.Unmarshal(data, &page) != nil || len(page.Accounts) == 0 {
+		t.Fatal("missing inventory")
+	}
+	found := false
+	for _, a := range page.Accounts {
+		if a.Name == "inventory_admin" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("admin account absent")
+	}
+	var admin struct {
+		Subject string `bson:"_id"`
+	}
+	if err := accounts.FindOne(ctx, bson.M{"alias_key": "inventory_admin", "source": "shadowops-identity"}).Decode(&admin); err != nil {
+		t.Fatal(err)
+	}
+	count, err := root.Database(serviceDatabase).Collection("admin_inventory_audit").CountDocuments(ctx, bson.M{"action": "list_accounts", "actor": admin.Subject})
+	if err != nil || count != 1 {
+		t.Fatal("audit missing", count, err)
+	}
+	request("/api/identity/logout", "{}", cookies[0], 204)
+	request("/api/identity/admin/accounts", `{"after":"","limit":20}`, cookies[0], 401)
 }

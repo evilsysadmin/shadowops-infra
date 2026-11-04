@@ -37,14 +37,15 @@ var ErrServiceUnavailable = errors.New("staging Identity service unavailable")
 // ServiceConfig is a single private, operator-provisioned staging bundle.
 // No private value is accepted from an HTTP request or emitted by diagnostics.
 type ServiceConfig struct {
-	Environment          string                         `json:"environment"`
-	MongoURI             string                         `json:"mongo_uri"`
-	MongoCA              string                         `json:"mongo_ca_pem"`
-	SigningSeed          string                         `json:"signing_seed"`
-	TLSCertificate       string                         `json:"tls_certificate_pem"`
-	TLSPrivateKey        string                         `json:"tls_private_key_pem"`
-	Consumers            websession.ConsumerCredentials `json:"consumers"`
-	AdminAliasCredential string                         `json:"chronicles_admin_alias_credential,omitempty"`
+	Environment            string                         `json:"environment"`
+	MongoURI               string                         `json:"mongo_uri"`
+	MongoCA                string                         `json:"mongo_ca_pem"`
+	SigningSeed            string                         `json:"signing_seed"`
+	TLSCertificate         string                         `json:"tls_certificate_pem"`
+	TLSPrivateKey          string                         `json:"tls_private_key_pem"`
+	Consumers              websession.ConsumerCredentials `json:"consumers"`
+	AdminAliasCredential   string                         `json:"chronicles_admin_alias_credential,omitempty"`
+	AdminInventoryMongoURI string                         `json:"admin_inventory_mongo_uri,omitempty"`
 }
 
 func LoadServiceConfig(filename string) (ServiceConfig, error) {
@@ -121,6 +122,22 @@ func (cfg ServiceConfig) validate(now time.Time) ([]byte, tls.Certificate, *tls.
 			return bad()
 		}
 	}
+	if cfg.AdminInventoryMongoURI != "" {
+		adminURL, err := url.Parse(cfg.AdminInventoryMongoURI)
+		if err != nil || adminURL.Scheme != u.Scheme || adminURL.Host != u.Host || adminURL.User == nil || adminURL.User.Username() == "" || adminURL.User.Username() == u.User.Username() || (adminURL.Path != "" && adminURL.Path != "/" && adminURL.Path != "/"+serviceDatabase) {
+			return bad()
+		}
+		for key, values := range adminURL.Query() {
+			switch strings.ToLower(key) {
+			case "tls", "ssl":
+				if len(values) != 1 || values[0] != "true" {
+					return bad()
+				}
+			case "tlsinsecure", "tlsallowinvalidcertificates", "tlsallowinvalidhostnames", "tlsdisableocspendpointcheck":
+				return bad()
+			}
+		}
+	}
 	certificate, err := tls.X509KeyPair([]byte(cfg.TLSCertificate), []byte(cfg.TLSPrivateKey))
 	if err != nil || len(certificate.Certificate) == 0 {
 		return bad()
@@ -145,6 +162,7 @@ func (cfg ServiceConfig) validate(now time.Time) ([]byte, tls.Certificate, *tls.
 type RunningService struct {
 	Server      *http.Server
 	Client      *mongo.Client
+	AdminClient *mongo.Client
 	Certificate tls.Certificate
 }
 
@@ -165,8 +183,12 @@ func NewStagingService(ctx context.Context, cfg ServiceConfig) (*RunningService,
 		return nil, ErrServiceUnavailable
 	}
 	failed := true
+	var adminClient *mongo.Client
 	defer func() {
 		if failed {
+			if adminClient != nil {
+				_ = adminClient.Disconnect(context.Background())
+			}
 			_ = client.Disconnect(context.Background())
 		}
 	}()
@@ -188,6 +210,24 @@ func NewStagingService(ctx context.Context, cfg ServiceConfig) (*RunningService,
 	if err != nil {
 		return nil, ErrUnsafeConfiguration
 	}
+	var inventoryHandler http.Handler
+	if cfg.AdminInventoryMongoURI != "" {
+		adminClient, err = mongo.Connect(options.Client().ApplyURI(cfg.AdminInventoryMongoURI).SetTLSConfig(mongoTLS).SetServerSelectionTimeout(3 * time.Second).SetConnectTimeout(3 * time.Second))
+		if err != nil {
+			return nil, ErrServiceUnavailable
+		}
+		if err = verifyAdminInventoryRole(ctx, adminClient); err != nil {
+			return nil, err
+		}
+		reader, err := issuance.NewStagingAdminInventoryReader(adminClient)
+		if err != nil {
+			return nil, ErrUnsafeConfiguration
+		}
+		inventoryHandler, err = websession.NewStagingAdminInventoryHandler(reader)
+		if err != nil {
+			return nil, ErrUnsafeConfiguration
+		}
+	}
 	var aliases *adminAliasHandler
 	if cfg.AdminAliasCredential != "" {
 		aliases, err = newAdminAliasHandler(cfg.AdminAliasCredential,
@@ -197,6 +237,14 @@ func NewStagingService(ctx context.Context, cfg ServiceConfig) (*RunningService,
 		}
 	}
 	mux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if inventoryHandler != nil && (r.URL.Path == "/admin" || r.URL.Path == "/assets/admin.css" || r.URL.Path == "/assets/admin.js") {
+			websession.StagingAdminPage(w, r)
+			return
+		}
+		if r.URL.Path == websession.AdminInventoryPath && inventoryHandler != nil {
+			inventoryHandler.ServeHTTP(w, r)
+			return
+		}
 		if r.URL.Path == AdminAliasesPath && aliases != nil {
 			aliases.ServeHTTP(w, r)
 			return
@@ -234,7 +282,7 @@ func NewStagingService(ctx context.Context, cfg ServiceConfig) (*RunningService,
 	})
 	server := &http.Server{Addr: ServiceAddress, Handler: mux, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}}, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8 << 10}
 	failed = false
-	return &RunningService{Server: server, Client: client, Certificate: certificate}, nil
+	return &RunningService{Server: server, Client: client, AdminClient: adminClient, Certificate: certificate}, nil
 }
 
 func serviceReady(ctx context.Context, client *mongo.Client) error {
@@ -257,6 +305,22 @@ func serviceReady(ctx context.Context, client *mongo.Client) error {
 }
 
 func verifyRuntimeRole(ctx context.Context, client *mongo.Client) error {
+	return verifyMongoPrivileges(ctx, client, map[string]map[string]bool{
+		"pending_accounts":   {"find": false, "insert": false, "update": false, "createIndex": false, "listIndexes": false},
+		"sessions":           {"find": false, "insert": false, "update": false, "remove": false, "createIndex": false, "listIndexes": false},
+		"staging_cka_tokens": {"find": false, "insert": false, "update": false, "createIndex": false, "listIndexes": false},
+	})
+}
+
+func verifyAdminInventoryRole(ctx context.Context, client *mongo.Client) error {
+	return verifyMongoPrivileges(ctx, client, map[string]map[string]bool{
+		"pending_accounts":      {"find": false, "update": false},
+		"sessions":              {"find": false, "update": false},
+		"admin_inventory_audit": {"insert": false},
+	})
+}
+
+func verifyMongoPrivileges(ctx context.Context, client *mongo.Client, required map[string]map[string]bool) error {
 	var status struct {
 		Auth struct {
 			Users      []bson.M `bson:"authenticatedUsers"`
@@ -276,11 +340,6 @@ func verifyRuntimeRole(ctx context.Context, client *mongo.Client) error {
 	}
 	if len(status.Auth.Users) != 1 || len(status.Auth.Privileges) == 0 {
 		return ErrUnsafeConfiguration
-	}
-	required := map[string]map[string]bool{
-		"pending_accounts":   {"find": false, "insert": false, "update": false, "createIndex": false, "listIndexes": false},
-		"sessions":           {"find": false, "insert": false, "update": false, "remove": false, "createIndex": false, "listIndexes": false},
-		"staging_cka_tokens": {"find": false, "insert": false, "update": false, "createIndex": false, "listIndexes": false},
 	}
 	for _, p := range status.Auth.Privileges {
 		if p.Resource.Any || p.Resource.Cluster || p.Resource.DB != serviceDatabase {
