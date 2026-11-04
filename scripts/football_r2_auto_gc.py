@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -50,6 +51,8 @@ def read_immutable_manifest(url):
             if response.status != 200 or response.geturl() != request.full_url:
                 raise AutoGCError("Historical immutable Pages redirect or unexpected response")
             result = json.loads(response.read(65536))
+    except urllib.error.HTTPError as exc:
+        raise AutoGCError("Historical Pages release HTTP " + str(exc.code)) from None
     except (OSError, ValueError) as exc:
         raise AutoGCError("Cannot verify historical immutable Pages release") from exc
     return gc.live_pointer(lambda: result)
@@ -84,6 +87,7 @@ def successful_history(reader=pages.request):
         if not isinstance(date, str) or not re.fullmatch(r"20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z", date):
             raise AutoGCError("Pages production deployment has no stable timestamp")
         valid.append((date, sha, entry.get("url")))
+    print("FOOTBALL_R2_ROLLBACK_HISTORY_RESULT total=" + str(len(records)) + " eligible=" + str(len(valid)))
     return sorted(valid, reverse=True, key=lambda v: v[0])
 
 
@@ -93,13 +97,16 @@ def pick_rollback(objects, live, *, history=successful_history,
     for _, sha, url in history():
         if sha == live["source_sha"]:
             continue
+        print("FOOTBALL_R2_ROLLBACK_CHECK sha=" + sha[:12])
         # A rollback must have its own immutable Pages URL. Never make up a
         # rollback from a partial R2 upload or unverified orphan.
         if not isinstance(url, str):
             continue
         try:
             candidate = fetch_release(url)
-        except (gc.GCError, OSError, ValueError):
+        except (gc.GCError, OSError, ValueError) as exc:
+            print("FOOTBALL_R2_ROLLBACK_REJECT sha=" + sha[:12]
+                  + " reason=" + str(exc)[:130])
             continue
         rid = candidate["release"]
         if candidate["source_sha"] != sha or rid == live["release"]:
