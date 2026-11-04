@@ -57,8 +57,9 @@ def read_immutable_manifest(url):
 
 def successful_history(reader=pages.request):
     # env=production means Pages' *main branch*, not the ShadowOps prod domain.
-    query = urllib.parse.urlencode({"env": "production", "per_page": 50, "page": 1})
-    status, records = reader("GET", pages.project_path() + "/deployments?" + query)
+    # Default API page avoids a provider HTTP 400 on the oversized list.
+    # Filter branch, environment and success locally, fail closed otherwise.
+    status, records = reader("GET", pages.project_path() + "/deployments")
     if status != 200 or not isinstance(records, list):
         raise AutoGCError("Cannot enumerate exact Football staging Pages deployments")
     if not records or len(records) > 50:
