@@ -105,7 +105,10 @@ class AutomaticFootballGC(unittest.TestCase):
                 return self
             def __exit__(self, *args):
                 self.close()
-        with patch.object(auto.urllib.request, "urlopen", return_value=Response(json.dumps(release).encode())):
+        with (
+            patch.object(auto.pages, "dns_target", return_value="football-staging-aha.pages.dev"),
+            patch.object(auto.urllib.request, "urlopen", return_value=Response(json.dumps(release).encode())),
+        ):
             self.assertEqual(auto.read_immutable_manifest(
                 "https://536e3bf2.football-staging-aha.pages.dev")["release"], A)
 
