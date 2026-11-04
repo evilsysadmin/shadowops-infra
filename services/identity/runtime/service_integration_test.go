@@ -178,6 +178,40 @@ func TestServiceRuntimeAdminInventoryOptInAndRoles(t *testing.T) {
 	checkLocalRuntimeURI(t, cfg.AdminInventoryMongoURI)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	badHistory := cfg
+	badHistory.AdminInventoryAccessHistory = true
+	if service, err := NewStagingService(ctx, badHistory); err == nil || service != nil {
+		if service != nil {
+			_ = service.Client.Disconnect(ctx)
+			if service.AdminClient != nil {
+				_ = service.AdminClient.Disconnect(ctx)
+			}
+		}
+		t.Fatal("history accepted without dedicated privileges")
+	}
+	extraHistory := cfg
+	extraHistory.MongoURI = os.Getenv("IDENTITY_RUNTIME_HISTORY_URI")
+	if service, err := NewStagingService(ctx, extraHistory); err == nil || service != nil {
+		if service != nil {
+			_ = service.Client.Disconnect(ctx)
+			if service.AdminClient != nil {
+				_ = service.AdminClient.Disconnect(ctx)
+			}
+		}
+		t.Fatal("unrequested history-write privilege accepted")
+	}
+	badHistoryReader := cfg
+	badHistoryReader.AdminInventoryAccessHistory = true
+	badHistoryReader.MongoURI = os.Getenv("IDENTITY_RUNTIME_HISTORY_URI")
+	if service, err := NewStagingService(ctx, badHistoryReader); err == nil || service != nil {
+		if service != nil {
+			_ = service.Client.Disconnect(ctx)
+			if service.AdminClient != nil {
+				_ = service.AdminClient.Disconnect(ctx)
+			}
+		}
+		t.Fatal("history accepted without inventory read privilege")
+	}
 	for _, uri := range []string{cfg.MongoURI, os.Getenv("IDENTITY_RUNTIME_BROAD_URI"), os.Getenv("IDENTITY_RUNTIME_INCOMPLETE_URI"), os.Getenv("IDENTITY_RUNTIME_ADMIN_URI")} {
 		bad := cfg
 		bad.AdminInventoryMongoURI = uri
@@ -379,6 +413,67 @@ func TestServiceRuntimeAdminInventoryOptInAndRoles(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("actual token exchange absent", string(data))
+	}
+	historyCfg := cfg
+	historyCfg.AdminInventoryAccessHistory = true
+	historyCfg.MongoURI = os.Getenv("IDENTITY_RUNTIME_HISTORY_URI")
+	historyCfg.AdminInventoryMongoURI = os.Getenv("IDENTITY_RUNTIME_INVENTORY_HISTORY_URI")
+	historyService, err := NewStagingService(ctx, historyCfg)
+	if err != nil {
+		t.Fatal("history service failed", err)
+	}
+	if err := historyService.Client.Database(serviceDatabase).Collection("staging_application_access_history").FindOne(ctx, bson.M{}).Err(); err == nil || errors.Is(err, mongo.ErrNoDocuments) {
+		t.Fatal("history writer can read summaries")
+	}
+	if _, err := historyService.AdminClient.Database(serviceDatabase).Collection("staging_application_access_history").UpdateOne(ctx, bson.M{"_id": "forbidden"}, bson.M{"$set": bson.M{"last_at": time.Now()}}); err == nil {
+		t.Fatal("inventory reader can modify summaries")
+	}
+	defer historyService.Client.Disconnect(context.Background())
+	defer historyService.AdminClient.Disconnect(context.Background())
+	historyServer := httptest.NewUnstartedServer(historyService.Server.Handler)
+	historyServer.TLS = historyService.Server.TLSConfig
+	historyServer.StartTLS()
+	defer historyServer.Close()
+	server = historyServer
+	tokenRequest, err = http.NewRequest(http.MethodPost, server.URL+"/api/identity/token", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokenRequest.Host = serviceHost
+	tokenRequest.Header.Set("Origin", "https://staging.chronicles.shadowops.dpdns.org")
+	tokenRequest.Header.Set("Content-Type", "application/json")
+	tokenRequest.AddCookie(cookies[0])
+	tokenResponse, err = server.Client().Do(tokenRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokenResponse.Body.Close()
+	if tokenResponse.StatusCode != 200 {
+		t.Fatal("recorded exchange failed", tokenResponse.StatusCode)
+	}
+	_, data = request("/api/identity/admin/accounts", `{"after":"","limit":20}`, cookies[0], 200)
+	var history struct {
+		Available bool `json:"accessHistoryAvailable"`
+		Accounts  []struct {
+			Name string `json:"name"`
+			Apps []struct {
+				Application string    `json:"application"`
+				FirstAt     time.Time `json:"firstAt"`
+				LastAt      time.Time `json:"lastAt"`
+			} `json:"accessHistory"`
+		} `json:"accounts"`
+	}
+	if json.Unmarshal(data, &history) != nil || !history.Available {
+		t.Fatal("access history unavailable")
+	}
+	found = false
+	for _, account := range history.Accounts {
+		if account.Name == "inventory_admin" && len(account.Apps) == 1 && account.Apps[0].Application == "chronicles" && !account.Apps[0].FirstAt.IsZero() && !account.Apps[0].LastAt.IsZero() {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("recorded exchange not visible", string(data))
 	}
 	request("/api/identity/logout", "{}", cookies[0], 204)
 	request("/api/identity/admin/accounts", `{"after":"","limit":20}`, cookies[0], 401)

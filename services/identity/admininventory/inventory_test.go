@@ -143,6 +143,40 @@ func TestInventoryStagingPaginationAndIsolation(t *testing.T) {
 	if strings.Contains(string(encoded), "secret") {
 		t.Fatal("token data exposed")
 	}
+	if withPage.AccessHistoryAvailable {
+		t.Fatal("history enabled without explicit configuration")
+	}
+	history := db.Collection("staging_application_access_history")
+	historyIDs := []string{"history-chronicles", "history-disabled", "history-other-env", "history-unknown"}
+	old := now.Add(-90 * 24 * time.Hour)
+	if _, err := history.InsertMany(ctx, []any{
+		bson.M{"_id": historyIDs[0], "environment": "staging", "subject": ids[0], "application": "chronicles", "first_at": old, "last_at": old.Add(time.Hour), "private": "secret"},
+		bson.M{"_id": historyIDs[1], "environment": "staging", "subject": ids[1], "application": "football", "first_at": old, "last_at": old},
+		bson.M{"_id": historyIDs[2], "environment": "production", "subject": ids[0], "application": "football", "first_at": old, "last_at": old},
+		bson.M{"_id": historyIDs[3], "environment": "staging", "subject": ids[0], "application": "unknown", "first_at": old, "last_at": old},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = history.DeleteMany(context.Background(), bson.M{"_id": bson.M{"$in": historyIDs}}) })
+	withHistory, err := withAccess.WithAccessHistory(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	historyPage, err := withHistory.List(ctx, "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !historyPage.AccessHistoryAvailable || len(historyPage.Accounts[0].AccessHistory) != 1 || historyPage.Accounts[0].AccessHistory[0].Application != "chronicles" || !historyPage.Accounts[0].AccessHistory[0].FirstAt.Equal(old.Truncate(time.Millisecond)) {
+		t.Fatal("history missing or wrong", historyPage)
+	}
+	disabledPage, err := withHistory.List(ctx, historyPage.Next, 1)
+	if err != nil || len(disabledPage.Accounts[0].AccessHistory) != 1 {
+		t.Fatal("disabled account history missing", err)
+	}
+	encoded, _ = json.Marshal(historyPage)
+	if strings.Contains(string(encoded), "secret") {
+		t.Fatal("private history field exposed")
+	}
 	for _, tc := range []struct {
 		cursor string
 		limit  int

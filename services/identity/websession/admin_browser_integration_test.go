@@ -39,12 +39,20 @@ func TestChromiumAdminInventoryJourney(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = f.db.Collection("staging_admin_recent_access").Drop(context.Background()) })
+	history := f.db.Collection("staging_application_access_history")
+	if err := history.Drop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = history.Drop(context.Background()) })
+	if _, err := history.InsertOne(context.Background(), bson.M{"_id": testSubject + ":chronicles", "environment": "staging", "subject": testSubject, "application": "chronicles", "first_at": time.Now().Add(-48 * time.Hour).UTC(), "last_at": time.Now().Add(-24 * time.Hour).UTC()}); err != nil {
+		t.Fatal(err)
+	}
 	audit := f.db.Collection("admin_inventory_audit")
 	if err := audit.Drop(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = audit.Drop(context.Background()) })
-	reader, err := issuance.NewStagingAdminInventoryReader(f.client, true)
+	reader, err := issuance.NewStagingAdminInventoryReader(f.client, true, true)
 	if err != nil {
 		t.Fatal(err)
 	}

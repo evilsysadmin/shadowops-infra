@@ -129,6 +129,11 @@ func TestServiceConfigRequiresIndependentSafeInventoryMongo(t *testing.T) {
 	if _, _, _, err := bad.validate(time.Now()); err == nil {
 		t.Fatal("recent access enabled without inventory connection")
 	}
+	bad = base
+	bad.AdminInventoryAccessHistory = true
+	if _, _, _, err := bad.validate(time.Now()); err == nil {
+		t.Fatal("history enabled without inventory connection")
+	}
 	valid := base
 	valid.AdminInventoryMongoURI = "mongodb://inventory:synthetic-password@127.0.0.1:27019/shadowops_identity_staging?tls=true"
 	if _, _, _, err := valid.validate(time.Now()); err != nil {

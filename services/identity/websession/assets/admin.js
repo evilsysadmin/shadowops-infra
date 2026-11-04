@@ -1,15 +1,17 @@
 (() => {
   const $ = id => document.getElementById(id);
   let cursor = '';
+  const labels={'chess-studio':'Chess Studio','chronicles':'Chronicles','cka-simulator':'CKA','football':'Football','pawn-action':'Pawn Action'};
   const status = message => { $('status').textContent = message; };
   async function send(path, body) {
     return fetch(path, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
   }
-  function accountItem(account, recentAccessAvailable) {
+  function accountItem(account, recentAccessAvailable, accessHistoryAvailable) {
     const item=document.createElement('li'); item.className='account';
     const identity=document.createElement('div'); const name=document.createElement('strong'); name.textContent=account.name;
     const id=document.createElement('small'); id.textContent=account.subject; identity.append(name,id);
-    if (recentAccessAvailable) { const labels={'chess-studio':'Chess Studio','chronicles':'Chronicles','cka-simulator':'CKA','football':'Football','pawn-action':'Pawn Action'}; const games=(account.recentApplications || []).map(a=>labels[a.application]).filter(Boolean); const recent=document.createElement('small'); recent.textContent=games.length?'Intercambios de acceso (2 min): '+games.join(', '):'Sin intercambios recientes visibles'; identity.append(recent); }
+    if (recentAccessAvailable) { const games=(account.recentApplications || []).map(a=>labels[a.application]).filter(Boolean); const recent=document.createElement('small'); recent.textContent=games.length?'Intercambios de acceso (2 min): '+games.join(', '):'Sin intercambios recientes visibles'; identity.append(recent); }
+    if (accessHistoryAvailable) { const history=Array.isArray(account.accessHistory)?account.accessHistory:[]; const item=document.createElement('small'); const valid=history.filter(a=>labels[a.application] && Number.isFinite(Date.parse(a.lastAt))); item.textContent=valid.length?'Último canje registrado: '+valid.map(a=>labels[a.application]+' · '+new Intl.DateTimeFormat('es',{dateStyle:'medium',timeStyle:'short'}).format(new Date(a.lastAt))).join('; '):'Sin canjes registrados desde la activación'; identity.append(item); }
     const badge=document.createElement('span'); const enabled=account.state==='active' && !account.credentialsDisabled;
     badge.className=enabled?'badge':'badge disabled'; badge.textContent=enabled?'Activa':account.credentialsDisabled?'Acceso deshabilitado':'No activa';
     const sessions=document.createElement('div'); sessions.className='sessions';
@@ -25,9 +27,9 @@
       if (!response.ok) throw Error('unavailable');
       const page=await response.json(); if (!Array.isArray(page.accounts)) throw Error('invalid');
       if (!append) $('account-list').replaceChildren();
-      for (const account of page.accounts) $('account-list').append(accountItem(account,page.recentAccessAvailable));
+      for (const account of page.accounts) $('account-list').append(accountItem(account,page.recentAccessAvailable,page.accessHistoryAvailable));
       cursor=typeof page.next==='string'?page.next:''; $('next').hidden=!cursor;
-      $('empty').hidden=$('account-list').children.length!==0; $('signin').hidden=true; $('accounts').hidden=false; $('logout').hidden=false; status('');
+      $('history-note').hidden=!page.accessHistoryAvailable; $('empty').hidden=$('account-list').children.length!==0; $('signin').hidden=true; $('accounts').hidden=false; $('logout').hidden=false; status('');
     } catch { status('No se pudieron cargar las cuentas. Inténtalo de nuevo.'); }
     finally { $('next').disabled=false; $('refresh').disabled=false; $('logout').disabled=false; }
   }

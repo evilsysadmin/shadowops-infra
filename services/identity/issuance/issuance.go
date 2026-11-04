@@ -31,12 +31,24 @@ var (
 )
 
 type Issuer struct {
-	client            *mongo.Client
-	accounts          *mongo.Collection
-	sessions          session.Store
-	afterFence        func() error // tests only: force transaction rollback
-	beforeTransaction func() error // tests only: change credentials after first check
-	adminRecentAccess bool
+	client              *mongo.Client
+	accounts            *mongo.Collection
+	sessions            session.Store
+	afterFence          func() error // tests only: force transaction rollback
+	beforeTransaction   func() error // tests only: change credentials after first check
+	adminRecentAccess   bool
+	adminAccessHistory  bool
+	recordAccessHistory bool
+}
+
+// EnableStagingAccessHistory enables summary writes before the issuer is used.
+// The caller must provision the dedicated collection and exact Mongo privileges.
+func (i *Issuer) EnableStagingAccessHistory() error {
+	if i == nil || i.client == nil || i.accounts == nil || i.sessions == nil {
+		return ErrDenied
+	}
+	i.recordAccessHistory = true
+	return nil
 }
 
 // NewStagingIssuer initializes the session indexes *before* any transaction.

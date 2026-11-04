@@ -28,6 +28,14 @@ type Account struct {
 	CurrentSessions     int64               `json:"currentSessions" bson:"-"`
 	SessionVersion      int64               `json:"-" bson:"session_version"`
 	RecentApplications  []RecentApplication `json:"recentApplications,omitempty" bson:"-"`
+	AccessHistory       []ApplicationAccess `json:"accessHistory,omitempty" bson:"-"`
+}
+
+// ApplicationAccess records token exchanges, not gameplay or current presence.
+type ApplicationAccess struct {
+	Application string    `json:"application" bson:"application"`
+	FirstAt     time.Time `json:"firstAt" bson:"first_at"`
+	LastAt      time.Time `json:"lastAt" bson:"last_at"`
 }
 
 // RecentApplication is a recent Identity token exchange, not proof of play.
@@ -37,12 +45,13 @@ type RecentApplication struct {
 }
 
 type Page struct {
-	Accounts              []Account `json:"accounts"`
-	Next                  string    `json:"next,omitempty"`
-	RecentAccessAvailable bool      `json:"recentAccessAvailable"`
+	Accounts               []Account `json:"accounts"`
+	Next                   string    `json:"next,omitempty"`
+	RecentAccessAvailable  bool      `json:"recentAccessAvailable"`
+	AccessHistoryAvailable bool      `json:"accessHistoryAvailable"`
 }
 
-type Inventory struct{ accounts, sessions, tokens *mongo.Collection }
+type Inventory struct{ accounts, sessions, tokens, history *mongo.Collection }
 
 // NewStaging accepts only the fixed staging database. Its Mongo principal must
 // have find-only access to pending_accounts and sessions and be provisioned separately
@@ -62,6 +71,15 @@ func NewStagingWithRecentAccess(db *mongo.Database) (*Inventory, error) {
 	}
 	inventory.tokens = db.Collection("staging_admin_recent_access")
 	return inventory, nil
+}
+
+// WithAccessHistory binds the staging-only bounded summary collection.
+func (i *Inventory) WithAccessHistory(db *mongo.Database) (*Inventory, error) {
+	if i == nil || db == nil || db.Name() != "shadowops_identity_staging" {
+		return nil, ErrInvalid
+	}
+	i.history = db.Collection("staging_application_access_history")
+	return i, nil
 }
 
 // List returns at most 50 native accounts in stable subject order. The cursor
@@ -95,7 +113,7 @@ func (i *Inventory) List(ctx context.Context, after string, limit int) (Page, er
 	if err := cursor.Err(); err != nil {
 		return Page{}, err
 	}
-	page := Page{Accounts: rows, RecentAccessAvailable: i.tokens != nil}
+	page := Page{Accounts: rows, RecentAccessAvailable: i.tokens != nil, AccessHistoryAvailable: i.history != nil}
 	if len(rows) > limit {
 		page.Accounts = rows[:limit]
 		page.Next = rows[limit-1].Subject
@@ -106,6 +124,43 @@ func (i *Inventory) List(ctx context.Context, after string, limit int) (Page, er
 	for _, account := range page.Accounts {
 		if account.State == "active" && !account.CredentialsDisabled && account.SessionVersion > 0 {
 			pairs = append(pairs, bson.D{{Key: "subject", Value: account.Subject}, {Key: "session_version", Value: account.SessionVersion}})
+		}
+	}
+	if i.history != nil && len(page.Accounts) > 0 {
+		ids := bson.A{}
+		for _, account := range page.Accounts {
+			ids = append(ids, account.Subject)
+		}
+		allowed := bson.A{"chess-studio", "chronicles", "cka-simulator", "football", "pawn-action"}
+		filter := bson.D{{Key: "environment", Value: "staging"}, {Key: "subject", Value: bson.D{{Key: "$in", Value: ids}}}, {Key: "application", Value: bson.D{{Key: "$in", Value: allowed}}}}
+		cursor, err := i.history.Find(ctx, filter, options.Find().SetProjection(bson.D{{Key: "_id", Value: 0}, {Key: "subject", Value: 1}, {Key: "application", Value: 1}, {Key: "first_at", Value: 1}, {Key: "last_at", Value: 1}}).SetSort(bson.D{{Key: "subject", Value: 1}, {Key: "application", Value: 1}}).SetLimit(int64(len(page.Accounts)*5+1)))
+		if err != nil {
+			return Page{}, err
+		}
+		defer cursor.Close(ctx)
+		bySubject := make(map[string][]ApplicationAccess, len(page.Accounts))
+		count := 0
+		for cursor.Next(ctx) {
+			var row struct {
+				Subject     string    `bson:"subject"`
+				Application string    `bson:"application"`
+				FirstAt     time.Time `bson:"first_at"`
+				LastAt      time.Time `bson:"last_at"`
+			}
+			if err := cursor.Decode(&row); err != nil {
+				return Page{}, err
+			}
+			count++
+			if count > len(page.Accounts)*5 || row.FirstAt.IsZero() || row.LastAt.Before(row.FirstAt) {
+				return Page{}, ErrInvalid
+			}
+			bySubject[row.Subject] = append(bySubject[row.Subject], ApplicationAccess{Application: row.Application, FirstAt: row.FirstAt, LastAt: row.LastAt})
+		}
+		if err := cursor.Err(); err != nil {
+			return Page{}, err
+		}
+		for n := range page.Accounts {
+			page.Accounts[n].AccessHistory = bySubject[page.Accounts[n].Subject]
 		}
 	}
 	if len(pairs) == 0 {

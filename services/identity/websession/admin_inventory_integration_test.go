@@ -26,7 +26,7 @@ func TestAdminInventoryTransportUsesRealIdentitySession(t *testing.T) {
 		t.Fatal(err)
 	}
 	cookie := f.login(t, f.web)
-	reader, err := issuance.NewStagingAdminInventoryReader(f.client, false)
+	reader, err := issuance.NewStagingAdminInventoryReader(f.client, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
