@@ -96,3 +96,28 @@ sigue disponible pero no hace falta para el mantenimiento normal.
 Si el rollback no puede probarse de nuevo, no hay DELETE y el nuevo
 despliegue falla con el anterior frontend sano intacto. Se desactiva la
 función fijando el flag a `'0'` en una PR, sin borrar release alguno.
+
+
+### Comprobación de recuperación real (readback)
+
+El contrato de inventario de R2 acredita tamaños, pero no que un
+`GET` del CDN devuelva los datos esperados. El GC automático ahora conserva
+el **manifiesto completo** del rollback elegido (acreditado por el artefacto
+original y CI), y antes del primer DELETE y **después** del último DELETE
+realiza readback por HTTPS de **todos sus archivos**, incluidos
+`index.html`, `index.js`, `index.wasm`, `index.pck` y recursos auxiliares.
+Cada respuesta debe ser HTTP 200, no estar redirigida y coincidir en bytes y
+SHA-256 con el origen. Las rutas se derivan del CDN y prefijo exclusivos,
+nunca de una URL suministrada por un despliegue histórico.
+
+Si falla la primera comprobación, no se borra nada. Si falla después de
+haber limpiado versiones obsoletas, el publicador **no continúa** con el
+nuevo runtime; la versión ya pública sigue intacta. No se considera un
+rollback verificado un mero objeto listado por R2 o un tamaño correcto.
+
+El probe de `main` añade la misma lectura completa, **sin DELETE**, para
+confirmar accesibilidad de los bytes incluso cuando hoy no haga falta GC.
+El marcador de éxito es `FOOTBALL_R2_ROLLBACK_CONTENT_VERIFIED`. No debe
+confundirse un workflow exitoso con una lectura correcta: el probe es
+`continue-on-error` para evitar bloquear unrelated releases si el CDN
+falla temporalmente, y hay que revisar su recibo específico.
