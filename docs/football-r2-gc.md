@@ -49,3 +49,42 @@ Versiones antiguas no conservadas no son recuperables desde su URL R2 tras GC.
 
 Documentación oficial del endpoint utilizado:
 [Cloudflare R2 Delete Object](https://developers.cloudflare.com/api/resources/r2/subresources/buckets/subresources/objects/methods/delete/).
+
+
+## Limpieza automática por presión de capacidad
+
+`scripts/football_r2_auto_gc.py` es un control diferente del borrado
+manual de este runbook. Está preparado para integrarse en **el publicador
+existente**, bajo su mismo grupo de exclusión, cuando el siguiente runtime
+acreditado exceda el límite de 512 MiB (o el presupuesto global de 7 GB).
+**No funciona periódicamente, en PR, ni borra nada si el siguiente runtime cabe.**
+
+Antes de cualquier DELETE exige:
+
+- `main` de Infra y `main` exacto admitido de Football, SHA inalterado;
+  hashes de artefacto, revisión visual, Godot real, identidad y porteros ya
+  comprobados como siempre.
+- Identidad de la versión publicada servida mediante `release.json`,
+  manifiesto completo y bytes exactos en R2.
+- Historia de despliegues de **Pages de Football** (no otros proyectos), con
+  `main` y estado `success`. Elige el despliegue previo más reciente cuyo
+  `release.json` se pueda leer desde su URL **inmutable y del proyecto
+  exacto**, y cuyo SHA y archivos coincidan con los objetos R2 existentes.
+  No usa fechas de los objetos para inventarse un rollback.
+- Simulación completa: la nueva versión debe caber **después** de la limpieza.
+  Límite máximo: 150 objetos / 20 releases obsoletas por operación.
+- Inventario intacto y versión pública inalterada antes del primer DELETE,
+  revalidación del puntero público durante el proceso y censo final. El
+  publicador vuelve a comprobar ambos presupuestos antes del primer PUT.
+  Un rechazo deja la versión pública actual sin repuntar.
+
+El mismo lock de GitHub Actions
+`shadowops-football-staging-pages` serializa el GC manual y el publicador.
+
+**Activación en dos fases:** el primer PR deja
+`FOOTBALL_AUTO_GC: '0'` en el workflow de publicación. El workflow GC en
+`main` realiza un `probe` independiente, **solo lectura**, que debe emitir
+`FOOTBALL_R2_AUTO_GC_ROLLBACK_PROVEN` con un rollback coherente. Solo
+después de comprobar esa evidencia en Cloudflare real, un segundo PR puede
+cambiar a `FOOTBALL_AUTO_GC: '1'`. Esta secuencia evita autorizar borrados
+en producción de staging basándose exclusivamente en mocks.
