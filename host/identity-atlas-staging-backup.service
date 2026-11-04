@@ -1,0 +1,16 @@
+[Unit]
+Description=Encrypted Atlas Identity staging snapshot
+After=docker.service network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/shadowops/identity-staging/atlas-backup.json
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/shadowops-identity-atlas-backup backup
+User=root
+Group=root
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/shadowops/identity-staging
