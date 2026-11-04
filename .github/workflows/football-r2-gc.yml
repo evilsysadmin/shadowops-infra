@@ -1,0 +1,85 @@
+name: Football · manual R2 obsolete runtime GC
+on:
+  pull_request:
+    paths:
+      - 'scripts/football_r2_gc.py'
+      - 'tests/test_football_r2_gc.py'
+      - '.github/workflows/football-r2-gc.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/football_r2_gc.py'
+      - 'tests/test_football_r2_gc.py'
+      - '.github/workflows/football-r2-gc.yml'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'plan = read-only inventory; delete = exact approved plan'
+        type: choice
+        options: [plan, delete]
+        default: plan
+        required: true
+      rollback_release:
+        description: '16-hex immutable runtime to preserve for rollback (leave blank for inventory-only plan)'
+        type: string
+        required: false
+      expected_plan_sha256:
+        description: '64-hex digest copied from a prior plan; required for delete, and must still match'
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+# The Football publisher must not swap its live pointer while GC is active.
+concurrency:
+  group: shadowops-football-staging-pages
+  cancel-in-progress: false
+
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: GC safety contracts
+        run: python3 -m unittest discover -s tests -p test_football_r2_gc.py -v
+      - name: Existing delivery capacity contracts
+        run: python3 -m unittest discover -s tests -p test_football_delivery.py -v
+      - name: Syntax
+        run: python3 -m py_compile scripts/football_r2_gc.py
+
+  gc:
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    environment:
+      name: staging
+      url: https://staging.football.shadowops.dpdns.org/
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      FOOTBALL_R2_API_TOKEN: ${{ secrets.FOOTBALL_R2_API_TOKEN }}
+      FOOTBALL_GC_CONFIRM: ${{ inputs.action == 'delete' && 'delete' || 'no' }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Verify exact owned GC implementation is still on Infra main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for path in scripts/football_r2_gc.py scripts/football_delivery.py .github/workflows/football-r2-gc.yml; do
+            test "$(gh api "repos/evilsysadmin/shadowops-infra/contents/$path?ref=main" --jq .sha)" = "$(git rev-parse "HEAD:$path")"
+          done
+      - name: Inventory or execute only the sealed plan
+        shell: bash
+        env:
+          GC_ACTION: ${{ inputs.action }}
+          GC_ROLLBACK_RELEASE: ${{ inputs.rollback_release }}
+          GC_EXPECTED_PLAN: ${{ inputs.expected_plan_sha256 }}
+        run: |
+          set -euo pipefail
+          python3 scripts/football_r2_gc.py "$GC_ACTION" "$GC_ROLLBACK_RELEASE" "$GC_EXPECTED_PLAN"
