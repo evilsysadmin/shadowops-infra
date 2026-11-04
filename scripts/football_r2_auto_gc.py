@@ -134,8 +134,8 @@ def attested_source_release(sha, *, github=delivery.github, download=None):
                     raise AutoGCError("Historical delivery manifest mismatch")
                 total = 0
                 for item in archive.infolist():
-                    if item.is_dir():
-                        continue
+                    if item.is_dir() or item.filename == "delivery.json":
+                        continue  # The root manifest was parsed above and the whole ZIP is SHA-256 bound.
                     p = PurePosixPath(item.filename)
                     if (p.is_absolute() or ".." in p.parts or
                         stat.S_ISLNK(item.external_attr >> 16)
