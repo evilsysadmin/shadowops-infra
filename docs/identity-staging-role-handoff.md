@@ -115,8 +115,9 @@ independent Mongo credentials, verified backup/restore and a tested rollback.
 
 ## Atlas custom role payloads
 
-`python3 scripts/identity_staging_atlas_roles.py` prints two secret-free Atlas
-Admin API custom-role payloads for the staging runtime and inventory users.
+`python3 scripts/identity_staging_atlas_roles.py` prints three secret-free Atlas
+Admin API custom-role payloads for the staging runtime, inventory and read-only
+backup users.
 They match the current access-history-enabled Identity privilege checks; the
 optional recent-access view is disabled. Atlas custom roles must be created
 through Atlas UI, CLI or API, not Mongo `createRole`; see the [Atlas custom
@@ -125,3 +126,10 @@ These payloads are review material: generating them does not create roles,
 users or credentials, and has not been tested against a live Atlas project.
 Do not attach additional broad or built-in roles to these service users; the
 service checks the effective privileges and will reject excess permissions.
+
+The shared snapshot exporter also supports a separately provisioned Atlas
+backup principal authenticated over the Mongo shell standard input. It is
+tested against a disposable Mongo replica with collection-scoped read access.
+This is an export primitive only: an Atlas backup runner, independent custody,
+restore validation and automated retention remain necessary before cutover.
+The current schema 2 snapshot does not include role governance policy/journal.

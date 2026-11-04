@@ -21,6 +21,13 @@ def snapshot_v2():
  return value
 
 
+class AtlasBackupCredentialTests(unittest.TestCase):
+ def test_refuses_unsafe_credentials_without_including_them_in_error(self):
+  for username,password in [('identity_root','safe-test-password-1234'),('bad name','safe-test-password-1234'),('valid_user','short'),('valid_user','bad\npassword-with-control')]:
+   with self.subTest(username=username), self.assertRaises(backup.BackupError) as failure:
+    backup.atlas_export_script(username,password)
+   self.assertNotIn(password,str(failure.exception))
+
 class BackupTests(unittest.TestCase):
  def test_v2_preserves_history_and_audit_in_quarantine(self):
   value=snapshot_v2();key=Fernet.generate_key()

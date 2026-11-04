@@ -205,7 +205,18 @@ print('REAL_IMAGE_ACCOUNT_SESSION_AND_REVOCATION_OK');
     keep=node.replace('REGISTER','false').replace("await call('/api/identity/logout',{},origin,cookie,null,204);\nawait call('/api/identity/freshness',proof,null,null,credential,401);", "print('FIXTURE_PROOF='+JSON.stringify({cookie,proof}));")
     proof_output=shell(keep)
     saved=json.loads(next(line[len('FIXTURE_PROOF='):] for line in proof_output.splitlines() if line.startswith('FIXTURE_PROOF=')))
+    # Disposable Atlas-style principal: read only the five snapshot collections.
+    backup_password=secrets.token_hex(24)
+    role_setup='const admin=db.getSiblingDB("admin"); admin.auth("identity_root",'+json.dumps(bundle['mongo_root_password'])+');\n'
+    role_setup+='const stage=db.getSiblingDB("shadowops_identity_staging"); const resources='+json.dumps(sorted(backup.COLLECTIONS))+';\n'
+    role_setup+='admin.createRole({role:"fixture_atlas_backup",roles:[],privileges:resources.map(c=>({resource:{db:"shadowops_identity_staging",collection:c},actions:["find"]}))});\n'
+    role_setup+='admin.createUser({user:"fixture_atlas_backup",pwd:'+json.dumps(backup_password)+',roles:[{role:"fixture_atlas_backup",db:"admin"}]});'
+    shell(role_setup)
+    atlas_snapshot=json.loads(shell(backup.atlas_export_script('fixture_atlas_backup',backup_password)))
+    backup.validate_snapshot(atlas_snapshot)
+    with self.assertRaises(AssertionError):shell(backup.atlas_export_script('fixture_atlas_backup','wrong-password-0000000000'))
     snapshot=json.loads(shell(backup.export_script(bundle['mongo_root_password'])))
+    self.assertEqual(atlas_snapshot,snapshot)
     self.assertEqual(snapshot['schema'],2)
     self.assertEqual(len(snapshot['collections']['staging_application_access_history']),1)
     self.assertEqual(len(snapshot['collections']['admin_inventory_audit']),1)
