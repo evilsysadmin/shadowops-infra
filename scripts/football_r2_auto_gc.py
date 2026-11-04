@@ -151,10 +151,19 @@ def attested_source_release(sha, *, github=delivery.github, download=None):
                         raise AutoGCError("Historical artifact exceeds source budget")
                 release = json.loads(archive.read("web/release.json"))
                 pointer = gc.live_pointer(lambda: release)
+                runtime_names = sorted(n[len("runtime/"):] for n in names
+                                       if n.startswith("runtime/"))
+                runtime_entries = {}
+                runtime_hash = hashlib.sha256()
+                for name in runtime_names:
+                    raw = archive.read("runtime/" + name)
+                    runtime_hash.update(name.encode() + b"\\0" + raw)
+                    runtime_entries[name] = {"sha256": hashlib.sha256(raw).hexdigest(),
+                                             "bytes": len(raw)}
                 if (pointer["source_sha"] != sha
                     or json.loads(archive.read("web/runtime.json")) != release.get("runtime")
-                    or any("runtime/" + name not in names
-                           for name in release["files"])):
+                    or runtime_entries != release["files"]
+                    or runtime_hash.hexdigest()[:16] != pointer["release"]):
                     raise AutoGCError("Historical artifact runtime does not match source SHA")
                 return pointer
         except (OSError, ValueError, KeyError, zipfile.BadZipFile) as exc:
