@@ -16,6 +16,8 @@ import football_pages as pages
 
 REPO='evilsysadmin/football-of-matthias'
 WORKFLOW='chess-football-godot-poc.yml'
+XI_WORKFLOW='football-xi-endurance.yml'
+XI_CHECK='XI · 60s live match and restart recovery'
 HOST='staging.football.shadowops.dpdns.org'
 BUCKET='chess-studio-assets'
 PREFIX='football-of-matthias/staging'
@@ -41,19 +43,30 @@ def public_release():
   with urllib.request.urlopen(request,timeout=8) as response:return json.loads(response.read(65536))
  except (OSError,ValueError):return None
 
-def admit(reader=github):
- current=reader(f'/repos/{REPO}/commits/main');sha=current.get('sha','')
- if not HEX.fullmatch(sha):raise DeliveryError('Full source SHA required')
- result=reader(f'/repos/{REPO}/actions/workflows/{WORKFLOW}/runs?'+urllib.parse.urlencode({'head_sha':sha,'branch':'main','event':'push','per_page':20}))
+def verified_push_runs(reader,sha,workflow,needed):
+ """Only fully successful main/push workflows for this exact immutable SHA."""
+ query=urllib.parse.urlencode({'head_sha':sha,'branch':'main','event':'push','per_page':20})
+ result=reader(f'/repos/{REPO}/actions/workflows/{workflow}/runs?'+query)
  for run in result.get('workflow_runs',[]):
   if (run.get('head_sha')!=sha or run.get('head_branch')!='main' or run.get('event')!='push'
       or run.get('status')!='completed' or run.get('conclusion')!='success'):continue
   rid=run.get('id')
   if type(rid) is not int:raise DeliveryError('Invalid source run')
   jobs=reader(f'/repos/{REPO}/actions/runs/{rid}/jobs?per_page=100').get('jobs',[])
-  needed={'Football · required visual gate','Real Chromium · Godot Web boot','Manager · deterministic career and save isolation','validate'}
-  passed={j.get('name') for j in jobs if j.get('conclusion')=='success' and j.get('completed_at')}
-  if not needed<=passed:continue
+  passed={j.get('name') for j in jobs if j.get('status')=='completed'
+          and j.get('conclusion')=='success' and j.get('completed_at')}
+  if needed<=passed:yield run
+
+def admit(reader=github):
+ current=reader(f'/repos/{REPO}/commits/main');sha=current.get('sha','')
+ if not HEX.fullmatch(sha):raise DeliveryError('Full source SHA required')
+ # XI lives in a separate workflow: checking only the visual/Web release run
+ # could publish a broken or pending 22-player match. Never admit without both.
+ if not next(verified_push_runs(reader,sha,XI_WORKFLOW,{XI_CHECK}),None):
+  return None
+ needed={'Football · required visual gate','Real Chromium · Godot Web boot','Manager · deterministic career and save isolation','validate'}
+ for run in verified_push_runs(reader,sha,WORKFLOW,needed):
+  rid=run['id']
   artifacts=reader(f'/repos/{REPO}/actions/runs/{rid}/artifacts?per_page=100').get('artifacts',[])
   matches=[a for a in artifacts if a.get('name')=='football-staging-'+sha and a.get('expired') is False]
   if len(matches)!=1:raise DeliveryError('Unique source artifact required')
