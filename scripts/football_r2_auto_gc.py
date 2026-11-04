@@ -39,6 +39,10 @@ def read_immutable_manifest(url):
     parsed = urllib.parse.urlsplit(url)
     if parsed.scheme != "https" or not DEPLOY_HOST_RE.fullmatch(parsed.hostname or "") or parsed.port is not None or parsed.username or parsed.password or parsed.path not in ("", "/") or parsed.query or parsed.fragment:
         raise AutoGCError("Historical Pages URL is outside owned Football project")
+    # Compare with Cloudflare's *actual* owned Pages project subdomain. A
+    # lookalike *.pages.dev hostname is never an allowed history source.
+    if not parsed.hostname.endswith("." + pages.dns_target()):
+        raise AutoGCError("Historical Pages host is not under Football project")
     request = urllib.request.Request(url.rstrip("/") + "/release.json",
                                      headers={**delivery.PUBLIC_HEADERS, "Cache-Control": "no-cache"})
     try:
@@ -63,8 +67,13 @@ def successful_history(reader=pages.request):
     for entry in records:
         if not isinstance(entry, dict):
             raise AutoGCError("Malformed Pages deployment")
-        info = (entry.get("deployment_trigger") or {}).get("metadata") or {}
-        stage = entry.get("latest_stage") or {}
+        trigger = entry.get("deployment_trigger")
+        stage = entry.get("latest_stage")
+        if not isinstance(trigger, dict) or not isinstance(stage, dict):
+            raise AutoGCError("Malformed Pages deployment metadata")
+        info = trigger.get("metadata")
+        if not isinstance(info, dict):
+            raise AutoGCError("Malformed Pages source metadata")
         date, sha = entry.get("created_on"), info.get("commit_hash")
         if (entry.get("environment") != "production"
             or stage.get("status") != "success"
