@@ -40,6 +40,7 @@ jobs:
       - run: python3 -m unittest discover -s tests -p test_football_r2_gc.py -v
       - run: python3 -m unittest discover -s tests -p test_football_identity.py -v
       - run: python3 -m unittest discover -s tests -p test_football_keeper_public.py -v
+      - run: node --check scripts/football_staging_smoke.mjs
   candidate:
     needs: contracts
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
