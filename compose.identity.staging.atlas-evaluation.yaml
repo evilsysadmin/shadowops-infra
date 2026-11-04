@@ -1,0 +1,10 @@
+# Evaluation-only overlay: permits the Identity service to reach an external
+# MongoDB endpoint. The current production staging wrapper intentionally
+# rejects this configuration; it does not provision Atlas or switch databases.
+services:
+  identity:
+    networks:
+      atlas-egress: {}
+networks:
+  atlas-egress:
+    name: shadowops-identity-staging-atlas-evaluation-egress

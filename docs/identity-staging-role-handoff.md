@@ -101,3 +101,14 @@ Provisioned real trust roots, independent principals, and a protected network
 path are still required before live use.
 No executable workflow, production credential, or live database connection
 is included in this change.
+
+## Atlas network evaluation
+
+`compose.identity.staging.atlas-evaluation.yaml` is a configuration fixture for
+an external database path. It adds a dedicated, unrestricted Docker egress
+network only to the Identity service; this is not a destination allowlist and
+is not a deployable Atlas handoff. The current staging wrapper intentionally
+rejects the extra network. No connection, DNS, Atlas account, credential or
+backup changes are made by this overlay. Before a real switch, implement and
+review an Atlas-specific deployment with appropriate outbound restrictions,
+independent Mongo credentials, verified backup/restore and a tested rollback.

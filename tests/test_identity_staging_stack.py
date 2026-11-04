@@ -44,6 +44,23 @@ class StackTests(unittest.TestCase):
     if scenario=='public-db':changed['networks']['database']['internal']=False
     with self.subTest(scenario=scenario),self.assertRaises(host.DeployError):host.assert_compose(changed,'sha256:'+'a'*64)
 
+ def test_atlas_evaluation_egress_never_admitted_by_current_staging_wrapper(self):
+  import yaml
+  with tempfile.TemporaryDirectory(prefix='identity-atlas-compose-') as temp:
+   path=Path(temp)
+   base=yaml.safe_load((ROOT/'compose.identity.staging.yaml').read_text())
+   (path/'synthetic.env').write_text('TUNNEL_TOKEN=synthetic-compose-token\n')
+   base['services']['identity-tunnel']['env_file']=[str(path/'synthetic.env')]
+   (path/'compose.yaml').write_text(yaml.safe_dump(base))
+   result=subprocess.run(['docker','compose','-f',str(path/'compose.yaml'),'-f',str(ROOT/'compose.identity.staging.atlas-evaluation.yaml'),'config','--format','json'],env={**os.environ,'IDENTITY_IMAGE_DIGEST':'sha256:'+'a'*64},capture_output=True,text=True,timeout=30)
+   self.assertEqual(result.returncode,0,result.stderr)
+   config=json.loads(result.stdout)
+   self.assertIn('atlas-egress',config['services']['identity']['networks'])
+   self.assertNotIn('atlas-egress',config['services']['identity-mongo']['networks'])
+   self.assertNotIn('atlas-egress',config['services']['identity-tunnel']['networks'])
+   self.assertFalse(config['networks']['atlas-egress'].get('internal',False))
+   with self.assertRaises(host.DeployError):host.assert_compose(config,'sha256:'+'a'*64)
+
  def test_private_tls_image_account_revocation_and_database_persistence(self):
   prefix='identity-stack-test-'+secrets.token_hex(5)
   network=prefix+'-network'; mongo=prefix+'-mongo'; identity=prefix+'-service'
