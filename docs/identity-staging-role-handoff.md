@@ -133,3 +133,12 @@ tested against a disposable Mongo replica with collection-scoped read access.
 This is an export primitive only: an Atlas backup runner, independent custody,
 restore validation and automated retention remain necessary before cutover.
 The current schema 2 snapshot does not include role governance policy/journal.
+
+A separate `host/identity-atlas-staging-backup.py` runner is prepared for the
+Atlas candidate. It reads only a root-private Atlas-specific configuration,
+validates ownership of the fixed Compose egress network, sends the dedicated
+backup credentials to `mongosh` over stdin, encrypts the bounded export and
+writes an Atlas-specific receipt. It does not read local Mongo custody. It is
+not installed, scheduled, connected to Atlas or a replacement for a tested
+restore. Its Docker transport is covered by isolated orchestration tests; a
+live Atlas end-to-end backup/restore remains a cutover prerequisite.
