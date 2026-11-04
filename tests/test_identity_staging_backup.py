@@ -12,8 +12,32 @@ def snapshot():
   'pending_accounts':[{'_id':'11111111-1111-4111-8111-111111111111','environment':'staging','state':'active','credentials_disabled':False,'credential_hash':'synthetic-hash','recovery_digest':'synthetic-old-proof','session_version':{'$numberLong':'7'},'credential_version':{'$numberLong':'3'}}],
   'sessions':[{'digest':'synthetic-handle-digest'}],'staging_cka_tokens':[{'token_jti':'synthetic-token'}]}}
 
+def snapshot_v2():
+ value=snapshot();value['schema']=2
+ subject=value['collections']['pending_accounts'][0]['_id']
+ date={'$date':{'$numberLong':'1730000000000'}}
+ value['collections']['staging_application_access_history']=[{'_id':subject+':chronicles','environment':'staging','subject':subject,'application':'chronicles','first_at':date,'last_at':date}]
+ value['collections']['admin_inventory_audit']=[{'_id':'a'*32,'environment':'staging','actor':subject,'action':'list_accounts','at':date,'returned':{'$numberInt':'1'}}]
+ return value
+
 
 class BackupTests(unittest.TestCase):
+ def test_v2_preserves_history_and_audit_in_quarantine(self):
+  value=snapshot_v2();key=Fernet.generate_key()
+  value['collections']['pending_accounts'][0]['role']='admin'
+  self.assertEqual(backup.decrypt_snapshot(backup.encrypt_snapshot(value,key),key),value)
+  restored=backup.quarantine_restore(value)
+  for name in backup.ADMIN_COLLECTIONS:self.assertEqual(restored['collections'][name],value['collections'][name])
+  self.assertEqual(restored['collections']['sessions'],[])
+  self.assertEqual(restored['collections']['staging_cka_tokens'],[])
+  self.assertEqual(restored['collections']['pending_accounts'][0]['state'],'restore-review')
+  self.assertEqual(restored['collections']['pending_accounts'][0]['role'],'user')
+
+ def test_v2_rejects_bad_admin_records_and_missing_collections(self):
+  for mutate in [lambda v:v['collections'].pop('admin_inventory_audit'),lambda v:v['collections']['staging_application_access_history'][0].update(environment='production'),lambda v:v['collections']['staging_application_access_history'][0].update(application='unknown'),lambda v:v['collections']['admin_inventory_audit'][0].update(actor='invalid'),lambda v:v['collections']['admin_inventory_audit'][0].update(returned=51),lambda v:v['collections']['staging_application_access_history'][0].update(last_at={'$date':{'$numberLong':'1'}})]:
+   value=snapshot_v2();mutate(value)
+   with self.assertRaises(backup.BackupError):backup.validate_snapshot(value)
+
  def test_real_encryption_authentication_and_independent_key(self):
   key=Fernet.generate_key();value=snapshot()
   encrypted=backup.encrypt_snapshot(value,key)

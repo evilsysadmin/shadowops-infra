@@ -2,11 +2,14 @@
 from __future__ import annotations
 import copy
 import json
+import re
 import uuid
 from cryptography.fernet import Fernet, InvalidToken
 
 DATABASE='shadowops_identity_staging'
-COLLECTIONS={'pending_accounts','sessions','staging_cka_tokens'}
+LEGACY_COLLECTIONS={'pending_accounts','sessions','staging_cka_tokens'}
+ADMIN_COLLECTIONS={'admin_inventory_audit','staging_application_access_history'}
+COLLECTIONS=LEGACY_COLLECTIONS | ADMIN_COLLECTIONS
 MAX_BYTES=16*1024*1024
 
 
@@ -14,10 +17,11 @@ class BackupError(ValueError):pass
 
 
 def validate_snapshot(value):
-    if not isinstance(value,dict) or set(value) != {'schema','environment','database','collections'} or type(value['schema']) is not int or value['schema'] != 1 or value['environment'] != 'staging' or value['database'] != DATABASE:
+    if not isinstance(value,dict) or set(value) != {'schema','environment','database','collections'} or type(value['schema']) is not int or value['schema'] not in (1,2) or value['environment'] != 'staging' or value['database'] != DATABASE:
         raise BackupError('Invalid staging snapshot envelope')
     collections=value['collections']
-    if not isinstance(collections,dict) or set(collections) != COLLECTIONS:
+    expected=LEGACY_COLLECTIONS if value['schema']==1 else COLLECTIONS
+    if not isinstance(collections,dict) or set(collections) != expected:
         raise BackupError('Invalid staging snapshot collections')
     for rows in collections.values():
         if not isinstance(rows,list) or len(rows)>10000 or any(not isinstance(row,dict) for row in rows):
@@ -30,6 +34,33 @@ def validate_snapshot(value):
             raise BackupError('Invalid staging account reference') from None
         if parsed.version != 4 or str(parsed) != subject or row.get('environment') != 'staging':
             raise BackupError('Invalid staging account reference')
+    if value['schema']==2:
+        for row in collections['staging_application_access_history']:
+            subject=valid_subject(row.get('subject'))
+            application=row.get('application')
+            if row.get('environment')!='staging' or application not in {'chess-studio','chronicles','cka-simulator','football','pawn-action'} or row.get('_id')!=subject+':'+application:
+                raise BackupError('Invalid application access summary')
+            if ejson_date(row.get('first_at'))>ejson_date(row.get('last_at')):
+                raise BackupError('Invalid application access timestamps')
+        for row in collections['admin_inventory_audit']:
+            valid_subject(row.get('actor'))
+            if row.get('environment')!='staging' or row.get('action')!='list_accounts' or not isinstance(row.get('_id'),str) or not re.fullmatch('[a-f0-9]{32}',row['_id']) or integer(row.get('returned'))>50:
+                raise BackupError('Invalid inventory audit record')
+            ejson_date(row.get('at'))
+
+
+def valid_subject(value):
+    try: parsed=uuid.UUID(value)
+    except (ValueError,TypeError,AttributeError): raise BackupError('Invalid subject') from None
+    if parsed.version!=4 or str(parsed)!=value: raise BackupError('Invalid subject')
+    return value
+
+
+def ejson_date(value):
+    if not isinstance(value,dict) or set(value)!={'$date'}: raise BackupError('Invalid snapshot timestamp')
+    millis=integer(value['$date'])
+    if millis>253402300799999: raise BackupError('Invalid snapshot timestamp')
+    return millis
 
 
 def encrypt_snapshot(value,key):
@@ -77,6 +108,8 @@ def quarantine_restore(value):
     for row in restored['collections']['pending_accounts']:
         row['state']='restore-review'
         row['credentials_disabled']=True
+        # Restored accounts must not recover platform privileges implicitly.
+        row['role']='user'
         for field in ('credential_hash','password_hash','recovery_digest'):
             row.pop(field,None)
         for field in ('session_version','credential_version'):
@@ -94,13 +127,13 @@ session.startTransaction({readConcern:{level:'snapshot'}});
 try {
  const stage=session.getDatabase('shadowops_identity_staging');
  const collections={};
- for (const name of ['pending_accounts','sessions','staging_cka_tokens']) {
+ for (const name of ['pending_accounts','sessions','staging_cka_tokens','admin_inventory_audit','staging_application_access_history']) {
   const rows=stage.getCollection(name).find({}).limit(10001).toArray();
   if (rows.length>10000) throw new Error('pilot snapshot bound exceeded');
   collections[name]=EJSON.serialize(rows,{relaxed:false});
  }
  session.commitTransaction();
- print(JSON.stringify({schema:1,environment:'staging',database:'shadowops_identity_staging',collections}));
+ print(JSON.stringify({schema:2,environment:'staging',database:'shadowops_identity_staging',collections}));
 } catch (error) { try { session.abortTransaction(); } catch (_) {} throw error; }
 finally { session.endSession(); }
 '''
@@ -116,11 +149,15 @@ const session=db.getMongo().startSession();
 try {
  session.withTransaction(()=>{
   const stage=session.getDatabase('shadowops_identity_staging');
-  for (const name of ['pending_accounts','sessions','staging_cka_tokens']) {
+  for (const name of ['pending_accounts','sessions','staging_cka_tokens','admin_inventory_audit','staging_application_access_history']) {
    if (stage.getCollection(name).findOne({}) !== null) throw new Error('restore refuses nonempty destination');
   }
   const rows=EJSON.deserialize(snapshot.collections.pending_accounts);
   if (rows.length) stage.getCollection('pending_accounts').insertMany(rows);
+  for (const name of ['admin_inventory_audit','staging_application_access_history']) {
+   const saved=EJSON.deserialize(snapshot.collections[name] || []);
+   if (saved.length) stage.getCollection(name).insertMany(saved);
+  }
  },{readConcern:{level:'snapshot'},writeConcern:{w:'majority'}});
  print('IDENTITY_STAGING_QUARANTINE_RESTORE_OK');
 } finally { session.endSession(); }
