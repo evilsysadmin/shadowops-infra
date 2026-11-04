@@ -91,6 +91,58 @@ func TestInventoryStagingPaginationAndIsolation(t *testing.T) {
 	if strings.Contains(string(encoded), "secret") {
 		t.Fatal("credential material exposed")
 	}
+	if first.RecentAccessAvailable {
+		t.Fatal("recent access enabled without explicit configuration")
+	}
+	tokens := db.Collection("staging_cka_tokens")
+	if err := db.RunCommand(ctx, bson.D{{Key: "create", Value: "staging_admin_recent_access"}, {Key: "viewOn", Value: "staging_cka_tokens"}, {Key: "pipeline", Value: bson.A{bson.D{{Key: "$project", Value: bson.D{{Key: "_id", Value: 0}, {Key: "issuer", Value: 1}, {Key: "subject", Value: 1}, {Key: "session_version", Value: 1}, {Key: "audience", Value: 1}, {Key: "issued_at", Value: 1}}}}}}}).Err(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Collection("staging_admin_recent_access").Drop(context.Background()) })
+	tokenIDs := []string{"recent-chronicles", "recent-duplicate", "recent-football", "recent-old", "recent-other-env", "recent-invalid-app", "recent-old-version"}
+	rows := []any{}
+	for index, id := range tokenIDs {
+		issuer, app, issued, version := "https://id-staging.shadowops.dpdns.org", "chronicles", now, int64(2)
+		switch index {
+		case 2:
+			app = "football"
+		case 3:
+			issued = now.Add(-3 * time.Minute)
+		case 4:
+			issuer = "https://production.invalid"
+		case 5:
+			app = "unknown"
+		case 6:
+			version = 1
+		}
+		rows = append(rows, bson.M{"_id": id, "issuer": issuer, "audience": app, "subject": ids[0], "session_version": version, "issued_at": issued, "session_digest": "secret-digest"})
+	}
+	if _, err := tokens.InsertMany(ctx, rows); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = tokens.DeleteMany(context.Background(), bson.M{"_id": bson.M{"$in": tokenIDs}}) })
+	withAccess, err := NewStagingWithRecentAccess(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withPage, err := withAccess.List(ctx, "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !withPage.RecentAccessAvailable || len(withPage.Accounts[0].RecentApplications) != 2 {
+		t.Fatalf("unexpected recent access: %+v", withPage)
+	}
+	appNames := map[string]bool{}
+	for _, app := range withPage.Accounts[0].RecentApplications {
+		appNames[app.Application] = true
+	}
+	if !appNames["chronicles"] || !appNames["football"] {
+		t.Fatal("wrong recent applications", appNames)
+	}
+	encoded, _ = json.Marshal(withPage)
+	if strings.Contains(string(encoded), "secret") {
+		t.Fatal("token data exposed")
+	}
 	for _, tc := range []struct {
 		cursor string
 		limit  int

@@ -36,6 +36,7 @@ type Issuer struct {
 	sessions          session.Store
 	afterFence        func() error // tests only: force transaction rollback
 	beforeTransaction func() error // tests only: change credentials after first check
+	adminRecentAccess bool
 }
 
 // NewStagingIssuer initializes the session indexes *before* any transaction.

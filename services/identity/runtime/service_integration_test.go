@@ -193,6 +193,28 @@ func TestServiceRuntimeAdminInventoryOptInAndRoles(t *testing.T) {
 			t.Fatal("unsafe admin Mongo role accepted")
 		}
 	}
+	wrongRecent := cfg
+	wrongRecent.AdminInventoryRecentAccess = true
+	if service, err := NewStagingService(ctx, wrongRecent); err == nil || service != nil {
+		if service != nil {
+			_ = service.Client.Disconnect(ctx)
+			if service.AdminClient != nil {
+				_ = service.AdminClient.Disconnect(ctx)
+			}
+		}
+		t.Fatal("missing token-read privilege accepted")
+	}
+	tooBroad := cfg
+	tooBroad.AdminInventoryMongoURI = os.Getenv("IDENTITY_RUNTIME_INVENTORY_RECENT_URI")
+	if service, err := NewStagingService(ctx, tooBroad); err == nil || service != nil {
+		if service != nil {
+			_ = service.Client.Disconnect(ctx)
+			if service.AdminClient != nil {
+				_ = service.AdminClient.Disconnect(ctx)
+			}
+		}
+		t.Fatal("unrequested token-read privilege accepted")
+	}
 	service, err := NewStagingService(ctx, cfg)
 	if err != nil {
 		t.Fatal("inventory service did not start", err)
@@ -300,6 +322,63 @@ func TestServiceRuntimeAdminInventoryOptInAndRoles(t *testing.T) {
 	count, err := root.Database(serviceDatabase).Collection("admin_inventory_audit").CountDocuments(ctx, bson.M{"action": "list_accounts", "actor": admin.Subject})
 	if err != nil || count != 1 {
 		t.Fatal("audit missing", count, err)
+	}
+	// A real audience-bound token exchange is observable briefly; it does not
+	// claim that a game was played or retain a history beyond the token TTL.
+	tokenRequest, err := http.NewRequest(http.MethodPost, server.URL+"/api/identity/token", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokenRequest.Host = serviceHost
+	tokenRequest.Header.Set("Origin", "https://staging.chronicles.shadowops.dpdns.org")
+	tokenRequest.Header.Set("Content-Type", "application/json")
+	tokenRequest.AddCookie(cookies[0])
+	tokenResponse, err := server.Client().Do(tokenRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokenResponse.Body.Close()
+	if tokenResponse.StatusCode != 200 {
+		t.Fatal("token exchange failed", tokenResponse.StatusCode)
+	}
+	recentCfg := cfg
+	recentCfg.AdminInventoryRecentAccess = true
+	recentCfg.AdminInventoryMongoURI = os.Getenv("IDENTITY_RUNTIME_INVENTORY_RECENT_URI")
+	recentService, err := NewStagingService(ctx, recentCfg)
+	if err != nil {
+		t.Fatal("recent-access service failed", err)
+	}
+	if err := recentService.AdminClient.Database(serviceDatabase).Collection("staging_cka_tokens").FindOne(ctx, bson.M{}).Err(); err == nil || errors.Is(err, mongo.ErrNoDocuments) {
+		t.Fatal("inventory principal can read full token records")
+	}
+	defer recentService.Client.Disconnect(context.Background())
+	defer recentService.AdminClient.Disconnect(context.Background())
+	recentServer := httptest.NewUnstartedServer(recentService.Server.Handler)
+	recentServer.TLS = recentService.Server.TLSConfig
+	recentServer.StartTLS()
+	defer recentServer.Close()
+	server = recentServer
+	_, data = request("/api/identity/admin/accounts", `{"after":"","limit":20}`, cookies[0], 200)
+	var recent struct {
+		Available bool `json:"recentAccessAvailable"`
+		Accounts  []struct {
+			Name string `json:"name"`
+			Apps []struct {
+				Application string `json:"application"`
+			} `json:"recentApplications"`
+		} `json:"accounts"`
+	}
+	if json.Unmarshal(data, &recent) != nil || !recent.Available {
+		t.Fatal("recent access missing")
+	}
+	found = false
+	for _, account := range recent.Accounts {
+		if account.Name == "inventory_admin" && len(account.Apps) == 1 && account.Apps[0].Application == "chronicles" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("actual token exchange absent", string(data))
 	}
 	request("/api/identity/logout", "{}", cookies[0], 204)
 	request("/api/identity/admin/accounts", `{"after":"","limit":20}`, cookies[0], 401)

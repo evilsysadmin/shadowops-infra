@@ -20,6 +20,7 @@ app_pass="$(openssl rand -hex 24)"
 broad_pass="$(openssl rand -hex 24)"
 incomplete_pass="$(openssl rand -hex 24)"
 inventory_pass="$(openssl rand -hex 24)"
+inventory_recent_pass="$(openssl rand -hex 24)"
 openssl rand -base64 500 > "$cert_dir/keyfile"
 openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 1 \
   -subj /CN=identity-runtime-disposable-ca -keyout "$cert_dir/ca.key" -out "$cert_dir/ca.pem" >/dev/null 2>&1
@@ -71,13 +72,14 @@ docker exec -e RUNTIME_ROOT_PASS="$root_pass" "$container_name" mongosh --quiet 
   --eval 'print(db.getSiblingDB("admin").createUser({user:"identity_root",pwd:process.env.RUNTIME_ROOT_PASS,roles:[{role:"root",db:"admin"}]}).ok)'
 docker cp "$repo_root/services/identity/runtime/seed-runtime-fixture.mongosh.js" "$container_name:/tmp/seed.js" >/dev/null
 docker exec -e RUNTIME_ROOT_PASS="$root_pass" -e RUNTIME_APP_PASS="$app_pass" \
-  -e RUNTIME_BROAD_PASS="$broad_pass" -e RUNTIME_INCOMPLETE_PASS="$incomplete_pass" -e RUNTIME_INVENTORY_PASS="$inventory_pass" \
+  -e RUNTIME_BROAD_PASS="$broad_pass" -e RUNTIME_INCOMPLETE_PASS="$incomplete_pass" -e RUNTIME_INVENTORY_PASS="$inventory_pass" -e RUNTIME_INVENTORY_RECENT_PASS="$inventory_recent_pass" \
   "$container_name" mongosh --quiet --norc --tls --tlsCAFile /tmp/ca.pem \
   'mongodb://127.0.0.1:27019/?directConnection=true' --eval 'load("/tmp/seed.js")'
 
 suffix='?replicaSet=identity-runtime-rs&directConnection=true&tls=true&authSource=shadowops_identity_staging'
 export IDENTITY_RUNTIME_MONGO_URL="mongodb://identity_runtime:$app_pass@127.0.0.1:27019/shadowops_identity_staging$suffix"
 export IDENTITY_RUNTIME_INVENTORY_URI="mongodb://identity_inventory:$inventory_pass@127.0.0.1:27019/shadowops_identity_staging$suffix"
+export IDENTITY_RUNTIME_INVENTORY_RECENT_URI="mongodb://identity_inventory_recent:$inventory_recent_pass@127.0.0.1:27019/shadowops_identity_staging$suffix"
 export IDENTITY_RUNTIME_BROAD_URI="mongodb://identity_broad:$broad_pass@127.0.0.1:27019/shadowops_identity_staging$suffix"
 export IDENTITY_RUNTIME_INCOMPLETE_URI="mongodb://identity_incomplete:$incomplete_pass@127.0.0.1:27019/shadowops_identity_staging$suffix"
 export IDENTITY_RUNTIME_ADMIN_URI="mongodb://identity_root:$root_pass@127.0.0.1:27019/shadowops_identity_staging?replicaSet=identity-runtime-rs&directConnection=true&tls=true&authSource=admin"
