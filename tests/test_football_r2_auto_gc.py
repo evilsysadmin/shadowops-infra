@@ -66,7 +66,7 @@ class AutomaticFootballGC(unittest.TestCase):
         self.assertEqual(auto.pick_rollback(objects, live, history=lambda: [
             (z["created_on"], z["deployment_trigger"]["metadata"]["commit_hash"], z["url"])
             for z in rows], fetch_release=candidate,
-            artifact_release=lambda sha: (_ for _ in ()).throw(auto.AutoGCError('not verified'))), B)
+            artifact_release=lambda sha: (_ for _ in ()).throw(auto.AutoGCError('not verified'))) ["release"], B)
         with self.assertRaises(auto.AutoGCError):
             auto.pick_rollback(objects, live, history=lambda: [], fetch_release=candidate)
 
@@ -122,7 +122,7 @@ class AutomaticFootballGC(unittest.TestCase):
         ):
             changed = auto.reclaim_if_needed("0" * 32, {gc.ROOT + INCOMING + "/index.js": 7},
                                             source_sha=SHA, inventory=lambda a: objects,
-                                            rollback_picker=lambda o, l: B,
+                                            rollback_picker=lambda o, l: {"release": B, "files": {}},
                                             delete_object=deleted.append)
             self.assertFalse(changed)
             self.assertEqual(deleted, [])
@@ -137,11 +137,16 @@ class AutomaticFootballGC(unittest.TestCase):
             patch.dict(os.environ, CANONICAL_ENV),
             patch.object(delivery, "FOOTBALL_BUDGET", 86),
             patch.object(delivery, "github", return_value={"sha": SHA}),
+            patch.object(auto, "verify_rollback_payload") as verify,
         ):
             self.assertTrue(auto.reclaim_if_needed(
                 "0" * 32, additions, source_sha=SHA,
                 inventory=lambda a: dict(objects), live_reader=lambda: live,
-                rollback_picker=lambda o, l: B, delete_object=lambda key: objects.pop(key)))
+                rollback_picker=lambda o, l: {"release": B, "files": {
+                    name: {"bytes": 7, "sha256": "0" * 64}
+                    for name in gc.REQUIRED}},
+                delete_object=lambda key: objects.pop(key)))
+            self.assertEqual(verify.call_count, 2)
         self.assertEqual(objects["other-product/protected"], 20)
         self.assertTrue(all(gc.ROOT + rid + "/index.js" in objects for rid in (A, B)))
         self.assertFalse(any(key.startswith(gc.ROOT + C + "/") for key in objects))
@@ -157,7 +162,7 @@ class AutomaticFootballGC(unittest.TestCase):
             with self.assertRaises(auto.AutoGCError):
                 auto.reclaim_if_needed("0" * 32, {gc.ROOT + INCOMING + "/index.wasm": 100},
                                        source_sha=SHA, inventory=lambda a: objects,
-                                       live_reader=lambda: live, rollback_picker=lambda o, l: B,
+                                       live_reader=lambda: live, rollback_picker=lambda o, l: {"release": B, "files": {}},
                                        delete_object=deleted.append)
         with (
             patch.dict(os.environ, CANONICAL_ENV),
@@ -167,7 +172,7 @@ class AutomaticFootballGC(unittest.TestCase):
             with self.assertRaises(auto.AutoGCError):
                 auto.reclaim_if_needed("0" * 32, {gc.ROOT + INCOMING + "/index.wasm": 7},
                                        source_sha=SHA, inventory=lambda a: objects,
-                                       live_reader=lambda: live, rollback_picker=lambda o, l: B,
+                                       live_reader=lambda: live, rollback_picker=lambda o, l: {"release": B, "files": {}},
                                        delete_object=deleted.append)
         self.assertEqual(deleted, [])
 
@@ -178,7 +183,11 @@ class AutomaticFootballGC(unittest.TestCase):
             patch.object(auto.pages, "required", return_value="0" * 32),
             patch.object(delivery, "inventory", return_value=objects),
             patch.object(gc, "live_pointer", return_value=live),
-            patch.object(auto, "pick_rollback", return_value=B),
+            patch.object(auto, "pick_rollback", return_value={
+                "release": B, "source_sha": SHA,
+                "files": {name: {"bytes": 7, "sha256": "0" * 64}
+                          for name in gc.REQUIRED},
+            }),
             patch.object(gc, "r2_delete") as no_delete,
         ):
             auto.read_only_probe()
@@ -230,7 +239,7 @@ class AutomaticFootballGC(unittest.TestCase):
                          "https://536e3bf2.football-staging-aha.pages.dev")]
         self.assertEqual(auto.pick_rollback(objects, live, history=rows,
                                              fetch_release=not_available,
-                                             artifact_release=lambda sha: prior),
+                                             artifact_release=lambda sha: prior)["release"],
                          prior["release"])
         with self.assertRaises(auto.AutoGCError):
             auto.pick_rollback(objects, live, history=rows,
