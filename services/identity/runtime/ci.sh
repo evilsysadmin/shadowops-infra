@@ -17,6 +17,9 @@ sock.close()
 PY
 root_pass="$(openssl rand -hex 24)"
 app_pass="$(openssl rand -hex 24)"
+role_schema_pass="$(openssl rand -hex 24)"
+role_bootstrap_pass="$(openssl rand -hex 24)"
+role_executor_pass="$(openssl rand -hex 24)"
 broad_pass="$(openssl rand -hex 24)"
 incomplete_pass="$(openssl rand -hex 24)"
 inventory_pass="$(openssl rand -hex 24)"
@@ -78,6 +81,11 @@ docker exec -e RUNTIME_ROOT_PASS="$root_pass" -e RUNTIME_APP_PASS="$app_pass" \
   "$container_name" mongosh --quiet --norc --tls --tlsCAFile /tmp/ca.pem \
   'mongodb://127.0.0.1:27019/?directConnection=true' --eval 'load("/tmp/seed.js")'
 
+docker cp "$repo_root/services/identity/cmd/role-operator/tls-fixture.mongosh.js" "$container_name:/tmp/role-seed.js" >/dev/null
+docker exec -e RUNTIME_ROOT_PASS="$root_pass" -e ROLE_TEST_SCHEMA_PASS="$role_schema_pass" -e ROLE_TEST_BOOTSTRAP_PASS="$role_bootstrap_pass" -e ROLE_TEST_EXECUTOR_PASS="$role_executor_pass" \
+  "$container_name" mongosh --quiet --norc --tls --tlsCAFile /tmp/ca.pem \
+  'mongodb://127.0.0.1:27019/?directConnection=true' --eval 'load("/tmp/role-seed.js")'
+
 suffix='?replicaSet=identity-runtime-rs&directConnection=true&tls=true&authSource=shadowops_identity_staging'
 export IDENTITY_RUNTIME_MONGO_URL="mongodb://identity_runtime:$app_pass@127.0.0.1:27019/shadowops_identity_staging$suffix"
 export IDENTITY_RUNTIME_INVENTORY_URI="mongodb://identity_inventory:$inventory_pass@127.0.0.1:27019/shadowops_identity_staging$suffix"
@@ -90,3 +98,8 @@ export IDENTITY_RUNTIME_ADMIN_URI="mongodb://identity_root:$root_pass@127.0.0.1:
 export IDENTITY_RUNTIME_MONGO_CA_FILE="$cert_dir/ca.pem"
 cd "$repo_root/services/identity"
 go test -race -count=1 -v ./runtime -run 'TestServiceRuntime'
+
+export ROLE_TEST_SCHEMA_URI="mongodb://role_test_schema:$role_schema_pass@127.0.0.1:27019/shadowops_identity_staging$suffix&tlsCAFile=$cert_dir/ca.pem"
+export ROLE_TEST_BOOTSTRAP_URI="mongodb://role_test_bootstrap:$role_bootstrap_pass@127.0.0.1:27019/shadowops_identity_staging$suffix&tlsCAFile=$cert_dir/ca.pem"
+export ROLE_TEST_EXECUTOR_URI="mongodb://role_test_executor:$role_executor_pass@127.0.0.1:27019/shadowops_identity_staging$suffix&tlsCAFile=$cert_dir/ca.pem"
+go test -race -count=1 -v ./cmd/role-operator -run '^TestAuthenticatedTLSRoleCommand$'

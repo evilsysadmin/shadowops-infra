@@ -93,10 +93,11 @@ The signature and statement field names are those of the bounded request
 adapter in `roles/operator_adapter.go`. A successful exit means the Mongo
 transaction committed; it does not verify subsequent browser access.
 
-The command integration test injects a connector to a disposable local
-replica, so it tests the signed transaction flow but does not establish an
-authenticated TLS connection. Separate unit tests reject insecure URI options.
-An authenticated TLS end-to-end test, provisioned trust roots, independent
-principals, and a protected network path are still required before live use.
+The command is also tested as a subprocess against a disposable authenticated
+TLS replica, using separate synthetic schema, bootstrap, and executor
+principals. The test checks that the schema and bootstrap principals cannot
+perform the next operation. Separate unit tests reject insecure URI options.
+Provisioned real trust roots, independent principals, and a protected network
+path are still required before live use.
 No executable workflow, production credential, or live database connection
 is included in this change.
