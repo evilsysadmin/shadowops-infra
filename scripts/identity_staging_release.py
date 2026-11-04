@@ -133,11 +133,44 @@ def execute_backup(sdk,config,pause=time.sleep,clock=time.monotonic):
         pause(3)
     raise ReleaseError('Identity backup timed out')
 
+def execute_atlas_prepare(sdk,config,pause=time.sleep,clock=time.monotonic):
+    inspect(sdk,config)
+    compartment,instance=resolve_existing_host(sdk,config)
+    vault,_,_=resolve_vault(sdk,config,compartment)
+    if not VAULT.fullmatch(vault):raise ReleaseError('Invalid fixed Atlas custody')
+    wrapper='/usr/local/sbin/shadowops-identity-atlas-prepare'
+    command='set -eu\ntest -x '+wrapper+'\nsudo --non-interactive '+wrapper+' prepare '+vault+'\n'
+    models=sdk.compute_instance_agent.models
+    details=models.CreateInstanceAgentCommandDetails(compartment_id=compartment,
+        execution_time_out_in_seconds=300,target=models.InstanceAgentCommandTarget(instance_id=instance),
+        content=models.InstanceAgentCommandContent(source=models.InstanceAgentCommandSourceViaTextDetails(text=command),
+            output=models.InstanceAgentCommandOutputViaTextDetails(output_type='TEXT')),
+        display_name='identity-staging-atlas-prepare')
+    client=sdk.compute_instance_agent.ComputeInstanceAgentClient(config)
+    created=client.create_instance_agent_command(create_instance_agent_command_details=details).data
+    if not getattr(created,'id',None):raise ReleaseError('Missing Atlas prepare command reference')
+    deadline=clock()+480
+    while clock()<deadline:
+        execution=client.get_instance_agent_command_execution(instance_agent_command_id=created.id,instance_id=instance).data
+        state=str(getattr(execution,'lifecycle_state','')).upper()
+        if state in {'SUCCEEDED','FAILED','TIMED_OUT','CANCELED'}:
+            content=getattr(execution,'content',None)
+            if state!='SUCCEEDED' or getattr(content,'exit_code',None)!=0:
+                raise ReleaseError('Fixed Atlas configuration preparation did not complete')
+            output=str(getattr(content,'text','') or '').strip()
+            if output and output != 'IDENTITY_ATLAS_STAGING_CONFIG_PREPARED':
+                raise ReleaseError('Unexpected Atlas preparation receipt')
+            return 'IDENTITY_ATLAS_PREPARE_COMMAND_COMPLETED preflight=required'
+        pause(3)
+    raise ReleaseError('Atlas configuration preparation timed out')
+
 def main():
     try:
         import oci
         config=config_from_env(oci,os.environ)
-        if sys.argv[1:]==['backup']:
+        if sys.argv[1:]==['atlas-prepare']:
+            print(execute_atlas_prepare(oci,config))
+        elif sys.argv[1:]==['backup']:
             print(execute_backup(oci,config))
         elif sys.argv[1:]==['inspect']:
             print(inspect_previous(oci,config))

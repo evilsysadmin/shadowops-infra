@@ -13,7 +13,11 @@ done
 for file in host/identity-staging-deploy.py host/identity-staging.sudoers scripts/identity_staging_bundle.py \
             host/identity-staging-backup.py scripts/identity_staging_backup.py \
             host/identity-staging-backup.service host/identity-staging-backup.timer \
-            scripts/shared_a1_host_guard.py compose.identity.staging.yaml; do
+            scripts/shared_a1_host_guard.py compose.identity.staging.yaml \
+            host/identity-atlas-staging-prepare.py host/identity-atlas-staging-backup.py \
+            scripts/identity_staging_atlas.py scripts/identity_staging_atlas_custody.py \
+            scripts/identity_staging_atlas_backup.py scripts/identity_staging_atlas_policy.py \
+            compose.identity.atlas.staging.yaml; do
   source="$repo/$file"
   [[ -f "$source" && ! -L "$source" && "$(stat -c %u "$source")" == 0 ]] || exit 66
   (( (8#$(stat -c %a "$source") & 8#022) == 0 )) || exit 66
@@ -25,7 +29,11 @@ for destination in /etc/shadowops/identity-staging /var/lib/shadowops/identity-s
                    /etc/systemd/system/shadowops-identity-staging-backup.service \
                    /etc/systemd/system/shadowops-identity-staging-backup.timer \
                    /etc/sudoers.d/105-shadowops-identity-staging \
-                   /usr/local/sbin/shadowops-identity-staging /usr/local/lib/shadowops/identity_staging_bundle.py; do
+                   /usr/local/sbin/shadowops-identity-staging /usr/local/lib/shadowops/identity_staging_bundle.py \
+                   /usr/local/sbin/shadowops-identity-atlas-prepare /usr/local/sbin/shadowops-identity-atlas-backup \
+                   /usr/local/lib/shadowops/identity_staging_atlas.py /usr/local/lib/shadowops/identity_staging_atlas_custody.py \
+                   /usr/local/lib/shadowops/identity_staging_atlas_backup.py /usr/local/lib/shadowops/identity_staging_atlas_policy.py \
+                   /etc/shadowops/identity-staging/atlas-compose.yaml; do
   [[ ! -L "$destination" ]] || exit 66
 done
 install -d -o root -g root -m 0755 /usr/local/lib/shadowops /opt/shadowops
@@ -37,6 +45,12 @@ if [[ ! -x "$venv/bin/python" ]]; then python3 -m venv "$venv"; fi
 chown -R root:root "$venv"
 chmod -R go-w "$venv"
 install -o root -g root -m 0644 "$repo/compose.identity.staging.yaml" /etc/shadowops/identity-staging/compose.yaml
+install -o root -g root -m 0644 "$repo/compose.identity.atlas.staging.yaml" /etc/shadowops/identity-staging/atlas-compose.yaml
+for module in identity_staging_atlas identity_staging_atlas_custody identity_staging_atlas_backup identity_staging_atlas_policy; do
+  install -o root -g root -m 0644 "$repo/scripts/$module.py" "/usr/local/lib/shadowops/$module.py"
+done
+install -o root -g root -m 0755 "$repo/host/identity-atlas-staging-prepare.py" /usr/local/sbin/shadowops-identity-atlas-prepare
+install -o root -g root -m 0755 "$repo/host/identity-atlas-staging-backup.py" /usr/local/sbin/shadowops-identity-atlas-backup
 install -o root -g root -m 0644 "$repo/scripts/identity_staging_bundle.py" /usr/local/lib/shadowops/identity_staging_bundle.py
 install -o root -g root -m 0644 "$repo/scripts/shared_a1_host_guard.py" /usr/local/lib/shadowops/shared_a1_host_guard.py
 install -o root -g root -m 0755 "$repo/host/identity-staging-deploy.py" /usr/local/sbin/shadowops-identity-staging
