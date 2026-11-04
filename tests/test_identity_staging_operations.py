@@ -2,12 +2,15 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import hashlib
+import os
 import ssl
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from datetime import datetime, timezone, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -15,6 +18,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'scripts'))
 import identity_staging_bundle as bundle
 import identity_staging_provision as provision
+import identity_staging_backup as backup
 spec=importlib.util.spec_from_file_location('identity_host',ROOT/'host/identity-staging-deploy.py')
 host=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(host)
@@ -46,6 +50,42 @@ class BundleTests(unittest.TestCase):
    self.assertNotIn(self.value[key],encoded)
   self.assertNotEqual(self.value['signing_seed'],self.value['consumers']['chronicles'][5:])
   self.assertIn('@identity-mongo:27017/shadowops_identity_staging?',config['mongo_uri'])
+
+ def test_admin_opt_in_preserves_existing_secrets_and_is_idempotent(self):
+  before=copy.deepcopy(self.value)
+  enabled=bundle.enable_admin_inventory(before)
+  self.assertEqual(before,self.value)
+  for key in bundle.KEYS:self.assertEqual(enabled[key],before[key])
+  self.assertEqual(bundle.enable_admin_inventory(enabled),enabled)
+  config=bundle.service_config(enabled)
+  self.assertTrue(config['admin_inventory_access_history'])
+  self.assertIn('mongodb://identity_inventory:',config['admin_inventory_mongo_uri'])
+  self.assertNotIn(before['mongo_root_password'],json.dumps(config))
+  for invalid in (before['mongo_root_password'],before['mongo_application_password'],'invalid'):
+   bad=copy.deepcopy(enabled);bad['admin_inventory']['mongo_password']=invalid
+   with self.assertRaises(bundle.BundleError):bundle.validate(bad)
+
+ def test_admin_requires_recent_authenticated_v2_backup(self):
+  enabled=bundle.enable_admin_inventory(self.value)
+  snapshot={'schema':2,'environment':'staging','database':backup.DATABASE,'collections':{name:[] for name in backup.COLLECTIONS}}
+  now=datetime.now(timezone.utc)
+  with tempfile.TemporaryDirectory() as temp:
+   state=Path(temp);directory=state/'backups';directory.mkdir(mode=0o700)
+   encrypted=backup.encrypt_snapshot(snapshot,enabled['backup_key'])
+   saved=directory/'fixture.fernet';saved.write_bytes(encrypted);saved.chmod(0o600)
+   receipt=state/'last-backup.json'
+   def write_receipt(data):receipt.write_text(json.dumps(data));receipt.chmod(0o600)
+   valid={'environment':'staging','created_at':now.isoformat(),'sha256':hashlib.sha256(encrypted).hexdigest()}
+   write_receipt(valid)
+   host.require_admin_backup(enabled,state,now,os.getuid())
+   write_receipt(dict(valid,created_at=(now-timedelta(days=2)).isoformat()))
+   with self.assertRaises(host.DeployError):host.require_admin_backup(enabled,state,now,os.getuid())
+   write_receipt(dict(valid,sha256='0'*64))
+   with self.assertRaises(host.DeployError):host.require_admin_backup(enabled,state,now,os.getuid())
+   legacy={'schema':1,'environment':'staging','database':backup.DATABASE,'collections':{name:[] for name in backup.LEGACY_COLLECTIONS}}
+   old=backup.encrypt_snapshot(legacy,enabled['backup_key']);saved.write_bytes(old)
+   write_receipt(dict(valid,sha256=hashlib.sha256(old).hexdigest()))
+   with self.assertRaises(host.DeployError):host.require_admin_backup(enabled,state,now,os.getuid())
 
  def test_wrong_environment_unknown_fields_and_unsafe_credentials_rejected(self):
   for key,value in [('environment','production'),('schema',True),('surprise','x'),('tunnel_token',"unsafe\nvalue"),('consumers',{'cka-simulator':'soc1_'+'x'*43}),('mongo_root_password',self.value['mongo_application_password'])]:
@@ -89,6 +129,17 @@ class ProvisionTests(unittest.TestCase):
   cf=SimpleNamespace(account='fixture',call=lambda method,path,*args:calls.append(method) or ([{'id':'zone'}] if path.startswith('/zones?') else [{'type':'CNAME','content':'foreign','proxied':True}]))
   with self.assertRaises(provision.ProvisionError):provision.dns_plan(cf,'fixture')
   self.assertEqual(calls,['GET','GET'])
+
+ def test_admin_opt_in_stores_once_without_rotating_existing_material(self):
+  cf=SimpleNamespace(account='fixture',call=lambda method,path,*args:self.original['tunnel_token'])
+  with patch.object(provision,'config_from_env',return_value={}),patch.object(provision,'resolve_existing_host',return_value=('compartment','instance')),patch.object(provision,'resolve_vault',return_value=('vault','key','compartment')),patch.object(provision,'load_existing',return_value=copy.deepcopy(self.original)),patch.object(provision,'ensure_tunnel',return_value='fixture'),patch.object(provision,'dns_plan',return_value=('zone','target',True)),patch.object(provision,'store') as store:
+   provision.provision(SimpleNamespace(),{'IDENTITY_STAGING_ADMIN_INVENTORY':'enable'},cf)
+   self.assertEqual(store.call_count,1)
+   enabled=store.call_args.args[-1]
+   for key in bundle.KEYS:self.assertEqual(enabled[key],self.original[key])
+  with patch.object(provision,'config_from_env',return_value={}),patch.object(provision,'resolve_existing_host',return_value=('compartment','instance')),patch.object(provision,'resolve_vault',return_value=('vault','key','compartment')),patch.object(provision,'load_existing',return_value=copy.deepcopy(enabled)),patch.object(provision,'ensure_tunnel',return_value='fixture'),patch.object(provision,'dns_plan',return_value=('zone','target',True)),patch.object(provision,'store') as store:
+   provision.provision(SimpleNamespace(),{'IDENTITY_STAGING_ADMIN_INVENTORY':'enable'},cf)
+   store.assert_not_called()
 
  def test_origin_authenticates_private_tls_and_has_deny_default(self):
   ingress=provision.desired_ingress()['config']['ingress']

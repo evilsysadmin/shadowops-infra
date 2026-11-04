@@ -8,7 +8,7 @@ import os
 import urllib.parse
 
 from chronicles_api_provision import Cloudflare, ProvisionError, UUID_RE, resolve_vault
-from identity_staging_bundle import HOST, BundleError, generate, validate, enable_football, enable_pawn_action
+from identity_staging_bundle import HOST, BundleError, generate, validate, enable_football, enable_pawn_action, enable_admin_inventory
 from oci_control_plane import config_from_env, resolve_existing_host
 
 TUNNEL_NAME = 'identity-staging'
@@ -110,6 +110,9 @@ def provision(sdk, env, cf):
     pawn_action = env.get('IDENTITY_STAGING_PAWN_ACTION', 'preserve')
     if pawn_action not in {'preserve', 'enable'}:
         raise ProvisionError('Invalid Pawn Action consumer opt-in')
+    admin_inventory=env.get('IDENTITY_STAGING_ADMIN_INVENTORY','preserve')
+    if admin_inventory not in {'preserve','enable'}:
+        raise ProvisionError('Invalid administrative inventory opt-in')
     config = config_from_env(sdk, env)
     compartment, _ = resolve_existing_host(sdk, config)
     vault, key, _ = resolve_vault(sdk, config, compartment)
@@ -117,15 +120,16 @@ def provision(sdk, env, cf):
     tunnel = ensure_tunnel(cf)
     zone, target, dns_exists = dns_plan(cf, tunnel)
     token = cf.call('GET', f'/accounts/{cf.account}/cfd_tunnel/{tunnel}/token')
-    old_token = existing['tunnel_token'] if existing else None
     bundle = dict(existing) if existing else generate(token)
     bundle['tunnel_token'] = token
     if football == 'enable':
         bundle = enable_football(bundle)
     if pawn_action == 'enable':
         bundle = enable_pawn_action(bundle)
+    if admin_inventory == 'enable':
+        bundle = enable_admin_inventory(bundle)
     validate(bundle)
-    if existing is None or token != old_token or bundle['consumers'] != existing['consumers']:
+    if existing is None or bundle != existing:
         store(sdk, config, compartment, vault, key, bundle)
     cf.call('PUT', f'/accounts/{cf.account}/cfd_tunnel/{tunnel}/configurations', desired_ingress())
     if not dns_exists:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -12,9 +13,11 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, '/usr/local/lib/shadowops')
 from identity_staging_bundle import BundleError, DATABASE, service_config, validate
+from identity_staging_backup import BackupError, MAX_BYTES, decrypt_snapshot
 from shared_a1_host_guard import verify_shared_a1_containers
 
 ROOT = Path('/etc/shadowops/identity-staging')
@@ -75,6 +78,37 @@ def read_bundle(vault, runner=subprocess.run):
         raise DeployError('Invalid private Identity Vault bundle') from None
 
 
+def require_admin_backup(bundle, state=STATE, now=None, expected_uid=0):
+    """Require a recent authenticated v2 backup before enabling inventory."""
+    if 'admin_inventory' not in bundle:
+        return
+    now=now or datetime.now(timezone.utc)
+    try:
+        directory=state/'backups'; receipt_path=state/'last-backup.json'
+        for path in (state,directory,receipt_path):
+            info=path.lstat()
+            if stat.S_ISLNK(info.st_mode) or info.st_uid!=expected_uid or info.st_mode&0o077:
+                raise DeployError('Private backup evidence required')
+        if not stat.S_ISDIR(directory.stat().st_mode) or not stat.S_ISREG(receipt_path.stat().st_mode) or receipt_path.stat().st_size>8192:
+            raise DeployError('Private backup evidence required')
+        receipt=json.loads(receipt_path.read_text())
+        created=datetime.fromisoformat(receipt['created_at'])
+        if created.tzinfo is None or created>now+timedelta(minutes=5) or now-created>timedelta(hours=24) or receipt.get('environment')!='staging' or not re.fullmatch('[a-f0-9]{64}',receipt.get('sha256','')):
+            raise DeployError('Recent staging backup required')
+        candidates=list(directory.glob('*.fernet'))
+        if len(candidates)>10000: raise DeployError('Backup inventory exceeds bound')
+        for path in candidates:
+            meta=path.lstat()
+            if stat.S_ISLNK(meta.st_mode) or not stat.S_ISREG(meta.st_mode) or meta.st_uid!=expected_uid or meta.st_mode&0o077 or meta.st_size>2*MAX_BYTES: continue
+            encrypted=path.read_bytes()
+            if hashlib.sha256(encrypted).hexdigest()!=receipt['sha256']: continue
+            if decrypt_snapshot(encrypted,bundle['backup_key'])['schema']!=2: raise DeployError('Schema 2 backup required')
+            return
+        raise DeployError('Authenticated backup not found')
+    except (OSError,ValueError,TypeError,KeyError,BackupError,OverflowError):
+        raise DeployError('Recent authenticated schema 2 backup required') from None
+
+
 def write_private(path, data, uid=0):
     if path.is_symlink():
         raise DeployError('Unsafe private destination')
@@ -111,8 +145,11 @@ def bootstrap_script(bundle):
     # Private script travels on stdin, never in OCI commands, argv or logs.
     # The localhost exception can initialize ONLY an empty database. A wrong
     # credential on an existing database fails rather than replacing users.
+    validate(bundle)
     prefix = 'const rootPassword=' + json.dumps(bundle['mongo_root_password']) + ';\n'
     prefix += 'const appPassword=' + json.dumps(bundle['mongo_application_password']) + ';\n'
+    prefix += 'const adminEnabled=' + ('true' if 'admin_inventory' in bundle else 'false') + ';\n'
+    prefix += 'const inventoryPassword=' + json.dumps(bundle.get('admin_inventory',{}).get('mongo_password','')) + ';\n'
     return prefix + '''
 const hello=db.adminCommand({hello:1});
 if (hello.setName && hello.setName !== 'identity-staging-rs') throw new Error('wrong replica');
@@ -131,16 +168,43 @@ try {
   if (!authenticated(admin.auth('identity_root',rootPassword))) throw new Error('root authentication failed');
 }
 const stage=db.getSiblingDB('shadowops_identity_staging');
+// Existing credentials and user bindings are checked before any role changes.
+if (stage.getUser('identity_runtime') && !authenticated(stage.auth('identity_runtime',appPassword))) throw new Error('application credential mismatch');
+if (!authenticated(admin.auth('identity_root',rootPassword))) throw new Error('root reauthentication failed');
+if (!adminEnabled && stage.getUser('identity_inventory')) throw new Error('inventory disable requires a separate revocation procedure');
+if (adminEnabled && stage.getUser('identity_inventory')) {
+  const user=stage.getUser('identity_inventory');
+  if (user.roles.length !== 1 || user.roles[0].role !== 'identity_inventory' || user.roles[0].db !== stage.getName()) throw new Error('inventory user role mismatch');
+  if (!authenticated(stage.auth('identity_inventory',inventoryPassword))) throw new Error('inventory credential mismatch');
+}
+if (!authenticated(admin.auth('identity_root',rootPassword))) throw new Error('root reauthentication failed');
 const privileges=[
  {resource:{db:stage.getName(),collection:'pending_accounts'},actions:['find','insert','update','createIndex','listIndexes']},
  {resource:{db:stage.getName(),collection:'sessions'},actions:['find','insert','update','remove','createIndex','listIndexes']},
  {resource:{db:stage.getName(),collection:'staging_cka_tokens'},actions:['find','insert','update','createIndex','listIndexes']}
 ];
+if (adminEnabled) {
+ for (const name of ['admin_inventory_audit','staging_application_access_history']) {
+  const infos=stage.getCollectionInfos({name});
+  if (infos.length>1 || (infos.length===1 && (infos[0].type!=='collection' || Object.keys(infos[0].options||{}).length!==0))) throw new Error('unsafe administrative collection');
+  if (infos.length===0) stage.createCollection(name);
+  if (stage.getCollection(name).getIndexes().some(index=>Object.prototype.hasOwnProperty.call(index,'expireAfterSeconds'))) throw new Error('unexpected administrative TTL index');
+ }
+ privileges.push({resource:{db:stage.getName(),collection:'staging_application_access_history'},actions:['insert','update']});
+ const inventoryPrivileges=[
+  {resource:{db:stage.getName(),collection:'pending_accounts'},actions:['find','update']},
+  {resource:{db:stage.getName(),collection:'sessions'},actions:['find','update']},
+  {resource:{db:stage.getName(),collection:'admin_inventory_audit'},actions:['insert']},
+  {resource:{db:stage.getName(),collection:'staging_application_access_history'},actions:['find']}
+ ];
+ if (stage.getRole('identity_inventory')) stage.updateRole('identity_inventory',{roles:[],privileges:inventoryPrivileges});
+ else stage.createRole({role:'identity_inventory',roles:[],privileges:inventoryPrivileges});
+ if (!stage.getUser('identity_inventory')) stage.createUser({user:'identity_inventory',pwd:inventoryPassword,roles:[{role:'identity_inventory',db:stage.getName()}]});
+}
 if (stage.getRole('identity_runtime')) stage.updateRole('identity_runtime',{roles:[],privileges});
 else stage.createRole({role:'identity_runtime',roles:[],privileges});
 if (stage.getUser('identity_runtime')) {
-  // Never reset a live database password during a normal release.
-  if (!authenticated(stage.auth('identity_runtime',appPassword))) throw new Error('application credential mismatch');
+  // Existing password was checked before role updates; never reset it.
 } else stage.createUser({user:'identity_runtime',pwd:appPassword,roles:[{role:'identity_runtime',db:stage.getName()}]});
 print('IDENTITY_STAGING_DATABASE_READY');
 '''
@@ -220,6 +284,7 @@ def deploy(digest, sha, vault):
         verify_shared_a1_containers()
         identity_ownership_guard()
         bundle = read_bundle(vault)
+        require_admin_backup(bundle)
         prepare(bundle)
         env = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'IDENTITY_IMAGE_DIGEST': digest}
         compose = ['docker', 'compose', '--project-directory', str(ROOT), '-f', str(POLICY)]
