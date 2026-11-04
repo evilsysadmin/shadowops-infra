@@ -215,6 +215,7 @@ print('REAL_IMAGE_ACCOUNT_SESSION_AND_REVOCATION_OK');
     (path/'service.json').write_text(json.dumps(service_config(bundle)))
     docker('run','--rm','--network','none','--mount','type=volume,src='+config_volume+',dst=/out','--mount','type=bind,src='+temp+',dst=/fixture,readonly','--entrypoint','bash',host.MONGO_IMAGE,'-c','cp /fixture/service.json /out/service.json && chown 65532:65532 /out/service.json && chmod 400 /out/service.json')
     docker('start',identity);healthy()
+    docker('exec',identity,'/app/identity','preflight')
     admin_node=node.replace('REGISTER','false').replace("const claims=JSON.parse", "const summary=JSON.parse((await call('/api/identity/admin/accounts',{after:'',limit:20},central,cookie,null,200)).body); assert(summary.accessHistoryAvailable && summary.accounts.some(a=>a.name==='stack_player' && a.accessHistory.some(h=>h.application==='chronicles')));\nconst claims=JSON.parse")
     self.assertIn('REAL_IMAGE_ACCOUNT_SESSION_AND_REVOCATION_OK',shell(admin_node))
     # Capture an actual active session in an encrypted snapshot, revoke it,
