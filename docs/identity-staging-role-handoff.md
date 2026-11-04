@@ -172,3 +172,11 @@ against a disposable TLS replica with correctly scoped, insufficient and
 overprivileged users, but not against a live Atlas cluster. Run it from the
 actual candidate network before a cutover; backup, restore and public login
 verification remain separate requirements.
+
+The root-owned `identity-atlas-staging-prepare.py` preparation command reads
+only the separate `identity-staging-atlas-custody` Vault secret and the current
+service configuration; it does not read local Mongo root custody. It creates
+separate mode-0400 Atlas service and backup configuration files, preserving the
+current live file. Existing different Atlas files fail closed. The command is
+not installed or invoked by the current workflow and does not deploy, connect
+to Atlas or verify a backup.
