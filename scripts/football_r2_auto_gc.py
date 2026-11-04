@@ -238,8 +238,70 @@ def pick_rollback(objects, live, *, history=successful_history,
         if any(groups[rid].get(gc.ROOT + rid + "/" + name) != info["bytes"]
                for name, info in candidate["files"].items()):
             continue
-        return rid
+        # Return the verified complete manifest, not just the opaque release ID:
+        # the GC must be able to read back every retained byte later.
+        return candidate
     raise AutoGCError("No independently verified previous Pages runtime; nothing deleted")
+
+
+def verify_rollback_payload(proof, *, opener=None):
+    """Read *all* rollback runtime bytes from the actual CDN, hash against CI.
+
+    R2 inventory sizes only prove that objects are listed: this proves that
+    the preserved immutable release can still be downloaded and is intact.
+    Every request is constructed from the exact owned prefix and source
+    manifest (never a URL supplied by a deployment).
+    """
+    if not isinstance(proof, dict):
+        raise AutoGCError("Rollback payload needs verified release proof")
+    rid, files = proof.get("release"), proof.get("files")
+    if (not isinstance(rid, str) or not gc.RELEASE_ID.fullmatch(rid)
+        or not isinstance(files, dict) or not gc.REQUIRED <= set(files)
+        or len(files) > 400):
+        raise AutoGCError("Malformed rollback payload manifest")
+    validated = []
+    total = 0
+    for name, meta in sorted(files.items()):
+        if (not isinstance(name, str) or not name
+            or not all(gc.FILE_NAME.fullmatch(part) and part not in {".", ".."}
+                       for part in name.split("/"))
+            or not isinstance(meta, dict)
+            or type(meta.get("bytes")) is not int or meta["bytes"] < 0
+            or type(meta.get("sha256")) is not str
+            or not re.fullmatch(r"[a-f0-9]{64}", meta["sha256"])):
+            raise AutoGCError("Untrusted rollback object manifest")
+        total += meta["bytes"]
+        if total > 200_000_000:
+            raise AutoGCError("Rollback exceeds source runtime byte budget")
+        validated.append((name, meta))
+    for name, meta in validated:
+        url = f"{delivery.CDN}/{gc.ROOT}{rid}/{name}"
+        request = urllib.request.Request(url, headers={
+            **delivery.PUBLIC_HEADERS, "Accept-Encoding": "identity",
+            "Cache-Control": "no-cache",
+        })
+        try:
+            response = (opener(request) if opener else
+                        urllib.request.urlopen(request, timeout=30))
+            with response as stream:
+                if stream.status != 200 or stream.geturl() != request.full_url:
+                    raise AutoGCError("Rollback CDN redirect or unexpected status: " + name)
+                digest = hashlib.sha256()
+                size = 0
+                while True:
+                    chunk = stream.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    size += len(chunk)
+                    if size > meta["bytes"]:
+                        raise AutoGCError("Rollback object exceeds declared bytes: " + name)
+                    digest.update(chunk)
+                if size != meta["bytes"] or digest.hexdigest() != meta["sha256"]:
+                    raise AutoGCError("Rollback object does not match CI source: " + name)
+        except (OSError, ValueError) as exc:
+            raise AutoGCError("Rollback CDN unreadable: " + name) from exc
+    print("FOOTBALL_R2_ROLLBACK_CONTENT_VERIFIED release=" + rid
+          + " objects=" + str(len(validated)) + " bytes=" + str(total))
 
 
 def exceeds_budget(objects, additions):
@@ -270,7 +332,10 @@ def reclaim_if_needed(account, additions, *, source_sha,
     if not exceeds_budget(objects, additions):
         print("FOOTBALL_R2_AUTO_GC_NOT_REQUIRED")
         return False
-    rollback = rollback_picker(objects, live)
+    rollback_proof = rollback_picker(objects, live)
+    if not isinstance(rollback_proof, dict):
+        raise AutoGCError("Verified rollback manifest required")
+    rollback = rollback_proof.get("release")
     plan = gc.make_plan(objects, live, rollback)
 
     # No destructive operation unless the *whole* incoming validated release
@@ -285,6 +350,9 @@ def reclaim_if_needed(account, additions, *, source_sha,
         raise AutoGCError("No bounded obsolete objects available")
     if any(key in additions for key, _ in plan["delete"]):
         raise AutoGCError("Candidate runtime would be deleted; refusing GC")
+    # Before the first DELETE, prove that *every* retained rollback object
+    # is actually downloadable and equals its CI-attested source hash.
+    verify_rollback_payload(rollback_proof)
     print("FOOTBALL_R2_AUTO_GC_APPROVED " + json.dumps({
         "active": plan["active"], "rollback": rollback,
         "objects": len(plan["delete"]), "bytes": plan["reclaim_bytes"],
@@ -296,6 +364,9 @@ def reclaim_if_needed(account, additions, *, source_sha,
                    refresh_live=live_reader,
                    refresh_inventory=lambda: inventory(account),
                    delete_object=delete_object or (lambda key: gc.r2_delete(account, key)))
+    # A post-GC readback catches accidental corruption/inaccessibility before
+    # publishing the new pointer. Failure leaves the old public pointer intact.
+    verify_rollback_payload(rollback_proof)
     # The publisher separately rechecks the post-GC quota before its first PUT.
     print("FOOTBALL_R2_AUTO_GC_VERIFIED reclaimed_bytes=" + str(plan["reclaim_bytes"]))
     return True
@@ -309,7 +380,8 @@ def read_only_probe():
         raise AutoGCError("Exact Cloudflare account ID required")
     objects = delivery.inventory(account)
     live = gc.live_pointer()
-    rollback = pick_rollback(objects, live)
+    rollback_proof = pick_rollback(objects, live)
+    rollback = rollback_proof["release"]
     plan = gc.make_plan(objects, live, rollback)
     print("FOOTBALL_R2_AUTO_GC_ROLLBACK_PROVEN " + json.dumps({
         "active": plan["active"], "rollback": rollback,
