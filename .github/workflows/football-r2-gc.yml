@@ -52,7 +52,7 @@ jobs:
 
   gc:
     needs: contracts
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
     environment:
       name: staging
       url: https://staging.football.shadowops.dpdns.org/
@@ -75,9 +75,12 @@ jobs:
             test "$(gh api "repos/evilsysadmin/shadowops-infra/contents/$path?ref=main" --jq .sha)" = "$(git rev-parse "HEAD:$path")"
           done
       - name: Inventory or execute only the sealed plan
+        # On main push, this is diagnostic only: never block releases due to
+        # unavailable Cloudflare inventory or public endpoint.
+        continue-on-error: ${{ github.event_name == 'push' }}
         shell: bash
         env:
-          GC_ACTION: ${{ inputs.action }}
+          GC_ACTION: ${{ github.event_name == 'push' && 'plan' || inputs.action }}
           GC_ROLLBACK_RELEASE: ${{ inputs.rollback_release }}
           GC_EXPECTED_PLAN: ${{ inputs.expected_plan_sha256 }}
         run: |
