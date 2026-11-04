@@ -4,7 +4,7 @@ import sys
 
 DATABASE = 'shadowops_identity_staging'
 # These are the exact collections and actions required by verifyRuntimeRole
-# and verifyAdminInventoryRole, plus a read-only snapshot user. Access history is
+# and verifyAdminInventoryRole, plus separate snapshot and restore users. Access history is
 # enabled and the optional
 # short-lived recent-access view is disabled.
 ROLE_ACTIONS = {
@@ -20,6 +20,13 @@ ROLE_ACTIONS = {
         'staging_cka_tokens': ('FIND',),
         'admin_inventory_audit': ('FIND',),
         'staging_application_access_history': ('FIND',),
+    },
+    'shadowops_identity_staging_restore': {
+        'pending_accounts': ('FIND', 'INSERT'),
+        'sessions': ('FIND',),
+        'staging_cka_tokens': ('FIND',),
+        'admin_inventory_audit': ('FIND', 'INSERT'),
+        'staging_application_access_history': ('FIND', 'INSERT'),
     },
     'shadowops_identity_staging_inventory': {
         'pending_accounts': ('FIND', 'UPDATE'),

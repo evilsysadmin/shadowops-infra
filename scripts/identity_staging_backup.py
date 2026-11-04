@@ -127,11 +127,15 @@ def atlas_export_script(username, password):
     Only send the returned script over an isolated process's standard input.
     Never put its credentials in a URI, argv, environment, logs or artifacts.
     """
+    _validate_atlas_operator(username,password)
+    return _snapshot_export_script(username,password)
+
+
+def _validate_atlas_operator(username,password):
     if (not isinstance(username,str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{2,63}',username)
             or username == 'identity_root' or not isinstance(password,str)
             or not 16 <= len(password) <= 256 or any(ord(c) < 32 for c in password)):
-        raise BackupError('Invalid Atlas backup credential')
-    return _snapshot_export_script(username,password)
+        raise BackupError('Invalid Atlas operator credential')
 
 
 def _snapshot_export_script(username,password):
@@ -157,10 +161,20 @@ finally { session.endSession(); }
 
 
 def restore_script(root_password,value):
+    return _quarantine_restore_script('identity_root',root_password,value)
+
+
+def atlas_restore_script(username,password,value):
+    """Restore to an empty Atlas staging database using a dedicated operator."""
+    _validate_atlas_operator(username,password)
+    return _quarantine_restore_script(username,password,value)
+
+
+def _quarantine_restore_script(username,password,value):
     # Only a quarantine plan is sent to Mongo; live credentials never reappear.
     restored=quarantine_restore(value)
-    return 'const rootPassword='+json.dumps(root_password)+';\nconst snapshot='+json.dumps(restored)+';\n'+'''
-const auth=db.getSiblingDB('admin').auth('identity_root',rootPassword);
+    return 'const restoreUser='+json.dumps(username)+';\nconst restorePassword='+json.dumps(password)+';\nconst snapshot='+json.dumps(restored)+';\n'+'''
+const auth=db.getSiblingDB('admin').auth(restoreUser,restorePassword);
 if (!(auth === true || auth === 1 || auth.ok === 1)) throw new Error('restore authentication denied');
 const session=db.getMongo().startSession();
 try {
