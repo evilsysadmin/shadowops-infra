@@ -194,3 +194,12 @@ systemd but deliberately does not enable or start the timer. The existing
 local-Mongo timer remains active. A future cutover must explicitly validate an
 Atlas backup and restore, switch the active timer, verify the Atlas receipt,
 and retain a tested rollback; installing these files alone changes no timer.
+
+The manual `atlas-preflight` workflow requires an admitted, signed staging
+Identity image at the supplied source SHA and the separately prepared Atlas
+service configuration. Its fixed host wrapper pulls that image, verifies its
+source labels, runs `preflight` in an unprivileged read-only container on a
+fresh temporary egress network, then removes the network. It does not stop the
+current service, write to Mongo, read the old Mongo custody or perform a
+cutover. An exact source/digest receipt is required. This path is not a backup
+or restore verification and has not yet been executed against Atlas.

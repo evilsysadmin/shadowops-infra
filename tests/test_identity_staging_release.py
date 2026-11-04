@@ -94,3 +94,18 @@ class AtlasPrepareReleaseTests(unittest.TestCase):
   with patch.object(release,'inspect'),patch.object(release,'resolve_existing_host',return_value=('compartment','host')),patch.object(release,'resolve_vault',return_value=(VAULT,'key','compartment')):
    with self.assertRaises(release.ReleaseError) as failure:release.execute_atlas_prepare(sdk,{})
   self.assertNotIn('synthetic-private-data',str(failure.exception))
+
+class AtlasPreflightReleaseTests(unittest.TestCase):
+ def test_only_exact_signed_image_and_exact_receipt_are_accepted(self):
+  digest='sha256:'+'a'*64;sha='b'*40;captured=[]
+  def model(**kwargs):return SimpleNamespace(**kwargs)
+  content=SimpleNamespace(exit_code=0,text='IDENTITY_ATLAS_PREFLIGHT_OK source_sha='+sha+' digest='+digest)
+  client=SimpleNamespace(create_instance_agent_command=lambda **kw:captured.append(kw['create_instance_agent_command_details']) or SimpleNamespace(data=SimpleNamespace(id='fixture')),get_instance_agent_command_execution=lambda **kw:SimpleNamespace(data=SimpleNamespace(lifecycle_state='SUCCEEDED',content=content)))
+  models=SimpleNamespace(**{name:model for name in ['CreateInstanceAgentCommandDetails','InstanceAgentCommandTarget','InstanceAgentCommandContent','InstanceAgentCommandSourceViaTextDetails','InstanceAgentCommandOutputViaTextDetails']})
+  sdk=SimpleNamespace(compute_instance_agent=SimpleNamespace(models=models,ComputeInstanceAgentClient=lambda config:client))
+  with patch.object(release,'inspect'),patch.object(release,'resolve_existing_host',return_value=('compartment','host')):
+   self.assertIn('IDENTITY_ATLAS_PREFLIGHT_OK',release.execute_atlas_preflight(sdk,{},digest,sha))
+   content.text='synthetic-private-info'
+   with self.assertRaises(release.ReleaseError) as failure:release.execute_atlas_preflight(sdk,{},digest,sha)
+   self.assertNotIn('synthetic-private-info',str(failure.exception))
+  self.assertEqual(captured[0].content.source.text,'set -eu\ntest -x /usr/local/sbin/shadowops-identity-atlas-preflight\nsudo --non-interactive /usr/local/sbin/shadowops-identity-atlas-preflight preflight '+digest+' '+sha+'\n')

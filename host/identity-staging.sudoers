@@ -11,3 +11,7 @@ Cmnd_Alias SHADOWOPS_IDENTITY_ATLAS_PREPARE = /usr/local/sbin/shadowops-identity
 ocarun ALL=(root) NOPASSWD: SHADOWOPS_IDENTITY_ATLAS_PREPARE
 Cmnd_Alias SHADOWOPS_IDENTITY_ATLAS_BACKUP = /usr/local/sbin/shadowops-identity-atlas-backup backup
 ocarun ALL=(root) NOPASSWD: SHADOWOPS_IDENTITY_ATLAS_BACKUP
+
+# Fixed Atlas read-only preflight; wrapper validates image digest and SHA.
+Cmnd_Alias SHADOWOPS_IDENTITY_ATLAS_PREFLIGHT = /usr/local/sbin/shadowops-identity-atlas-preflight preflight *
+ocarun ALL=(root) NOPASSWD: SHADOWOPS_IDENTITY_ATLAS_PREFLIGHT
