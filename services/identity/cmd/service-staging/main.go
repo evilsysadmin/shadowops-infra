@@ -24,6 +24,20 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) == 2 && os.Args[1] == "preflight" {
+		cfg, err := identityruntime.LoadServiceConfig(os.Getenv("IDENTITY_STAGING_CONFIG_FILE"))
+		if err != nil {
+			log.Fatal("invalid private staging Identity configuration")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		err = identityruntime.PreflightStagingConnections(ctx, cfg)
+		cancel()
+		if err != nil {
+			log.Fatal("staging Identity connection preflight denied")
+		}
+		log.Print("staging Identity connection preflight passed")
+		return
+	}
 	if len(os.Args) != 1 {
 		log.Fatal("invalid Identity service command")
 	}

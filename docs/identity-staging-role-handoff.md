@@ -163,3 +163,12 @@ local Mongo operator bundle, create Atlas users, test connectivity, deploy the
 service or change the active database. Never put credentials in workflow
 inputs, logs, issues or chat. Add the GitHub secrets through the repository or
 staging environment secret settings using an authorized administrator account.
+
+The staging Identity image accepts `/app/identity preflight` with its protected
+service configuration. It checks TLS-authenticated runtime and inventory
+privileges and the writable replica without creating accounts, sessions or
+indexes. The command emits only generic success or failure. It has been tested
+against a disposable TLS replica with correctly scoped, insufficient and
+overprivileged users, but not against a live Atlas cluster. Run it from the
+actual candidate network before a cutover; backup, restore and public login
+verification remain separate requirements.
