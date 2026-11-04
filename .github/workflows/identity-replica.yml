@@ -78,7 +78,7 @@ jobs:
           IDENTITY_BROWSER_TEST: '1'
           IDENTITY_BROWSER_ARTIFACTS: ${{ runner.temp }}/identity-browser-artifacts
           NODE_PATH: ${{ runner.temp }}/identity-browser-tools/node_modules
-        run: go test -race -count=1 -v ./websession -run '^TestChromiumCentralAccountJourney$'
+        run: go test -race -count=1 -v ./websession -run '^TestChromium(CentralAccountJourney|AdminInventoryJourney)$'
       - uses: actions/upload-artifact@v4
         if: always()
         with:

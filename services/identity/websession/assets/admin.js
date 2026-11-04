@@ -1,0 +1,37 @@
+(() => {
+  const $ = id => document.getElementById(id);
+  let cursor = '';
+  const status = message => { $('status').textContent = message; };
+  async function send(path, body) {
+    return fetch(path, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  }
+  function accountItem(account) {
+    const item=document.createElement('li'); item.className='account';
+    const identity=document.createElement('div'); const name=document.createElement('strong'); name.textContent=account.name;
+    const id=document.createElement('small'); id.textContent=account.subject; identity.append(name,id);
+    const badge=document.createElement('span'); const enabled=account.state==='active' && !account.credentialsDisabled;
+    badge.className=enabled?'badge':'badge disabled'; badge.textContent=enabled?'Activa':account.credentialsDisabled?'Acceso deshabilitado':'No activa';
+    const sessions=document.createElement('div'); sessions.className='sessions';
+    const count=document.createElement('strong'); count.textContent=String(account.currentSessions);
+    const label=document.createElement('small'); label.textContent=account.currentSessions===1?'sesión vigente':'sesiones vigentes'; sessions.append(count,label);
+    item.append(identity,badge,sessions); return item;
+  }
+  async function load(append=false) {
+    status('Cargando cuentas…'); $('next').disabled=true; $('refresh').disabled=true; $('logout').disabled=true;
+    try {
+      const response=await send('/api/identity/admin/accounts',{after:append?cursor:'',limit:20});
+      if (response.status===401) { $('account-list').replaceChildren(); cursor=''; $('next').hidden=true; $('signin').hidden=false; $('accounts').hidden=true; $('logout').hidden=true; status('Inicia sesión con una cuenta administradora.'); return; }
+      if (!response.ok) throw Error('unavailable');
+      const page=await response.json(); if (!Array.isArray(page.accounts)) throw Error('invalid');
+      if (!append) $('account-list').replaceChildren();
+      for (const account of page.accounts) $('account-list').append(accountItem(account));
+      cursor=typeof page.next==='string'?page.next:''; $('next').hidden=!cursor;
+      $('empty').hidden=$('account-list').children.length!==0; $('signin').hidden=true; $('accounts').hidden=false; $('logout').hidden=false; status('');
+    } catch { status('No se pudieron cargar las cuentas. Inténtalo de nuevo.'); }
+    finally { $('next').disabled=false; $('refresh').disabled=false; $('logout').disabled=false; }
+  }
+  $('login').addEventListener('submit',async event=>{event.preventDefault();const button=event.submitter;button.disabled=true;status('Iniciando sesión…');try{const response=await send('/api/identity/login',{username:$('username').value,password:$('password').value});$('password').value='';if(!response.ok){status('No se pudo iniciar sesión. Revisa tus datos.');return;}await load();}catch{status('No se pudo conectar con Identity.');}finally{button.disabled=false;}});
+  $('refresh').addEventListener('click',()=>load()); $('next').addEventListener('click',()=>load(true));
+  $('logout').addEventListener('click',async()=>{try{const response=await send('/api/identity/logout',{});if(!response.ok)throw Error('logout');$('account-list').replaceChildren();$('accounts').hidden=true;$('logout').hidden=true;$('signin').hidden=false;cursor='';status('Sesión cerrada.');}catch{status('No se pudo cerrar la sesión.');}});
+  load();
+})();

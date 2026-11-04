@@ -215,6 +215,20 @@ func TestServiceRuntimeAdminInventoryOptInAndRoles(t *testing.T) {
 	server.TLS = service.Server.TLSConfig
 	server.StartTLS()
 	defer server.Close()
+	getPage := func(want int) {
+		t.Helper()
+		r, _ := http.NewRequest(http.MethodGet, server.URL+"/admin", nil)
+		r.Host = serviceHost
+		response, err := server.Client().Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		if response.StatusCode != want {
+			t.Fatalf("admin page status %d, want %d", response.StatusCode, want)
+		}
+	}
+	getPage(200)
 	request := func(path, body string, cookie *http.Cookie, want int) (http.Header, []byte) {
 		t.Helper()
 		r, err := http.NewRequest(http.MethodPost, server.URL+path, strings.NewReader(body))
@@ -277,7 +291,13 @@ func TestServiceRuntimeAdminInventoryOptInAndRoles(t *testing.T) {
 	if !found {
 		t.Fatal("admin account absent")
 	}
-	count, err := root.Database(serviceDatabase).Collection("admin_inventory_audit").CountDocuments(ctx, bson.M{"action": "list_accounts"})
+	var admin struct {
+		Subject string `bson:"_id"`
+	}
+	if err := accounts.FindOne(ctx, bson.M{"alias_key": "inventory_admin", "source": "shadowops-identity"}).Decode(&admin); err != nil {
+		t.Fatal(err)
+	}
+	count, err := root.Database(serviceDatabase).Collection("admin_inventory_audit").CountDocuments(ctx, bson.M{"action": "list_accounts", "actor": admin.Subject})
 	if err != nil || count != 1 {
 		t.Fatal("audit missing", count, err)
 	}

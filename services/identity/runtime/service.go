@@ -237,6 +237,10 @@ func NewStagingService(ctx context.Context, cfg ServiceConfig) (*RunningService,
 		}
 	}
 	mux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if inventoryHandler != nil && (r.URL.Path == "/admin" || r.URL.Path == "/assets/admin.css" || r.URL.Path == "/assets/admin.js") {
+			websession.StagingAdminPage(w, r)
+			return
+		}
 		if r.URL.Path == websession.AdminInventoryPath && inventoryHandler != nil {
 			inventoryHandler.ServeHTTP(w, r)
 			return
