@@ -185,5 +185,58 @@ class AutomaticFootballGC(unittest.TestCase):
             no_delete.assert_not_called()
 
 
+    def test_ci_attested_historical_artifact_and_404_fallback(self):
+        import tempfile
+        import zipfile
+        from test_football_delivery import fixture, SHA as HIST_SHA
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            verified = fixture(root)
+            output = io.BytesIO()
+            with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+                for item in root.rglob("*"):
+                    if item.is_file():
+                        archive.write(item, item.relative_to(root).as_posix())
+            blob = output.getvalue()
+        digest = "sha256:" + auto.hashlib.sha256(blob).hexdigest()
+        def reader(path):
+            if "/workflows/" in path:
+                return {"workflow_runs": [{"id": 7, "head_sha": HIST_SHA,
+                                           "head_branch": "main", "event": "push",
+                                           "status": "completed", "conclusion": "success"}]}
+            if "/jobs?" in path:
+                return {"jobs": [{"name": name, "conclusion": "success",
+                                  "completed_at": "today"} for name in (
+                        "Football · required visual gate",
+                        "Real Chromium · Godot Web boot",
+                        "Manager · deterministic career and save isolation",
+                        "validate")]}
+            if "/artifacts?" in path:
+                return {"artifacts": [{"id": 77, "name": "football-staging-" + HIST_SHA,
+                                      "expired": False, "digest": digest}]}
+            raise AssertionError(path)
+        prior = auto.attested_source_release(HIST_SHA, github=reader,
+                                              download=lambda ident: blob)
+        self.assertEqual(prior["release"], verified["runtime"]["release"])
+        with self.assertRaises(auto.AutoGCError):
+            auto.attested_source_release(HIST_SHA, github=reader,
+                                         download=lambda ident: blob + b"tampered")
+        objects, live = objects_and_live()
+        objects.update({gc.ROOT + prior["release"] + "/" + name: entry["bytes"]
+                        for name, entry in prior["files"].items()})
+        def not_available(url):
+            raise auto.AutoGCError("Historical Pages release HTTP 404")
+        rows = lambda: [("2026-11-03T10:00:00Z", HIST_SHA,
+                         "https://536e3bf2.football-staging-aha.pages.dev")]
+        self.assertEqual(auto.pick_rollback(objects, live, history=rows,
+                                             fetch_release=not_available,
+                                             artifact_release=lambda sha: prior),
+                         prior["release"])
+        with self.assertRaises(auto.AutoGCError):
+            auto.pick_rollback(objects, live, history=rows,
+                               fetch_release=not_available,
+                               artifact_release=lambda sha: dict(prior, source_sha="0"*40))
+
+
 if __name__ == "__main__":
     unittest.main()
