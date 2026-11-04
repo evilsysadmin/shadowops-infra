@@ -16,6 +16,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'scripts'))
 from identity_staging_bundle import generate,service_config,enable_admin_inventory
 import identity_staging_backup as backup
+from identity_staging_atlas_policy import validate_atlas_compose, AtlasPolicyError
 spec=importlib.util.spec_from_file_location('identity_host_stack',ROOT/'host/identity-staging-deploy.py')
 host=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(host)
@@ -84,6 +85,23 @@ class StackTests(unittest.TestCase):
     self.assertIn('no-new-privileges:true',service['security_opt'])
    self.assertNotIn('volumes',config)
    with self.assertRaises(host.DeployError):host.assert_compose(config,'sha256:'+'a'*64)
+   digest='sha256:'+'a'*64
+   validate_atlas_compose(config,digest)
+   for scenario in ('port','socket','wrong-network','wrong-image','privileged','writable-root','extra-env','extra-service','unprotected-origin','wrong-alias','network-driver','excess-memory'):
+    changed=copy.deepcopy(config)
+    if scenario=='port':changed['services']['identity']['ports']=[{'published':'27017','target':27017}]
+    if scenario=='socket':changed['services']['identity']['volumes'].append({'type':'bind','source':'/var/run/docker.sock','target':'/socket','read_only':False})
+    if scenario=='wrong-network':changed['services']['identity']['networks']['tunnel-egress']={}
+    if scenario=='wrong-image':changed['services']['identity']['image']='foreign:latest'
+    if scenario=='privileged':changed['services']['identity']['privileged']=True
+    if scenario=='writable-root':changed['services']['identity']['read_only']=False
+    if scenario=='extra-env':changed['services']['identity']['environment']={'EXTRA':'bad'}
+    if scenario=='extra-service':changed['services']['extra']={}
+    if scenario=='unprotected-origin':changed['networks']['origin']['internal']=False
+    if scenario=='wrong-alias':changed['services']['identity']['networks']['origin']['aliases']=['foreign.example']
+    if scenario=='network-driver':changed['networks']['atlas-egress']['driver_opts']={'unsafe':'true'}
+    if scenario=='excess-memory':changed['services']['identity']['mem_limit']='99999999999'
+    with self.subTest(scenario=scenario),self.assertRaises(AtlasPolicyError):validate_atlas_compose(changed,digest)
 
  def test_private_tls_image_account_revocation_and_database_persistence(self):
   prefix='identity-stack-test-'+secrets.token_hex(5)
