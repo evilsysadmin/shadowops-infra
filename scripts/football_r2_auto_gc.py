@@ -162,3 +162,30 @@ def reclaim_if_needed(account, additions, *, source_sha,
     # The publisher separately rechecks the post-GC quota before its first PUT.
     print("FOOTBALL_R2_AUTO_GC_VERIFIED reclaimed_bytes=" + str(plan["reclaim_bytes"]))
     return True
+
+
+def read_only_probe():
+    """Validate historical rollback proof without authorizing DELETE."""
+    permitted()
+    account = pages.required("CLOUDFLARE_ACCOUNT_ID")
+    if not gc.ACCOUNT_ID.fullmatch(account):
+        raise AutoGCError("Exact Cloudflare account ID required")
+    objects = delivery.inventory(account)
+    live = gc.live_pointer()
+    rollback = pick_rollback(objects, live)
+    plan = gc.make_plan(objects, live, rollback)
+    print("FOOTBALL_R2_AUTO_GC_ROLLBACK_PROVEN " + json.dumps({
+        "active": plan["active"], "rollback": rollback,
+        "obsolete_objects": len(plan["delete"]), "potential_reclaim_bytes": plan["reclaim_bytes"],
+    }, sort_keys=True))
+
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) != 2 or sys.argv[1] != "probe":
+        raise SystemExit("Only read-only 'probe' command exists")
+    try:
+        read_only_probe()
+    except (AutoGCError, gc.GCError, delivery.DeliveryError, OSError, RuntimeError) as error:
+        print("FOOTBALL_R2_AUTO_GC_PROBE_BLOCKED " + str(error), file=sys.stderr)
+        raise SystemExit(1)
