@@ -109,3 +109,18 @@ class AtlasPreflightReleaseTests(unittest.TestCase):
    with self.assertRaises(release.ReleaseError) as failure:release.execute_atlas_preflight(sdk,{},digest,sha)
    self.assertNotIn('synthetic-private-info',str(failure.exception))
   self.assertEqual(captured[0].content.source.text,'set -eu\ntest -x /usr/local/sbin/shadowops-identity-atlas-preflight\nsudo --non-interactive /usr/local/sbin/shadowops-identity-atlas-preflight preflight '+digest+' '+sha+'\n')
+
+class AtlasBackupReleaseTests(unittest.TestCase):
+ def test_atlas_backup_requires_exact_nonsecret_receipt(self):
+  captured=[]
+  def model(**kwargs):return SimpleNamespace(**kwargs)
+  content=SimpleNamespace(exit_code=0,text='IDENTITY_ATLAS_STAGING_BACKUP_OK encrypted_bytes=123')
+  client=SimpleNamespace(create_instance_agent_command=lambda **kw:captured.append(kw['create_instance_agent_command_details']) or SimpleNamespace(data=SimpleNamespace(id='fixture')),get_instance_agent_command_execution=lambda **kw:SimpleNamespace(data=SimpleNamespace(lifecycle_state='SUCCEEDED',content=content)))
+  models=SimpleNamespace(**{name:model for name in ['CreateInstanceAgentCommandDetails','InstanceAgentCommandTarget','InstanceAgentCommandContent','InstanceAgentCommandSourceViaTextDetails','InstanceAgentCommandOutputViaTextDetails']})
+  sdk=SimpleNamespace(compute_instance_agent=SimpleNamespace(models=models,ComputeInstanceAgentClient=lambda config:client))
+  with patch.object(release,'inspect'),patch.object(release,'resolve_existing_host',return_value=('compartment','host')):
+   self.assertEqual(release.execute_atlas_backup(sdk,{}),'IDENTITY_ATLAS_STAGING_BACKUP_OK encrypted_bytes=123')
+   content.text='synthetic-private-info'
+   with self.assertRaises(release.ReleaseError) as failure:release.execute_atlas_backup(sdk,{})
+   self.assertNotIn('synthetic-private-info',str(failure.exception))
+  self.assertEqual(captured[0].content.source.text,'set -eu\ntest -x /usr/local/sbin/shadowops-identity-atlas-backup\nsudo --non-interactive /usr/local/sbin/shadowops-identity-atlas-backup backup\n')

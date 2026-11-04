@@ -6,13 +6,15 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
+import secrets
 import stat
 import subprocess
 import sys
 import tempfile
 
 sys.path.insert(0, '/usr/local/lib/shadowops')
-from identity_staging_atlas_backup import NETWORK, snapshot, validate_backup_config
+from identity_staging_atlas_backup import snapshot, validate_backup_config
 from identity_staging_backup import BackupError, decrypt_snapshot
 
 STATE = Path('/var/lib/shadowops/identity-staging')
@@ -48,16 +50,26 @@ def private_config(path=CONFIG):
     return value
 
 
-def verify_network(runner=subprocess.run):
-    result = runner(['docker', 'network', 'inspect', NETWORK, '--format', '{{json .Labels}}'],
-                    text=True, capture_output=True, timeout=15,
-                    env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin'})
-    if result.returncode != 0 or len(result.stdout) > 8192:
-        raise BackupError('Atlas network unavailable')
-    labels = json.loads(result.stdout)
-    if (not isinstance(labels, dict) or labels.get('com.docker.compose.project') != 'shadowops-identity-staging'
-            or labels.get('com.docker.compose.network') != 'atlas-egress'):
-        raise BackupError('Atlas network ownership mismatch')
+def network_command(args):
+    result = subprocess.run(['docker', 'network', *args], text=True, capture_output=True,
+                            timeout=30, env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin'})
+    if result.returncode != 0:
+        raise BackupError('Temporary Atlas backup network failed')
+
+
+def capture_snapshot(config, command=network_command, capture=snapshot, nonce=None):
+    suffix = nonce if nonce is not None else secrets.token_hex(12)
+    if not re.fullmatch(r'[a-f0-9]{24}', suffix):
+        raise BackupError('Invalid Atlas backup network')
+    network = 'shadowops-identity-atlas-backup-' + suffix
+    created = False
+    try:
+        command(['create', '--label', 'shadowops.identity.atlas-backup=staging', network])
+        created = True
+        return capture(config, network)
+    finally:
+        if created:
+            command(['rm', network])
 
 
 def write_private(path, data):
@@ -85,8 +97,7 @@ def main():
         with (STATE / 'deploy.lock').open('a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             config = private_config()
-            verify_network()
-            encrypted = snapshot(config)
+            encrypted = capture_snapshot(config)
             decrypt_snapshot(encrypted, config['backup_key'])
             filename = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + os.urandom(6).hex() + '.fernet'
             write_private(DIRECTORY / filename, encrypted)
