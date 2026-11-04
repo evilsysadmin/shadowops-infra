@@ -212,6 +212,12 @@ print('REAL_IMAGE_ACCOUNT_SESSION_AND_REVOCATION_OK');
     role_setup+='admin.createRole({role:"fixture_atlas_backup",roles:[],privileges:resources.map(c=>({resource:{db:"shadowops_identity_staging",collection:c},actions:["find"]}))});\n'
     role_setup+='admin.createUser({user:"fixture_atlas_backup",pwd:'+json.dumps(backup_password)+',roles:[{role:"fixture_atlas_backup",db:"admin"}]});'
     shell(role_setup)
+    restore_password=secrets.token_hex(24)
+    restore_setup='const admin=db.getSiblingDB("admin"); admin.auth("identity_root",'+json.dumps(bundle['mongo_root_password'])+');\n'
+    restore_setup+='const names='+json.dumps(sorted(backup.COLLECTIONS))+'; const writeNames=["pending_accounts","admin_inventory_audit","staging_application_access_history"];\n'
+    restore_setup+='admin.createRole({role:"fixture_atlas_restore",roles:[],privileges:names.map(c=>({resource:{db:"shadowops_identity_staging",collection:c},actions:writeNames.includes(c)?["find","insert"]:["find"]}))});\n'
+    restore_setup+='admin.createUser({user:"fixture_atlas_restore",pwd:'+json.dumps(restore_password)+',roles:[{role:"fixture_atlas_restore",db:"admin"}]});'
+    shell(restore_setup)
     atlas_snapshot=json.loads(shell(backup.atlas_export_script('fixture_atlas_backup',backup_password)))
     backup.validate_snapshot(atlas_snapshot)
     with self.assertRaises(AssertionError):shell(backup.atlas_export_script('fixture_atlas_backup','wrong-password-0000000000'))
@@ -233,7 +239,8 @@ print('REAL_IMAGE_ACCOUNT_SESSION_AND_REVOCATION_OK');
     shell('const a=db.getSiblingDB("admin"); a.auth("identity_root",'+json.dumps(bundle['mongo_root_password'])+'); for (const c of ["pending_accounts","sessions","staging_cka_tokens"]) db.getSiblingDB("shadowops_identity_staging").getCollection(c).deleteMany({});')
     with self.assertRaises(AssertionError):shell(backup.restore_script(bundle['mongo_root_password'],restored))
     shell('const a=db.getSiblingDB("admin"); a.auth("identity_root",'+json.dumps(bundle['mongo_root_password'])+'); for (const c of ["admin_inventory_audit","staging_application_access_history"]) db.getSiblingDB("shadowops_identity_staging").getCollection(c).deleteMany({});')
-    self.assertIn('IDENTITY_STAGING_QUARANTINE_RESTORE_OK',shell(backup.restore_script(bundle['mongo_root_password'],restored)))
+    with self.assertRaises(AssertionError):shell(backup.atlas_restore_script('fixture_atlas_backup',backup_password,restored))
+    self.assertIn('IDENTITY_STAGING_QUARANTINE_RESTORE_OK',shell(backup.atlas_restore_script('fixture_atlas_restore',restore_password,restored)))
     after_restore=json.loads(shell(backup.export_script(bundle['mongo_root_password'])))
     self.assertEqual(after_restore['collections']['pending_accounts'][0]['role'],'user')
     for name in ('staging_application_access_history','admin_inventory_audit'):

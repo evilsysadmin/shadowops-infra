@@ -115,9 +115,9 @@ independent Mongo credentials, verified backup/restore and a tested rollback.
 
 ## Atlas custom role payloads
 
-`python3 scripts/identity_staging_atlas_roles.py` prints three secret-free Atlas
-Admin API custom-role payloads for the staging runtime, inventory and read-only
-backup users.
+`python3 scripts/identity_staging_atlas_roles.py` prints four secret-free Atlas
+Admin API custom-role payloads for the staging runtime, inventory, read-only
+backup and dedicated quarantine restore users.
 They match the current access-history-enabled Identity privilege checks; the
 optional recent-access view is disabled. Atlas custom roles must be created
 through Atlas UI, CLI or API, not Mongo `createRole`; see the [Atlas custom
@@ -142,3 +142,10 @@ writes an Atlas-specific receipt. It does not read local Mongo custody. It is
 not installed, scheduled, connected to Atlas or a replacement for a tested
 restore. Its Docker transport is covered by isolated orchestration tests; a
 live Atlas end-to-end backup/restore remains a cutover prerequisite.
+
+The quarantine restore primitive supports a separate Atlas restore user whose
+role can read the five destination collections and insert only accounts,
+inventory audit and access summaries. The transaction refuses a nonempty
+destination and strips credentials, sessions, tokens and admin roles. The
+operator must stop Identity first; no Atlas restore runner is installed or
+authorized by this primitive, and live Atlas restore remains unverified.
