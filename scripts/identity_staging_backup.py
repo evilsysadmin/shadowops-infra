@@ -108,6 +108,8 @@ def quarantine_restore(value):
     for row in restored['collections']['pending_accounts']:
         row['state']='restore-review'
         row['credentials_disabled']=True
+        # Restored accounts must not recover platform privileges implicitly.
+        row['role']='user'
         for field in ('credential_hash','password_hash','recovery_digest'):
             row.pop(field,None)
         for field in ('session_version','credential_version'):

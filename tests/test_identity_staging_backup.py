@@ -24,12 +24,14 @@ def snapshot_v2():
 class BackupTests(unittest.TestCase):
  def test_v2_preserves_history_and_audit_in_quarantine(self):
   value=snapshot_v2();key=Fernet.generate_key()
+  value['collections']['pending_accounts'][0]['role']='admin'
   self.assertEqual(backup.decrypt_snapshot(backup.encrypt_snapshot(value,key),key),value)
   restored=backup.quarantine_restore(value)
   for name in backup.ADMIN_COLLECTIONS:self.assertEqual(restored['collections'][name],value['collections'][name])
   self.assertEqual(restored['collections']['sessions'],[])
   self.assertEqual(restored['collections']['staging_cka_tokens'],[])
   self.assertEqual(restored['collections']['pending_accounts'][0]['state'],'restore-review')
+  self.assertEqual(restored['collections']['pending_accounts'][0]['role'],'user')
 
  def test_v2_rejects_bad_admin_records_and_missing_collections(self):
   for mutate in [lambda v:v['collections'].pop('admin_inventory_audit'),lambda v:v['collections']['staging_application_access_history'][0].update(environment='production'),lambda v:v['collections']['staging_application_access_history'][0].update(application='unknown'),lambda v:v['collections']['admin_inventory_audit'][0].update(actor='invalid'),lambda v:v['collections']['admin_inventory_audit'][0].update(returned=51),lambda v:v['collections']['staging_application_access_history'][0].update(last_at={'$date':{'$numberLong':'1'}})]:

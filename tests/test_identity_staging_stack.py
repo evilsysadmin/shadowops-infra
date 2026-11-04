@@ -142,7 +142,7 @@ print('REAL_IMAGE_ACCOUNT_SESSION_AND_REVOCATION_OK');
     keep=node.replace('REGISTER','false').replace("await call('/api/identity/logout',{},origin,cookie,null,204);\nawait call('/api/identity/freshness',proof,null,null,credential,401);", "print('FIXTURE_PROOF='+JSON.stringify({cookie,proof}));")
     proof_output=shell(keep)
     saved=json.loads(next(line[len('FIXTURE_PROOF='):] for line in proof_output.splitlines() if line.startswith('FIXTURE_PROOF=')))
-    shell('const a=db.getSiblingDB("admin"); a.auth("identity_root",'+json.dumps(bundle['mongo_root_password'])+'); const d=db.getSiblingDB("shadowops_identity_staging"), s='+json.dumps(saved['proof']['subject'])+'; d.staging_application_access_history.insertOne({_id:s+":chronicles",environment:"staging",subject:s,application:"chronicles",first_at:new Date("2026-01-01T00:00:00Z"),last_at:new Date("2026-02-01T00:00:00Z")}); d.admin_inventory_audit.insertOne({_id:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",environment:"staging",actor:s,action:"list_accounts",at:new Date("2026-02-01T00:00:00Z"),returned:1});')
+    shell('const a=db.getSiblingDB("admin"); a.auth("identity_root",'+json.dumps(bundle['mongo_root_password'])+'); const d=db.getSiblingDB("shadowops_identity_staging"), s='+json.dumps(saved['proof']['subject'])+'; d.pending_accounts.updateOne({_id:s},{$set:{role:"admin"}}); d.staging_application_access_history.insertOne({_id:s+":chronicles",environment:"staging",subject:s,application:"chronicles",first_at:new Date("2026-01-01T00:00:00Z"),last_at:new Date("2026-02-01T00:00:00Z")}); d.admin_inventory_audit.insertOne({_id:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",environment:"staging",actor:s,action:"list_accounts",at:new Date("2026-02-01T00:00:00Z"),returned:1});')
     snapshot=json.loads(shell(backup.export_script(bundle['mongo_root_password'])))
     self.assertEqual(snapshot['schema'],2)
     self.assertEqual(len(snapshot['collections']['staging_application_access_history']),1)
@@ -162,6 +162,7 @@ print('REAL_IMAGE_ACCOUNT_SESSION_AND_REVOCATION_OK');
     shell('const a=db.getSiblingDB("admin"); a.auth("identity_root",'+json.dumps(bundle['mongo_root_password'])+'); for (const c of ["admin_inventory_audit","staging_application_access_history"]) db.getSiblingDB("shadowops_identity_staging").getCollection(c).deleteMany({});')
     self.assertIn('IDENTITY_STAGING_QUARANTINE_RESTORE_OK',shell(backup.restore_script(bundle['mongo_root_password'],restored)))
     after_restore=json.loads(shell(backup.export_script(bundle['mongo_root_password'])))
+    self.assertEqual(after_restore['collections']['pending_accounts'][0]['role'],'user')
     for name in ('staging_application_access_history','admin_inventory_audit'):
      self.assertEqual(after_restore['collections'][name],snapshot['collections'][name])
     docker('start',identity);healthy()
