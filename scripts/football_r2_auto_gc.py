@@ -6,9 +6,15 @@ source/artifact/owner/keeper preflight but before the first R2 PUT.
 """
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import os
 import re
+import stat
+import subprocess
+import zipfile
+from pathlib import PurePosixPath
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -58,6 +64,104 @@ def read_immutable_manifest(url):
     return gc.live_pointer(lambda: result)
 
 
+def attested_source_release(sha, *, github=delivery.github, download=None):
+    """Recover historical runtime identity from its CI-attested source artifact.
+
+    Cloudflare Pages can remove old immutable /release.json URLs (404) while
+    retaining successful deployment metadata. Trust only the original source
+    SHA's passing push CI + immutable artifact digest, never R2 ordering.
+    """
+    if not isinstance(sha, str) or not delivery.HEX.fullmatch(sha):
+        raise AutoGCError("Historical source SHA invalid")
+    query = urllib.parse.urlencode({"head_sha": sha, "branch": "main",
+                                    "event": "push", "per_page": 20})
+    runs = github(f"/repos/{delivery.REPO}/actions/workflows/{delivery.WORKFLOW}/runs?" + query)
+    if not isinstance(runs, dict) or not isinstance(runs.get("workflow_runs"), list):
+        raise AutoGCError("Historical source CI evidence unavailable")
+    needed = {"Football · required visual gate", "Real Chromium · Godot Web boot",
+              "Manager · deterministic career and save isolation", "validate"}
+    for run in runs["workflow_runs"]:
+        if (run.get("head_sha") != sha or run.get("head_branch") != "main"
+            or run.get("event") != "push" or run.get("status") != "completed"
+            or run.get("conclusion") != "success" or type(run.get("id")) is not int):
+            continue
+        rid = run["id"]
+        jobs = github(f"/repos/{delivery.REPO}/actions/runs/{rid}/jobs?per_page=100").get("jobs")
+        if not isinstance(jobs, list):
+            raise AutoGCError("Historical source jobs unavailable")
+        passed = {j.get("name") for j in jobs if isinstance(j, dict)
+                  and j.get("conclusion") == "success" and j.get("completed_at")}
+        if not needed <= passed:
+            continue
+        artifacts = github(f"/repos/{delivery.REPO}/actions/runs/{rid}/artifacts?per_page=100").get("artifacts")
+        if not isinstance(artifacts, list):
+            raise AutoGCError("Historical source artifacts unavailable")
+        matches = [a for a in artifacts if isinstance(a, dict)
+                   and a.get("name") == "football-staging-" + sha
+                   and a.get("expired") is False and type(a.get("id")) is int
+                   and isinstance(a.get("digest"), str)
+                   and re.fullmatch(r"sha256:[a-f0-9]{64}", a["digest"])]
+        if len(matches) != 1:
+            continue
+        artifact = matches[0]
+        if download is None:
+            try:
+                proc = subprocess.run(["gh", "api",
+                                       f"repos/{delivery.REPO}/actions/artifacts/{artifact['id']}/zip"],
+                                      check=True, stdout=subprocess.PIPE,
+                                      stderr=subprocess.DEVNULL, timeout=90)
+            except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+                raise AutoGCError("Cannot download signed GitHub historical release artifact") from exc
+            blob = proc.stdout
+        else:
+            blob = download(artifact["id"])
+        if (not isinstance(blob, bytes) or len(blob) > 40_000_000
+            or hashlib.sha256(blob).hexdigest() != artifact["digest"][7:]):
+            raise AutoGCError("Historical artifact ZIP digest mismatch or exceeds bound")
+        try:
+            with zipfile.ZipFile(io.BytesIO(blob)) as archive:
+                names = {item.filename for item in archive.infolist() if not item.is_dir()}
+                if (len(names) != len([i for i in archive.infolist() if not i.is_dir()])
+                    or len(names) > 401 or "delivery.json" not in names
+                    or "web/release.json" not in names):
+                    raise AutoGCError("Malformed historical artifact archive")
+                manifest = json.loads(archive.read("delivery.json"))
+                if (manifest.get("application") != "football-of-matthias"
+                    or manifest.get("environment") != "staging"
+                    or manifest.get("source_sha") != sha
+                    or not isinstance(manifest.get("files"), dict)
+                    or set(manifest["files"]) != names - {"delivery.json"}):
+                    raise AutoGCError("Historical delivery manifest mismatch")
+                total = 0
+                for item in archive.infolist():
+                    if item.is_dir():
+                        continue
+                    p = PurePosixPath(item.filename)
+                    if (p.is_absolute() or ".." in p.parts or
+                        stat.S_ISLNK(item.external_attr >> 16)
+                        or p.parts[0] not in {"web", "runtime"}):
+                        raise AutoGCError("Unsafe historical artifact path")
+                    raw = archive.read(item.filename)
+                    meta = manifest["files"].get(item.filename)
+                    if (not isinstance(meta, dict) or len(raw) != meta.get("bytes")
+                        or hashlib.sha256(raw).hexdigest() != meta.get("sha256")):
+                        raise AutoGCError("Historical artifact entry digest mismatch")
+                    total += len(raw)
+                    if total > 200_000_000:
+                        raise AutoGCError("Historical artifact exceeds source budget")
+                release = json.loads(archive.read("web/release.json"))
+                pointer = gc.live_pointer(lambda: release)
+                if (pointer["source_sha"] != sha
+                    or json.loads(archive.read("web/runtime.json")) != release.get("runtime")
+                    or any("runtime/" + name not in names
+                           for name in release["files"])):
+                    raise AutoGCError("Historical artifact runtime does not match source SHA")
+                return pointer
+        except (OSError, ValueError, KeyError, zipfile.BadZipFile) as exc:
+            raise AutoGCError("Malformed historical source artifact") from exc
+    raise AutoGCError("No valid historical main CI and immutable artifact")
+
+
 def successful_history(reader=pages.request):
     # env=production means Pages' *main branch*, not the ShadowOps prod domain.
     # Default API page avoids a provider HTTP 400 on the oversized list.
@@ -92,7 +196,8 @@ def successful_history(reader=pages.request):
 
 
 def pick_rollback(objects, live, *, history=successful_history,
-                  fetch_release=read_immutable_manifest):
+                  fetch_release=read_immutable_manifest,
+                  artifact_release=attested_source_release):
     groups = gc.group_releases(objects)
     for _, sha, url in history():
         if sha == live["source_sha"]:
@@ -100,14 +205,20 @@ def pick_rollback(objects, live, *, history=successful_history,
         print("FOOTBALL_R2_ROLLBACK_CHECK sha=" + sha[:12])
         # A rollback must have its own immutable Pages URL. Never make up a
         # rollback from a partial R2 upload or unverified orphan.
-        if not isinstance(url, str):
-            continue
         try:
+            if not isinstance(url, str):
+                raise AutoGCError("Historical Pages URL absent")
             candidate = fetch_release(url)
         except (gc.GCError, OSError, ValueError) as exc:
-            print("FOOTBALL_R2_ROLLBACK_REJECT sha=" + sha[:12]
+            print("FOOTBALL_R2_ROLLBACK_HTTP_UNAVAILABLE sha=" + sha[:12]
                   + " reason=" + str(exc)[:130])
-            continue
+            try:
+                candidate = artifact_release(sha)
+                print("FOOTBALL_R2_ROLLBACK_ATTESTED sha=" + sha[:12])
+            except (gc.GCError, delivery.DeliveryError, OSError, ValueError) as artifact_error:
+                print("FOOTBALL_R2_ROLLBACK_REJECT sha=" + sha[:12]
+                      + " reason=" + str(artifact_error)[:130])
+                continue
         rid = candidate["release"]
         if candidate["source_sha"] != sha or rid == live["release"]:
             continue
