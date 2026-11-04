@@ -80,8 +80,10 @@ class FootballDelivery(unittest.TestCase):
  def test_source_admission_requires_exact_main_successful_push_and_all_gates(self):
   def reader(path):
    if path.endswith('/commits/main'):return {'sha':SHA}
-   if '/workflows/' in path:return {'workflow_runs':[{'id':4,'head_sha':SHA,'head_branch':'main','event':'push','status':'completed','conclusion':'success'}]}
-   if '/jobs?' in path:return {'jobs':[{'name':n,'conclusion':'success','completed_at':'today'} for n in ['Football · required visual gate','Real Chromium · Godot Web boot','Manager · deterministic career and save isolation','validate']]}
+   if '/workflows/' in path:return {'workflow_runs':[{'id':5 if delivery.XI_WORKFLOW in path else 4,'head_sha':SHA,'head_branch':'main','event':'push','status':'completed','conclusion':'success'}]}
+   if '/jobs?' in path:
+    names=[delivery.XI_CHECK] if '/runs/5/' in path else ['Football · required visual gate','Real Chromium · Godot Web boot','Manager · deterministic career and save isolation','validate']
+    return {'jobs':[{'name':n,'status':'completed','conclusion':'success','completed_at':'today'} for n in names]}
    if '/artifacts?' in path:return {'artifacts':[{'id':7,'name':'football-staging-'+SHA,'expired':False,'digest':'sha256:'+'b'*64}]}
    raise AssertionError(path)
   self.assertEqual(delivery.admit(reader)['source_sha'],SHA)
@@ -90,12 +92,42 @@ class FootballDelivery(unittest.TestCase):
     value=reader(path)
     if fault=='pr' and '/workflows/' in path:value['workflow_runs'][0]['event']='pull_request'
     if fault=='sha' and '/workflows/' in path:value['workflow_runs'][0]['head_sha']='b'*40
-    if fault=='gate' and '/jobs?' in path:value['jobs']=[]
+    if fault=='gate' and '/runs/4/jobs?' in path:value['jobs']=[]
     if fault=='artifact' and '/artifacts?' in path:value['artifacts']=[]
     return value
    if fault=='artifact':
     with self.assertRaises(delivery.DeliveryError):delivery.admit(changed)
    else:self.assertIsNone(delivery.admit(changed))
+ def test_xi_separate_workflow_must_be_green_on_exact_main_push(self):
+  def clean(path):
+   if path.endswith('/commits/main'):return {'sha':SHA}
+   if '/workflows/' in path:return {'workflow_runs':[{'id':5 if delivery.XI_WORKFLOW in path else 4,'head_sha':SHA,'head_branch':'main','event':'push','status':'completed','conclusion':'success'}]}
+   if '/jobs?' in path:
+    names=[delivery.XI_CHECK] if '/runs/5/' in path else ['Football · required visual gate','Real Chromium · Godot Web boot','Manager · deterministic career and save isolation','validate']
+    return {'jobs':[{'name':n,'status':'completed','conclusion':'success','completed_at':'today'} for n in names]}
+   if '/artifacts?' in path:return {'artifacts':[{'id':7,'name':'football-staging-'+SHA,'expired':False,'digest':'sha256:'+'b'*64}]}
+   raise AssertionError(path)
+  self.assertEqual(delivery.admit(clean)['source_sha'],SHA)
+  for fault in ['missing_run','pending','failed','skipped','wrong_sha','wrong_branch','pr','missing_job','job_failed','job_pending','job_incomplete']:
+   with self.subTest(fault=fault):
+    def reader(path):
+     value=clean(path)
+     if delivery.XI_WORKFLOW in path and '/workflows/' in path:
+      run=value['workflow_runs'][0]
+      if fault=='missing_run':value['workflow_runs']=[]
+      if fault=='pending':run.update(status='in_progress',conclusion=None)
+      if fault=='failed':run.update(status='completed',conclusion='failure')
+      if fault=='skipped':run.update(status='completed',conclusion='skipped')
+      if fault=='wrong_sha':run['head_sha']='b'*40
+      if fault=='wrong_branch':run['head_branch']='other'
+      if fault=='pr':run['event']='pull_request'
+     if '/runs/5/jobs?' in path:
+      if fault=='missing_job':value['jobs']=[]
+      if fault=='job_failed':value['jobs'][0]['conclusion']='failure'
+      if fault=='job_pending':value['jobs'][0]['status']='in_progress'
+      if fault=='job_incomplete':value['jobs'][0]['completed_at']=None
+     return value
+    self.assertIsNone(delivery.admit(reader),'Must fail closed before staging publication')
  def test_pages_generated_subdomain_is_used_without_adopting_foreign_domains(self):
   project={'name':pages.PROJECT,'production_branch':'main','subdomain':'football-staging-aha.pages.dev','domains':['football-staging-aha.pages.dev']}
   with patch.dict(os.environ,{'CLOUDFLARE_ACCOUNT_ID':'a'*32}),patch.object(pages,'request',return_value=(200,project)):

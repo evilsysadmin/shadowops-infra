@@ -109,6 +109,21 @@ jobs:
         run: |
           set -euo pipefail
           test "$(gh api repos/evilsysadmin/football-of-matthias/commits/main --jq .sha)" = "$SOURCE_SHA"
+          # Candidate admission can become stale while waiting for a runner.
+          # Recheck BOTH independent exact-SHA CI workflows immediately
+          # before any R2/Pages mutation, including the XI endurance gate.
+          python3 - <<'PY'
+          import os,sys
+          sys.path.insert(0,'scripts')
+          import football_delivery
+          proof=football_delivery.admit()
+          expected={'source_sha':os.environ['SOURCE_SHA'],
+                    'artifact_id':int(os.environ['ARTIFACT_ID']),
+                    'artifact_digest':os.environ['ARTIFACT_DIGEST']}
+          if proof is None or any(proof.get(k)!=v for k,v in expected.items()):
+              raise SystemExit('FOOTBALL_PREPUBLISH_SOURCE_GATES_BLOCKED')
+          print('FOOTBALL_PREPUBLISH_ALL_SOURCE_GATES_VERIFIED sha='+expected['source_sha'])
+          PY
           for path in scripts/football_delivery.py scripts/football_pages.py scripts/football_identity.py scripts/football_r2_auto_gc.py scripts/football_r2_gc.py .github/workflows/football-pages-staging.yml; do
             test "$(gh api "repos/evilsysadmin/shadowops-infra/contents/$path?ref=main" --jq .sha)" = "$(git rev-parse "HEAD:$path")"
           done
