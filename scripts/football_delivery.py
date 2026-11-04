@@ -140,7 +140,17 @@ def publish_runtime(root,sha):
  if not re.fullmatch('[a-f0-9]{32}',account):raise DeliveryError('Exact Cloudflare account required')
  prefix=PREFIX+'/releases/'+release['runtime']['release']+'/'
  additions={prefix+name:item['bytes'] for name,item in release['files'].items()}
- current=inventory(account);budget(current,additions) # before the first PUT
+ current=inventory(account)
+ try:
+  budget(current,additions) # before the first PUT
+ except DeliveryError as error:
+  if str(error)!='Always Free headroom exhausted; no upload authorized':
+   raise
+  # No bypass: the verified candidate must still fit after safe automatic GC.
+  # Only the already-admitted protected-main publisher may prune obsoletes.
+  from football_r2_auto_gc import reclaim_if_needed
+  reclaim_if_needed(account,additions,source_sha=sha)
+  budget(inventory(account),additions)
  for name,item in release['files'].items():
   path=root/'runtime'/name;key=prefix+name
   # Immutable payloads are never repointed to another game's path.

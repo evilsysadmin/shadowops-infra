@@ -3,12 +3,14 @@ on:
   pull_request:
     paths:
       - 'scripts/football_r2_gc.py'
+      - 'scripts/football_r2_auto_gc.py'
       - 'tests/test_football_r2_gc.py'
       - '.github/workflows/football-r2-gc.yml'
   push:
     branches: [main]
     paths:
       - 'scripts/football_r2_gc.py'
+      - 'scripts/football_r2_auto_gc.py'
       - 'tests/test_football_r2_gc.py'
       - '.github/workflows/football-r2-gc.yml'
   workflow_dispatch:
@@ -47,8 +49,10 @@ jobs:
         run: python3 -m unittest discover -s tests -p test_football_r2_gc.py -v
       - name: Existing delivery capacity contracts
         run: python3 -m unittest discover -s tests -p test_football_delivery.py -v
+      - name: Automatic capacity GC contracts
+        run: python3 -m unittest discover -s tests -p test_football_r2_auto_gc.py -v
       - name: Syntax
-        run: python3 -m py_compile scripts/football_r2_gc.py
+        run: python3 -m py_compile scripts/football_r2_gc.py scripts/football_r2_auto_gc.py
 
   gc:
     needs: contracts
@@ -86,3 +90,11 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/football_r2_gc.py "$GC_ACTION" "$GC_ROLLBACK_RELEASE" "$GC_EXPECTED_PLAN"
+
+      - name: Prove previous successful Pages release without any deletion
+        if: github.event_name == 'push'
+        continue-on-error: true
+        env:
+          FOOTBALL_AUTO_GC: '1'
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: python3 scripts/football_r2_auto_gc.py probe
