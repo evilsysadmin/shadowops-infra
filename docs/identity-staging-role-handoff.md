@@ -72,3 +72,31 @@ backup/recovery contract is complete, implement and review the adapter and
 workflow, test them without production credentials, then perform the signed
 staging operation. Never infer a successful grant from a workflow dispatch;
 verify the transaction and sign-in with the subject.
+
+## Offline command adapter
+
+`services/identity/cmd/role-operator` invokes the three existing operations
+`schema`, `bootstrap` and `change`; it does not provision any identity or
+read backup custody. Set `IDENTITY_ROLE_ENVIRONMENT=staging` and supply a
+separately provisioned principal in `IDENTITY_ROLE_MONGO_URI`. The URI must
+contain username and password, explicitly enable TLS, and may only contain
+`tls`, `tlsCAFile`, `authSource`, `replicaSet`, and `directConnection`
+options. Driver errors are not printed. Each operation needs its own
+independently scoped Mongo principal.
+
+For `bootstrap`, supply the pre-pinned governance public keys in
+`IDENTITY_ROLE_TRUSTED_KEY_A` and `IDENTITY_ROLE_TRUSTED_KEY_B`, as lowercase
+hex; for `change` supply the independently pinned operator and security
+public keys. Send the short-lived, signed JSON request on standard input.
+These keys are public; never provide private signing keys to the command.
+The signature and statement field names are those of the bounded request
+adapter in `roles/operator_adapter.go`. A successful exit means the Mongo
+transaction committed; it does not verify subsequent browser access.
+
+The command integration test injects a connector to a disposable local
+replica, so it tests the signed transaction flow but does not establish an
+authenticated TLS connection. Separate unit tests reject insecure URI options.
+An authenticated TLS end-to-end test, provisioned trust roots, independent
+principals, and a protected network path are still required before live use.
+No executable workflow, production credential, or live database connection
+is included in this change.
