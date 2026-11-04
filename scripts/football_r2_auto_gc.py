@@ -157,7 +157,7 @@ def attested_source_release(sha, *, github=delivery.github, download=None):
                 runtime_hash = hashlib.sha256()
                 for name in runtime_names:
                     raw = archive.read("runtime/" + name)
-                    runtime_hash.update(name.encode() + b"\\0" + raw)
+                    runtime_hash.update(name.encode() + b"\0" + raw)
                     runtime_entries[name] = {"sha256": hashlib.sha256(raw).hexdigest(),
                                              "bytes": len(raw)}
                 if (pointer["source_sha"] != sha
