@@ -70,7 +70,11 @@ Antes de cualquier DELETE exige:
   `main` y estado `success`. Elige el despliegue previo más reciente cuyo
   `release.json` se pueda leer desde su URL **inmutable y del proyecto
   exacto**, y cuyo SHA y archivos coincidan con los objetos R2 existentes.
-  No usa fechas de los objetos para inventarse un rollback.
+  Si Cloudflare responde 404 por un despliegue antiguo, recupera la identidad
+  del runtime exclusivamente del artefacto ZIP de **ese mismo SHA**, tras
+  verificar el push CI verde con todos sus gates, el digest SHA-256 de GitHub
+  Actions, cada archivo del ZIP y el hash del runtime original. Nunca usa
+  fechas de objetos R2 para inventarse un rollback.
 - Simulación completa: la nueva versión debe caber **después** de la limpieza.
   Límite máximo: 150 objetos / 20 releases obsoletas por operación.
 - Inventario intacto y versión pública inalterada antes del primer DELETE,
