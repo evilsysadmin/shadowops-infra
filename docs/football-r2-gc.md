@@ -85,10 +85,14 @@ Antes de cualquier DELETE exige:
 El mismo lock de GitHub Actions
 `shadowops-football-staging-pages` serializa el GC manual y el publicador.
 
-**Activación en dos fases:** el primer PR deja
-`FOOTBALL_AUTO_GC: '0'` en el workflow de publicación. El workflow GC en
-`main` realiza un `probe` independiente, **solo lectura**, que debe emitir
-`FOOTBALL_R2_AUTO_GC_ROLLBACK_PROVEN` con un rollback coherente. Solo
-después de comprobar esa evidencia en Cloudflare real, un segundo PR puede
-cambiar a `FOOTBALL_AUTO_GC: '1'`. Esta secuencia evita autorizar borrados
-en producción de staging basándose exclusivamente en mocks.
+**Activación en dos fases:** inicialmente `FOOTBALL_AUTO_GC: '0'`.
+El run real [41812929192](https://github.com/evilsysadmin/shadowops-infra/actions/runs/41812929192)
+emitió `FOOTBALL_R2_AUTO_GC_ROLLBACK_PROVEN` para el runtime
+`5f893ddb034ba0a6` del SHA `996bee...`, contrastado con CI histórica,
+ZIP SHA-256, los objetos en R2 y el registro Pages. Solo tras esta evidencia
+se habilitó `FOOTBALL_AUTO_GC: '1'` en el publicador. El workflow manual
+sigue disponible pero no hace falta para el mantenimiento normal.
+
+Si el rollback no puede probarse de nuevo, no hay DELETE y el nuevo
+despliegue falla con el anterior frontend sano intacto. Se desactiva la
+función fijando el flag a `'0'` en una PR, sin borrar release alguno.
