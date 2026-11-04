@@ -19,6 +19,10 @@ BASE='mongodb+srv://{}:synthetic-password-12345@cluster.mongodb.net/shadowops_id
 
 class AtlasPrepareTests(unittest.TestCase):
  def setUp(self):
+  original_fchown=os.fchown
+  self.chown_patch=patch.object(prepare.os,'fchown',side_effect=lambda fd,uid,gid:original_fchown(fd,uid,os.getgid()))
+  self.chown_patch.start()
+  self.addCleanup(self.chown_patch.stop)
   self.custody=prepare_atlas_custody(None,*(BASE.format(name) for name in ('app','inventory','backup')))
   self.service={'environment':'staging','mongo_uri':'local','mongo_ca_pem':'old-ca','signing_seed':'synthetic-seed','tls_private_key_pem':'synthetic-key','consumers':{'chronicles':'fixture'},'admin_inventory_access_history':True}
  def test_separate_private_files_idempotence_and_no_overwrite(self):
