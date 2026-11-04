@@ -103,6 +103,7 @@ def main():
             write_private(DIRECTORY / filename, encrypted)
             receipt = {'schema': 1, 'environment': 'staging', 'backend': 'atlas',
                        'created_at': datetime.now(timezone.utc).isoformat(),
+                       'cluster_sha256': hashlib.sha256(config['host'].encode()).hexdigest(),
                        'encrypted_bytes': len(encrypted), 'sha256': hashlib.sha256(encrypted).hexdigest()}
             write_private(STATE / 'last-atlas-backup.json', (json.dumps(receipt) + '\n').encode())
         print('IDENTITY_ATLAS_STAGING_BACKUP_OK encrypted_bytes=' + str(len(encrypted)))

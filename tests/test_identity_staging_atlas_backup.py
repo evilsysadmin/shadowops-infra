@@ -62,4 +62,5 @@ class AtlasNetworkOwnershipTests(unittest.TestCase):
    self.assertEqual(decrypt_snapshot(files[0].read_bytes(),cfg['backup_key']),value)
    receipt=json.loads((state/'last-atlas-backup.json').read_text())
    self.assertEqual(receipt['backend'],'atlas')
+   self.assertEqual(receipt['cluster_sha256'],__import__('hashlib').sha256(cfg['host'].encode()).hexdigest())
    self.assertNotIn(cfg['password'],json.dumps(receipt))
