@@ -7,8 +7,8 @@ from identity_staging_atlas_roles import payloads
 class AtlasRoleTests(unittest.TestCase):
     def test_scoped_roles_have_no_wildcards_or_inherited_privileges(self):
         roles = payloads()
-        self.assertEqual(len(roles), 2)
-        self.assertEqual(len({r['roleName'] for r in roles}), 2)
+        self.assertEqual(len(roles), 3)
+        self.assertEqual(len({r['roleName'] for r in roles}), 3)
         expected_collections = {'pending_accounts', 'sessions', 'staging_cka_tokens', 'staging_application_access_history', 'admin_inventory_audit'}
         seen = set()
         for role in roles:
@@ -20,3 +20,6 @@ class AtlasRoleTests(unittest.TestCase):
                     self.assertIn(resource['collection'], expected_collections)
                     seen.add(resource['collection'])
         self.assertEqual(seen, expected_collections)
+        backup = next(r for r in roles if r['roleName'].endswith('_backup'))
+        self.assertEqual([a['action'] for a in backup['actions']], ['FIND'])
+        self.assertEqual({r['collection'] for r in backup['actions'][0]['resources']}, expected_collections)

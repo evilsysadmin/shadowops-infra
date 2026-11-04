@@ -118,9 +118,26 @@ def quarantine_restore(value):
 
 
 def export_script(root_password):
-    return 'const rootPassword='+json.dumps(root_password)+';\n'+'''
+    return _snapshot_export_script('identity_root', root_password)
+
+
+def atlas_export_script(username, password):
+    """Build a bounded export for a dedicated Atlas backup principal.
+
+    Only send the returned script over an isolated process's standard input.
+    Never put its credentials in a URI, argv, environment, logs or artifacts.
+    """
+    if (not isinstance(username,str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{2,63}',username)
+            or username == 'identity_root' or not isinstance(password,str)
+            or not 16 <= len(password) <= 256 or any(ord(c) < 32 for c in password)):
+        raise BackupError('Invalid Atlas backup credential')
+    return _snapshot_export_script(username,password)
+
+
+def _snapshot_export_script(username,password):
+    return 'const backupUser='+json.dumps(username)+';\nconst backupPassword='+json.dumps(password)+';\n'+'''
 const admin=db.getSiblingDB('admin');
-const auth=admin.auth('identity_root',rootPassword);
+const auth=admin.auth(backupUser,backupPassword);
 if (!(auth === true || auth === 1 || auth.ok === 1)) throw new Error('backup authentication denied');
 const session=db.getMongo().startSession();
 session.startTransaction({readConcern:{level:'snapshot'}});
