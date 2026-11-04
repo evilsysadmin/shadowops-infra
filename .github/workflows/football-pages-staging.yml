@@ -148,7 +148,16 @@ jobs:
   browser:
     name: Football · public ShadowOps ID gate
     needs: [contracts, candidate, publish]
-    if: always() && needs.contracts.result == 'success' && (github.event_name == 'pull_request' || needs.publish.result == 'success')
+    # An explicit authenticated smoke may run against an already-published,
+    # admitted SHA without redeploying Pages or R2. Normal cron still creates
+    # no synthetic accounts because real_identity_smoke defaults to false.
+    if: >-
+      ${{ always() && needs.contracts.result == 'success' && (
+          github.event_name == 'pull_request' || needs.publish.result == 'success' ||
+          (github.event_name == 'workflow_dispatch' && inputs.real_identity_smoke == true &&
+           needs.candidate.result == 'success' && needs.candidate.outputs.publish == 'false' &&
+           needs.candidate.outputs.source_sha != '')
+        ) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
