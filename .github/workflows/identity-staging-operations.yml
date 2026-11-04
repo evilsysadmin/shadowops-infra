@@ -4,6 +4,7 @@ on:
     paths:
       - 'compose.identity.staging.yaml'
       - 'compose.identity.staging.atlas-evaluation.yaml'
+      - 'compose.identity.atlas.staging.yaml'
       - 'host/*identity-staging*'
       - 'scripts/identity_staging_*.py'
       - 'tests/test_identity_staging_*.py'
@@ -16,6 +17,7 @@ on:
     paths:
       - 'compose.identity.staging.yaml'
       - 'compose.identity.staging.atlas-evaluation.yaml'
+      - 'compose.identity.atlas.staging.yaml'
       - 'host/*identity-staging*'
       - 'scripts/identity_staging_*.py'
       - 'tests/test_identity_staging_*.py'
