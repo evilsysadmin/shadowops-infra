@@ -188,3 +188,9 @@ fixed preparation command through the existing OCI host channel; it requires
 separate Atlas custody and a previously installed matching operator revision.
 It writes separate Atlas files, leaves the active Mongo-local service config
 untouched, and does not perform preflight, backup, deployment or cutover.
+
+The operator installer places the Atlas backup service and daily timer in
+systemd but deliberately does not enable or start the timer. The existing
+local-Mongo timer remains active. A future cutover must explicitly validate an
+Atlas backup and restore, switch the active timer, verify the Atlas receipt,
+and retain a tested rollback; installing these files alone changes no timer.

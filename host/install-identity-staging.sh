@@ -15,6 +15,7 @@ for file in host/identity-staging-deploy.py host/identity-staging.sudoers script
             host/identity-staging-backup.service host/identity-staging-backup.timer \
             scripts/shared_a1_host_guard.py compose.identity.staging.yaml \
             host/identity-atlas-staging-prepare.py host/identity-atlas-staging-backup.py \
+            host/identity-atlas-staging-backup.service host/identity-atlas-staging-backup.timer \
             scripts/identity_staging_atlas.py scripts/identity_staging_atlas_custody.py \
             scripts/identity_staging_atlas_backup.py scripts/identity_staging_atlas_policy.py \
             compose.identity.atlas.staging.yaml; do
@@ -33,7 +34,9 @@ for destination in /etc/shadowops/identity-staging /var/lib/shadowops/identity-s
                    /usr/local/sbin/shadowops-identity-atlas-prepare /usr/local/sbin/shadowops-identity-atlas-backup \
                    /usr/local/lib/shadowops/identity_staging_atlas.py /usr/local/lib/shadowops/identity_staging_atlas_custody.py \
                    /usr/local/lib/shadowops/identity_staging_atlas_backup.py /usr/local/lib/shadowops/identity_staging_atlas_policy.py \
-                   /etc/shadowops/identity-staging/atlas-compose.yaml; do
+                   /etc/shadowops/identity-staging/atlas-compose.yaml \
+                   /etc/systemd/system/identity-atlas-staging-backup.service \
+                   /etc/systemd/system/identity-atlas-staging-backup.timer; do
   [[ ! -L "$destination" ]] || exit 66
 done
 install -d -o root -g root -m 0755 /usr/local/lib/shadowops /opt/shadowops
@@ -51,6 +54,9 @@ for module in identity_staging_atlas identity_staging_atlas_custody identity_sta
 done
 install -o root -g root -m 0755 "$repo/host/identity-atlas-staging-prepare.py" /usr/local/sbin/shadowops-identity-atlas-prepare
 install -o root -g root -m 0755 "$repo/host/identity-atlas-staging-backup.py" /usr/local/sbin/shadowops-identity-atlas-backup
+# Install, but do not enable: cutover must first prove Atlas backup/restore.
+install -o root -g root -m 0644 "$repo/host/identity-atlas-staging-backup.service" /etc/systemd/system/identity-atlas-staging-backup.service
+install -o root -g root -m 0644 "$repo/host/identity-atlas-staging-backup.timer" /etc/systemd/system/identity-atlas-staging-backup.timer
 install -o root -g root -m 0644 "$repo/scripts/identity_staging_bundle.py" /usr/local/lib/shadowops/identity_staging_bundle.py
 install -o root -g root -m 0644 "$repo/scripts/shared_a1_host_guard.py" /usr/local/lib/shadowops/shared_a1_host_guard.py
 install -o root -g root -m 0755 "$repo/host/identity-staging-deploy.py" /usr/local/sbin/shadowops-identity-staging
