@@ -149,3 +149,17 @@ inventory audit and access summaries. The transaction refuses a nonempty
 destination and strips credentials, sessions, tokens and admin roles. The
 operator must stop Identity first; no Atlas restore runner is installed or
 authorized by this primitive, and live Atlas restore remains unverified.
+
+## Independent Atlas custody
+
+The manual `atlas-custody` action in `identity-staging-operations.yml` creates
+or validates the separate OCI Vault secret `identity-staging-atlas-custody`.
+It reads the GitHub Actions secrets `IDENTITY_ATLAS_STAGING_RUNTIME_URI`,
+`IDENTITY_ATLAS_STAGING_INVENTORY_URI` and `IDENTITY_ATLAS_STAGING_BACKUP_URI`.
+These are three separately provisioned Atlas database users on the same
+staging cluster. This action validates them, creates an independent backup
+key once and refuses implicit credential rotation. It does not inspect the
+local Mongo operator bundle, create Atlas users, test connectivity, deploy the
+service or change the active database. Never put credentials in workflow
+inputs, logs, issues or chat. Add the GitHub secrets through the repository or
+staging environment secret settings using an authorized administrator account.
