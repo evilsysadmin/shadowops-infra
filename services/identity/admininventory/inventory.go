@@ -20,21 +20,29 @@ var subjectPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[
 // Account contains only administrative display fields; no authentication
 // material or session handles are selected from MongoDB.
 type Account struct {
-	Subject             string    `json:"subject" bson:"_id"`
-	Name                string    `json:"name" bson:"alias_key"`
-	State               string    `json:"state" bson:"state"`
-	CredentialsDisabled bool      `json:"credentialsDisabled" bson:"credentials_disabled"`
-	CreatedAt           time.Time `json:"createdAt" bson:"created_at"`
-	CurrentSessions     int64     `json:"currentSessions" bson:"-"`
-	SessionVersion      int64     `json:"-" bson:"session_version"`
+	Subject             string              `json:"subject" bson:"_id"`
+	Name                string              `json:"name" bson:"alias_key"`
+	State               string              `json:"state" bson:"state"`
+	CredentialsDisabled bool                `json:"credentialsDisabled" bson:"credentials_disabled"`
+	CreatedAt           time.Time           `json:"createdAt" bson:"created_at"`
+	CurrentSessions     int64               `json:"currentSessions" bson:"-"`
+	SessionVersion      int64               `json:"-" bson:"session_version"`
+	RecentApplications  []RecentApplication `json:"recentApplications,omitempty" bson:"-"`
+}
+
+// RecentApplication is a recent Identity token exchange, not proof of play.
+type RecentApplication struct {
+	Application string    `json:"application" bson:"application"`
+	At          time.Time `json:"at" bson:"at"`
 }
 
 type Page struct {
-	Accounts []Account `json:"accounts"`
-	Next     string    `json:"next,omitempty"`
+	Accounts              []Account `json:"accounts"`
+	Next                  string    `json:"next,omitempty"`
+	RecentAccessAvailable bool      `json:"recentAccessAvailable"`
 }
 
-type Inventory struct{ accounts, sessions *mongo.Collection }
+type Inventory struct{ accounts, sessions, tokens *mongo.Collection }
 
 // NewStaging accepts only the fixed staging database. Its Mongo principal must
 // have find-only access to pending_accounts and sessions and be provisioned separately
@@ -44,6 +52,16 @@ func NewStaging(db *mongo.Database) (*Inventory, error) {
 		return nil, ErrInvalid
 	}
 	return &Inventory{accounts: db.Collection("pending_accounts"), sessions: db.Collection("sessions")}, nil
+}
+
+// NewStagingWithRecentAccess additionally reads short-lived token records.
+func NewStagingWithRecentAccess(db *mongo.Database) (*Inventory, error) {
+	inventory, err := NewStaging(db)
+	if err != nil {
+		return nil, err
+	}
+	inventory.tokens = db.Collection("staging_admin_recent_access")
+	return inventory, nil
 }
 
 // List returns at most 50 native accounts in stable subject order. The cursor
@@ -77,7 +95,7 @@ func (i *Inventory) List(ctx context.Context, after string, limit int) (Page, er
 	if err := cursor.Err(); err != nil {
 		return Page{}, err
 	}
-	page := Page{Accounts: rows}
+	page := Page{Accounts: rows, RecentAccessAvailable: i.tokens != nil}
 	if len(rows) > limit {
 		page.Accounts = rows[:limit]
 		page.Next = rows[limit-1].Subject
@@ -119,6 +137,39 @@ func (i *Inventory) List(ctx context.Context, after string, limit int) (Page, er
 	}
 	for index := range page.Accounts {
 		page.Accounts[index].CurrentSessions = counts[page.Accounts[index].Subject]
+	}
+	if i.tokens != nil {
+		apps := bson.A{"chess-studio", "chronicles", "cka-simulator", "football", "pawn-action"}
+		pipeline := mongo.Pipeline{
+			{{Key: "$match", Value: bson.D{{Key: "issuer", Value: "https://id-staging.shadowops.dpdns.org"}, {Key: "$or", Value: pairs}, {Key: "audience", Value: bson.D{{Key: "$in", Value: apps}}}, {Key: "issued_at", Value: bson.D{{Key: "$gte", Value: now.Add(-2 * time.Minute)}, {Key: "$lte", Value: now.Add(30 * time.Second)}}}}}},
+			{{Key: "$group", Value: bson.D{{Key: "_id", Value: bson.D{{Key: "subject", Value: "$subject"}, {Key: "application", Value: "$audience"}}}, {Key: "at", Value: bson.D{{Key: "$max", Value: "$issued_at"}}}}}},
+			{{Key: "$sort", Value: bson.D{{Key: "at", Value: -1}, {Key: "_id.application", Value: 1}}}},
+		}
+		cursor, err := i.tokens.Aggregate(ctx, pipeline)
+		if err != nil {
+			return Page{}, err
+		}
+		defer cursor.Close(ctx)
+		perAccount := make(map[string][]RecentApplication, len(page.Accounts))
+		for cursor.Next(ctx) {
+			var result struct {
+				ID struct {
+					Subject     string `bson:"subject"`
+					Application string `bson:"application"`
+				} `bson:"_id"`
+				At time.Time `bson:"at"`
+			}
+			if err := cursor.Decode(&result); err != nil {
+				return Page{}, err
+			}
+			perAccount[result.ID.Subject] = append(perAccount[result.ID.Subject], RecentApplication{Application: result.ID.Application, At: result.At})
+		}
+		if err := cursor.Err(); err != nil {
+			return Page{}, err
+		}
+		for index := range page.Accounts {
+			page.Accounts[index].RecentApplications = perAccount[page.Accounts[index].Subject]
+		}
 	}
 	return page, nil
 }

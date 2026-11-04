@@ -124,6 +124,11 @@ func TestServiceConfigDeniesCrossEnvironmentAndInsecureMongoTLS(t *testing.T) {
 
 func TestServiceConfigRequiresIndependentSafeInventoryMongo(t *testing.T) {
 	base := syntheticServiceConfig(t)
+	bad := base
+	bad.AdminInventoryRecentAccess = true
+	if _, _, _, err := bad.validate(time.Now()); err == nil {
+		t.Fatal("recent access enabled without inventory connection")
+	}
 	valid := base
 	valid.AdminInventoryMongoURI = "mongodb://inventory:synthetic-password@127.0.0.1:27019/shadowops_identity_staging?tls=true"
 	if _, _, _, err := valid.validate(time.Now()); err != nil {

@@ -31,12 +31,20 @@ func TestChromiumAdminInventoryJourney(t *testing.T) {
 	if _, err := f.db.Collection("pending_accounts").InsertMany(context.Background(), extra); err != nil {
 		t.Fatal(err)
 	}
+	_, err = f.db.Collection("staging_cka_tokens").InsertOne(context.Background(), bson.M{"_id": "synthetic-recent-access", "issuer": "https://id-staging.shadowops.dpdns.org", "subject": testSubject, "session_version": int64(1), "audience": "chronicles", "issued_at": time.Now().UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.RunCommand(context.Background(), bson.D{{Key: "create", Value: "staging_admin_recent_access"}, {Key: "viewOn", Value: "staging_cka_tokens"}, {Key: "pipeline", Value: bson.A{bson.D{{Key: "$project", Value: bson.D{{Key: "_id", Value: 0}, {Key: "issuer", Value: 1}, {Key: "subject", Value: 1}, {Key: "session_version", Value: 1}, {Key: "audience", Value: 1}, {Key: "issued_at", Value: 1}}}}}}}).Err(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.db.Collection("staging_admin_recent_access").Drop(context.Background()) })
 	audit := f.db.Collection("admin_inventory_audit")
 	if err := audit.Drop(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = audit.Drop(context.Background()) })
-	reader, err := issuance.NewStagingAdminInventoryReader(f.client)
+	reader, err := issuance.NewStagingAdminInventoryReader(f.client, true)
 	if err != nil {
 		t.Fatal(err)
 	}

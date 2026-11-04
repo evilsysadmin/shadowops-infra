@@ -20,6 +20,7 @@ let browser;
     await page.getByRole('heading', {name:'Cuentas',exact:true}).waitFor();
     check(await page.locator('#account-list').innerText().then(text=>text.includes('admin_browser')), 'account missing');
     check(await page.locator('#account-list').innerText().then(text=>text.includes('sesión vigente')), 'active session missing');
+    check(await page.locator('#account-list').innerText().then(text=>text.includes('Intercambios de acceso (2 min): Chronicles')), 'recent access missing');
     check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'admin page overflows viewport');
     if (artifacts) await page.screenshot({path:path.join(artifacts,`identity-admin-${name}.png`)});
     check(await page.locator('#account-list li').count()===20,'first page is not bounded');

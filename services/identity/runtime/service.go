@@ -37,15 +37,16 @@ var ErrServiceUnavailable = errors.New("staging Identity service unavailable")
 // ServiceConfig is a single private, operator-provisioned staging bundle.
 // No private value is accepted from an HTTP request or emitted by diagnostics.
 type ServiceConfig struct {
-	Environment            string                         `json:"environment"`
-	MongoURI               string                         `json:"mongo_uri"`
-	MongoCA                string                         `json:"mongo_ca_pem"`
-	SigningSeed            string                         `json:"signing_seed"`
-	TLSCertificate         string                         `json:"tls_certificate_pem"`
-	TLSPrivateKey          string                         `json:"tls_private_key_pem"`
-	Consumers              websession.ConsumerCredentials `json:"consumers"`
-	AdminAliasCredential   string                         `json:"chronicles_admin_alias_credential,omitempty"`
-	AdminInventoryMongoURI string                         `json:"admin_inventory_mongo_uri,omitempty"`
+	Environment                string                         `json:"environment"`
+	MongoURI                   string                         `json:"mongo_uri"`
+	MongoCA                    string                         `json:"mongo_ca_pem"`
+	SigningSeed                string                         `json:"signing_seed"`
+	TLSCertificate             string                         `json:"tls_certificate_pem"`
+	TLSPrivateKey              string                         `json:"tls_private_key_pem"`
+	Consumers                  websession.ConsumerCredentials `json:"consumers"`
+	AdminAliasCredential       string                         `json:"chronicles_admin_alias_credential,omitempty"`
+	AdminInventoryMongoURI     string                         `json:"admin_inventory_mongo_uri,omitempty"`
+	AdminInventoryRecentAccess bool                           `json:"admin_inventory_recent_access,omitempty"`
 }
 
 func LoadServiceConfig(filename string) (ServiceConfig, error) {
@@ -82,6 +83,9 @@ func (cfg ServiceConfig) validate(now time.Time) ([]byte, tls.Certificate, *tls.
 		return nil, tls.Certificate{}, nil, ErrUnsafeConfiguration
 	}
 	if cfg.Environment != "staging" || len(cfg.Consumers) == 0 || len(cfg.Consumers) > 5 {
+		return bad()
+	}
+	if cfg.AdminInventoryRecentAccess && cfg.AdminInventoryMongoURI == "" {
 		return bad()
 	}
 	seed, err := base64.RawURLEncoding.DecodeString(cfg.SigningSeed)
@@ -216,10 +220,10 @@ func NewStagingService(ctx context.Context, cfg ServiceConfig) (*RunningService,
 		if err != nil {
 			return nil, ErrServiceUnavailable
 		}
-		if err = verifyAdminInventoryRole(ctx, adminClient); err != nil {
+		if err = verifyAdminInventoryRole(ctx, adminClient, cfg.AdminInventoryRecentAccess); err != nil {
 			return nil, err
 		}
-		reader, err := issuance.NewStagingAdminInventoryReader(adminClient)
+		reader, err := issuance.NewStagingAdminInventoryReader(adminClient, cfg.AdminInventoryRecentAccess)
 		if err != nil {
 			return nil, ErrUnsafeConfiguration
 		}
@@ -312,12 +316,16 @@ func verifyRuntimeRole(ctx context.Context, client *mongo.Client) error {
 	})
 }
 
-func verifyAdminInventoryRole(ctx context.Context, client *mongo.Client) error {
-	return verifyMongoPrivileges(ctx, client, map[string]map[string]bool{
+func verifyAdminInventoryRole(ctx context.Context, client *mongo.Client, recentAccess bool) error {
+	required := map[string]map[string]bool{
 		"pending_accounts":      {"find": false, "update": false},
 		"sessions":              {"find": false, "update": false},
 		"admin_inventory_audit": {"insert": false},
-	})
+	}
+	if recentAccess {
+		required["staging_admin_recent_access"] = map[string]bool{"find": false}
+	}
+	return verifyMongoPrivileges(ctx, client, required)
 }
 
 func verifyMongoPrivileges(ctx context.Context, client *mongo.Client, required map[string]map[string]bool) error {
