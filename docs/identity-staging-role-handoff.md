@@ -112,3 +112,16 @@ rejects the extra network. No connection, DNS, Atlas account, credential or
 backup changes are made by this overlay. Before a real switch, implement and
 review an Atlas-specific deployment with appropriate outbound restrictions,
 independent Mongo credentials, verified backup/restore and a tested rollback.
+
+## Atlas custom role payloads
+
+`python3 scripts/identity_staging_atlas_roles.py` prints two secret-free Atlas
+Admin API custom-role payloads for the staging runtime and inventory users.
+They match the current access-history-enabled Identity privilege checks; the
+optional recent-access view is disabled. Atlas custom roles must be created
+through Atlas UI, CLI or API, not Mongo `createRole`; see the [Atlas custom
+roles documentation](https://www.mongodb.com/docs/atlas/security-add-mongodb-roles/).
+These payloads are review material: generating them does not create roles,
+users or credentials, and has not been tested against a live Atlas project.
+Do not attach additional broad or built-in roles to these service users; the
+service checks the effective privileges and will reject excess permissions.
