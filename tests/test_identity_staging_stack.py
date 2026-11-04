@@ -61,6 +61,30 @@ class StackTests(unittest.TestCase):
    self.assertFalse(config['networks']['atlas-egress'].get('internal',False))
    with self.assertRaises(host.DeployError):host.assert_compose(config,'sha256:'+'a'*64)
 
+ def test_atlas_candidate_has_only_service_and_tunnel_and_is_not_admitted_by_local_guard(self):
+  import yaml
+  with tempfile.TemporaryDirectory(prefix='identity-atlas-candidate-') as temp:
+   path=Path(temp)
+   policy=yaml.safe_load((ROOT/'compose.identity.atlas.staging.yaml').read_text())
+   (path/'synthetic.env').write_text('TUNNEL_TOKEN=synthetic-compose-token\n')
+   policy['services']['identity-tunnel']['env_file']=[str(path/'synthetic.env')]
+   (path/'compose.yaml').write_text(yaml.safe_dump(policy))
+   result=subprocess.run(['docker','compose','-f',str(path/'compose.yaml'),'config','--format','json'],env={**os.environ,'IDENTITY_IMAGE_DIGEST':'sha256:'+'a'*64},capture_output=True,text=True,timeout=30)
+   self.assertEqual(result.returncode,0,result.stderr)
+   config=json.loads(result.stdout)
+   self.assertEqual(set(config['services']),{'identity','identity-tunnel'})
+   self.assertEqual(set(config['services']['identity']['networks']),{'origin','atlas-egress'})
+   self.assertEqual(set(config['services']['identity-tunnel']['networks']),{'origin','tunnel-egress'})
+   self.assertTrue(config['networks']['origin']['internal'])
+   self.assertFalse(config['networks']['atlas-egress'].get('internal',False))
+   for service in config['services'].values():
+    self.assertFalse(service.get('ports'))
+    self.assertTrue(service['read_only'])
+    self.assertEqual(service['cap_drop'],['ALL'])
+    self.assertIn('no-new-privileges:true',service['security_opt'])
+   self.assertNotIn('volumes',config)
+   with self.assertRaises(host.DeployError):host.assert_compose(config,'sha256:'+'a'*64)
+
  def test_private_tls_image_account_revocation_and_database_persistence(self):
   prefix='identity-stack-test-'+secrets.token_hex(5)
   network=prefix+'-network'; mongo=prefix+'-mongo'; identity=prefix+'-service'
