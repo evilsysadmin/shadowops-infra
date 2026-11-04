@@ -87,6 +87,20 @@ class HoldGateTests(unittest.TestCase):
             path.write_text(json.dumps(config()), encoding="utf-8")
             self.assertEqual(hold.load_hold(path, NOW)["mode"], "hold")
 
+    def test_automatic_staging_reconciliation_contract(self):
+        workflow = (ROOT / ".github/workflows/staradvs-pages-staging.yml").read_text(encoding="utf-8")
+        self.assertIn("cron: '3,13,23,33,43,53 * * * *'", workflow)
+        self.assertIn("  workflow_dispatch:", workflow)
+        self.assertIn("  push:", workflow)
+        self.assertIn("cancel-in-progress: false", workflow)
+        self.assertIn("scripts/staradvs_source_admission.py", workflow)
+        self.assertIn("python3 scripts/staradvs_staging_hold.py", workflow)
+        self.assertIn("STARADVS_STAGING_ALREADY_LIVE", workflow)
+        self.assertIn("STARADVS_STAGING_PUBLIC_READY", workflow)
+        self.assertIn("STARADVS_STAGING_SUPERSEDED", workflow)
+        # A docs-only update should also request a new trusted reconciliation.
+        self.assertIn("'docs/staradvs-staging.md']", workflow)
+
     def test_default_repo_state_leaves_existing_automatic_staging_enabled(self):
         state = hold.load_hold(ROOT / "config" / "staradvs-staging-hold.json", NOW)
         self.assertEqual(state, {"mode": "auto"})

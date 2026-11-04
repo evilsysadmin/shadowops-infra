@@ -4,9 +4,11 @@ on:
     paths: ['.github/workflows/staradvs-pages-staging.yml', 'config/staradvs-staging-hold.json', 'scripts/staradvs_staging_hold.py', 'tests/test_staradvs_staging_hold.py', 'scripts/staradvs_source_admission.py', 'scripts/staradvs_pages.py', 'tests/test_staradvs_pages.py', 'tests/test_staradvs_source_admission.py', 'docs/staradvs-staging.md']
   push:
     branches: [main]
-    paths: ['.github/workflows/staradvs-pages-staging.yml', '.github/workflows/staradvs-rollback-inventory.yml', 'config/staradvs-staging-hold.json', 'scripts/staradvs_staging_hold.py', 'tests/test_staradvs_staging_hold.py', 'scripts/staradvs_source_admission.py', 'scripts/staradvs_pages.py', 'scripts/staradvs_rollback_evidence.py', 'tests/test_staradvs_pages.py', 'tests/test_staradvs_source_admission.py']
+    paths: ['.github/workflows/staradvs-pages-staging.yml', '.github/workflows/staradvs-rollback-inventory.yml', 'config/staradvs-staging-hold.json', 'scripts/staradvs_staging_hold.py', 'tests/test_staradvs_staging_hold.py', 'scripts/staradvs_source_admission.py', 'scripts/staradvs_pages.py', 'scripts/staradvs_rollback_evidence.py', 'tests/test_staradvs_pages.py', 'tests/test_staradvs_source_admission.py', 'docs/staradvs-staging.md']
   schedule:
-    - cron: '7,37 * * * *'
+    # Reconcile green game main even when optional cross-repo dispatch is missing.
+    # An already-current release is a read-only no-op.
+    - cron: '3,13,23,33,43,53 * * * *'
   workflow_dispatch:
 permissions:
   contents: read
@@ -91,6 +93,7 @@ jobs:
           if python3 scripts/staradvs_pages.py verify --sha "$sha" >/dev/null 2>&1; then
             echo "publish=false" >> "$GITHUB_OUTPUT"
             echo "STARADVS_STAGING_ALREADY_LIVE sha=$sha"
+            echo "### Star Adventures staging already current: \`$sha\`" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "publish=true" >> "$GITHUB_OUTPUT"
           fi
