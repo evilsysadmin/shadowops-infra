@@ -36,6 +36,8 @@ jobs:
         with:
           persist-credentials: false
       - run: python3 -m unittest discover -s tests -p test_football_delivery.py -v
+      - run: python3 -m unittest discover -s tests -p test_football_r2_auto_gc.py -v
+      - run: python3 -m unittest discover -s tests -p test_football_r2_gc.py -v
       - run: python3 -m unittest discover -s tests -p test_football_identity.py -v
       - run: python3 -m unittest discover -s tests -p test_football_keeper_public.py -v
   candidate:
@@ -70,6 +72,8 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       FOOTBALL_R2_API_TOKEN: ${{ secrets.FOOTBALL_R2_API_TOKEN }}
+      # First rollout is observation-only. Enable after real Pages proof passes.
+      FOOTBALL_AUTO_GC: '0'
       SOURCE_SHA: ${{ needs.candidate.outputs.source_sha }}
       ARTIFACT_ID: ${{ needs.candidate.outputs.artifact_id }}
       ARTIFACT_DIGEST: ${{ needs.candidate.outputs.artifact_digest }}
@@ -104,7 +108,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(gh api repos/evilsysadmin/football-of-matthias/commits/main --jq .sha)" = "$SOURCE_SHA"
-          for path in scripts/football_delivery.py scripts/football_pages.py scripts/football_identity.py .github/workflows/football-pages-staging.yml; do
+          for path in scripts/football_delivery.py scripts/football_pages.py scripts/football_identity.py scripts/football_r2_auto_gc.py scripts/football_r2_gc.py .github/workflows/football-pages-staging.yml; do
             test "$(gh api "repos/evilsysadmin/shadowops-infra/contents/$path?ref=main" --jq .sha)" = "$(git rev-parse "HEAD:$path")"
           done
           python3 scripts/football_pages.py preflight
