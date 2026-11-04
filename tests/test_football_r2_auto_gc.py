@@ -66,7 +66,7 @@ class AutomaticFootballGC(unittest.TestCase):
         self.assertEqual(auto.pick_rollback(objects, live, history=lambda: [
             (z["created_on"], z["deployment_trigger"]["metadata"]["commit_hash"], z["url"])
             for z in rows], fetch_release=candidate,
-            artifact_release=lambda sha: (_ for _ in ()).throw(auto.AutoGCError('not verified'))) ["release"], B)
+            artifact_release=lambda sha: (_ for _ in ()).throw(auto.AutoGCError('not verified')))["release"], B)
         with self.assertRaises(auto.AutoGCError):
             auto.pick_rollback(objects, live, history=lambda: [], fetch_release=candidate)
 
@@ -189,8 +189,10 @@ class AutomaticFootballGC(unittest.TestCase):
                           for name in gc.REQUIRED},
             }),
             patch.object(gc, "r2_delete") as no_delete,
+            patch.object(auto, "verify_rollback_payload") as verify,
         ):
             auto.read_only_probe()
+            verify.assert_called_once()
             no_delete.assert_not_called()
 
 
@@ -279,7 +281,7 @@ class AutomaticFootballGC(unittest.TestCase):
 
         def corrupt(request):
             key = request.full_url.partition("/" + gc.ROOT + B + "/")[2]
-            raw = b"altered-byte" if key == "index.pck" else files[key]
+            raw = b"x" * len(files[key]) if key == "index.pck" else files[key]
             return Response(raw, request.full_url)
 
         with self.assertRaises(auto.AutoGCError):
