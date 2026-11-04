@@ -163,6 +163,17 @@ func (s *StagingAppSigner) IssueToken(ctx context.Context, handle string) (strin
 			IssuedAt:      time.Unix(signedClaims.Iat, 0).UTC(),
 			ExpiresAt:     time.Unix(signedClaims.Exp, 0).UTC(), Active: true,
 		})
+		if err != nil {
+			return nil, err
+		}
+		if s.issuer.recordAccessHistory {
+			// One bounded summary per account and fixed application. Never store
+			// a token, device identifier, IP address or gameplay claim here.
+			_, err = s.issuer.client.Database(stagingDatabase).Collection("staging_application_access_history").UpdateOne(tx,
+				bson.D{{Key: "_id", Value: rec.Subject + ":" + string(s.application)}},
+				bson.D{{Key: "$setOnInsert", Value: bson.D{{Key: "environment", Value: "staging"}, {Key: "subject", Value: rec.Subject}, {Key: "application", Value: string(s.application)}}}, {Key: "$min", Value: bson.D{{Key: "first_at", Value: now}}}, {Key: "$max", Value: bson.D{{Key: "last_at", Value: now}}}},
+				options.UpdateOne().SetUpsert(true))
+		}
 		return nil, err
 	}, txn)
 	if err != nil {

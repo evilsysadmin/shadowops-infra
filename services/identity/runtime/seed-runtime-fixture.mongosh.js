@@ -8,6 +8,7 @@ if (!(auth === true || auth === 1 || auth.ok === 1)) throw new Error('fixture ro
 const stage = db.getSiblingDB('shadowops_identity_staging');
 stage.createView('staging_admin_recent_access', 'staging_cka_tokens', [{$project:{_id:0,issuer:1,subject:1,session_version:1,audience:1,issued_at:1}}]);
 stage.createCollection('admin_inventory_audit');
+stage.createCollection('staging_application_access_history');
 stage.createRole({ role: 'identity_inventory', roles: [], privileges: [
   { resource: { db: stage.getName(), collection: 'pending_accounts' }, actions: ['find', 'update'] },
   { resource: { db: stage.getName(), collection: 'sessions' }, actions: ['find', 'update'] },
@@ -23,6 +24,14 @@ stage.createRole({ role: 'identity_runtime', roles: [], privileges: [
   { resource: { db: stage.getName(), collection: 'sessions' }, actions: ['find', 'insert', 'update', 'remove', 'createIndex', 'listIndexes'] },
   { resource: { db: stage.getName(), collection: 'staging_cka_tokens' }, actions: ['find', 'insert', 'update', 'createIndex', 'listIndexes'] },
 ] });
+stage.createRole({ role: 'identity_runtime_history', roles: [{ role: 'identity_runtime', db: stage.getName() }], privileges: [
+  { resource: { db: stage.getName(), collection: 'staging_application_access_history' }, actions: ['insert', 'update'] },
+] });
+stage.createRole({ role: 'identity_inventory_history', roles: [{ role: 'identity_inventory', db: stage.getName() }], privileges: [
+  { resource: { db: stage.getName(), collection: 'staging_application_access_history' }, actions: ['find'] },
+] });
+stage.createUser({ user: 'identity_runtime_history', pwd: process.env.RUNTIME_HISTORY_PASS, roles: [{ role: 'identity_runtime_history', db: stage.getName() }] });
+stage.createUser({ user: 'identity_inventory_history', pwd: process.env.RUNTIME_INVENTORY_HISTORY_PASS, roles: [{ role: 'identity_inventory_history', db: stage.getName() }] });
 stage.createRole({ role: 'identity_incomplete', roles: [], privileges: [
   { resource: { db: stage.getName(), collection: 'pending_accounts' }, actions: ['find'] },
 ] });

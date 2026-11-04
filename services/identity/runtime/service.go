@@ -37,16 +37,17 @@ var ErrServiceUnavailable = errors.New("staging Identity service unavailable")
 // ServiceConfig is a single private, operator-provisioned staging bundle.
 // No private value is accepted from an HTTP request or emitted by diagnostics.
 type ServiceConfig struct {
-	Environment                string                         `json:"environment"`
-	MongoURI                   string                         `json:"mongo_uri"`
-	MongoCA                    string                         `json:"mongo_ca_pem"`
-	SigningSeed                string                         `json:"signing_seed"`
-	TLSCertificate             string                         `json:"tls_certificate_pem"`
-	TLSPrivateKey              string                         `json:"tls_private_key_pem"`
-	Consumers                  websession.ConsumerCredentials `json:"consumers"`
-	AdminAliasCredential       string                         `json:"chronicles_admin_alias_credential,omitempty"`
-	AdminInventoryMongoURI     string                         `json:"admin_inventory_mongo_uri,omitempty"`
-	AdminInventoryRecentAccess bool                           `json:"admin_inventory_recent_access,omitempty"`
+	Environment                 string                         `json:"environment"`
+	MongoURI                    string                         `json:"mongo_uri"`
+	MongoCA                     string                         `json:"mongo_ca_pem"`
+	SigningSeed                 string                         `json:"signing_seed"`
+	TLSCertificate              string                         `json:"tls_certificate_pem"`
+	TLSPrivateKey               string                         `json:"tls_private_key_pem"`
+	Consumers                   websession.ConsumerCredentials `json:"consumers"`
+	AdminAliasCredential        string                         `json:"chronicles_admin_alias_credential,omitempty"`
+	AdminInventoryMongoURI      string                         `json:"admin_inventory_mongo_uri,omitempty"`
+	AdminInventoryRecentAccess  bool                           `json:"admin_inventory_recent_access,omitempty"`
+	AdminInventoryAccessHistory bool                           `json:"admin_inventory_access_history,omitempty"`
 }
 
 func LoadServiceConfig(filename string) (ServiceConfig, error) {
@@ -86,6 +87,9 @@ func (cfg ServiceConfig) validate(now time.Time) ([]byte, tls.Certificate, *tls.
 		return bad()
 	}
 	if cfg.AdminInventoryRecentAccess && cfg.AdminInventoryMongoURI == "" {
+		return bad()
+	}
+	if cfg.AdminInventoryAccessHistory && cfg.AdminInventoryMongoURI == "" {
 		return bad()
 	}
 	seed, err := base64.RawURLEncoding.DecodeString(cfg.SigningSeed)
@@ -196,7 +200,7 @@ func NewStagingService(ctx context.Context, cfg ServiceConfig) (*RunningService,
 			_ = client.Disconnect(context.Background())
 		}
 	}()
-	if err := verifyRuntimeRole(ctx, client); err != nil {
+	if err := verifyRuntimeRole(ctx, client, cfg.AdminInventoryAccessHistory); err != nil {
 		return nil, err
 	}
 	if err := serviceReady(ctx, client); err != nil {
@@ -205,6 +209,11 @@ func NewStagingService(ctx context.Context, cfg ServiceConfig) (*RunningService,
 	issuer, err := issuance.NewStagingIssuer(ctx, client)
 	if err != nil {
 		return nil, ErrServiceUnavailable
+	}
+	if cfg.AdminInventoryAccessHistory {
+		if err := issuer.EnableStagingAccessHistory(); err != nil {
+			return nil, ErrUnsafeConfiguration
+		}
 	}
 	_, err = client.Database(serviceDatabase).Collection("staging_cka_tokens").Indexes().CreateOne(ctx, mongo.IndexModel{Keys: bson.D{{Key: "expires_at", Value: 1}}, Options: options.Index().SetName("token_expiry_ttl").SetExpireAfterSeconds(0)})
 	if err != nil {
@@ -220,10 +229,10 @@ func NewStagingService(ctx context.Context, cfg ServiceConfig) (*RunningService,
 		if err != nil {
 			return nil, ErrServiceUnavailable
 		}
-		if err = verifyAdminInventoryRole(ctx, adminClient, cfg.AdminInventoryRecentAccess); err != nil {
+		if err = verifyAdminInventoryRole(ctx, adminClient, cfg.AdminInventoryRecentAccess, cfg.AdminInventoryAccessHistory); err != nil {
 			return nil, err
 		}
-		reader, err := issuance.NewStagingAdminInventoryReader(adminClient, cfg.AdminInventoryRecentAccess)
+		reader, err := issuance.NewStagingAdminInventoryReader(adminClient, cfg.AdminInventoryRecentAccess, cfg.AdminInventoryAccessHistory)
 		if err != nil {
 			return nil, ErrUnsafeConfiguration
 		}
@@ -308,15 +317,19 @@ func serviceReady(ctx context.Context, client *mongo.Client) error {
 	return nil
 }
 
-func verifyRuntimeRole(ctx context.Context, client *mongo.Client) error {
-	return verifyMongoPrivileges(ctx, client, map[string]map[string]bool{
+func verifyRuntimeRole(ctx context.Context, client *mongo.Client, accessHistory bool) error {
+	required := map[string]map[string]bool{
 		"pending_accounts":   {"find": false, "insert": false, "update": false, "createIndex": false, "listIndexes": false},
 		"sessions":           {"find": false, "insert": false, "update": false, "remove": false, "createIndex": false, "listIndexes": false},
 		"staging_cka_tokens": {"find": false, "insert": false, "update": false, "createIndex": false, "listIndexes": false},
-	})
+	}
+	if accessHistory {
+		required["staging_application_access_history"] = map[string]bool{"insert": false, "update": false}
+	}
+	return verifyMongoPrivileges(ctx, client, required)
 }
 
-func verifyAdminInventoryRole(ctx context.Context, client *mongo.Client, recentAccess bool) error {
+func verifyAdminInventoryRole(ctx context.Context, client *mongo.Client, recentAccess, accessHistory bool) error {
 	required := map[string]map[string]bool{
 		"pending_accounts":      {"find": false, "update": false},
 		"sessions":              {"find": false, "update": false},
@@ -324,6 +337,9 @@ func verifyAdminInventoryRole(ctx context.Context, client *mongo.Client, recentA
 	}
 	if recentAccess {
 		required["staging_admin_recent_access"] = map[string]bool{"find": false}
+	}
+	if accessHistory {
+		required["staging_application_access_history"] = map[string]bool{"find": false}
 	}
 	return verifyMongoPrivileges(ctx, client, required)
 }

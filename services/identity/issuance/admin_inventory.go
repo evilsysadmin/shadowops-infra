@@ -22,7 +22,7 @@ import (
 // registration or session issuance, for a dedicated database principal.
 type StagingAdminInventoryReader struct{ issuer *Issuer }
 
-func NewStagingAdminInventoryReader(client *mongo.Client, recentAccess bool) (*StagingAdminInventoryReader, error) {
+func NewStagingAdminInventoryReader(client *mongo.Client, recentAccess, accessHistory bool) (*StagingAdminInventoryReader, error) {
 	if client == nil {
 		return nil, ErrDenied
 	}
@@ -31,7 +31,7 @@ func NewStagingAdminInventoryReader(client *mongo.Client, recentAccess bool) (*S
 	if err != nil {
 		return nil, ErrStore
 	}
-	return &StagingAdminInventoryReader{issuer: &Issuer{client: client, accounts: db.Collection("pending_accounts"), sessions: store, adminRecentAccess: recentAccess}}, nil
+	return &StagingAdminInventoryReader{issuer: &Issuer{client: client, accounts: db.Collection("pending_accounts"), sessions: store, adminRecentAccess: recentAccess, adminAccessHistory: accessHistory}}, nil
 }
 
 func (r *StagingAdminInventoryReader) StagingAdminInventory(ctx context.Context, handle, after string, limit int) (admininventory.Page, error) {
@@ -63,6 +63,9 @@ func (i *Issuer) StagingAdminInventory(ctx context.Context, handle, after string
 	inventory, err := admininventory.NewStaging(db)
 	if i.adminRecentAccess {
 		inventory, err = admininventory.NewStagingWithRecentAccess(db)
+	}
+	if err == nil && i.adminAccessHistory {
+		inventory, err = inventory.WithAccessHistory(db)
 	}
 	if err != nil {
 		return admininventory.Page{}, ErrStore
