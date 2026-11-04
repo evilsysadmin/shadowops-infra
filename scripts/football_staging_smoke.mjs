@@ -67,13 +67,49 @@ try{
    await page.getByRole('button',{name:/Modo mánager/}).click();
    await page.getByRole('button',{name:'Elegir FC Matthias',exact:true}).waitFor();
    await page.screenshot({path:out+'/'+viewport.width+'-authenticated-manager.png'});
+   // Exercise the actual staging quick-match setup after native SSO. An
+   // authenticated engine boot is NOT proof of XI unless the Web scene's
+   // ready handshake confirms the requested team size.
+   await page.goto(origin);
+   await page.getByRole('button',{name:/Partida rápida/}).click();
+   await page.getByRole('heading',{name:'Elige a tu rival'}).waitFor();
+   const five=page.getByRole('button',{name:'5v5 · Clásico',exact:true});
+   const eleven=page.getByRole('button',{name:'11v11 · En pruebas',exact:true});
+   assert.equal(await five.getAttribute('aria-pressed'),'true','staging quick match defaults to classic 5v5');
+   await eleven.waitFor({timeout:30000});
+   assert.ok(await page.locator('.chess-football-entry').evaluate(element=>element.scrollWidth<=element.clientWidth),
+     'authenticated XI setup must fit the viewport');
+   await eleven.click();
+   await page.getByRole('button',{name:/^Difícil\b/}).click();
+   assert.equal(await eleven.getAttribute('aria-pressed'),'true','XI selector must remain selected');
+   await page.screenshot({path:out+'/'+viewport.width+'-authenticated-xi-setup.png'});
    if(viewport.width===1280){
-    await page.goto(origin);await page.locator('.chess-football-entry__choice--quick').click();
-    await page.waitForFunction(()=>document.querySelector('.chess-football-godot-host')?.dataset.runtimeReady==='true',null,{timeout:120000});
-    const frame=page.frames().find(frame=>frame.url()===release.runtime.index);assert.ok(frame);
-    await page.waitForTimeout(5000);await frame.locator('canvas').click();
-    await page.keyboard.down('KeyD');await page.waitForTimeout(400);await page.keyboard.up('KeyD');
-    await page.screenshot({path:out+'/1280-authenticated-real-match.png'});
+    await page.evaluate(()=>{
+     window.__footballReadyTeamSize=null;
+     window.addEventListener('message',event=>{
+      if(event.origin==='https://assets.chess-studio.shadowops.dpdns.org' &&
+         event.data?.source==='chess-football-godot' && event.data.type==='ready'){
+       window.__footballReadyTeamSize=event.data.team_size;
+      }
+     });
+    });
+    await page.getByRole('button',{name:'Saltar al campo · 11v11 · Difícil',exact:true}).click();
+    const iframe=page.locator('iframe.chess-football-godot-host__frame');
+    await iframe.waitFor({timeout:30000});
+    assert.equal(await iframe.getAttribute('src'),release.runtime.index+
+      '#football-difficulty=hard&football-team-size=11','the authenticated XI must use the admitted immutable Godot release');
+    assert.equal(await iframe.getAttribute('referrerpolicy'),'origin','never send session URLs to the Godot CDN');
+    await page.waitForFunction(()=>document.querySelector('.chess-football-godot-host')?.dataset.runtimeReady==='true',
+      null,{timeout:120000});
+    await page.waitForFunction(()=>window.__footballReadyTeamSize===11,null,{timeout:30000});
+    const frame=page.frames().find(frame=>frame.url()===release.runtime.index+
+      '#football-difficulty=hard&football-team-size=11');
+    assert.ok(frame,'real Godot XI iframe must be active');
+    await frame.locator('canvas').focus({timeout:15000});
+    await page.keyboard.down('d');await page.waitForTimeout(400);await page.keyboard.up('d');
+    await page.screenshot({path:out+'/1280-authenticated-real-xi-match.png',timeout:15000});
+    captures.push({viewport,xi_boot:true,team_size:11,keyboard_input_sent:true});
+    console.log('FOOTBALL_AUTHENTICATED_XI_WEB_OK team_size=11 source_sha='+release.source_sha);
    }
    assert.deepEqual(errors,[]);captures.push({viewport,authenticated:true,page_errors:errors});
    if(viewport.width===390){
