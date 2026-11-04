@@ -112,8 +112,10 @@ class AutomaticFootballGC(unittest.TestCase):
     def test_auto_gc_is_not_invoked_without_capacity_pressure(self):
         objects, live = objects_and_live()
         deleted = []
-        with patch.dict(os.environ, CANONICAL_ENV), \\
-             patch.object(delivery, "github") as github:
+        with (
+            patch.dict(os.environ, CANONICAL_ENV),
+            patch.object(delivery, "github") as github,
+        ):
             changed = auto.reclaim_if_needed("0" * 32, {gc.ROOT + INCOMING + "/index.js": 7},
                                             source_sha=SHA, inventory=lambda a: objects,
                                             rollback_picker=lambda o, l: B,
@@ -129,7 +131,7 @@ class AutomaticFootballGC(unittest.TestCase):
         additions = {gc.ROOT + INCOMING + "/index.wasm": 10}
         with (
             patch.dict(os.environ, CANONICAL_ENV),
-            patch.object(delivery, "FOOTBALL_BUDGET", sum(original.values()) + 2),
+            patch.object(delivery, "FOOTBALL_BUDGET", 86),
             patch.object(delivery, "github", return_value={"sha": SHA}),
         ):
             self.assertTrue(auto.reclaim_if_needed(
