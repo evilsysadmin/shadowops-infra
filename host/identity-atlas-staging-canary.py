@@ -2,7 +2,8 @@
 """Start a short-lived, loopback-only staging Atlas service canary.
 
 Starts the real service, so it may create its normal staging indexes. It does
-not register accounts, grant roles, route public traffic or replace a service.
+not route public traffic or replace a service. Explicit journey mode additionally
+registers, promotes and removes one random synthetic account, preserving audit.
 """
 import fcntl
 import importlib.util
