@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
-from identity_staging_atlas_admission import require_recent_atlas_backup
+from identity_staging_atlas_admission import require_recent_atlas_backup, require_atlas_restore_evidence
 from identity_staging_backup import BackupError, encrypt_snapshot
 
 class AtlasBackupAdmissionTests(unittest.TestCase):
@@ -46,3 +46,20 @@ class AtlasBackupAdmissionTests(unittest.TestCase):
   self.assertEqual(admitted['sha256'],self.receipt['sha256'])
   self.assertEqual(admitted['snapshot']['schema'],2)
   self.assertEqual(admitted['cluster_sha256'],self.receipt['cluster_sha256'])
+
+ def test_restore_evidence_must_match_current_authenticated_backup(self):
+  path=self.state/'last-atlas-restore.json'
+  evidence={'schema':1,'environment':'staging','backend':'atlas',
+    'created_at':self.now.isoformat(),'backup_sha256':self.receipt['sha256'],
+    'cluster_sha256':self.receipt['cluster_sha256'],'result':'quarantine-restore-verified'}
+  def write(value):
+   path.write_text(json.dumps(value));path.chmod(0o600)
+  def check():return require_atlas_restore_evidence(self.config,self.state,now=self.now,expected_uid=os.getuid())
+  write(evidence);self.assertEqual(check()['sha256'],self.receipt['sha256'])
+  for field,value in [('backup_sha256','0'*64),('cluster_sha256','0'*64),('result','failed'),('environment','production'),('created_at',(self.now-timedelta(hours=25)).isoformat()),('created_at',(self.now+timedelta(minutes=6)).isoformat())]:
+   write({**evidence,field:value})
+   with self.subTest(field=field),self.assertRaises(BackupError):check()
+  write(evidence);path.chmod(0o644)
+  with self.assertRaises(BackupError):check()
+  path.unlink();path.symlink_to(self.state/'last-atlas-backup.json')
+  with self.assertRaises(BackupError):check()
