@@ -6,7 +6,7 @@ import os
 
 from chronicles_api_provision import resolve_vault
 from identity_staging_atlas_custody import AtlasCustodyError, prepare_atlas_custody
-from identity_staging_atlas import AtlasConfigurationError, _connection
+from identity_staging_atlas import AtlasConfigurationError, _connection, normalize_atlas_uri
 from oci_control_plane import config_from_env, resolve_existing_host
 
 SECRET = 'identity-staging-atlas-custody'
@@ -62,10 +62,13 @@ class AtlasInputError(AtlasCustodyError):
 def validate_inputs(app, inventory, backup):
     """Return only fixed diagnostic categories, never URI or user content."""
     parsed = []
+    normalized = []
     problems = []
     for name, uri in (('runtime', app), ('inventory', inventory), ('backup', backup)):
         try:
-            parsed.append(_connection(uri))
+            normalized_uri = normalize_atlas_uri(uri)
+            parsed.append(_connection(normalized_uri))
+            normalized.append(normalized_uri)
         except AtlasConfigurationError:
             problems.append(name + '_uri_format')
     if problems:
@@ -75,9 +78,10 @@ def validate_inputs(app, inventory, backup):
     if len({user for _, user in parsed}) != 3:
         raise AtlasInputError('users_not_distinct')
     try:
-        prepare_atlas_custody(None, app, inventory, backup)
+        prepare_atlas_custody(None, *normalized)
     except AtlasCustodyError:
         raise AtlasInputError('backup_credential_format') from None
+    return tuple(normalized)
 
 
 def provision(sdk, env):
@@ -85,7 +89,7 @@ def provision(sdk, env):
     inventory = env.get('IDENTITY_ATLAS_STAGING_INVENTORY_URI', '')
     backup = env.get('IDENTITY_ATLAS_STAGING_BACKUP_URI', '')
     # Validate user-supplied config before accessing any cloud resource.
-    validate_inputs(app, inventory, backup)
+    app, inventory, backup = validate_inputs(app, inventory, backup)
     config = config_from_env(sdk, env)
     compartment, _ = resolve_existing_host(sdk, config)
     vault, key, _ = resolve_vault(sdk, config, compartment)

@@ -34,3 +34,18 @@ class AtlasServiceConfigTests(unittest.TestCase):
                 atlas_service_config(base, APP, uri)
         with self.assertRaises(AtlasConfigurationError):
             atlas_service_config({'environment': 'production'}, APP, INVENTORY)
+
+class AtlasStandardURITests(unittest.TestCase):
+ def test_normalizes_atlas_driver_url_and_escapes_credentials(self):
+  from identity_staging_atlas import normalize_atlas_uri
+  from urllib.parse import urlsplit, parse_qs, unquote
+  uri='mongodb+srv://runtime:pass%40with%3Areserved@cluster.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0'
+  result=urlsplit(normalize_atlas_uri(uri))
+  self.assertEqual(result.path,'/shadowops_identity_staging')
+  self.assertEqual(unquote(result.password),'pass@with:reserved')
+  self.assertEqual(parse_qs(result.query),{'appName':['Cluster0'],'authSource':['admin'],'retryWrites':['true'],'tls':['true'],'w':['majority']})
+ def test_rejects_conflicts_unsafe_flags_and_placeholders(self):
+  from identity_staging_atlas import normalize_atlas_uri
+  bad=['mongodb+srv://user:password@cluster.mongodb.net/production', 'mongodb+srv://user:password@cluster.mongodb.net/?tls=false', 'mongodb+srv://user:password@cluster.mongodb.net/?tls=true&TLS=false', 'mongodb+srv://user:password@cluster.mongodb.net/?tlsInsecure=true', 'mongodb+srv://user:password@cluster.mongodb.net/?authSource=other', 'mongodb+srv://user:<password>@cluster.mongodb.net/']
+  for uri in bad:
+   with self.subTest(uri=uri),self.assertRaises(AtlasConfigurationError):normalize_atlas_uri(uri)

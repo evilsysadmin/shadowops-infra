@@ -59,3 +59,13 @@ class AtlasInputDiagnosticsTests(unittest.TestCase):
   with self.assertRaises(provision.AtlasInputError) as error:provision.validate_inputs('', '', backup)
   self.assertEqual(error.exception.code,'runtime_uri_format,inventory_uri_format')
   provision.validate_inputs(app,inventory,backup)
+
+class AtlasStandardProvisionTests(unittest.TestCase):
+ def test_standard_driver_urls_are_normalized_before_custody(self):
+  raw=['mongodb+srv://{}:synthetic-password-12345@cluster.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0'.format(x) for x in ('app','inventory','backup')]
+  normalized=provision.validate_inputs(*raw)
+  self.assertEqual(len(normalized),3)
+  for uri in normalized:
+   self.assertIn('/shadowops_identity_staging?',uri)
+   self.assertIn('tls=true',uri)
+   self.assertIn('authSource=admin',uri)
