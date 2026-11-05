@@ -2,6 +2,8 @@
 """Send only an admitted digest/SHA/Vault ID to the installed staging-only wrapper."""
 from __future__ import annotations
 import os
+import hashlib
+from pathlib import Path
 import re
 import sys
 import time
@@ -195,6 +197,75 @@ def execute_atlas_preflight(sdk,config,digest,sha,pause=time.sleep,clock=time.mo
         pause(3)
     raise ReleaseError('Atlas preflight timed out')
 
+CANARY_SOURCES = {
+    'host/identity-atlas-staging-canary.py': ('/usr/local/sbin/shadowops-identity-atlas-canary', '755'),
+    'host/identity-atlas-staging-preflight.py': ('/usr/local/sbin/shadowops-identity-atlas-preflight', '755'),
+    'scripts/identity_staging_atlas_journey.py': ('/usr/local/lib/shadowops/identity_staging_atlas_journey.py', '644'),
+    'scripts/identity_staging_atlas_admission.py': ('/usr/local/lib/shadowops/identity_staging_atlas_admission.py', '644'),
+    'scripts/identity_staging_atlas_backup.py': ('/usr/local/lib/shadowops/identity_staging_atlas_backup.py', '644'),
+    'scripts/identity_staging_atlas.py': ('/usr/local/lib/shadowops/identity_staging_atlas.py', '644'),
+    'scripts/identity_staging_backup.py': ('/usr/local/lib/shadowops/identity_staging_backup.py', '644'),
+}
+
+
+def canary_source_digests(root=None):
+    """Hash only fixed code from the trusted protected-main checkout."""
+    root=Path(root) if root is not None else Path(__file__).resolve().parents[1]
+    result={}
+    for source in CANARY_SOURCES:
+        path=root/source
+        if path.is_symlink() or not path.is_file() or path.stat().st_size>1048576:
+            raise ReleaseError('Invalid canary source checkout')
+        result[source]=hashlib.sha256(path.read_bytes()).hexdigest()
+    return result
+
+
+def canary_host_command(mode,digest,sha,hashes):
+    if mode not in {'canary','journey'} or not DIGEST.fullmatch(digest) or not SHA.fullmatch(sha):
+        raise ReleaseError('Invalid Atlas canary request')
+    if not isinstance(hashes,dict) or set(hashes)!=set(CANARY_SOURCES) or any(not isinstance(v,str) or not re.fullmatch(r'[a-f0-9]{64}',v) for v in hashes.values()):
+        raise ReleaseError('Invalid Atlas canary source digests')
+    command='set -eu\nPATH=/usr/sbin:/usr/bin:/sbin:/bin\nexport PATH\n'
+    for directory in ('/usr/local','/usr/local/sbin','/usr/local/lib','/usr/local/lib/shadowops'):
+        command+='test -d '+directory+' && test ! -L '+directory+' && test "$(stat -c %u:%a '+directory+')" = 0:755\n'
+    for source,(target,mode_bits) in CANARY_SOURCES.items():
+        command+='test -f '+target+' && test ! -L '+target+' && test "$(stat -c %u:%a '+target+')" = 0:'+mode_bits+'\n'
+        command+="printf '%s  %s\\n' "+hashes[source]+' '+target+' | sha256sum --check --status\n'
+    command+='sudo --non-interactive /usr/local/sbin/shadowops-identity-atlas-canary '+mode+' '+digest+' '+sha+'\n'
+    return command
+
+
+def execute_atlas_canary(sdk,config,digest,sha,pause=time.sleep,clock=time.monotonic,mode="canary"):
+    if mode not in {"canary", "journey"}:
+        raise ReleaseError("Invalid Atlas canary operation")
+    if not DIGEST.fullmatch(digest) or not SHA.fullmatch(sha):
+        raise ReleaseError('Invalid Atlas canary source')
+    command=canary_host_command(mode,digest,sha,canary_source_digests())
+    inspect(sdk,config)
+    compartment,instance=resolve_existing_host(sdk,config)
+    models=sdk.compute_instance_agent.models
+    details=models.CreateInstanceAgentCommandDetails(compartment_id=compartment,
+        execution_time_out_in_seconds=900,target=models.InstanceAgentCommandTarget(instance_id=instance),
+        content=models.InstanceAgentCommandContent(source=models.InstanceAgentCommandSourceViaTextDetails(text=command),
+            output=models.InstanceAgentCommandOutputViaTextDetails(output_type='TEXT')),
+        display_name='identity-staging-atlas-'+mode)
+    client=sdk.compute_instance_agent.ComputeInstanceAgentClient(config)
+    created=client.create_instance_agent_command(create_instance_agent_command_details=details).data
+    if not getattr(created,'id',None):raise ReleaseError('Missing Atlas canary command reference')
+    deadline=clock()+1020
+    while clock()<deadline:
+        execution=client.get_instance_agent_command_execution(instance_agent_command_id=created.id,instance_id=instance).data
+        state=str(getattr(execution,'lifecycle_state','')).upper()
+        if state in {'SUCCEEDED','FAILED','TIMED_OUT','CANCELED'}:
+            content=getattr(execution,'content',None)
+            marker='IDENTITY_ATLAS_ADMIN_CANARY_OK' if mode=='journey' else 'IDENTITY_ATLAS_LOOPBACK_CANARY_OK'
+            expected=marker+' source_sha='+sha+' digest='+digest
+            if state!='SUCCEEDED' or getattr(content,'exit_code',None)!=0 or str(getattr(content,'text','') or '').strip()!=expected:
+                raise ReleaseError('Atlas canary did not return the exact receipt')
+            return expected
+        pause(3)
+    raise ReleaseError('Atlas canary timed out')
+
 def execute_atlas_backup(sdk,config,pause=time.sleep,clock=time.monotonic):
     inspect(sdk,config)
     compartment,instance=resolve_existing_host(sdk,config)
@@ -228,6 +299,9 @@ def main():
         config=config_from_env(oci,os.environ)
         if sys.argv[1:]==['atlas-backup']:
             print(execute_atlas_backup(oci,config))
+        elif sys.argv[1:] in (['atlas-canary'], ['atlas-journey']):
+            mode='journey' if sys.argv[1]=='atlas-journey' else 'canary'
+            print(execute_atlas_canary(oci,config,os.environ.get('ADMITTED_DIGEST',''),os.environ.get('ADMITTED_SHA',''),mode=mode))
         elif sys.argv[1:]==['atlas-preflight']:
             print(execute_atlas_preflight(oci,config,os.environ.get('ADMITTED_DIGEST',''),os.environ.get('ADMITTED_SHA','')))
         elif sys.argv[1:]==['atlas-prepare']:
