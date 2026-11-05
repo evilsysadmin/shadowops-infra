@@ -2,6 +2,7 @@ import importlib.util
 import json
 import sys
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
 p=Path(__file__).resolve().parents[1]/'host'/'identity-atlas-staging-canary.py'
@@ -49,6 +50,18 @@ class CanaryTests(unittest.TestCase):
     with self.assertRaises(canary.CanaryError):canary.execute(DIGEST,SHA,runner=run,nonce=NONCE,pause=lambda _:None)
     self.assertTrue(any(x[:3]==['docker','rm','-f'] for x in calls))
     self.assertTrue(any(x[:3]==['docker','network','rm'] for x in calls))
+ def test_functional_journey_is_explicit_and_still_cleans(self):
+  calls,run=self.runner(); observed=[]
+  def journey(port,network,ca,config):
+   observed.append((port,network,config))
+   return 'IDENTITY_ATLAS_ADMIN_JOURNEY_OK'
+  with patch.object(canary,'read_private_json',return_value={'fixture':True}):
+   result=canary.execute(DIGEST,SHA,runner=run,nonce=NONCE,pause=lambda _:None,journey=journey)
+  self.assertTrue(result.startswith('IDENTITY_ATLAS_ADMIN_CANARY_OK'))
+  self.assertEqual(observed,[(12345,'shadowops-identity-atlas-canary-net-'+NONCE,{'fixture':True})])
+  self.assertTrue(any(x[:3]==['docker','rm','-f'] for x in calls))
+  self.assertTrue(any(x[:3]==['docker','network','rm'] for x in calls))
+
  def test_rejects_bad_image_or_nonce_before_any_command(self):
   calls,run=self.runner()
   for digest,sha,nonce in [('wrong',SHA,NONCE),(DIGEST,'bad',NONCE),(DIGEST,SHA,'bad')]:

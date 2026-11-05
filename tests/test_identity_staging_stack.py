@@ -16,6 +16,8 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'scripts'))
 from identity_staging_bundle import generate,service_config,enable_admin_inventory
 import identity_staging_backup as backup
+import identity_staging_atlas_journey as journey
+from unittest.mock import patch
 from identity_staging_atlas_policy import validate_atlas_compose, AtlasPolicyError
 spec=importlib.util.spec_from_file_location('identity_host_stack',ROOT/'host/identity-staging-deploy.py')
 host=importlib.util.module_from_spec(spec)
@@ -105,7 +107,7 @@ class StackTests(unittest.TestCase):
 
  def test_private_tls_image_account_revocation_and_database_persistence(self):
   prefix='identity-stack-test-'+secrets.token_hex(5)
-  network=prefix+'-network'; mongo=prefix+'-mongo'; identity=prefix+'-service'
+  network='shadowops-identity-atlas-canary-net-'+secrets.token_hex(12); mongo=prefix+'-mongo'; identity=prefix+'-service'
   database=prefix+'-data'; config_volume=prefix+'-config'; image=prefix+':fixture'
   bundle=generate('disposable-token-'+'a'*64)
   containers=[];volumes=[];network_created=False;image_created=False
@@ -144,6 +146,33 @@ class StackTests(unittest.TestCase):
     with self.assertRaises(AssertionError):shell(host.bootstrap_script(wrong))
     wrong=copy.deepcopy(bundle);wrong['mongo_application_password']='c'*64
     with self.assertRaises(AssertionError):shell(host.bootstrap_script(wrong))
+    # Exercise the exact synthetic role grant and scoped cleanup through a
+    # disposable authenticated TLS replica. The network is internal only.
+    canary_name='identitycanary_'+secrets.token_hex(8)
+    canary_subject='11111111-1111-4111-8111-111111111111'
+    decoy_subject='22222222-2222-4222-8222-222222222222'
+    setup='const a=db.getSiblingDB("admin"); a.auth("identity_root",'+json.dumps(bundle['mongo_root_password'])+'); const d=db.getSiblingDB("shadowops_identity_staging"); '
+    setup+='d.pending_accounts.insertMany('+json.dumps([
+      {'_id':canary_subject,'environment':'staging','source':'shadowops-identity','alias_key':canary_name,'state':'active','credentials_disabled':False,'role':'user'},
+      {'_id':decoy_subject,'environment':'staging','source':'shadowops-identity','alias_key':'decoy_user','state':'active','credentials_disabled':False,'role':'user'}])+'); '
+    setup+='d.sessions.insertOne({environment:"staging",subject:'+json.dumps(canary_subject)+',digest:"synthetic-session"}); '
+    setup+='d.admin_inventory_audit.insertOne({_id:"synthetic-audit",actor:'+json.dumps(canary_subject)+'});'
+    shell(setup)
+    local_uri='mongodb://identity_root:'+bundle['mongo_root_password']+'@identity-mongo:27017/shadowops_identity_staging?tls=true&tlsCAFile=/tmp/rehearsal-ca.pem&authSource=admin&replicaSet=identity-staging-rs'
+    def tls_runner(args,**kwargs):
+     args=list(args);i=args.index(journey.IMAGE)
+     args[i:i]=['--mount','type=bind,src='+str(path/'ca.pem')+',dst=/tmp/rehearsal-ca.pem,readonly']
+     return subprocess.run(args,**kwargs)
+    with patch.object(journey,'_connection',return_value=('fixture','fixture')):
+     subject=journey.mongo_action(local_uri,network,canary_name,'lookup',runner=tls_runner)
+     self.assertEqual(subject,canary_subject)
+     journey.mongo_action(local_uri,network,canary_name,'promote',subject,runner=tls_runner)
+     self.assertIn('CANARY_ROLE_VERIFIED',shell('const a=db.getSiblingDB("admin");a.auth("identity_root",'+json.dumps(bundle['mongo_root_password'])+'); if(db.getSiblingDB("shadowops_identity_staging").pending_accounts.findOne({_id:'+json.dumps(canary_subject)+'}).role!=="admin") throw Error("role"); print("CANARY_ROLE_VERIFIED");'))
+     journey.mongo_action(local_uri,network,canary_name,'cleanup',subject,runner=tls_runner)
+    verify='const a=db.getSiblingDB("admin");a.auth("identity_root",'+json.dumps(bundle['mongo_root_password'])+');const d=db.getSiblingDB("shadowops_identity_staging"); '
+    verify+='if(d.pending_accounts.findOne({_id:'+json.dumps(canary_subject)+'}) || d.sessions.findOne({subject:'+json.dumps(canary_subject)+'}) || !d.pending_accounts.findOne({_id:'+json.dumps(decoy_subject)+'}) || !d.admin_inventory_audit.findOne({_id:"synthetic-audit"})) throw Error("cleanup"); '
+    verify+='d.pending_accounts.deleteOne({_id:'+json.dumps(decoy_subject)+'});d.admin_inventory_audit.deleteOne({_id:"synthetic-audit"}); print("CANARY_CLEANUP_VERIFIED");'
+    self.assertIn('CANARY_CLEANUP_VERIFIED',shell(verify))
     docker('run','-d','--name',identity,'--network',network,'--network-alias','identity','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges:true','--mount','type=volume,src='+config_volume+',dst=/run/secrets,readonly','-e','IDENTITY_STAGING_CONFIG_FILE=/run/secrets/service.json',image);containers.append(identity)
     healthy()
     # Node's real TLS client in mongosh authenticates the actual IdP certificate.
