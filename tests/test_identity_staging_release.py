@@ -150,3 +150,59 @@ class AtlasDatabaseScopedReleaseTests(unittest.TestCase):
   self.assertEqual(captured[2].content.source.text,'set -eu\ntest -x /usr/local/sbin/shadowops-identity-atlas-prepare\nsudo --non-interactive /usr/local/sbin/shadowops-identity-atlas-prepare check-inventory-inactive '+VAULT+'\n')
   self.assertEqual(captured[1].content.source.text,'set -eu\ntest -x /usr/local/sbin/shadowops-identity-atlas-prepare\nsudo --non-interactive /usr/local/sbin/shadowops-identity-atlas-prepare refresh-inventory '+VAULT+'\n')
   self.assertEqual(captured[0].content.source.text,'set -eu\ntest -x /usr/local/sbin/shadowops-identity-atlas-prepare\nsudo --non-interactive /usr/local/sbin/shadowops-identity-atlas-prepare prepare-database-scoped '+VAULT+'\n')
+
+class AtlasCanaryReleaseTests(unittest.TestCase):
+ def fixture(self, *, state='SUCCEEDED', code=0, output='', command_id='fixture'):
+  captured=[]
+  def model(**kwargs):return SimpleNamespace(**kwargs)
+  content=SimpleNamespace(exit_code=code,text=output)
+  execution=SimpleNamespace(lifecycle_state=state,content=content)
+  client=SimpleNamespace(create_instance_agent_command=lambda **kw:captured.append(kw['create_instance_agent_command_details']) or SimpleNamespace(data=SimpleNamespace(id=command_id)),get_instance_agent_command_execution=lambda **kw:SimpleNamespace(data=execution))
+  models=SimpleNamespace(**{name:model for name in ['CreateInstanceAgentCommandDetails','InstanceAgentCommandTarget','InstanceAgentCommandContent','InstanceAgentCommandSourceViaTextDetails','InstanceAgentCommandOutputViaTextDetails']})
+  sdk=SimpleNamespace(compute_instance_agent=SimpleNamespace(models=models,ComputeInstanceAgentClient=lambda config:client))
+  return sdk,captured
+
+ def test_each_mode_requires_its_own_exact_source_receipt(self):
+  for mode,marker in [('canary','IDENTITY_ATLAS_LOOPBACK_CANARY_OK'),('journey','IDENTITY_ATLAS_ADMIN_CANARY_OK')]:
+   expected=marker+' source_sha='+SHA+' digest='+DIGEST
+   sdk,captured=self.fixture(output=expected)
+   with patch.object(release,'inspect'),patch.object(release,'resolve_existing_host',return_value=('compartment','host')):
+    self.assertEqual(release.execute_atlas_canary(sdk,{},DIGEST,SHA,mode=mode),expected)
+   command=captured[0]
+   self.assertEqual(command.target.instance_id,'host')
+   self.assertEqual(command.content.source.text,'set -eu\ntest -x /usr/local/sbin/shadowops-identity-atlas-canary\nsudo --non-interactive /usr/local/sbin/shadowops-identity-atlas-canary '+mode+' '+DIGEST+' '+SHA+'\n')
+
+ def test_missing_wrong_or_private_output_never_passes_or_leaks(self):
+  expected='IDENTITY_ATLAS_ADMIN_CANARY_OK source_sha='+SHA+' digest='+DIGEST
+  for output,state,code in [('', 'SUCCEEDED',0),(expected,'FAILED',0),(expected,'SUCCEEDED',1),(expected,'SUCCEEDED',None),(expected.replace(SHA,'c'*40),'SUCCEEDED',0),(expected.replace('ADMIN_CANARY','LOOPBACK_CANARY'),'SUCCEEDED',0),(expected+'\nprivate-fixture','SUCCEEDED',0),('private-fixture','SUCCEEDED',0)]:
+   sdk,_=self.fixture(state=state,code=code,output=output)
+   with patch.object(release,'inspect'),patch.object(release,'resolve_existing_host',return_value=('compartment','host')):
+    with self.assertRaises(release.ReleaseError) as failure:release.execute_atlas_canary(sdk,{},DIGEST,SHA,mode='journey')
+   self.assertNotIn('private-fixture',str(failure.exception))
+
+ def test_invalid_operation_or_source_cannot_reach_cloud(self):
+  for mode,digest,sha in [('deploy',DIGEST,SHA),('journey;env',DIGEST,SHA),('canary','latest',SHA),('journey',DIGEST,'main')]:
+   with patch.object(release,'inspect') as inspect:
+    with self.assertRaises(release.ReleaseError):release.execute_atlas_canary(None,{},digest,sha,mode=mode)
+    inspect.assert_not_called()
+
+ def test_missing_command_and_timeout_fail_closed(self):
+  sdk,_=self.fixture(command_id=None)
+  with patch.object(release,'inspect'),patch.object(release,'resolve_existing_host',return_value=('compartment','host')):
+   with self.assertRaises(release.ReleaseError):release.execute_atlas_canary(sdk,{},DIGEST,SHA)
+  sdk,_=self.fixture(state='IN_PROGRESS')
+  times=iter([0,0,1021])
+  pauses=[]
+  with patch.object(release,'inspect'),patch.object(release,'resolve_existing_host',return_value=('compartment','host')):
+   with self.assertRaisesRegex(release.ReleaseError,'timed out'):
+    release.execute_atlas_canary(sdk,{},DIGEST,SHA,clock=lambda:next(times),pause=pauses.append)
+  self.assertEqual(pauses,[3])
+
+class AtlasCanaryDispatchTests(unittest.TestCase):
+ def test_cli_dispatches_only_fixed_modes_with_admitted_image(self):
+  import contextlib,io
+  for action,mode in [('atlas-canary','canary'),('atlas-journey','journey')]:
+   with patch.dict(sys.modules,{'oci':SimpleNamespace()}),patch.dict(release.os.environ,{'ADMITTED_DIGEST':DIGEST,'ADMITTED_SHA':SHA}),patch.object(release,'config_from_env',return_value={}),patch.object(release,'execute_atlas_canary',return_value='fixture-receipt') as execute,patch.object(sys,'argv',['release',action]),contextlib.redirect_stdout(io.StringIO()):
+    self.assertEqual(release.main(),0)
+    self.assertEqual(execute.call_args.args[2:],(DIGEST,SHA))
+    self.assertEqual(execute.call_args.kwargs,{'mode':mode})
