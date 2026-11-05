@@ -95,6 +95,16 @@ class AtlasPrepareReleaseTests(unittest.TestCase):
    with self.assertRaises(release.ReleaseError) as failure:release.execute_atlas_prepare(sdk,{})
   self.assertNotIn('synthetic-private-data',str(failure.exception))
 
+class AtlasInactiveAdmissionTests(unittest.TestCase):
+ def test_inactive_check_requires_explicit_positive_host_receipt(self):
+  def model(**kwargs):return SimpleNamespace(**kwargs)
+  content=SimpleNamespace(exit_code=0,text='')
+  client=SimpleNamespace(create_instance_agent_command=lambda **kwargs:SimpleNamespace(data=SimpleNamespace(id='fixture')),get_instance_agent_command_execution=lambda **kwargs:SimpleNamespace(data=SimpleNamespace(lifecycle_state='SUCCEEDED',content=content)))
+  models=SimpleNamespace(**{name:model for name in ['CreateInstanceAgentCommandDetails','InstanceAgentCommandTarget','InstanceAgentCommandContent','InstanceAgentCommandSourceViaTextDetails','InstanceAgentCommandOutputViaTextDetails']})
+  sdk=SimpleNamespace(compute_instance_agent=SimpleNamespace(models=models,ComputeInstanceAgentClient=lambda config:client))
+  with patch.object(release,'inspect'),patch.object(release,'resolve_existing_host',return_value=('compartment','host')),patch.object(release,'resolve_vault',return_value=(VAULT,'key','compartment')):
+   with self.assertRaises(release.ReleaseError):release.execute_atlas_prepare(sdk,{},mode='check-inventory-inactive')
+
 class AtlasPreflightReleaseTests(unittest.TestCase):
  def test_only_exact_signed_image_and_exact_receipt_are_accepted(self):
   digest='sha256:'+'a'*64;sha='b'*40;captured=[]
@@ -134,5 +144,9 @@ class AtlasDatabaseScopedReleaseTests(unittest.TestCase):
   sdk=SimpleNamespace(compute_instance_agent=SimpleNamespace(models=models,ComputeInstanceAgentClient=lambda config:client))
   with patch.object(release,'inspect'),patch.object(release,'resolve_existing_host',return_value=('compartment','host')),patch.object(release,'resolve_vault',return_value=(VAULT,'key','compartment')):
    self.assertEqual(release.execute_atlas_prepare(sdk,{},mode='database-scoped'),'IDENTITY_ATLAS_PREPARE_COMMAND_COMPLETED preflight=required')
+   self.assertEqual(release.execute_atlas_prepare(sdk,{},mode='refresh-inventory'),'IDENTITY_ATLAS_PREPARE_COMMAND_COMPLETED preflight=required')
+   self.assertEqual(release.execute_atlas_prepare(sdk,{},mode='check-inventory-inactive'),'IDENTITY_ATLAS_PREPARE_COMMAND_COMPLETED preflight=required')
    with self.assertRaises(release.ReleaseError):release.execute_atlas_prepare(sdk,{},mode='anything-else')
+  self.assertEqual(captured[2].content.source.text,'set -eu\ntest -x /usr/local/sbin/shadowops-identity-atlas-prepare\nsudo --non-interactive /usr/local/sbin/shadowops-identity-atlas-prepare check-inventory-inactive '+VAULT+'\n')
+  self.assertEqual(captured[1].content.source.text,'set -eu\ntest -x /usr/local/sbin/shadowops-identity-atlas-prepare\nsudo --non-interactive /usr/local/sbin/shadowops-identity-atlas-prepare refresh-inventory '+VAULT+'\n')
   self.assertEqual(captured[0].content.source.text,'set -eu\ntest -x /usr/local/sbin/shadowops-identity-atlas-prepare\nsudo --non-interactive /usr/local/sbin/shadowops-identity-atlas-prepare prepare-database-scoped '+VAULT+'\n')

@@ -75,3 +75,70 @@ class AtlasDatabaseScopedPrepareTests(unittest.TestCase):
    self.assertEqual(saved['mongo_privilege_mode'],'database-scoped')
    self.assertNotIn('mongo_privilege_mode',service)
    with self.assertRaises(prepare.PrepareError):prepare.prepare_files(directory,service,custody,service_uid=uid,backup_uid=uid)
+
+class AtlasInventoryRefreshTests(unittest.TestCase):
+ def test_inactive_inventory_refresh_is_atomic_and_checkpointed(self):
+  from identity_staging_atlas_custody import rotate_inventory_uri
+  uid=os.getuid();real_chown=os.fchown
+  original=prepare_atlas_custody(None,*(BASE.format(name) for name in ('app','inventory','backup')))
+  updated=rotate_inventory_uri(original, original['application_uri'], original['inventory_uri'].replace('synthetic-password','rotated-password'), original['backup_uri'])
+  service={'environment':'staging','mongo_uri':'local','admin_inventory_access_history':True}
+  with tempfile.TemporaryDirectory() as temp,patch.object(prepare.os,'fchown',side_effect=lambda fd,owner,group:real_chown(fd,owner,os.getgid())):
+   root=Path(temp)
+   prepare.prepare_files(root,service,original,service_uid=uid,backup_uid=uid,database_scoped=True)
+   before=(root/'atlas-service.json').read_bytes()
+   backup=(root/'atlas-backup.json').read_bytes()
+   with self.assertRaises(prepare.PrepareError):
+    prepare.refresh_inventory_candidate(root,service,updated,service_uid=uid,backup_uid=uid,is_in_use=lambda _:True)
+   self.assertEqual((root/'atlas-service.json').read_bytes(),before)
+   with self.assertRaises(prepare.PrepareError):
+    prepare.refresh_inventory_candidate(root,service,updated,service_uid=uid,backup_uid=uid)
+   prepare.refresh_inventory_candidate(root,service,updated,service_uid=uid,backup_uid=uid,is_in_use=lambda _:False)
+   self.assertEqual(json.loads((root/'atlas-service.json').read_text())['admin_inventory_mongo_uri'],updated['inventory_uri'])
+   self.assertEqual((root/'atlas-backup.json').read_bytes(),backup)
+   checkpoints=list(root.glob('.atlas-service-previous-*'))
+   self.assertEqual(len(checkpoints),1)
+   self.assertEqual(checkpoints[0].read_bytes(),before)
+   self.assertEqual(stat.S_IMODE(checkpoints[0].stat().st_mode),0o400)
+   prepare.refresh_inventory_candidate(root,service,updated,service_uid=uid,backup_uid=uid,is_in_use=lambda _:True)
+   self.assertEqual(len(list(root.glob('.atlas-service-previous-*'))),1)
+
+ def test_unrelated_configuration_change_is_rejected(self):
+  from identity_staging_atlas_custody import rotate_inventory_uri
+  uid=os.getuid();real_chown=os.fchown
+  original=prepare_atlas_custody(None,*(BASE.format(name) for name in ('app','inventory','backup')))
+  updated=rotate_inventory_uri(original, original['application_uri'], original['inventory_uri'].replace('synthetic-password','rotated-password'), original['backup_uri'])
+  service={'environment':'staging','mongo_uri':'local','admin_inventory_access_history':True,'signing_seed':'original'}
+  with tempfile.TemporaryDirectory() as temp,patch.object(prepare.os,'fchown',side_effect=lambda fd,owner,group:real_chown(fd,owner,os.getgid())):
+   root=Path(temp)
+   prepare.prepare_files(root,service,original,service_uid=uid,backup_uid=uid,database_scoped=True)
+   before=(root/'atlas-service.json').read_bytes()
+   changed=dict(service,signing_seed='different')
+   with self.assertRaises(prepare.PrepareError):
+    prepare.refresh_inventory_candidate(root,changed,updated,service_uid=uid,backup_uid=uid,is_in_use=lambda _:False)
+   self.assertEqual((root/'atlas-service.json').read_bytes(),before)
+
+class AtlasMountAdmissionTests(unittest.TestCase):
+ def test_running_bind_mounts_and_hardlinks_block_candidate_refresh(self):
+  from types import SimpleNamespace
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp);candidate=root/'atlas-service.json';candidate.write_text('fixture')
+   link=root/'hardlink';os.link(candidate,link)
+   ident='a'*64
+   def runner_for(mount):
+    def run(args, **kwargs):
+     if args[1]=='ps': return SimpleNamespace(returncode=0,stdout=ident+'\n')
+     return SimpleNamespace(returncode=0,stdout=json.dumps([mount])+'\n')
+    return run
+   for source in (str(candidate),str(root),str(link)):
+    self.assertTrue(prepare.candidate_is_mounted(candidate,runner=runner_for({'Type':'bind','Source':source})))
+   other=root/'unrelated';other.write_text('other')
+   self.assertFalse(prepare.candidate_is_mounted(candidate,runner=runner_for({'Type':'bind','Source':str(other)})))
+   with self.assertRaises(prepare.PrepareError):
+    prepare.candidate_is_mounted(candidate,runner=runner_for({'Type':'bind','Source':str(root/'missing')}))
+ def test_invalid_or_unavailable_docker_fails_closed(self):
+  from types import SimpleNamespace
+  with tempfile.TemporaryDirectory() as temp:
+   candidate=Path(temp)/'atlas-service.json';candidate.write_text('fixture')
+   for result in (SimpleNamespace(returncode=1,stdout=''),SimpleNamespace(returncode=0,stdout='invalid-id\n')):
+    with self.assertRaises(prepare.PrepareError):prepare.candidate_is_mounted(candidate,runner=lambda *a,**k:result)

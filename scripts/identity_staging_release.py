@@ -134,13 +134,13 @@ def execute_backup(sdk,config,pause=time.sleep,clock=time.monotonic):
     raise ReleaseError('Identity backup timed out')
 
 def execute_atlas_prepare(sdk,config,pause=time.sleep,clock=time.monotonic,mode='strict'):
-    if mode not in {'strict','database-scoped'}:raise ReleaseError('Invalid Atlas privilege mode')
+    if mode not in {'strict','database-scoped','refresh-inventory','check-inventory-inactive'}:raise ReleaseError('Invalid Atlas privilege mode')
     inspect(sdk,config)
     compartment,instance=resolve_existing_host(sdk,config)
     vault,_,_=resolve_vault(sdk,config,compartment)
     if not VAULT.fullmatch(vault):raise ReleaseError('Invalid fixed Atlas custody')
     wrapper='/usr/local/sbin/shadowops-identity-atlas-prepare'
-    operation='prepare' if mode=='strict' else 'prepare-database-scoped'
+    operation={'strict':'prepare','database-scoped':'prepare-database-scoped','refresh-inventory':'refresh-inventory','check-inventory-inactive':'check-inventory-inactive'}[mode]
     command='set -eu\ntest -x '+wrapper+'\nsudo --non-interactive '+wrapper+' '+operation+' '+vault+'\n'
     models=sdk.compute_instance_agent.models
     details=models.CreateInstanceAgentCommandDetails(compartment_id=compartment,
@@ -160,7 +160,7 @@ def execute_atlas_prepare(sdk,config,pause=time.sleep,clock=time.monotonic,mode=
             if state!='SUCCEEDED' or getattr(content,'exit_code',None)!=0:
                 raise ReleaseError('Fixed Atlas configuration preparation did not complete')
             output=str(getattr(content,'text','') or '').strip()
-            if output and output != 'IDENTITY_ATLAS_STAGING_CONFIG_PREPARED':
+            if (mode == 'check-inventory-inactive' and output != 'IDENTITY_ATLAS_STAGING_CONFIG_PREPARED') or (output and output != 'IDENTITY_ATLAS_STAGING_CONFIG_PREPARED'):
                 raise ReleaseError('Unexpected Atlas preparation receipt')
             return 'IDENTITY_ATLAS_PREPARE_COMMAND_COMPLETED preflight=required'
         pause(3)
@@ -234,6 +234,8 @@ def main():
             print(execute_atlas_prepare(oci,config))
         elif sys.argv[1:]==['atlas-prepare-database-scoped']:
             print(execute_atlas_prepare(oci,config,mode='database-scoped'))
+        elif sys.argv[1:]==['atlas-refresh-inventory']:
+            print(execute_atlas_prepare(oci,config,mode='refresh-inventory'))
         elif sys.argv[1:]==['backup']:
             print(execute_backup(oci,config))
         elif sys.argv[1:]==['inspect']:
