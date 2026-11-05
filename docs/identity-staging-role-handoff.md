@@ -217,3 +217,28 @@ root-private, at-most-24-hour Atlas receipt against the configured cluster and
 an actual decryptable schema-2 snapshot. It rejects modified files, wrong keys,
 wrong clusters and unsafe file modes. This is an admission building block; it
 is not yet wired to a cutover, and a successful check does not prove restore.
+
+## Atlas role automation
+
+`atlas-roles-plan` reads the three independently supplied staging connection
+strings, verifies that their cluster belongs to the specified Atlas project,
+then reports only role names and whether each user would change. It does not
+print usernames, URLs or passwords. `atlas-roles-apply` creates only the three
+fixed Identity staging custom roles and assigns one to each corresponding
+user, replacing only previously recognized broad read/read-write roles for
+those users. Existing conflicting custom roles or unexpected user roles fail
+closed. Atlas changes are not transactional: on failure the script attempts
+to restore earlier user roles and reports that verification is required.
+Concurrent administrators can still race API updates; verify the plan and
+avoid concurrent role changes. Neither action has been tested against a live
+Atlas project yet.
+
+The Actions staging environment needs `IDENTITY_ATLAS_PROJECT_ID` as a variable
+and `IDENTITY_ATLAS_API_PUBLIC_KEY` and `IDENTITY_ATLAS_API_PRIVATE_KEY` as
+secrets, in addition to the three existing database URI secrets. The API key
+must have Atlas project-level Database Access Admin and read-only project
+access; it can manage database users and roles across that project and must be
+removed after use if temporary. Atlas may also require an API key IP access
+list. Do not put the API keys or database URLs into workflow inputs, shell
+history, logs, PRs or chat. `readWrite` database credentials cannot call the
+Atlas administration API.
