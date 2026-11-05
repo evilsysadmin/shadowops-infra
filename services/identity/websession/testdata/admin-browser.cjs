@@ -25,6 +25,7 @@ let browser;
     check(accountText.includes('Cuenta creada:'), 'account creation date missing');
     check(accountText.includes('Canjes por aplicación: Chronicles') && accountText.includes('primero ') && accountText.includes('último '), 'access history missing');
     check(await page.locator('#history-note').isVisible(), 'history scope is not explained');
+    check(await page.getByRole('link',{name:'Abrir Chronicles staging'}).getAttribute('href')==='https://staging.chronicles.shadowops.dpdns.org/', 'Chronicles staging link missing');
     check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'admin page overflows viewport');
     if (artifacts) await page.screenshot({path:path.join(artifacts,`identity-admin-${name}.png`)});
     check(await page.locator('#account-list li').count()===20,'first page is not bounded');
