@@ -103,3 +103,43 @@ The optional `admin_inventory=enable` provisioning input preserves existing Iden
 Before dispatching the opt-in or deploying, install the reviewed updated host wrapper and backup library through the existing operator SSH installation path, run and verify a schema 2 backup, and establish audit and access-summary retention/deletion policy. Confirm the staging administrator's immutable subject and use the separately reviewed role-grant ceremony; product admin privileges and matching usernames do not grant Identity administration. Test the resulting login, audit, access summary and rollback in staging. The opt-in does not backfill old access data.
 
 Normal release retries preserve the admin credential. An existing inventory user with a different password or unexpected role, an unsafe collection or a TTL index on the audit/summary collection stops the release without replacing credentials. The wrapper refuses a legacy configuration after an inventory user exists: disabling requires a separately reviewed procedure that revokes that user before changing privileges. No user, secret, backup or production deployment is changed merely by merging this code.
+
+## Manual Atlas canary and disposable account journey
+
+After installing the reviewed current operator wrapper, Python modules and
+sudo policy via `host/bootstrap-identity-staging-over-ssh.sh`, the protected
+`identity-staging-operations.yml` workflow accepts two explicit staging actions:
+
+- `atlas-canary`: start the admitted service on a temporary loopback-only port,
+  check TLS/readiness/admin page and reject anonymous inventory access.
+- `atlas-journey`: perform those checks, then register and log in as a random
+  disposable account, verify ordinary-user denial, temporarily grant that
+  account admin, verify inventory access, and remove its account and sessions.
+  Its audit entry is retained. This is an explicit staging database mutation;
+  it does not test the signed role-grant ceremony or grant a real user admin.
+
+Both require `source_sha` naming a protected-main commit with a published,
+attested Identity image and successful admission checks. Use that image SHA,
+which can differ from the latest workflow-only Infra commit. Both run through
+the fixed root wrapper under the existing host-operation concurrency group and
+host lock. An authenticated Atlas schema 2 backup less than 24 hours old and a
+successful connection preflight are mandatory. Missing wrappers, denied sudo,
+failed cleanup, missing output or mismatched source/digest receipts fail the job.
+No public traffic is switched. The expected receipts are respectively
+`IDENTITY_ATLAS_LOOPBACK_CANARY_OK` and `IDENTITY_ATLAS_ADMIN_CANARY_OK`, each
+including the admitted source SHA and digest. Do not count unit tests or a
+backup job as evidence that either canary has run against Atlas.
+
+If registration has an ambiguous outcome, the helper reports
+`IDENTITY_ATLAS_CANARY_REGISTRATION_UNCERTAIN name=identitycanary_<random>` in
+its host stderr. A confirmed account whose cleanup fails reports
+`IDENTITY_ATLAS_CANARY_CLEANUP_REQUIRED` with that generated name. Actions
+intentionally does not relay raw host output; an authorized host operator must
+inspect that diagnostic privately when the fixed canary receipt is missing.
+Do not retry blindly or delete by prefix. Review the exact generated account,
+its creation time and immutable subject against the failed run, disable only
+that verified disposable account, remove its sessions and account, and retain
+the audit. If ownership cannot be established, stop for investigation. A
+successful later run does not prove an earlier residual account was removed.
+A live restore rehearsal and consumer acceptance are still required before
+Atlas cutover.
