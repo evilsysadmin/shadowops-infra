@@ -1,10 +1,12 @@
 import copy
+import os
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from identity_staging_atlas_transition import current_atlas_image, TransitionError, IMAGE, CONFIG, TARGET, PROJECT
+from identity_staging_atlas_transition import current_atlas_image, TransitionError, TransitionCheckpoint, IMAGE, CONFIG, TARGET, PROJECT
 
 
 class AtlasTransitionTests(unittest.TestCase):
@@ -23,3 +25,18 @@ class AtlasTransitionTests(unittest.TestCase):
    with self.subTest(changed=changed),self.assertRaises(TransitionError):current_atlas_image([changed])
   for rows in ([],[row,row],None):
    with self.assertRaises(TransitionError):current_atlas_image(rows)
+
+ def test_interrupted_transition_blocks_retry_until_exact_checkpoint_cleared(self):
+  with tempfile.TemporaryDirectory() as directory:
+   checkpoint=TransitionCheckpoint(directory,expected_uid=os.getuid())
+   previous='sha256:'+'a'*64; candidate='sha256:'+'b'*64
+   checkpoint.begin(previous,candidate)
+   self.assertEqual(checkpoint.path.stat().st_mode & 0o777,0o600)
+   with self.assertRaises(TransitionError):checkpoint.begin(previous,candidate)
+   with self.assertRaises(TransitionError):checkpoint.clear(candidate,previous)
+   self.assertTrue(checkpoint.path.exists())
+   checkpoint.clear(previous,candidate)
+   self.assertFalse(checkpoint.path.exists())
+   checkpoint.path.symlink_to(Path(directory)/'missing')
+   with self.assertRaises(TransitionError):checkpoint.begin(previous,candidate)
+   with self.assertRaises(TransitionError):checkpoint.clear(previous,candidate)
