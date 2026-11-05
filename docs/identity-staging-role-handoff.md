@@ -211,3 +211,9 @@ started. Only a bounded encrypted-backup receipt is returned. Atlas custody,
 prepared configuration, a working network allowlist and a separately
 provisioned backup user are still required. The action has not been run against
 live Atlas and is not a restore verification.
+
+`identity_staging_atlas_admission.require_recent_atlas_backup` validates a
+root-private, at-most-24-hour Atlas receipt against the configured cluster and
+an actual decryptable schema-2 snapshot. It rejects modified files, wrong keys,
+wrong clusters and unsafe file modes. This is an admission building block; it
+is not yet wired to a cutover, and a successful check does not prove restore.
