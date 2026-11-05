@@ -7,7 +7,7 @@ Cmnd_Alias SHADOWOPS_IDENTITY_BACKUP = /usr/local/sbin/shadowops-identity-stagin
 ocarun ALL=(root) NOPASSWD: SHADOWOPS_IDENTITY_BACKUP
 
 # Fixed Atlas preparation and encrypted backup only; no general shell or restore.
-Cmnd_Alias SHADOWOPS_IDENTITY_ATLAS_PREPARE = /usr/local/sbin/shadowops-identity-atlas-prepare prepare *, /usr/local/sbin/shadowops-identity-atlas-prepare prepare-database-scoped *
+Cmnd_Alias SHADOWOPS_IDENTITY_ATLAS_PREPARE = /usr/local/sbin/shadowops-identity-atlas-prepare prepare *, /usr/local/sbin/shadowops-identity-atlas-prepare prepare-database-scoped *, /usr/local/sbin/shadowops-identity-atlas-prepare refresh-inventory *, /usr/local/sbin/shadowops-identity-atlas-prepare check-inventory-inactive *
 ocarun ALL=(root) NOPASSWD: SHADOWOPS_IDENTITY_ATLAS_PREPARE
 Cmnd_Alias SHADOWOPS_IDENTITY_ATLAS_BACKUP = /usr/local/sbin/shadowops-identity-atlas-backup backup
 ocarun ALL=(root) NOPASSWD: SHADOWOPS_IDENTITY_ATLAS_BACKUP
