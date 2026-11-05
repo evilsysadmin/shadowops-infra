@@ -15,6 +15,10 @@ CONFIG={'admin_inventory_mongo_uri':URI}
 COOKIE=journey.COOKIE+'=synthetic-cookie; Path=/; Secure; HttpOnly'
 
 class JourneyTests(unittest.TestCase):
+ def new_checkpoint(self):
+  import tempfile
+  temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup)
+  return journey.JourneyCheckpoint(Path(temp.name)/'pending.json')
  def test_register_promote_admin_and_remove_only_synthetic_account(self):
   calls=[]
   def http(port,ca,path,payload,cookie=None):
@@ -26,7 +30,7 @@ class JourneyTests(unittest.TestCase):
   def mongo(uri,network,name,op,subject=None):
    calls.append(('mongo',name,op,subject))
    return SUBJECT if op=='lookup' else None
-  self.assertEqual(journey.perform(PORT,NETWORK,'ca',CONFIG,http=http,mongo=mongo,nonce=NONCE),'IDENTITY_ATLAS_ADMIN_JOURNEY_OK')
+  self.assertEqual(journey.perform(PORT,NETWORK,'ca',CONFIG,http=http,mongo=mongo,nonce=NONCE,checkpoint=self.new_checkpoint()),'IDENTITY_ATLAS_ADMIN_JOURNEY_OK')
   actions=[x[2] for x in calls if x[0]=='mongo']
   self.assertEqual(actions,['lookup','promote','cleanup'])
   self.assertTrue(all(x[1]=='identitycanary_'+NONCE for x in calls if x[0]=='mongo'))
@@ -40,7 +44,7 @@ class JourneyTests(unittest.TestCase):
     actions.append(op)
     if op=='lookup':return SUBJECT
     if op=='cleanup' and fail_cleanup:raise journey.JourneyError('cleanup')
-   with self.assertRaises(journey.JourneyError):journey.perform(PORT,NETWORK,'ca',CONFIG,http=http,mongo=mongo,nonce=NONCE)
+   with self.assertRaises(journey.JourneyError):journey.perform(PORT,NETWORK,'ca',CONFIG,http=http,mongo=mongo,nonce=NONCE,checkpoint=self.new_checkpoint())
    self.assertEqual(actions,['lookup','cleanup'])
  def test_ambiguous_registration_reports_only_synthetic_name(self):
   import contextlib,io
@@ -48,7 +52,7 @@ class JourneyTests(unittest.TestCase):
   def http(*args,**kwargs):raise journey.JourneyError('network')
   def mongo(*args,**kwargs):calls.append(args)
   with contextlib.redirect_stderr(stderr),self.assertRaises(journey.JourneyError):
-   journey.perform(PORT,NETWORK,'ca',CONFIG,http=http,mongo=mongo,nonce=NONCE)
+   journey.perform(PORT,NETWORK,'ca',CONFIG,http=http,mongo=mongo,nonce=NONCE,checkpoint=self.new_checkpoint())
   self.assertIn('IDENTITY_ATLAS_CANARY_REGISTRATION_UNCERTAIN name=identitycanary_'+NONCE,stderr.getvalue())
   self.assertNotIn(URI,stderr.getvalue());self.assertEqual(calls,[])
 
@@ -93,3 +97,83 @@ class LoopbackTLSTests(unittest.TestCase):
     self.assertEqual(json.loads(server.observed[2]),{'example':'fixture'})
    finally:
     thread.join(timeout=10);server.server_close()
+
+class JourneyCheckpointTests(unittest.TestCase):
+ def test_hard_interruption_persists_identity_and_blocks_retry(self):
+  import contextlib,io,os,signal,tempfile,time
+  with tempfile.TemporaryDirectory() as temp:
+   path=Path(temp)/'pending.json';checkpoint=journey.JourneyCheckpoint(path)
+   pid=os.fork()
+   if pid==0:
+    def http(port,ca,path,payload,cookie=None):
+     if path.endswith('/register'):return 201,''
+     if path.endswith('/login'):return 204,COOKIE
+     return 401,''
+    def mongo(uri,network,name,op,subject=None):
+     if op=='lookup':return SUBJECT
+     if op=='promote':
+      (Path(temp)/'promoted').write_text('yes')
+      time.sleep(30)
+    journey.perform(PORT,NETWORK,'ca',CONFIG,http=http,mongo=mongo,nonce=NONCE,checkpoint=checkpoint)
+    os._exit(0)
+   try:
+    for _ in range(200):
+     if (Path(temp)/'promoted').exists():break
+     time.sleep(.025)
+    self.assertTrue((Path(temp)/'promoted').exists())
+   finally:
+    os.kill(pid,signal.SIGKILL);os.waitpid(pid,0)
+   saved=json.loads(path.read_text())
+   self.assertEqual(saved['name'],'identitycanary_'+NONCE)
+   self.assertEqual(saved['subject'],SUBJECT)
+   self.assertEqual(path.stat().st_mode&0o777,0o600)
+   self.assertNotIn('password',path.read_text())
+   calls=[];stderr=io.StringIO()
+   with contextlib.redirect_stderr(stderr),self.assertRaises(journey.JourneyError):
+    journey.perform(PORT,NETWORK,'ca',CONFIG,http=lambda *a,**k:calls.append(a),nonce='b'*16,checkpoint=checkpoint)
+   self.assertEqual(calls,[])
+   self.assertIn('IDENTITY_ATLAS_CANARY_RECOVERY_PENDING name=identitycanary_'+NONCE,stderr.getvalue())
+
+ def test_rejected_registration_clears_but_uncertain_registration_retains_fence(self):
+  import contextlib,io,tempfile
+  with tempfile.TemporaryDirectory() as temp:
+   path=Path(temp)/'pending.json';checkpoint=journey.JourneyCheckpoint(path)
+   with self.assertRaises(journey.JourneyError):
+    journey.perform(PORT,NETWORK,'ca',CONFIG,http=lambda *a,**k:(409,''),nonce=NONCE,checkpoint=checkpoint)
+   self.assertFalse(path.exists())
+   def fail(*args,**kwargs):raise journey.JourneyError('network')
+   with contextlib.redirect_stderr(io.StringIO()),self.assertRaises(journey.JourneyError):
+    journey.perform(PORT,NETWORK,'ca',CONFIG,http=fail,nonce=NONCE,checkpoint=checkpoint)
+   self.assertEqual(json.loads(path.read_text())['name'],'identitycanary_'+NONCE)
+   self.assertIsNone(json.loads(path.read_text())['subject'])
+
+ def test_checkpoint_refuses_symlink_without_touching_target(self):
+  import tempfile
+  with tempfile.TemporaryDirectory() as temp:
+   target=Path(temp)/'target';target.write_text('unchanged')
+   link=Path(temp)/'pending';link.symlink_to(target)
+   with self.assertRaises(journey.JourneyError):journey.JourneyCheckpoint(link).begin('identitycanary_'+NONCE)
+   self.assertEqual(target.read_text(),'unchanged')
+
+class PendingRecoveryTests(unittest.TestCase):
+ def test_exact_recorded_subject_cleaned_before_fence_removed(self):
+  import tempfile
+  with tempfile.TemporaryDirectory() as temp:
+   path=Path(temp)/'pending';checkpoint=journey.JourneyCheckpoint(path)
+   name='identitycanary_'+NONCE;checkpoint.begin(name);checkpoint.set_subject(name,SUBJECT)
+   calls=[]
+   def mongo(uri,network,actual,action,subject):calls.append((actual,action,subject))
+   self.assertEqual(journey.recover_pending(checkpoint,URI,NETWORK,mongo=mongo),'IDENTITY_ATLAS_CANARY_RECOVERY_OK')
+   self.assertEqual(calls,[(name,'cleanup',SUBJECT)]);self.assertFalse(path.exists())
+ def test_ambiguous_or_failed_cleanup_keeps_fence(self):
+  import contextlib,io,tempfile
+  with tempfile.TemporaryDirectory() as temp:
+   path=Path(temp)/'pending';checkpoint=journey.JourneyCheckpoint(path);name='identitycanary_'+NONCE;checkpoint.begin(name)
+   calls=[]
+   with contextlib.redirect_stderr(io.StringIO()),self.assertRaises(journey.JourneyError):
+    journey.recover_pending(checkpoint,URI,NETWORK,mongo=lambda *a:calls.append(a))
+   self.assertTrue(path.exists());self.assertEqual(calls,[])
+   checkpoint.set_subject(name,SUBJECT)
+   def fail(*args):raise journey.JourneyError('failed')
+   with self.assertRaises(journey.JourneyError):journey.recover_pending(checkpoint,URI,NETWORK,mongo=fail)
+   self.assertTrue(path.exists());self.assertEqual(json.loads(path.read_text())['subject'],SUBJECT)

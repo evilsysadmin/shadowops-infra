@@ -302,3 +302,21 @@ then apply the procedure above. Existing user recovery and restoration of role
 policy/journal remain separate unresolved requirements. Do not cut over until
 these limitations, an actual restore and the exact target environment have
 been verified.
+
+## Interrupted synthetic Atlas administrator journey
+
+The journey writes a root-private `atlas-canary-pending.json` in the Identity
+staging state directory before registration. It contains only the generated
+synthetic username and, once established, its immutable subject; it contains
+no password, recovery code or Mongo URI. The subject is durably recorded before
+any admin grant. A pending or malformed checkpoint blocks another journey.
+
+After reviewing the checkpoint, a root operator can run
+`/usr/local/sbin/shadowops-identity-atlas-canary recover` over the operator
+SSH path. It uses only the recorded synthetic name and subject, disables and
+removes that account and its sessions, preserves audit, then clears the
+checkpoint. It cannot target `evilsysadmin` or accept a supplied username.
+If registration was interrupted before the subject was recorded, automatic
+cleanup refuses to guess: investigate the exact recorded name and establish
+its ownership and subject first. Do not delete accounts by prefix or remove
+an unresolved checkpoint to retry.

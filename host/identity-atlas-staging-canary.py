@@ -124,9 +124,33 @@ def execute(digest, sha, *, runner=run, nonce=None, pause=time.sleep, journey=No
     return marker+' source_sha='+sha+' digest='+digest
 
 
+def recover(*, runner=run, nonce=None):
+    """Resolve a recorded synthetic account; ambiguous identities stay blocked."""
+    from identity_staging_atlas_journey import JourneyCheckpoint, recover_pending
+    checkpoint=JourneyCheckpoint()
+    pending=checkpoint._read()
+    if pending['subject'] is None:
+        print('IDENTITY_ATLAS_CANARY_MANUAL_REVIEW_REQUIRED name='+pending['name'],file=sys.stderr)
+        raise CanaryError('Ambiguous registration needs manual review')
+    config=read_private_json(CONFIG,65532)
+    suffix=nonce if nonce is not None else secrets.token_hex(12)
+    if not re.fullmatch(r'[a-f0-9]{24}',suffix): raise CanaryError('Invalid recovery identity')
+    network='shadowops-identity-atlas-canary-net-'+suffix
+    attempted=False
+    try:
+        attempted=True
+        runner(['docker','network','create','--label','shadowops.identity.atlas-canary-recovery=staging',network])
+        return recover_pending(checkpoint,config.get('admin_inventory_mongo_uri'),network)
+    finally:
+        if attempted:
+            names=runner(['docker','network','ls','--filter','name=^'+network+'$','--format','{{.Name}}']).splitlines()
+            if names==[network]: runner(['docker','network','rm',network],timeout=30)
+            elif names: raise CanaryError('Unexpected recovery network')
+
+
 def main():
     try:
-        if os.geteuid()!=0 or len(sys.argv)!=4 or sys.argv[1] not in {'canary','journey'}: raise CanaryError('Invalid request')
+        if os.geteuid()!=0 or not ((len(sys.argv)==2 and sys.argv[1]=='recover') or (len(sys.argv)==4 and sys.argv[1] in {'canary','journey'})): raise CanaryError('Invalid request')
         spec=importlib.util.spec_from_loader('atlas_preflight',SourceFileLoader('atlas_preflight','/usr/local/sbin/shadowops-identity-atlas-preflight'))
         preflight=importlib.util.module_from_spec(spec);spec.loader.exec_module(preflight)
         preflight.trusted_paths()
@@ -135,6 +159,9 @@ def main():
             raise CanaryError('Invalid canary CA')
         with (STATE/'deploy.lock').open('a') as lock:
             fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            if sys.argv[1]=='recover':
+                print(recover())
+                return 0
             backup=read_private_json(BACKUP,0)
             require_recent_atlas_backup(backup,STATE)
             preflight.execute(sys.argv[2],sys.argv[3])
