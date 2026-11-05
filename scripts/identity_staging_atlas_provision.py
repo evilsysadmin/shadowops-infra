@@ -62,11 +62,14 @@ class AtlasInputError(AtlasCustodyError):
 def validate_inputs(app, inventory, backup):
     """Return only fixed diagnostic categories, never URI or user content."""
     parsed = []
+    problems = []
     for name, uri in (('runtime', app), ('inventory', inventory), ('backup', backup)):
         try:
             parsed.append(_connection(uri))
         except AtlasConfigurationError:
-            raise AtlasInputError(name + '_uri_format') from None
+            problems.append(name + '_uri_format')
+    if problems:
+        raise AtlasInputError(','.join(problems)) from None
     if len({host for host, _ in parsed}) != 1:
         raise AtlasInputError('cluster_mismatch')
     if len({user for _, user in parsed}) != 3:

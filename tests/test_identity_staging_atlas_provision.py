@@ -56,4 +56,6 @@ class AtlasInputDiagnosticsTests(unittest.TestCase):
    with self.subTest(reason=expected),self.assertRaises(provision.AtlasInputError) as error:provision.validate_inputs(*values)
    self.assertEqual(error.exception.code,expected)
    self.assertNotIn('synthetic-password',str(error.exception))
+  with self.assertRaises(provision.AtlasInputError) as error:provision.validate_inputs('', '', backup)
+  self.assertEqual(error.exception.code,'runtime_uri_format,inventory_uri_format')
   provision.validate_inputs(app,inventory,backup)
