@@ -55,6 +55,26 @@ def prepare_atlas_custody(existing, application_uri, inventory_uri, backup_uri):
             'inventory_uri': inventory_uri, 'backup_uri': backup_uri, 'backup_key': backup_key}
 
 
+def rotate_inventory_uri(existing, application_uri, inventory_uri, backup_uri):
+    """Prepare a staging inventory-only rotation while preserving backup custody."""
+    if not isinstance(existing, dict):
+        raise AtlasCustodyError('Atlas custody must already exist')
+    try:
+        original = prepare_atlas_custody(existing, existing['application_uri'], existing['inventory_uri'], existing['backup_uri'])
+        application_uri, inventory_uri, backup_uri = map(normalize_atlas_uri, (application_uri, inventory_uri, backup_uri))
+        old_app, old_inventory, old_backup = map(normalize_atlas_uri, (original['application_uri'], original['inventory_uri'], original['backup_uri']))
+        if application_uri != old_app or backup_uri != old_backup:
+            raise AtlasCustodyError('Only staging inventory rotation is permitted')
+        if _connection(inventory_uri) != _connection(old_inventory):
+            raise AtlasCustodyError('Inventory user and cluster must be preserved')
+        _parts(application_uri, inventory_uri, backup_uri, original['backup_key'])
+        result = copy.deepcopy(original)
+        result['inventory_uri'] = inventory_uri
+        return result
+    except (KeyError, TypeError, AtlasConfigurationError):
+        raise AtlasCustodyError('Invalid independent Atlas staging custody') from None
+
+
 def derived_configs(custody, local_service_config):
     """Return independent service and backup configs without mutating inputs."""
     if not isinstance(custody, dict):
