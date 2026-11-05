@@ -247,6 +247,13 @@ def assert_existing_identity_containers(rows):
         counts[service] = counts.get(service, 0) + 1
         if service not in SERVICES or counts[service] > 1 or row.get('Bindings'):
             raise DeployError('Identity project collision or published port')
+        if service == 'identity':
+            mounts = row.get('Mounts')
+            if not isinstance(mounts, list):
+                raise DeployError('Identity configuration mount unavailable')
+            configs = [m for m in mounts if m.get('Destination') == '/run/secrets/identity-staging.json']
+            if len(configs) != 1 or configs[0].get('Source') != '/etc/shadowops/identity-staging/service.json' or configs[0].get('RW') is not False:
+                raise DeployError('Local deploy cannot replace non-local Identity configuration')
 
 
 def identity_ownership_guard():
@@ -255,7 +262,7 @@ def identity_ownership_guard():
     if len(ids) > 3 or any(not re.fullmatch('[a-f0-9]{12,64}', value) for value in ids):
         raise DeployError('Ambiguous Identity containers')
     if ids:
-        rows = run(['docker', 'inspect', '--format', '{"Labels":{{json .Config.Labels}},"Bindings":{{json .HostConfig.PortBindings}}}', *ids])
+        rows = run(['docker', 'inspect', '--format', '{"Labels":{{json .Config.Labels}},"Bindings":{{json .HostConfig.PortBindings}},"Mounts":{{json .Mounts}}}', *ids])
         assert_existing_identity_containers([json.loads(line) for line in rows.splitlines()])
     # Never adopt an existing foreign volume/network with a matching name.
     resources = [('volume', PROJECT + '-data')] + [('network', PROJECT + '-' + n) for n in ('database', 'origin', 'tunnel-egress')]
@@ -270,6 +277,12 @@ def identity_ownership_guard():
             raise DeployError('Identity resource already owned elsewhere')
 
 
+def reject_atlas_active(state):
+    marker = state / 'atlas-active'
+    if marker.exists() or marker.is_symlink():
+        raise DeployError('Local deploy blocked while Atlas is active')
+
+
 def deploy(digest, sha, vault):
     request('deploy', digest, sha, vault)
     if os.geteuid() != 0:
@@ -281,6 +294,7 @@ def deploy(digest, sha, vault):
             raise DeployError('Private root directory required')
     with (STATE / 'deploy.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        reject_atlas_active(STATE)
         verify_shared_a1_containers()
         identity_ownership_guard()
         bundle = read_bundle(vault)

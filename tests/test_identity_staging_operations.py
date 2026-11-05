@@ -102,10 +102,21 @@ class BundleTests(unittest.TestCase):
 
  def test_stopped_containers_and_published_ports_cannot_be_adopted(self):
   labels={'com.docker.compose.project':host.PROJECT,'com.docker.compose.service':'identity'}
-  valid={'Labels':labels,'Bindings':{}}
+  mount={'Source':'/etc/shadowops/identity-staging/service.json','Destination':'/run/secrets/identity-staging.json','RW':False}
+  valid={'Labels':labels,'Bindings':{},'Mounts':[mount]}
   host.assert_existing_identity_containers([valid])
   for rows in [[valid,valid],[{'Labels':labels,'Bindings':{'9443/tcp':[{'HostIp':'0.0.0.0','HostPort':'9443'}]}}],[{'Labels':dict(labels,**{'com.docker.compose.service':'unexpected'}),'Bindings':{}}]]:
    with self.assertRaises(host.DeployError):host.assert_existing_identity_containers(rows)
+  for mounts in ([],[dict(mount,Source='/etc/shadowops/identity-staging/atlas-service.json')],[dict(mount,RW=True)]):
+   with self.subTest(mounts=mounts),self.assertRaises(host.DeployError):host.assert_existing_identity_containers([dict(valid,Mounts=mounts)])
+
+ def test_atlas_marker_blocks_local_deploy_before_custody_access(self):
+  with tempfile.TemporaryDirectory() as temp:
+   state=Path(temp); (state/'atlas-active').touch()
+   with self.assertRaises(host.DeployError):host.reject_atlas_active(state)
+   (state/'atlas-active').unlink();host.reject_atlas_active(state)
+   (state/'atlas-active').symlink_to(state/'missing')
+   with self.assertRaises(host.DeployError):host.reject_atlas_active(state)
 
 class ProvisionTests(unittest.TestCase):
  @classmethod
