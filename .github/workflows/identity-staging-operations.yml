@@ -39,7 +39,7 @@ on:
     inputs:
       action:
         type: choice
-        options: [provision, deploy, inspect, backup, atlas-custody, atlas-prepare, atlas-prepare-database-scoped, atlas-preflight, atlas-backup, atlas-roles-plan, atlas-roles-apply, atlas-roles-check]
+        options: [provision, deploy, inspect, backup, atlas-custody, atlas-prepare, atlas-prepare-database-scoped, atlas-preflight, atlas-backup, atlas-roles-plan, atlas-roles-apply, atlas-roles-check, atlas-rotate-inventory, atlas-refresh-inventory]
         required: true
         description: Provision local custody, deploy, inspect, backup, or create separate Atlas custody
       cka_consumer:
@@ -90,6 +90,34 @@ jobs:
         env:
           IDENTITY_STACK_TEST: '1'
         run: python3 -m unittest discover -s tests -p 'test_identity_staging_stack.py' -v
+  atlas-rotate-inventory:
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'atlas-rotate-inventory' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: staging
+    concurrency:
+      group: shadowops-oci-host-operations
+      cancel-in-progress: false
+    env:
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+      IDENTITY_ATLAS_STAGING_RUNTIME_URI: ${{ secrets.IDENTITY_ATLAS_STAGING_RUNTIME_URI }}
+      IDENTITY_ATLAS_STAGING_INVENTORY_URI: ${{ secrets.IDENTITY_ATLAS_STAGING_INVENTORY_URI }}
+      IDENTITY_ATLAS_STAGING_BACKUP_URI: ${{ secrets.IDENTITY_ATLAS_STAGING_BACKUP_URI }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Rotate only the independent Atlas inventory custody
+        run: python scripts/identity_staging_atlas_inventory_rotate.py
   atlas-roles-check:
     needs: contracts
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'atlas-roles-check' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
@@ -171,7 +199,7 @@ jobs:
         run: python scripts/identity_staging_atlas_provision.py
   atlas-prepare:
     needs: contracts
-    if: github.event_name == 'workflow_dispatch' && (inputs.action == 'atlas-prepare' || inputs.action == 'atlas-prepare-database-scoped') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: github.event_name == 'workflow_dispatch' && (inputs.action == 'atlas-prepare' || inputs.action == 'atlas-prepare-database-scoped' || inputs.action == 'atlas-refresh-inventory') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     environment: staging
