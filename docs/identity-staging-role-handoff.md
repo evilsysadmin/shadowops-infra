@@ -258,3 +258,47 @@ reduces role setup but weakens the isolation of those records. The optional
 recent-access view is not supported in this mode. Select it only intentionally;
 preparation does not deploy, and live Atlas preflight remains required. Existing
 Atlas configuration files are never silently replaced when changing modes.
+
+## Staging break-glass through Atlas Data Explorer
+
+The project owner authorized an interim, manual recovery path for **Identity
+staging only**. This path intentionally bypasses the signed role-change
+ceremony above and does not create its role-change journal event; it must not
+be represented as equivalent to that ceremony or enabled in production.
+Record the time, immutable subject, operator and reason in the incident
+record without including a password, recovery code or connection URI.
+
+Before any Atlas cutover, validate this path end to end on a disposable
+staging account and perform a backup/restore rehearsal. The existing runtime
+integration test `TestServiceRuntimeAdminInventoryOptInAndRoles` exercises a real
+registration, login, direct Mongo role update and successful admin inventory
+request on a disposable TLS replica; it does not prove Atlas Data Explorer
+access, disaster recovery, or a live operator's identity.
+
+1. Authenticate to the Atlas project using an operator account with Data
+   Explorer access to `shadowops_identity_staging`. Verify the environment and
+   database name before touching a document. Do not use a GitHub-hosted runner
+   or expose a Mongo connection string.
+2. Sign in to Identity as the account to be promoted and retain that session.
+   Identify the **single** corresponding `pending_accounts` document using its
+   unique `alias_key`, `source: "shadowops-identity"`, and
+   `environment: "staging"`. Confirm its immutable `_id` out of band and
+   confirm `state: "active"` and `credentials_disabled: false`. If there is
+   any ambiguity, stop. A username alone does not prove control of the account.
+3. In Data Explorer, edit only that document's `role` field to the string
+   `admin`; do not modify credentials, versions, identifiers or other records.
+   Refresh the Identity admin page using the verified account and confirm that
+   listing succeeds and produces the inventory-access audit entry. Revert the
+   role to `user` if the operation was applied to the wrong account.
+4. Record the result and verify the Atlas access and the separate OCI host recovery path remain usable. The emergency procedure needs review and
+   a durable, tested replacement; it is not an automatic administrative grant.
+
+A restored schema 2 snapshot deliberately disables restored credentials and
+resets platform roles to `user`. The above procedure requires a working,
+owner-controlled login; it cannot reactivate an existing disabled account or
+recover its password. To recover administrative access after such a restore,
+use a newly registered, uniquely named staging account under operator control,
+then apply the procedure above. Existing user recovery and restoration of role
+policy/journal remain separate unresolved requirements. Do not cut over until
+these limitations, an actual restore and the exact target environment have
+been verified.
