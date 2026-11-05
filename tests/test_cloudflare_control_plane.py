@@ -32,6 +32,12 @@ class FakeCF:
             return 200, []
         if "/cfd_tunnel?" in path:
             return 200, [] if self.missing_tunnel else [{"name": c.TUNNEL, "id": "tunnel-test"}]
+        if path.endswith("/cfd_tunnel/tunnel-test/configurations"):
+            return 200, {"config": {"ingress": [
+                {"hostname": "api-staging.chess-studio.shadowops.dpdns.org", "service": "http://127.0.0.1:4000", "originRequest": {}},
+                {"hostname": "api.chess-studio.shadowops.dpdns.org", "service": "http://127.0.0.1:4100", "originRequest": {}},
+                {"hostname": "ssh-chess-studio-staging.shadowops.dpdns.org", "service": "ssh://127.0.0.1:22", "originRequest": {}},
+                {"service": "http_status:404"}]}}
         if "/pages/projects/chess-studio-staging/domains/" in path:
             return 200, {"name": c.PROJECTS["chess-studio-staging"], "status": "active"}
         if path.endswith("/pages/projects/chess-studio-staging"):
@@ -53,10 +59,21 @@ class CloudflareInventoryTests(unittest.TestCase):
         f = FakeCF()
         result = c.inspect(f)
         self.assertEqual(result["tunnel:chess-studio-staging"], "present")
+        self.assertEqual(result["tunnel-config:recovery-ingress"], "exact-match")
+        self.assertEqual(result["tunnel-config:other-options"], "none")
         self.assertEqual(result["pages:chess-studio-staging"], "active")
         self.assertEqual(result["pages:chronicles-staging"], "pending")
         self.assertEqual(result["dns:staging.chronicles.shadowops.dpdns.org"], "absent")
-        self.assertEqual(len(f.calls), len(c.HOSTS) + len(c.PROJECTS) + 3)
+        self.assertEqual(len(f.calls), len(c.HOSTS) + len(c.PROJECTS) + 4)
+
+    def test_extra_route_is_detected(self):
+        class ExtraRoute(FakeCF):
+            def get(self, path, *, allow_missing=False):
+                status, result = super().get(path, allow_missing=allow_missing)
+                if path.endswith("/cfd_tunnel/tunnel-test/configurations"):
+                    result["config"]["ingress"].insert(0, {"hostname": "extra.example", "service": "http://127.0.0.1:9999"})
+                return status, result
+        self.assertEqual(c.inspect(ExtraRoute())["tunnel-config:recovery-ingress"], "different")
 
     def test_fails_closed_on_ambiguous_or_invalid_resources(self):
         for change in (

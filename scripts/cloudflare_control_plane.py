@@ -87,6 +87,7 @@ def inspect(client: Any) -> dict[str, str]:
         raise InventoryError("Cloudflare zone has no ID")
 
     results: dict[str, str] = {}
+    dns_rows = {}
     for hostname in HOSTS:
         query = urllib.parse.urlencode({"name": hostname, "per_page": "100"})
         _, rows = client.get(f"/zones/{zid}/dns_records?{query}")
@@ -97,6 +98,7 @@ def inspect(client: Any) -> dict[str, str]:
             raise InventoryError("Ambiguous DNS ownership: " + hostname)
         if exact:
             row = exact[0]
+            dns_rows[hostname] = row
             record_type = str(row.get("type", ""))
             if record_type not in {"A", "AAAA", "CNAME"}:
                 raise InventoryError("Unexpected DNS record type for " + hostname)
@@ -109,8 +111,27 @@ def inspect(client: Any) -> dict[str, str]:
 
     tunnel_query = urllib.parse.urlencode({"name": TUNNEL, "is_deleted": "false", "per_page": "100"})
     _, tunnels = client.get(f"/accounts/{client.account}/cfd_tunnel?{tunnel_query}")
-    _one([r for r in tunnels if isinstance(r, dict) and r.get("name") == TUNNEL], "existing Chess Studio tunnel")
+    tunnel = _one([r for r in tunnels if isinstance(r, dict) and r.get("name") == TUNNEL], "existing Chess Studio tunnel")
+    tunnel_id = str(tunnel.get("id") or "")
+    if not tunnel_id or not all(c.isalnum() or c == "-" for c in tunnel_id):
+        raise InventoryError("Invalid tunnel identity")
+    _, configuration = client.get(f"/accounts/{client.account}/cfd_tunnel/{tunnel_id}/configurations")
+    if not isinstance(configuration, dict) or not isinstance(configuration.get("config"), dict):
+        raise InventoryError("Tunnel configuration unavailable")
+    config = configuration["config"]
+    ingress = config.get("ingress")
+    expected = [
+        {"hostname": "api-staging.chess-studio.shadowops.dpdns.org", "service": "http://127.0.0.1:4000", "originRequest": {}},
+        {"hostname": "api.chess-studio.shadowops.dpdns.org", "service": "http://127.0.0.1:4100", "originRequest": {}},
+        {"hostname": "ssh-chess-studio-staging.shadowops.dpdns.org", "service": "ssh://127.0.0.1:22", "originRequest": {}},
+        {"service": "http_status:404"},
+    ]
     results["tunnel:" + TUNNEL] = "present"
+    results["tunnel-config:recovery-ingress"] = "exact-match" if ingress == expected else "different"
+    results["tunnel-config:other-options"] = "none" if set(config) <= {"ingress", "originRequest", "warp-routing"} and not config.get("originRequest") and config.get("warp-routing", {"enabled": False}) == {"enabled": False} else "present"
+    for host in ("api-staging.chess-studio.shadowops.dpdns.org", "ssh-chess-studio-staging.shadowops.dpdns.org"):
+        row = dns_rows.get(host, {})
+        results["tunnel-dns:" + host] = "matches" if row.get("type") == "CNAME" and str(row.get("content", "")).rstrip(".") == tunnel_id + ".cfargotunnel.com" and row.get("proxied") is True else "different"
 
     for project, hostname in PROJECTS.items():
         prefix = f"/accounts/{client.account}/pages/projects/{project}"
