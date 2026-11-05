@@ -96,3 +96,26 @@ class TransitionCheckpoint:
                 os.close(directory_fd)
         except (OSError, ValueError, TypeError):
             raise TransitionError('Invalid transition checkpoint') from None
+
+
+def transition(previous, candidate, checkpoint, activate, verify):
+    """Run a staged update; leave evidence if rollback cannot be verified.
+
+    The caller must perform image admission, backup checks and locking first.
+    Activation and verification must be fixed staging-only operations.
+    """
+    checkpoint.begin(previous, candidate)
+    try:
+        activate(candidate)
+        if not verify(candidate):
+            raise TransitionError('Candidate verification failed')
+    except Exception:
+        try:
+            activate(previous)
+            if not verify(previous):
+                raise TransitionError('Rollback verification failed')
+        except Exception:
+            raise TransitionError('Rollback unverified; checkpoint retained') from None
+        checkpoint.clear(previous, candidate)
+        raise TransitionError('Candidate failed; previous image restored') from None
+    checkpoint.clear(previous, candidate)

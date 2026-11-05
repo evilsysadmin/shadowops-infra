@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from identity_staging_atlas_transition import current_atlas_image, TransitionError, TransitionCheckpoint, IMAGE, CONFIG, TARGET, PROJECT
+from identity_staging_atlas_transition import current_atlas_image, TransitionError, TransitionCheckpoint, transition, IMAGE, CONFIG, TARGET, PROJECT
 
 
 class AtlasTransitionTests(unittest.TestCase):
@@ -40,3 +40,22 @@ class AtlasTransitionTests(unittest.TestCase):
    checkpoint.path.symlink_to(Path(directory)/'missing')
    with self.assertRaises(TransitionError):checkpoint.begin(previous,candidate)
    with self.assertRaises(TransitionError):checkpoint.clear(previous,candidate)
+
+ def test_failed_update_restores_previous_or_preserves_checkpoint(self):
+  previous='sha256:'+'a'*64; candidate='sha256:'+'b'*64
+  for rollback_works in (True,False):
+   with self.subTest(rollback_works=rollback_works),tempfile.TemporaryDirectory() as directory:
+    checkpoint=TransitionCheckpoint(directory,expected_uid=os.getuid()); calls=[]
+    def activate(image):
+     calls.append(image)
+     if image==previous and not rollback_works:raise RuntimeError('rollback failure')
+    with self.assertRaises(TransitionError):transition(previous,candidate,checkpoint,activate,lambda image:image==previous)
+    self.assertEqual(calls,[candidate,previous])
+    self.assertEqual(checkpoint.path.exists(),not rollback_works)
+
+ def test_success_clears_checkpoint_after_verification(self):
+  previous='sha256:'+'a'*64; candidate='sha256:'+'b'*64
+  with tempfile.TemporaryDirectory() as directory:
+   checkpoint=TransitionCheckpoint(directory,expected_uid=os.getuid());calls=[]
+   transition(previous,candidate,checkpoint,calls.append,lambda image:image==candidate)
+   self.assertEqual(calls,[candidate]);self.assertFalse(checkpoint.path.exists())
