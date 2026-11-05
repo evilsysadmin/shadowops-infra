@@ -60,3 +60,32 @@ def require_recent_atlas_backup(config, state, now=None, expected_uid=0):
         raise BackupError('Authenticated Atlas backup not found')
     except (OSError, ValueError, TypeError, KeyError, OverflowError):
         raise BackupError('Recent authenticated Atlas backup required') from None
+
+
+def require_atlas_restore_evidence(config, state, now=None, expected_uid=0):
+    """Require a successful rehearsal of the exact currently admitted backup.
+
+    This does not prove account reactivation or a live Atlas restore.
+    """
+    admitted = require_recent_atlas_backup(config, state, now=now, expected_uid=expected_uid)
+    try:
+        path = Path(state) / 'last-atlas-restore.json'
+        meta = path.lstat()
+        if (stat.S_ISLNK(meta.st_mode) or not stat.S_ISREG(meta.st_mode)
+                or meta.st_uid != expected_uid or meta.st_mode & 0o077 or meta.st_size > 8192):
+            raise BackupError('Private restore evidence required')
+        receipt = json.loads(path.read_text())
+        instant = now or datetime.now(timezone.utc)
+        created = datetime.fromisoformat(receipt['created_at'])
+        if (instant.tzinfo is None or created.tzinfo is None
+                or created > instant + timedelta(minutes=5)
+                or instant - created > timedelta(hours=24)
+                or receipt.get('schema') != 1 or receipt.get('environment') != 'staging'
+                or receipt.get('backend') != 'atlas'
+                or receipt.get('result') != 'quarantine-restore-verified'
+                or receipt.get('backup_sha256') != admitted['sha256']
+                or receipt.get('cluster_sha256') != admitted['cluster_sha256']):
+            raise BackupError('Matching restore evidence required')
+        return admitted
+    except (OSError, ValueError, TypeError, KeyError, OverflowError):
+        raise BackupError('Recent matching Atlas restore evidence required') from None
