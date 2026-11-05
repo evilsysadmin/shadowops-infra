@@ -242,3 +242,19 @@ removed after use if temporary. Atlas may also require an API key IP access
 list. Do not put the API keys or database URLs into workflow inputs, shell
 history, logs, PRs or chat. `readWrite` database credentials cannot call the
 Atlas administration API.
+
+## Optional simpler database-scoped users (staging only)
+
+The `atlas-prepare-database-scoped` action explicitly selects a simpler mode:
+separate runtime and inventory users each have only Atlas's built-in `readWrite`
+role on `shadowops_identity_staging`; the separate backup user has `read` on
+that database. The default `atlas-prepare` retains exact collection-scoped
+roles. Both modes reject credentials shared by runtime and inventory, and the
+simpler mode rejects any cluster-wide role or other database privileges.
+
+This option is broader within the staging database: either service user can
+modify or remove Identity records, including inventory audit and history. It
+reduces role setup but weakens the isolation of those records. The optional
+recent-access view is not supported in this mode. Select it only intentionally;
+preparation does not deploy, and live Atlas preflight remains required. Existing
+Atlas configuration files are never silently replaced when changing modes.

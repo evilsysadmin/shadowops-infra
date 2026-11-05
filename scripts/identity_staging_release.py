@@ -133,13 +133,15 @@ def execute_backup(sdk,config,pause=time.sleep,clock=time.monotonic):
         pause(3)
     raise ReleaseError('Identity backup timed out')
 
-def execute_atlas_prepare(sdk,config,pause=time.sleep,clock=time.monotonic):
+def execute_atlas_prepare(sdk,config,pause=time.sleep,clock=time.monotonic,mode='strict'):
+    if mode not in {'strict','database-scoped'}:raise ReleaseError('Invalid Atlas privilege mode')
     inspect(sdk,config)
     compartment,instance=resolve_existing_host(sdk,config)
     vault,_,_=resolve_vault(sdk,config,compartment)
     if not VAULT.fullmatch(vault):raise ReleaseError('Invalid fixed Atlas custody')
     wrapper='/usr/local/sbin/shadowops-identity-atlas-prepare'
-    command='set -eu\ntest -x '+wrapper+'\nsudo --non-interactive '+wrapper+' prepare '+vault+'\n'
+    operation='prepare' if mode=='strict' else 'prepare-database-scoped'
+    command='set -eu\ntest -x '+wrapper+'\nsudo --non-interactive '+wrapper+' '+operation+' '+vault+'\n'
     models=sdk.compute_instance_agent.models
     details=models.CreateInstanceAgentCommandDetails(compartment_id=compartment,
         execution_time_out_in_seconds=300,target=models.InstanceAgentCommandTarget(instance_id=instance),
@@ -230,6 +232,8 @@ def main():
             print(execute_atlas_preflight(oci,config,os.environ.get('ADMITTED_DIGEST',''),os.environ.get('ADMITTED_SHA','')))
         elif sys.argv[1:]==['atlas-prepare']:
             print(execute_atlas_prepare(oci,config))
+        elif sys.argv[1:]==['atlas-prepare-database-scoped']:
+            print(execute_atlas_prepare(oci,config,mode='database-scoped'))
         elif sys.argv[1:]==['backup']:
             print(execute_backup(oci,config))
         elif sys.argv[1:]==['inspect']:

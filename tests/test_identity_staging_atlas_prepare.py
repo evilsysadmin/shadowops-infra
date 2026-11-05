@@ -61,3 +61,17 @@ class AtlasPrepareTests(unittest.TestCase):
   sdk=SimpleNamespace(auth=SimpleNamespace(signers=SimpleNamespace(InstancePrincipalsSecurityTokenSigner=lambda:'signer')),secrets=SimpleNamespace(SecretsClient=lambda **kw:client))
   with patch.dict(sys.modules,{'oci':sdk}):self.assertEqual(prepare.read_atlas_custody('vault-id'),self.custody)
   self.assertEqual(calls,[{'secret_name':'identity-staging-atlas-custody','vault_id':'vault-id','stage':'CURRENT'}])
+
+class AtlasDatabaseScopedPrepareTests(unittest.TestCase):
+ def test_database_scoped_mode_requires_explicit_selection_and_is_separate(self):
+  base='mongodb+srv://{}:synthetic-password-12345@cluster.mongodb.net/shadowops_identity_staging?tls=true&authSource=admin'
+  custody=prepare_atlas_custody(None,*(base.format(name) for name in ('app','inventory','backup')))
+  service={'environment':'staging','mongo_uri':'local','admin_inventory_access_history':True}
+  uid=os.getuid();real_chown=os.fchown
+  with tempfile.TemporaryDirectory() as temp,patch.object(prepare.os,'fchown',side_effect=lambda fd,owner,group:real_chown(fd,owner,os.getgid())):
+   directory=Path(temp)
+   prepare.prepare_files(directory,service,custody,service_uid=uid,backup_uid=uid,database_scoped=True)
+   saved=json.loads((directory/'atlas-service.json').read_text())
+   self.assertEqual(saved['mongo_privilege_mode'],'database-scoped')
+   self.assertNotIn('mongo_privilege_mode',service)
+   with self.assertRaises(prepare.PrepareError):prepare.prepare_files(directory,service,custody,service_uid=uid,backup_uid=uid)

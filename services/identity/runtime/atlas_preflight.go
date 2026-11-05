@@ -27,7 +27,7 @@ func PreflightStagingConnections(ctx context.Context, cfg ServiceConfig) error {
 		return ErrServiceUnavailable
 	}
 	defer app.Disconnect(context.Background())
-	if err := verifyRuntimeRole(ctx, app, cfg.AdminInventoryAccessHistory); err != nil {
+	if err := verifyConfiguredRuntimeRole(ctx, app, cfg); err != nil {
 		return err
 	}
 	if err := serviceReady(ctx, app); err != nil {
@@ -38,5 +38,5 @@ func PreflightStagingConnections(ctx context.Context, cfg ServiceConfig) error {
 		return ErrServiceUnavailable
 	}
 	defer inventory.Disconnect(context.Background())
-	return verifyAdminInventoryRole(ctx, inventory, cfg.AdminInventoryRecentAccess, cfg.AdminInventoryAccessHistory)
+	return verifyConfiguredInventoryRole(ctx, inventory, cfg)
 }

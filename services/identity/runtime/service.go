@@ -38,6 +38,7 @@ var ErrServiceUnavailable = errors.New("staging Identity service unavailable")
 // No private value is accepted from an HTTP request or emitted by diagnostics.
 type ServiceConfig struct {
 	Environment                 string                         `json:"environment"`
+	MongoPrivilegeMode          string                         `json:"mongo_privilege_mode,omitempty"`
 	MongoURI                    string                         `json:"mongo_uri"`
 	MongoCA                     string                         `json:"mongo_ca_pem"`
 	SigningSeed                 string                         `json:"signing_seed"`
@@ -84,6 +85,12 @@ func (cfg ServiceConfig) validate(now time.Time) ([]byte, tls.Certificate, *tls.
 		return nil, tls.Certificate{}, nil, ErrUnsafeConfiguration
 	}
 	if cfg.Environment != "staging" || len(cfg.Consumers) == 0 || len(cfg.Consumers) > 5 {
+		return bad()
+	}
+	if cfg.MongoPrivilegeMode != "" && cfg.MongoPrivilegeMode != "database-scoped" {
+		return bad()
+	}
+	if cfg.MongoPrivilegeMode == "database-scoped" && cfg.AdminInventoryRecentAccess {
 		return bad()
 	}
 	if cfg.AdminInventoryRecentAccess && cfg.AdminInventoryMongoURI == "" {
@@ -200,7 +207,7 @@ func NewStagingService(ctx context.Context, cfg ServiceConfig) (*RunningService,
 			_ = client.Disconnect(context.Background())
 		}
 	}()
-	if err := verifyRuntimeRole(ctx, client, cfg.AdminInventoryAccessHistory); err != nil {
+	if err := verifyConfiguredRuntimeRole(ctx, client, cfg); err != nil {
 		return nil, err
 	}
 	if err := serviceReady(ctx, client); err != nil {
@@ -229,7 +236,7 @@ func NewStagingService(ctx context.Context, cfg ServiceConfig) (*RunningService,
 		if err != nil {
 			return nil, ErrServiceUnavailable
 		}
-		if err = verifyAdminInventoryRole(ctx, adminClient, cfg.AdminInventoryRecentAccess, cfg.AdminInventoryAccessHistory); err != nil {
+		if err = verifyConfiguredInventoryRole(ctx, adminClient, cfg); err != nil {
 			return nil, err
 		}
 		reader, err := issuance.NewStagingAdminInventoryReader(adminClient, cfg.AdminInventoryRecentAccess, cfg.AdminInventoryAccessHistory)
@@ -313,6 +320,51 @@ func serviceReady(ctx context.Context, client *mongo.Client) error {
 	err := client.Database(serviceDatabase).Collection("pending_accounts").FindOne(ctx, bson.D{{Key: "_id", Value: "__identity_readiness__"}}, options.FindOne().SetProjection(bson.D{{Key: "_id", Value: 1}})).Err()
 	if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
 		return ErrServiceUnavailable
+	}
+	return nil
+}
+
+// Staging can explicitly use built-in readWrite limited to the Identity
+// staging database. Other roles, databases and cluster privileges are rejected.
+func verifyConfiguredRuntimeRole(ctx context.Context, client *mongo.Client, cfg ServiceConfig) error {
+	if cfg.MongoPrivilegeMode == "database-scoped" {
+		return verifyDatabaseScopedReadWrite(ctx, client)
+	}
+	return verifyRuntimeRole(ctx, client, cfg.AdminInventoryAccessHistory)
+}
+func verifyConfiguredInventoryRole(ctx context.Context, client *mongo.Client, cfg ServiceConfig) error {
+	if cfg.MongoPrivilegeMode == "database-scoped" {
+		return verifyDatabaseScopedReadWrite(ctx, client)
+	}
+	return verifyAdminInventoryRole(ctx, client, cfg.AdminInventoryRecentAccess, cfg.AdminInventoryAccessHistory)
+}
+func verifyDatabaseScopedReadWrite(ctx context.Context, client *mongo.Client) error {
+	var status struct {
+		Auth struct {
+			Users []bson.M `bson:"authenticatedUsers"`
+			Roles []struct {
+				Role string `bson:"role"`
+				DB   string `bson:"db"`
+			} `bson:"authenticatedUserRoles"`
+			Privileges []struct {
+				Resource struct {
+					DB      string `bson:"db"`
+					Any     bool   `bson:"anyResource"`
+					Cluster bool   `bson:"cluster"`
+				} `bson:"resource"`
+			} `bson:"authenticatedUserPrivileges"`
+		} `bson:"authInfo"`
+	}
+	if client.Database("admin").RunCommand(ctx, bson.D{{Key: "connectionStatus", Value: 1}, {Key: "showPrivileges", Value: true}}).Decode(&status) != nil {
+		return ErrServiceUnavailable
+	}
+	if len(status.Auth.Users) != 1 || len(status.Auth.Roles) != 1 || status.Auth.Roles[0].Role != "readWrite" || status.Auth.Roles[0].DB != serviceDatabase || len(status.Auth.Privileges) == 0 {
+		return ErrUnsafeConfiguration
+	}
+	for _, privilege := range status.Auth.Privileges {
+		if privilege.Resource.Any || privilege.Resource.Cluster || privilege.Resource.DB != serviceDatabase {
+			return ErrUnsafeConfiguration
+		}
 	}
 	return nil
 }
