@@ -40,3 +40,9 @@ class AtlasBackupAdmissionTests(unittest.TestCase):
   with self.assertRaises(BackupError):self.check()
   self.snapshot.chmod(0o600)
   with self.assertRaises(BackupError):self.check({**self.config,'backup_key':base64.urlsafe_b64encode(b'x'*32).decode()})
+
+ def test_returns_only_the_authenticated_matching_snapshot_for_rehearsal(self):
+  admitted=require_recent_atlas_backup(self.config,self.state,now=self.now,expected_uid=os.getuid())
+  self.assertEqual(admitted['sha256'],self.receipt['sha256'])
+  self.assertEqual(admitted['snapshot']['schema'],2)
+  self.assertEqual(admitted['cluster_sha256'],self.receipt['cluster_sha256'])
