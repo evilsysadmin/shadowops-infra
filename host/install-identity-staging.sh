@@ -14,7 +14,7 @@ for file in host/identity-staging-deploy.py host/identity-staging.sudoers script
             host/identity-staging-backup.py scripts/identity_staging_backup.py \
             host/identity-staging-backup.service host/identity-staging-backup.timer \
             scripts/shared_a1_host_guard.py compose.identity.staging.yaml \
-            host/identity-atlas-staging-prepare.py host/identity-atlas-staging-backup.py host/identity-atlas-staging-preflight.py \
+            host/identity-atlas-staging-prepare.py host/identity-atlas-staging-backup.py host/identity-atlas-staging-preflight.py host/identity-atlas-staging-canary.py \
             host/identity-atlas-staging-backup.service host/identity-atlas-staging-backup.timer \
             scripts/identity_staging_atlas.py scripts/identity_staging_atlas_custody.py \
             scripts/identity_staging_atlas_backup.py scripts/identity_staging_atlas_policy.py scripts/identity_staging_atlas_admission.py \
@@ -31,7 +31,7 @@ for destination in /etc/shadowops/identity-staging /var/lib/shadowops/identity-s
                    /etc/systemd/system/shadowops-identity-staging-backup.timer \
                    /etc/sudoers.d/105-shadowops-identity-staging \
                    /usr/local/sbin/shadowops-identity-staging /usr/local/lib/shadowops/identity_staging_bundle.py \
-                   /usr/local/sbin/shadowops-identity-atlas-prepare /usr/local/sbin/shadowops-identity-atlas-backup /usr/local/sbin/shadowops-identity-atlas-preflight \
+                   /usr/local/sbin/shadowops-identity-atlas-prepare /usr/local/sbin/shadowops-identity-atlas-backup /usr/local/sbin/shadowops-identity-atlas-preflight /usr/local/sbin/shadowops-identity-atlas-canary \
                    /usr/local/lib/shadowops/identity_staging_atlas.py /usr/local/lib/shadowops/identity_staging_atlas_custody.py \
                    /usr/local/lib/shadowops/identity_staging_atlas_backup.py /usr/local/lib/shadowops/identity_staging_atlas_policy.py /usr/local/lib/shadowops/identity_staging_atlas_admission.py \
                    /etc/shadowops/identity-staging/atlas-compose.yaml \
@@ -54,6 +54,7 @@ for module in identity_staging_atlas identity_staging_atlas_custody identity_sta
 done
 install -o root -g root -m 0755 "$repo/host/identity-atlas-staging-prepare.py" /usr/local/sbin/shadowops-identity-atlas-prepare
 install -o root -g root -m 0755 "$repo/host/identity-atlas-staging-preflight.py" /usr/local/sbin/shadowops-identity-atlas-preflight
+install -o root -g root -m 0755 "$repo/host/identity-atlas-staging-canary.py" /usr/local/sbin/shadowops-identity-atlas-canary
 install -o root -g root -m 0755 "$repo/host/identity-atlas-staging-backup.py" /usr/local/sbin/shadowops-identity-atlas-backup
 # Install, but do not enable: cutover must first prove Atlas backup/restore.
 install -o root -g root -m 0644 "$repo/host/identity-atlas-staging-backup.service" /etc/systemd/system/identity-atlas-staging-backup.service
