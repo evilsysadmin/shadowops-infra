@@ -53,9 +53,10 @@ def require_recent_atlas_backup(config, state, now=None, expected_uid=0):
             encrypted = path.read_bytes()
             if hashlib.sha256(encrypted).hexdigest() != receipt['sha256']:
                 continue
-            if decrypt_snapshot(encrypted, config['backup_key'])['schema'] != 2:
+            snapshot=decrypt_snapshot(encrypted, config['backup_key'])
+            if snapshot['schema'] != 2:
                 raise BackupError('Atlas schema 2 backup required')
-            return
+            return {'snapshot':snapshot,'sha256':receipt['sha256'],'cluster_sha256':cluster_hash}
         raise BackupError('Authenticated Atlas backup not found')
     except (OSError, ValueError, TypeError, KeyError, OverflowError):
         raise BackupError('Recent authenticated Atlas backup required') from None

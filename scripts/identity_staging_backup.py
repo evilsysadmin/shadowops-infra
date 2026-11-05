@@ -183,10 +183,10 @@ try {
   for (const name of ['pending_accounts','sessions','staging_cka_tokens','admin_inventory_audit','staging_application_access_history']) {
    if (stage.getCollection(name).findOne({}) !== null) throw new Error('restore refuses nonempty destination');
   }
-  const rows=EJSON.deserialize(snapshot.collections.pending_accounts);
+  const rows=EJSON.deserialize(snapshot.collections.pending_accounts,{relaxed:false});
   if (rows.length) stage.getCollection('pending_accounts').insertMany(rows);
   for (const name of ['admin_inventory_audit','staging_application_access_history']) {
-   const saved=EJSON.deserialize(snapshot.collections[name] || []);
+   const saved=EJSON.deserialize(snapshot.collections[name] || [],{relaxed:false});
    if (saved.length) stage.getCollection(name).insertMany(saved);
   }
  },{readConcern:{level:'snapshot'},writeConcern:{w:'majority'}});

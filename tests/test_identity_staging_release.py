@@ -229,3 +229,23 @@ class AtlasCanaryDispatchTests(unittest.TestCase):
     self.assertEqual(release.main(),0)
     self.assertEqual(execute.call_args.args[2:],(DIGEST,SHA))
     self.assertEqual(execute.call_args.kwargs,{'mode':mode})
+
+class AtlasRestoreReleaseTests(unittest.TestCase):
+ def test_rehearsal_checks_sources_and_requires_exact_nonprivate_receipt(self):
+  captured=[]
+  def model(**kwargs):return SimpleNamespace(**kwargs)
+  receipt='IDENTITY_ATLAS_QUARANTINE_RESTORE_OK backup_sha256='+'c'*64
+  content=SimpleNamespace(exit_code=0,text=receipt)
+  execution=SimpleNamespace(lifecycle_state='SUCCEEDED',content=content)
+  client=SimpleNamespace(create_instance_agent_command=lambda **kw:captured.append(kw['create_instance_agent_command_details']) or SimpleNamespace(data=SimpleNamespace(id='fixture')),get_instance_agent_command_execution=lambda **kw:SimpleNamespace(data=execution))
+  models=SimpleNamespace(**{name:model for name in ['CreateInstanceAgentCommandDetails','InstanceAgentCommandTarget','InstanceAgentCommandContent','InstanceAgentCommandSourceViaTextDetails','InstanceAgentCommandOutputViaTextDetails']})
+  sdk=SimpleNamespace(compute_instance_agent=SimpleNamespace(models=models,ComputeInstanceAgentClient=lambda config:client))
+  with patch.object(release,'inspect'),patch.object(release,'resolve_existing_host',return_value=('compartment','host')):
+   self.assertEqual(release.execute_atlas_restore_rehearsal(sdk,{}),receipt)
+   command=captured[0].content.source.text
+   self.assertIn('sha256sum --check --status',command)
+   self.assertTrue(command.endswith('sudo --non-interactive /usr/local/sbin/shadowops-identity-atlas-backup rehearse\n'))
+   for output,code,state in [('',0,'SUCCEEDED'),(receipt+'\nprivate-fixture',0,'SUCCEEDED'),(receipt,1,'SUCCEEDED'),(receipt,None,'SUCCEEDED'),(receipt,0,'FAILED')]:
+    content.text=output;content.exit_code=code;execution.lifecycle_state=state
+    with self.assertRaises(release.ReleaseError) as failure:release.execute_atlas_restore_rehearsal(sdk,{})
+    self.assertNotIn('private-fixture',str(failure.exception))

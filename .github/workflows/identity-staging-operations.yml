@@ -41,7 +41,7 @@ on:
     inputs:
       action:
         type: choice
-        options: [provision, deploy, inspect, backup, atlas-custody, atlas-prepare, atlas-prepare-database-scoped, atlas-preflight, atlas-canary, atlas-journey, atlas-backup, atlas-roles-plan, atlas-roles-apply, atlas-roles-check, atlas-rotate-inventory, atlas-refresh-inventory]
+        options: [provision, deploy, inspect, backup, atlas-custody, atlas-prepare, atlas-prepare-database-scoped, atlas-preflight, atlas-canary, atlas-journey, atlas-restore-rehearsal, atlas-backup, atlas-roles-plan, atlas-roles-apply, atlas-roles-check, atlas-rotate-inventory, atlas-refresh-inventory]
         required: true
         description: Provision local custody, deploy, inspect, backup, or create separate Atlas custody
       cka_consumer:
@@ -250,6 +250,31 @@ jobs:
       - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
       - name: Run the fixed encrypted Atlas backup
         run: python scripts/identity_staging_release.py atlas-backup
+  atlas-restore-rehearsal:
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'atlas-restore-rehearsal' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: staging
+    concurrency:
+      group: shadowops-oci-host-operations
+      cancel-in-progress: false
+    env:
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Restore the authenticated Atlas backup in a networkless disposable database
+        run: python scripts/identity_staging_release.py atlas-restore-rehearsal
   atlas-roles:
     needs: contracts
     if: github.event_name == 'workflow_dispatch' && (inputs.action == 'atlas-roles-plan' || inputs.action == 'atlas-roles-apply') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'

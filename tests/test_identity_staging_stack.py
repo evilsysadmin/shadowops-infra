@@ -26,6 +26,11 @@ spec.loader.exec_module(host)
 
 @unittest.skipUnless(os.environ.get('IDENTITY_STACK_TEST')=='1','explicit disposable Docker stack not requested')
 class StackTests(unittest.TestCase):
+ def test_atlas_backup_restore_in_networkless_disposable_mongo(self):
+  from test_identity_staging_atlas_restore import fixture
+  from identity_staging_atlas_restore import rehearse, MARKER
+  self.assertEqual(rehearse(fixture()),MARKER)
+
  def test_normalized_compose_rejects_host_authority_and_foreign_images(self):
   import yaml
   with tempfile.TemporaryDirectory(prefix='identity-compose-test-') as temp:

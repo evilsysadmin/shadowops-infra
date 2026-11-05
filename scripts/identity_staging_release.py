@@ -208,11 +208,11 @@ CANARY_SOURCES = {
 }
 
 
-def canary_source_digests(root=None):
+def canary_source_digests(root=None, sources=None):
     """Hash only fixed code from the trusted protected-main checkout."""
     root=Path(root) if root is not None else Path(__file__).resolve().parents[1]
     result={}
-    for source in CANARY_SOURCES:
+    for source in (CANARY_SOURCES if sources is None else sources):
         path=root/source
         if path.is_symlink() or not path.is_file() or path.stat().st_size>1048576:
             raise ReleaseError('Invalid canary source checkout')
@@ -220,17 +220,24 @@ def canary_source_digests(root=None):
     return result
 
 
+def installed_source_guard(sources,hashes):
+    if not isinstance(hashes,dict) or set(hashes)!=set(sources) or any(not isinstance(v,str) or not re.fullmatch(r'[a-f0-9]{64}',v) for v in hashes.values()):
+        raise ReleaseError('Invalid installed source digests')
+    command='set -eu\nPATH=/usr/sbin:/usr/bin:/sbin:/bin\nexport PATH\n'
+    for directory in ('/usr/local','/usr/local/sbin','/usr/local/lib','/usr/local/lib/shadowops'):
+        command+='test -d '+directory+' && test ! -L '+directory+' && test "$(stat -c %u:%a '+directory+')" = 0:755\n'
+    for source,(target,mode_bits) in sources.items():
+        command+='test -f '+target+' && test ! -L '+target+' && test "$(stat -c %u:%a '+target+')" = 0:'+mode_bits+'\n'
+        command+="printf '%s  %s\\n' "+hashes[source]+' '+target+' | sha256sum --check --status\n'
+    return command
+
+
 def canary_host_command(mode,digest,sha,hashes):
     if mode not in {'canary','journey'} or not DIGEST.fullmatch(digest) or not SHA.fullmatch(sha):
         raise ReleaseError('Invalid Atlas canary request')
     if not isinstance(hashes,dict) or set(hashes)!=set(CANARY_SOURCES) or any(not isinstance(v,str) or not re.fullmatch(r'[a-f0-9]{64}',v) for v in hashes.values()):
         raise ReleaseError('Invalid Atlas canary source digests')
-    command='set -eu\nPATH=/usr/sbin:/usr/bin:/sbin:/bin\nexport PATH\n'
-    for directory in ('/usr/local','/usr/local/sbin','/usr/local/lib','/usr/local/lib/shadowops'):
-        command+='test -d '+directory+' && test ! -L '+directory+' && test "$(stat -c %u:%a '+directory+')" = 0:755\n'
-    for source,(target,mode_bits) in CANARY_SOURCES.items():
-        command+='test -f '+target+' && test ! -L '+target+' && test "$(stat -c %u:%a '+target+')" = 0:'+mode_bits+'\n'
-        command+="printf '%s  %s\\n' "+hashes[source]+' '+target+' | sha256sum --check --status\n'
+    command=installed_source_guard(CANARY_SOURCES,hashes)
     command+='sudo --non-interactive /usr/local/sbin/shadowops-identity-atlas-canary '+mode+' '+digest+' '+sha+'\n'
     return command
 
@@ -293,11 +300,51 @@ def execute_atlas_backup(sdk,config,pause=time.sleep,clock=time.monotonic):
         pause(3)
     raise ReleaseError('Atlas backup timed out')
 
+RESTORE_SOURCES = {
+    'host/identity-atlas-staging-backup.py': ('/usr/local/sbin/shadowops-identity-atlas-backup', '755'),
+    'scripts/identity_staging_atlas_restore.py': ('/usr/local/lib/shadowops/identity_staging_atlas_restore.py', '644'),
+    **{source:CANARY_SOURCES[source] for source in (
+        'scripts/identity_staging_atlas_admission.py',
+        'scripts/identity_staging_atlas_backup.py',
+        'scripts/identity_staging_backup.py')},
+}
+
+
+def execute_atlas_restore_rehearsal(sdk,config,pause=time.sleep,clock=time.monotonic):
+    command=installed_source_guard(RESTORE_SOURCES,canary_source_digests(sources=RESTORE_SOURCES))
+    command+='sudo --non-interactive /usr/local/sbin/shadowops-identity-atlas-backup rehearse\n'
+    inspect(sdk,config)
+    compartment,instance=resolve_existing_host(sdk,config)
+    models=sdk.compute_instance_agent.models
+    details=models.CreateInstanceAgentCommandDetails(compartment_id=compartment,
+        execution_time_out_in_seconds=600,target=models.InstanceAgentCommandTarget(instance_id=instance),
+        content=models.InstanceAgentCommandContent(source=models.InstanceAgentCommandSourceViaTextDetails(text=command),
+            output=models.InstanceAgentCommandOutputViaTextDetails(output_type='TEXT')),
+        display_name='identity-staging-atlas-restore-rehearsal')
+    client=sdk.compute_instance_agent.ComputeInstanceAgentClient(config)
+    created=client.create_instance_agent_command(create_instance_agent_command_details=details).data
+    if not getattr(created,'id',None):raise ReleaseError('Missing restore command reference')
+    deadline=clock()+720
+    while clock()<deadline:
+        execution=client.get_instance_agent_command_execution(instance_agent_command_id=created.id,instance_id=instance).data
+        state=str(getattr(execution,'lifecycle_state','')).upper()
+        if state in {'SUCCEEDED','FAILED','TIMED_OUT','CANCELED'}:
+            content=getattr(execution,'content',None)
+            output=str(getattr(content,'text','') or '').strip()
+            if state!='SUCCEEDED' or getattr(content,'exit_code',None)!=0 or not re.fullmatch(r'IDENTITY_ATLAS_QUARANTINE_RESTORE_OK backup_sha256=[a-f0-9]{64}',output):
+                raise ReleaseError('Atlas restore rehearsal receipt missing')
+            return output
+        pause(3)
+    raise ReleaseError('Atlas restore rehearsal timed out')
+
+
 def main():
     try:
         import oci
         config=config_from_env(oci,os.environ)
-        if sys.argv[1:]==['atlas-backup']:
+        if sys.argv[1:]==['atlas-restore-rehearsal']:
+            print(execute_atlas_restore_rehearsal(oci,config))
+        elif sys.argv[1:]==['atlas-backup']:
             print(execute_atlas_backup(oci,config))
         elif sys.argv[1:] in (['atlas-canary'], ['atlas-journey']):
             mode='journey' if sys.argv[1]=='atlas-journey' else 'canary'

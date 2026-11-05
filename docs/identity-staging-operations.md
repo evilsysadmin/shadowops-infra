@@ -147,3 +147,45 @@ the audit. If ownership cannot be established, stop for investigation. A
 successful later run does not prove an earlier residual account was removed.
 A live restore rehearsal and consumer acceptance are still required before
 Atlas cutover.
+
+
+## Atlas backup restore rehearsal (before cutover)
+
+The real Atlas admin journey passed on 2026-11-05 in
+[run 42091027840](https://github.com/evilsysadmin/shadowops-infra/actions/runs/42091027840).
+That proves an isolated synthetic login/admin journey, not the public database
+cutover. The independent encrypted Atlas backup also passed in
+[run 42091906936](https://github.com/evilsysadmin/shadowops-infra/actions/runs/42091906936).
+
+After installing the reviewed updated wrapper, modules and sudo policy through
+the operator bootstrap, dispatch `action=atlas-restore-rehearsal` on protected
+Infra main. It uses the existing host-operation queue and deployment lock.
+The installed code hashes must match the workflow checkout. It selects only
+the recent authenticated schema 2 ciphertext bound to the configured Atlas
+cluster; missing, stale or tampered backups stop before Docker is started.
+
+The rehearsal restores a quarantine plan into one short-lived pinned MongoDB
+container with `network=none`, no published ports, no host mounts and only
+bounded tmpfs storage (1 GiB total container memory limit). The database is
+reachable only by `docker exec` inside that container. No Atlas credentials,
+backup key, original password hashes, recovery proofs, sessions or application
+tokens are sent to it. Accounts retain their UUIDs but become disabled
+`restore-review` users with incremented versions; audit and access history are
+preserved. The rehearsal compares every restored collection to that plan,
+checks that a nonempty destination is rejected, and removes the container
+before writing private `last-atlas-restore.json` evidence bound to the exact
+backup digest and cluster hash. No plaintext backup is written to disk,
+Actions logs or artifacts.
+
+The only success output is
+`IDENTITY_ATLAS_QUARANTINE_RESTORE_OK backup_sha256=<64hex>`.
+Missing output, verification or cleanup failure fails the action. If an
+interrupted run leaves a container bearing the fixed restore label, the next
+run refuses to start; a host operator must inspect and remove that exact
+rehearsal container first. The helper never removes a preexisting container.
+
+This tests recoverability into an isolated local replica; it does not restore
+into Atlas, activate quarantined accounts or prove application login after
+recovery. Atlas restore authority, account reactivation, off-host disaster
+recovery and controlled consumer/database cutover remain separate operations.
+The existing public service, Mongo volume, tunnel and production stay in place.

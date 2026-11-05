@@ -17,7 +17,7 @@ for file in host/identity-staging-deploy.py host/identity-staging.sudoers script
             host/identity-atlas-staging-prepare.py host/identity-atlas-staging-backup.py host/identity-atlas-staging-preflight.py host/identity-atlas-staging-canary.py \
             host/identity-atlas-staging-backup.service host/identity-atlas-staging-backup.timer \
             scripts/identity_staging_atlas.py scripts/identity_staging_atlas_custody.py \
-            scripts/identity_staging_atlas_backup.py scripts/identity_staging_atlas_policy.py scripts/identity_staging_atlas_admission.py scripts/identity_staging_atlas_journey.py \
+            scripts/identity_staging_atlas_backup.py scripts/identity_staging_atlas_policy.py scripts/identity_staging_atlas_admission.py scripts/identity_staging_atlas_journey.py scripts/identity_staging_atlas_restore.py \
             compose.identity.atlas.staging.yaml; do
   source="$repo/$file"
   [[ -f "$source" && ! -L "$source" && "$(stat -c %u "$source")" == 0 ]] || exit 66
@@ -33,7 +33,7 @@ for destination in /etc/shadowops/identity-staging /var/lib/shadowops/identity-s
                    /usr/local/sbin/shadowops-identity-staging /usr/local/lib/shadowops/identity_staging_bundle.py \
                    /usr/local/sbin/shadowops-identity-atlas-prepare /usr/local/sbin/shadowops-identity-atlas-backup /usr/local/sbin/shadowops-identity-atlas-preflight /usr/local/sbin/shadowops-identity-atlas-canary \
                    /usr/local/lib/shadowops/identity_staging_atlas.py /usr/local/lib/shadowops/identity_staging_atlas_custody.py \
-                   /usr/local/lib/shadowops/identity_staging_atlas_backup.py /usr/local/lib/shadowops/identity_staging_atlas_policy.py /usr/local/lib/shadowops/identity_staging_atlas_admission.py /usr/local/lib/shadowops/identity_staging_atlas_journey.py \
+                   /usr/local/lib/shadowops/identity_staging_atlas_backup.py /usr/local/lib/shadowops/identity_staging_atlas_policy.py /usr/local/lib/shadowops/identity_staging_atlas_admission.py /usr/local/lib/shadowops/identity_staging_atlas_journey.py /usr/local/lib/shadowops/identity_staging_atlas_restore.py \
                    /etc/shadowops/identity-staging/atlas-compose.yaml \
                    /etc/systemd/system/identity-atlas-staging-backup.service \
                    /etc/systemd/system/identity-atlas-staging-backup.timer; do
@@ -49,7 +49,7 @@ chown -R root:root "$venv"
 chmod -R go-w "$venv"
 install -o root -g root -m 0644 "$repo/compose.identity.staging.yaml" /etc/shadowops/identity-staging/compose.yaml
 install -o root -g root -m 0644 "$repo/compose.identity.atlas.staging.yaml" /etc/shadowops/identity-staging/atlas-compose.yaml
-for module in identity_staging_atlas identity_staging_atlas_custody identity_staging_atlas_backup identity_staging_atlas_policy identity_staging_atlas_admission identity_staging_atlas_journey; do
+for module in identity_staging_atlas identity_staging_atlas_custody identity_staging_atlas_backup identity_staging_atlas_policy identity_staging_atlas_admission identity_staging_atlas_journey identity_staging_atlas_restore; do
   install -o root -g root -m 0644 "$repo/scripts/$module.py" "/usr/local/lib/shadowops/$module.py"
 done
 install -o root -g root -m 0755 "$repo/host/identity-atlas-staging-prepare.py" /usr/local/sbin/shadowops-identity-atlas-prepare
