@@ -6,6 +6,7 @@ import os
 
 from chronicles_api_provision import resolve_vault
 from identity_staging_atlas_custody import AtlasCustodyError, prepare_atlas_custody
+from identity_staging_atlas import AtlasConfigurationError, _connection
 from oci_control_plane import config_from_env, resolve_existing_host
 
 SECRET = 'identity-staging-atlas-custody'
@@ -52,12 +53,36 @@ def store_new(sdk, config, compartment, vault, key, value):
         waiter_kwargs={'max_interval_seconds':5,'max_wait_seconds':300})
 
 
+class AtlasInputError(AtlasCustodyError):
+    def __init__(self, code):
+        super().__init__('Atlas input validation failed')
+        self.code = code
+
+
+def validate_inputs(app, inventory, backup):
+    """Return only fixed diagnostic categories, never URI or user content."""
+    parsed = []
+    for name, uri in (('runtime', app), ('inventory', inventory), ('backup', backup)):
+        try:
+            parsed.append(_connection(uri))
+        except AtlasConfigurationError:
+            raise AtlasInputError(name + '_uri_format') from None
+    if len({host for host, _ in parsed}) != 1:
+        raise AtlasInputError('cluster_mismatch')
+    if len({user for _, user in parsed}) != 3:
+        raise AtlasInputError('users_not_distinct')
+    try:
+        prepare_atlas_custody(None, app, inventory, backup)
+    except AtlasCustodyError:
+        raise AtlasInputError('backup_credential_format') from None
+
+
 def provision(sdk, env):
     app = env.get('IDENTITY_ATLAS_STAGING_RUNTIME_URI', '')
     inventory = env.get('IDENTITY_ATLAS_STAGING_INVENTORY_URI', '')
     backup = env.get('IDENTITY_ATLAS_STAGING_BACKUP_URI', '')
     # Validate user-supplied config before accessing any cloud resource.
-    prepare_atlas_custody(None, app, inventory, backup)
+    validate_inputs(app, inventory, backup)
     config = config_from_env(sdk, env)
     compartment, _ = resolve_existing_host(sdk, config)
     vault, key, _ = resolve_vault(sdk, config, compartment)
@@ -74,6 +99,9 @@ def main():
         import oci
         print(provision(oci, os.environ))
         return 0
+    except AtlasInputError as exc:
+        print('IDENTITY_ATLAS_CUSTODY_INPUT_INVALID reason=' + exc.code)
+        return 1
     except Exception as exc:
         # Never print SDK messages: they may contain supplied URIs or credentials.
         print('IDENTITY_ATLAS_CUSTODY_BLOCKED type=' + type(exc).__name__)

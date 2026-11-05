@@ -47,3 +47,13 @@ class AtlasProvisionTests(unittest.TestCase):
   stored=json.loads(base64.b64decode(created[0].secret_content.content))
   self.assertEqual(stored,custody)
   self.assertNotIn('mongo_root_password',stored)
+
+class AtlasInputDiagnosticsTests(unittest.TestCase):
+ def test_reports_only_fixed_categories_without_secrets(self):
+  app,inventory,backup=ENV.values()
+  cases=[((app.replace('/shadowops_identity_staging','/wrong'),inventory,backup),'runtime_uri_format'),((app,inventory.replace('tls=true','tls=false'),backup),'inventory_uri_format'),((app,inventory,backup.replace('authSource=admin','authSource=wrong')),'backup_uri_format'),((app,inventory,backup.replace('cluster.mongodb.net','different.mongodb.net')),'cluster_mismatch'),((app,inventory,app),'users_not_distinct'),((app,inventory,backup.replace('synthetic-password-12345','short')),'backup_credential_format')]
+  for values,expected in cases:
+   with self.subTest(reason=expected),self.assertRaises(provision.AtlasInputError) as error:provision.validate_inputs(*values)
+   self.assertEqual(error.exception.code,expected)
+   self.assertNotIn('synthetic-password',str(error.exception))
+  provision.validate_inputs(app,inventory,backup)
