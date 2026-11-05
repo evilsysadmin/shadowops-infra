@@ -195,6 +195,38 @@ def execute_atlas_preflight(sdk,config,digest,sha,pause=time.sleep,clock=time.mo
         pause(3)
     raise ReleaseError('Atlas preflight timed out')
 
+def execute_atlas_canary(sdk,config,digest,sha,pause=time.sleep,clock=time.monotonic,mode="canary"):
+    if mode not in {"canary", "journey"}:
+        raise ReleaseError("Invalid Atlas canary operation")
+    if not DIGEST.fullmatch(digest) or not SHA.fullmatch(sha):
+        raise ReleaseError('Invalid Atlas canary source')
+    inspect(sdk,config)
+    compartment,instance=resolve_existing_host(sdk,config)
+    wrapper='/usr/local/sbin/shadowops-identity-atlas-canary'
+    command='set -eu\ntest -x '+wrapper+'\nsudo --non-interactive '+wrapper+' '+mode+' '+digest+' '+sha+'\n'
+    models=sdk.compute_instance_agent.models
+    details=models.CreateInstanceAgentCommandDetails(compartment_id=compartment,
+        execution_time_out_in_seconds=900,target=models.InstanceAgentCommandTarget(instance_id=instance),
+        content=models.InstanceAgentCommandContent(source=models.InstanceAgentCommandSourceViaTextDetails(text=command),
+            output=models.InstanceAgentCommandOutputViaTextDetails(output_type='TEXT')),
+        display_name='identity-staging-atlas-'+mode)
+    client=sdk.compute_instance_agent.ComputeInstanceAgentClient(config)
+    created=client.create_instance_agent_command(create_instance_agent_command_details=details).data
+    if not getattr(created,'id',None):raise ReleaseError('Missing Atlas canary command reference')
+    deadline=clock()+1020
+    while clock()<deadline:
+        execution=client.get_instance_agent_command_execution(instance_agent_command_id=created.id,instance_id=instance).data
+        state=str(getattr(execution,'lifecycle_state','')).upper()
+        if state in {'SUCCEEDED','FAILED','TIMED_OUT','CANCELED'}:
+            content=getattr(execution,'content',None)
+            marker='IDENTITY_ATLAS_ADMIN_CANARY_OK' if mode=='journey' else 'IDENTITY_ATLAS_LOOPBACK_CANARY_OK'
+            expected=marker+' source_sha='+sha+' digest='+digest
+            if state!='SUCCEEDED' or getattr(content,'exit_code',None)!=0 or str(getattr(content,'text','') or '').strip()!=expected:
+                raise ReleaseError('Atlas canary did not return the exact receipt')
+            return expected
+        pause(3)
+    raise ReleaseError('Atlas canary timed out')
+
 def execute_atlas_backup(sdk,config,pause=time.sleep,clock=time.monotonic):
     inspect(sdk,config)
     compartment,instance=resolve_existing_host(sdk,config)
@@ -228,6 +260,9 @@ def main():
         config=config_from_env(oci,os.environ)
         if sys.argv[1:]==['atlas-backup']:
             print(execute_atlas_backup(oci,config))
+        elif sys.argv[1:] in (['atlas-canary'], ['atlas-journey']):
+            mode='journey' if sys.argv[1]=='atlas-journey' else 'canary'
+            print(execute_atlas_canary(oci,config,os.environ.get('ADMITTED_DIGEST',''),os.environ.get('ADMITTED_SHA',''),mode=mode))
         elif sys.argv[1:]==['atlas-preflight']:
             print(execute_atlas_preflight(oci,config,os.environ.get('ADMITTED_DIGEST',''),os.environ.get('ADMITTED_SHA','')))
         elif sys.argv[1:]==['atlas-prepare']:
