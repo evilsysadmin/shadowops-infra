@@ -170,7 +170,30 @@ class AtlasCanaryReleaseTests(unittest.TestCase):
     self.assertEqual(release.execute_atlas_canary(sdk,{},DIGEST,SHA,mode=mode),expected)
    command=captured[0]
    self.assertEqual(command.target.instance_id,'host')
-   self.assertEqual(command.content.source.text,'set -eu\ntest -x /usr/local/sbin/shadowops-identity-atlas-canary\nsudo --non-interactive /usr/local/sbin/shadowops-identity-atlas-canary '+mode+' '+DIGEST+' '+SHA+'\n')
+   host_command=command.content.source.text
+   self.assertTrue(host_command.endswith('sudo --non-interactive /usr/local/sbin/shadowops-identity-atlas-canary '+mode+' '+DIGEST+' '+SHA+'\n'))
+   for source,(target,bits) in release.CANARY_SOURCES.items():
+    self.assertIn(release.canary_source_digests()[source],host_command)
+    self.assertIn('test ! -L '+target,host_command)
+    self.assertIn('0:'+bits,host_command)
+
+
+ def test_source_digest_mismatch_and_symlinks_are_rejected(self):
+  import tempfile
+  from pathlib import Path
+  with tempfile.TemporaryDirectory() as tmp:
+   root=Path(tmp)
+   for source in release.CANARY_SOURCES:
+    path=root/source;path.parent.mkdir(parents=True,exist_ok=True);path.write_text('reviewed:'+source)
+   before=release.canary_source_digests(root)
+   target=root/next(iter(release.CANARY_SOURCES));target.write_text('modified')
+   after=release.canary_source_digests(root)
+   self.assertNotEqual(before,after)
+   target.unlink();target.symlink_to(root/'missing')
+   with self.assertRaises(release.ReleaseError):release.canary_source_digests(root)
+  with self.assertRaises(release.ReleaseError):release.canary_host_command('journey',DIGEST,SHA,{})
+  bad={name:'a'*64 for name in release.CANARY_SOURCES};bad[next(iter(bad))]='bad;id'
+  with self.assertRaises(release.ReleaseError):release.canary_host_command('journey',DIGEST,SHA,bad)
 
  def test_missing_wrong_or_private_output_never_passes_or_leaks(self):
   expected='IDENTITY_ATLAS_ADMIN_CANARY_OK source_sha='+SHA+' digest='+DIGEST
