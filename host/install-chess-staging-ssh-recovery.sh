@@ -47,7 +47,7 @@ systemctl enable --now "$unit"
 systemctl is-enabled --quiet "$unit"
 systemctl is-active --quiet "$unit"
 for _ in {1..30}; do
-  if journalctl --no-pager --quiet -u "$unit" -n 100 | grep -Fq 'Registered tunnel connection'; then
+  if journalctl --no-pager --quiet -u "$unit" -n 100 | grep -F 'Registered tunnel connection' >/dev/null; then
     printf '%s\n' 'CHESS_STAGING_SSH_RECOVERY_UNIT_CONNECTED'
     exit 0
   fi
