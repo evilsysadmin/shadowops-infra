@@ -107,3 +107,13 @@ class AtlasRoleManagerTests(unittest.TestCase):
   self.assertIn('IDENTITY_ATLAS_USER_PLAN kind=runtime',text)
   for secret in ('runtimeuser','inventoryuser','backupuser','synthetic-password','synthetic-private','cluster.mongodb.net'):
    self.assertNotIn(secret,text)
+
+ def test_user_change_after_plan_is_not_overwritten(self):
+  api=FakeAtlas();plan=manager.build_plan(api,PROJECT,URIS)
+  api.users['inventoryuser']['roles']=[{'roleName':'atlasAdmin','databaseName':'admin'}]
+  with self.assertRaises(manager.AtlasRoleError):manager.apply_plan(api,PROJECT,plan,pause=lambda seconds:None)
+  self.assertEqual(api.users['inventoryuser']['roles'],[{'roleName':'atlasAdmin','databaseName':'admin'}])
+  self.assertEqual(api.users['runtimeuser']['roles'],[{'roleName':'readWriteAnyDatabase','databaseName':'admin'}])
+ def test_api_client_does_not_follow_redirects(self):
+  redirect=manager.NoRedirect()
+  self.assertIsNone(redirect.redirect_request(None,None,302,'','https://example.invalid','https://example.invalid'))
