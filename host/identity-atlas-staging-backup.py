@@ -89,7 +89,7 @@ def write_private(path, data):
 
 def main():
     try:
-        if os.geteuid() != 0 or sys.argv[1:] != ['backup']:
+        if os.geteuid() != 0 or sys.argv[1:] not in (['backup'], ['rehearse']):
             raise BackupError('Invalid Atlas backup request')
         trusted(STATE, directory=True)
         DIRECTORY.mkdir(mode=0o700, exist_ok=True)
@@ -97,6 +97,19 @@ def main():
         with (STATE / 'deploy.lock').open('a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             config = private_config()
+            if sys.argv[1]=='rehearse':
+                from identity_staging_atlas_admission import require_recent_atlas_backup
+                from identity_staging_atlas_restore import rehearse, MARKER
+                admitted=require_recent_atlas_backup(config,STATE)
+                if rehearse(admitted['snapshot'])!=MARKER:
+                    raise BackupError('Restore rehearsal receipt missing')
+                receipt={'schema':1,'environment':'staging','backend':'atlas',
+                    'created_at':datetime.now(timezone.utc).isoformat(),
+                    'backup_sha256':admitted['sha256'],'cluster_sha256':admitted['cluster_sha256'],
+                    'result':'quarantine-restore-verified'}
+                write_private(STATE/'last-atlas-restore.json',(json.dumps(receipt)+'\n').encode())
+                print(MARKER+' backup_sha256='+admitted['sha256'])
+                return 0
             encrypted = capture_snapshot(config)
             decrypt_snapshot(encrypted, config['backup_key'])
             filename = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + os.urandom(6).hex() + '.fernet'
