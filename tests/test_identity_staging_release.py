@@ -124,3 +124,15 @@ class AtlasBackupReleaseTests(unittest.TestCase):
    with self.assertRaises(release.ReleaseError) as failure:release.execute_atlas_backup(sdk,{})
    self.assertNotIn('synthetic-private-info',str(failure.exception))
   self.assertEqual(captured[0].content.source.text,'set -eu\ntest -x /usr/local/sbin/shadowops-identity-atlas-backup\nsudo --non-interactive /usr/local/sbin/shadowops-identity-atlas-backup backup\n')
+
+class AtlasDatabaseScopedReleaseTests(unittest.TestCase):
+ def test_database_scoped_preparation_is_explicit_and_fixed(self):
+  captured=[]
+  def model(**kwargs):return SimpleNamespace(**kwargs)
+  client=SimpleNamespace(create_instance_agent_command=lambda **kw:captured.append(kw['create_instance_agent_command_details']) or SimpleNamespace(data=SimpleNamespace(id='fixture')),get_instance_agent_command_execution=lambda **kw:SimpleNamespace(data=SimpleNamespace(lifecycle_state='SUCCEEDED',content=SimpleNamespace(exit_code=0,text='IDENTITY_ATLAS_STAGING_CONFIG_PREPARED'))))
+  models=SimpleNamespace(**{name:model for name in ['CreateInstanceAgentCommandDetails','InstanceAgentCommandTarget','InstanceAgentCommandContent','InstanceAgentCommandSourceViaTextDetails','InstanceAgentCommandOutputViaTextDetails']})
+  sdk=SimpleNamespace(compute_instance_agent=SimpleNamespace(models=models,ComputeInstanceAgentClient=lambda config:client))
+  with patch.object(release,'inspect'),patch.object(release,'resolve_existing_host',return_value=('compartment','host')),patch.object(release,'resolve_vault',return_value=(VAULT,'key','compartment')):
+   self.assertEqual(release.execute_atlas_prepare(sdk,{},mode='database-scoped'),'IDENTITY_ATLAS_PREPARE_COMMAND_COMPLETED preflight=required')
+   with self.assertRaises(release.ReleaseError):release.execute_atlas_prepare(sdk,{},mode='anything-else')
+  self.assertEqual(captured[0].content.source.text,'set -eu\ntest -x /usr/local/sbin/shadowops-identity-atlas-prepare\nsudo --non-interactive /usr/local/sbin/shadowops-identity-atlas-prepare prepare-database-scoped '+VAULT+'\n')

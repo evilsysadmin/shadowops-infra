@@ -21,6 +21,8 @@ role_schema_pass="$(openssl rand -hex 24)"
 role_bootstrap_pass="$(openssl rand -hex 24)"
 role_executor_pass="$(openssl rand -hex 24)"
 broad_pass="$(openssl rand -hex 24)"
+broad_second_pass="$(openssl rand -hex 24)"
+cluster_broad_pass="$(openssl rand -hex 24)"
 incomplete_pass="$(openssl rand -hex 24)"
 inventory_pass="$(openssl rand -hex 24)"
 inventory_recent_pass="$(openssl rand -hex 24)"
@@ -77,7 +79,7 @@ docker exec -e RUNTIME_ROOT_PASS="$root_pass" "$container_name" mongosh --quiet 
   --eval 'print(db.getSiblingDB("admin").createUser({user:"identity_root",pwd:process.env.RUNTIME_ROOT_PASS,roles:[{role:"root",db:"admin"}]}).ok)'
 docker cp "$repo_root/services/identity/runtime/seed-runtime-fixture.mongosh.js" "$container_name:/tmp/seed.js" >/dev/null
 docker exec -e RUNTIME_ROOT_PASS="$root_pass" -e RUNTIME_APP_PASS="$app_pass" \
-  -e RUNTIME_BROAD_PASS="$broad_pass" -e RUNTIME_INCOMPLETE_PASS="$incomplete_pass" -e RUNTIME_INVENTORY_PASS="$inventory_pass" -e RUNTIME_INVENTORY_RECENT_PASS="$inventory_recent_pass" -e RUNTIME_HISTORY_PASS="$history_pass" -e RUNTIME_INVENTORY_HISTORY_PASS="$inventory_history_pass" \
+  -e RUNTIME_BROAD_PASS="$broad_pass" -e RUNTIME_BROAD_SECOND_PASS="$broad_second_pass" -e RUNTIME_CLUSTER_BROAD_PASS="$cluster_broad_pass" -e RUNTIME_INCOMPLETE_PASS="$incomplete_pass" -e RUNTIME_INVENTORY_PASS="$inventory_pass" -e RUNTIME_INVENTORY_RECENT_PASS="$inventory_recent_pass" -e RUNTIME_HISTORY_PASS="$history_pass" -e RUNTIME_INVENTORY_HISTORY_PASS="$inventory_history_pass" \
   "$container_name" mongosh --quiet --norc --tls --tlsCAFile /tmp/ca.pem \
   'mongodb://127.0.0.1:27019/?directConnection=true' --eval 'load("/tmp/seed.js")'
 
@@ -93,6 +95,8 @@ export IDENTITY_RUNTIME_INVENTORY_RECENT_URI="mongodb://identity_inventory_recen
 export IDENTITY_RUNTIME_HISTORY_URI="mongodb://identity_runtime_history:$history_pass@127.0.0.1:27019/shadowops_identity_staging$suffix"
 export IDENTITY_RUNTIME_INVENTORY_HISTORY_URI="mongodb://identity_inventory_history:$inventory_history_pass@127.0.0.1:27019/shadowops_identity_staging$suffix"
 export IDENTITY_RUNTIME_BROAD_URI="mongodb://identity_broad:$broad_pass@127.0.0.1:27019/shadowops_identity_staging$suffix"
+export IDENTITY_RUNTIME_BROAD_SECOND_URI="mongodb://identity_broad_second:$broad_second_pass@127.0.0.1:27019/shadowops_identity_staging$suffix"
+export IDENTITY_RUNTIME_CLUSTER_BROAD_URI="mongodb://identity_cluster_broad:$cluster_broad_pass@127.0.0.1:27019/shadowops_identity_staging$suffix"
 export IDENTITY_RUNTIME_INCOMPLETE_URI="mongodb://identity_incomplete:$incomplete_pass@127.0.0.1:27019/shadowops_identity_staging$suffix"
 export IDENTITY_RUNTIME_ADMIN_URI="mongodb://identity_root:$root_pass@127.0.0.1:27019/shadowops_identity_staging?replicaSet=identity-runtime-rs&directConnection=true&tls=true&authSource=admin"
 export IDENTITY_RUNTIME_MONGO_CA_FILE="$cert_dir/ca.pem"

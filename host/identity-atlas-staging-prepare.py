@@ -86,10 +86,12 @@ def _write_new(path, data, uid):
         Path(temp).unlink(missing_ok=True)
 
 
-def prepare_files(root, service, custody, service_uid=65532, backup_uid=0):
+def prepare_files(root, service, custody, service_uid=65532, backup_uid=0, database_scoped=False):
     if service.get('admin_inventory_access_history') is not True:
         raise PrepareError('Existing staging inventory history configuration required')
     service_config, backup_config = derived_configs(custody, service)
+    if database_scoped:
+        service_config['mongo_privilege_mode'] = 'database-scoped'
     service_path = root / 'atlas-service.json'
     backup_path = root / 'atlas-backup.json'
     service_exists = _same_file(service_path, service_config, service_uid)
@@ -102,7 +104,7 @@ def prepare_files(root, service, custody, service_uid=65532, backup_uid=0):
 
 def main():
     try:
-        if os.geteuid() != 0 or len(sys.argv) != 3 or sys.argv[1] != 'prepare' or not VAULT.fullmatch(sys.argv[2]):
+        if os.geteuid() != 0 or len(sys.argv) != 3 or sys.argv[1] not in {'prepare', 'prepare-database-scoped'} or not VAULT.fullmatch(sys.argv[2]):
             raise PrepareError('Invalid Atlas staging preparation request')
         trusted_dir(ROOT)
         trusted_dir(STATE)
@@ -110,7 +112,7 @@ def main():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             current = load_private(ROOT / 'service.json', 65532)
             custody = read_atlas_custody(sys.argv[2])
-            prepare_files(ROOT, current, custody)
+            prepare_files(ROOT, current, custody, database_scoped=sys.argv[1] == 'prepare-database-scoped')
         print('IDENTITY_ATLAS_STAGING_CONFIG_PREPARED')
         return 0
     except Exception as exc:

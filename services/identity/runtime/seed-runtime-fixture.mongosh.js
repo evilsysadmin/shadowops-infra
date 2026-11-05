@@ -37,5 +37,7 @@ stage.createRole({ role: 'identity_incomplete', roles: [], privileges: [
 ] });
 stage.createUser({ user: 'identity_runtime', pwd: process.env.RUNTIME_APP_PASS, roles: [{ role: 'identity_runtime', db: stage.getName() }] });
 stage.createUser({ user: 'identity_broad', pwd: process.env.RUNTIME_BROAD_PASS, roles: [{ role: 'readWrite', db: stage.getName() }] });
+stage.createUser({ user: 'identity_broad_second', pwd: process.env.RUNTIME_BROAD_SECOND_PASS, roles: [{ role: 'readWrite', db: stage.getName() }] });
+stage.createUser({ user: 'identity_cluster_broad', pwd: process.env.RUNTIME_CLUSTER_BROAD_PASS, roles: [{ role: 'readWriteAnyDatabase', db: 'admin' }] });
 stage.createUser({ user: 'identity_incomplete', pwd: process.env.RUNTIME_INCOMPLETE_PASS, roles: [{ role: 'identity_incomplete', db: stage.getName() }] });
 print('IDENTITY_RUNTIME_FIXTURE_USERS_READY');
