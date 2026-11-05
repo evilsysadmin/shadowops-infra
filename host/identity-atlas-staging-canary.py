@@ -56,7 +56,7 @@ def read_private_json(path, uid):
     return value
 
 
-def execute(digest, sha, *, runner=run, nonce=None, pause=time.sleep):
+def execute(digest, sha, *, runner=run, nonce=None, pause=time.sleep, journey=None):
     if not DIGEST.fullmatch(digest) or not SHA.fullmatch(sha): raise CanaryError('Invalid image')
     suffix=nonce if nonce is not None else secrets.token_hex(12)
     if not re.fullmatch(r'[a-f0-9]{24}',suffix): raise CanaryError('Invalid canary identity')
@@ -106,6 +106,9 @@ def execute(digest, sha, *, runner=run, nonce=None, pause=time.sleep):
             '--output','/dev/null','--write-out','%{http_code}',
             'https://id-staging.shadowops.dpdns.org:'+port+'/api/identity/admin/accounts'],timeout=10)
         if status!='401': raise CanaryError('Unauthenticated admin access not denied')
+        if journey is not None:
+            if journey(int(port), network, CA, read_private_json(CONFIG,65532)) != 'IDENTITY_ATLAS_ADMIN_JOURNEY_OK':
+                raise CanaryError('Synthetic admin journey failed')
     finally:
         try:
             if container_attempted:
@@ -117,12 +120,13 @@ def execute(digest, sha, *, runner=run, nonce=None, pause=time.sleep):
                 names=runner(['docker','network','ls','--filter','name=^'+network+'$','--format','{{.Name}}']).splitlines()
                 if names == [network]: runner(['docker','network','rm',network],timeout=30)
                 elif names: raise CanaryError('Unexpected canary network')
-    return 'IDENTITY_ATLAS_LOOPBACK_CANARY_OK source_sha='+sha+' digest='+digest
+    marker='IDENTITY_ATLAS_ADMIN_CANARY_OK' if journey is not None else 'IDENTITY_ATLAS_LOOPBACK_CANARY_OK'
+    return marker+' source_sha='+sha+' digest='+digest
 
 
 def main():
     try:
-        if os.geteuid()!=0 or len(sys.argv)!=4 or sys.argv[1]!='canary': raise CanaryError('Invalid request')
+        if os.geteuid()!=0 or len(sys.argv)!=4 or sys.argv[1] not in {'canary','journey'}: raise CanaryError('Invalid request')
         spec=importlib.util.spec_from_loader('atlas_preflight',SourceFileLoader('atlas_preflight','/usr/local/sbin/shadowops-identity-atlas-preflight'))
         preflight=importlib.util.module_from_spec(spec);spec.loader.exec_module(preflight)
         preflight.trusted_paths()
@@ -134,7 +138,11 @@ def main():
             backup=read_private_json(BACKUP,0)
             require_recent_atlas_backup(backup,STATE)
             preflight.execute(sys.argv[2],sys.argv[3])
-            print(execute(sys.argv[2],sys.argv[3]))
+            journey=None
+            if sys.argv[1]=='journey':
+                from identity_staging_atlas_journey import perform
+                journey=perform
+            print(execute(sys.argv[2],sys.argv[3],journey=journey))
         return 0
     except Exception as exc:
         print('IDENTITY_ATLAS_LOOPBACK_CANARY_BLOCKED type='+type(exc).__name__,file=sys.stderr)
