@@ -136,7 +136,7 @@ The current schema 2 snapshot does not include role governance policy/journal.
 
 A separate `host/identity-atlas-staging-backup.py` runner is prepared for the
 Atlas candidate. It reads only a root-private Atlas-specific configuration,
-validates ownership of the fixed Compose egress network, sends the dedicated
+creates and removes a temporary egress network, sends the dedicated
 backup credentials to `mongosh` over stdin, encrypts the bounded export and
 writes an Atlas-specific receipt. It does not read local Mongo custody. It is
 not installed, scheduled, connected to Atlas or a replacement for a tested
@@ -203,3 +203,11 @@ fresh temporary egress network, then removes the network. It does not stop the
 current service, write to Mongo, read the old Mongo custody or perform a
 cutover. An exact source/digest receipt is required. This path is not a backup
 or restore verification and has not yet been executed against Atlas.
+
+The manual `atlas-backup` action invokes the installed fixed Atlas backup
+runner. The runner creates an isolated temporary egress network and removes it
+even on failure, so a backup can be tested before the Atlas Compose project is
+started. Only a bounded encrypted-backup receipt is returned. Atlas custody,
+prepared configuration, a working network allowlist and a separately
+provisioned backup user are still required. The action has not been run against
+live Atlas and is not a restore verification.

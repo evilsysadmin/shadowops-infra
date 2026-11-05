@@ -193,11 +193,40 @@ def execute_atlas_preflight(sdk,config,digest,sha,pause=time.sleep,clock=time.mo
         pause(3)
     raise ReleaseError('Atlas preflight timed out')
 
+def execute_atlas_backup(sdk,config,pause=time.sleep,clock=time.monotonic):
+    inspect(sdk,config)
+    compartment,instance=resolve_existing_host(sdk,config)
+    wrapper='/usr/local/sbin/shadowops-identity-atlas-backup'
+    command='set -eu\ntest -x '+wrapper+'\nsudo --non-interactive '+wrapper+' backup\n'
+    models=sdk.compute_instance_agent.models
+    details=models.CreateInstanceAgentCommandDetails(compartment_id=compartment,
+        execution_time_out_in_seconds=300,target=models.InstanceAgentCommandTarget(instance_id=instance),
+        content=models.InstanceAgentCommandContent(source=models.InstanceAgentCommandSourceViaTextDetails(text=command),
+            output=models.InstanceAgentCommandOutputViaTextDetails(output_type='TEXT')),
+        display_name='identity-staging-atlas-encrypted-backup')
+    client=sdk.compute_instance_agent.ComputeInstanceAgentClient(config)
+    created=client.create_instance_agent_command(create_instance_agent_command_details=details).data
+    if not getattr(created,'id',None):raise ReleaseError('Missing Atlas backup command reference')
+    deadline=clock()+480
+    while clock()<deadline:
+        execution=client.get_instance_agent_command_execution(instance_agent_command_id=created.id,instance_id=instance).data
+        state=str(getattr(execution,'lifecycle_state','')).upper()
+        if state in {'SUCCEEDED','FAILED','TIMED_OUT','CANCELED'}:
+            content=getattr(execution,'content',None)
+            output=str(getattr(content,'text','') or '').strip()
+            if state!='SUCCEEDED' or getattr(content,'exit_code',None)!=0 or not re.fullmatch(r'IDENTITY_ATLAS_STAGING_BACKUP_OK encrypted_bytes=[1-9][0-9]{0,8}',output):
+                raise ReleaseError('Atlas encrypted backup receipt missing')
+            return output
+        pause(3)
+    raise ReleaseError('Atlas backup timed out')
+
 def main():
     try:
         import oci
         config=config_from_env(oci,os.environ)
-        if sys.argv[1:]==['atlas-preflight']:
+        if sys.argv[1:]==['atlas-backup']:
+            print(execute_atlas_backup(oci,config))
+        elif sys.argv[1:]==['atlas-preflight']:
             print(execute_atlas_preflight(oci,config,os.environ.get('ADMITTED_DIGEST',''),os.environ.get('ADMITTED_SHA','')))
         elif sys.argv[1:]==['atlas-prepare']:
             print(execute_atlas_prepare(oci,config))

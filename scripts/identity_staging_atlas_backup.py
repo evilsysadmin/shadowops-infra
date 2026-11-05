@@ -6,7 +6,7 @@ import subprocess
 from identity_staging_backup import BackupError, MAX_BYTES, atlas_export_script, encrypt_snapshot
 
 IMAGE = 'mongo@sha256:8bb4442761a63a8dda452744082cdac9644b429807eb977b42324a63cef59ca4'
-NETWORK = 'shadowops-identity-staging-atlas-egress'
+NETWORK = re.compile(r'shadowops-identity-atlas-backup-[a-f0-9]{24}')
 DATABASE = 'shadowops_identity_staging'
 
 
@@ -22,15 +22,17 @@ def validate_backup_config(value):
         raise BackupError('Invalid Atlas backup configuration')
 
 
-def snapshot(value, runner=subprocess.run):
+def snapshot(value, network, runner=subprocess.run):
     """Return an encrypted snapshot; Docker receives credentials only on stdin.
 
-    Caller must hold the shared deployment lock and verify ownership of the
-    fixed network. Never log subprocess output or exceptions.
+    Caller must hold the shared deployment lock and create an isolated,
+    temporary network. Never log subprocess output or exceptions.
     """
     validate_backup_config(value)
+    if not isinstance(network, str) or not NETWORK.fullmatch(network):
+        raise BackupError('Invalid Atlas backup network')
     uri = 'mongodb+srv://' + value['host'] + '/' + DATABASE + '?tls=true&authSource=admin'
-    args = ['docker', 'run', '--rm', '-i', '--network', NETWORK,
+    args = ['docker', 'run', '--rm', '-i', '--network', network,
             '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
             '--pids-limit', '64', '--memory', '256m', '--user', '999:999',
             '--tmpfs', '/tmp:rw,noexec,nosuid,size=32m', '-e', 'HOME=/tmp',
