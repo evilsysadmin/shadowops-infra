@@ -168,7 +168,15 @@ class StackTests(unittest.TestCase):
      self.assertEqual(subject,canary_subject)
      journey.mongo_action(local_uri,network,canary_name,'promote',subject,runner=tls_runner)
      self.assertIn('CANARY_ROLE_VERIFIED',shell('const a=db.getSiblingDB("admin");a.auth("identity_root",'+json.dumps(bundle['mongo_root_password'])+'); if(db.getSiblingDB("shadowops_identity_staging").pending_accounts.findOne({_id:'+json.dumps(canary_subject)+'}).role!=="admin") throw Error("role"); print("CANARY_ROLE_VERIFIED");'))
-     journey.mongo_action(local_uri,network,canary_name,'cleanup',subject,runner=tls_runner)
+     checkpoint=journey.JourneyCheckpoint(path/'pending-canary.json')
+     checkpoint.begin(canary_name);checkpoint.set_subject(canary_name,subject)
+     self.assertEqual(journey.recover_pending(checkpoint,local_uri,network,mongo=lambda *args:journey.mongo_action(*args,runner=tls_runner)),'IDENTITY_ATLAS_CANARY_RECOVERY_OK')
+     self.assertFalse((path/'pending-canary.json').exists())
+     # An independently deleted canary can still have a session; the recorded
+     # subject selects only that synthetic session during recovery.
+     shell('const a=db.getSiblingDB("admin");a.auth("identity_root",'+json.dumps(bundle['mongo_root_password'])+');db.getSiblingDB("shadowops_identity_staging").sessions.insertOne({environment:"staging",subject:'+json.dumps(canary_subject)+',digest:"synthetic-orphan"});')
+     checkpoint.begin(canary_name);checkpoint.set_subject(canary_name,subject)
+     self.assertEqual(journey.recover_pending(checkpoint,local_uri,network,mongo=lambda *args:journey.mongo_action(*args,runner=tls_runner)),'IDENTITY_ATLAS_CANARY_RECOVERY_OK')
     verify='const a=db.getSiblingDB("admin");a.auth("identity_root",'+json.dumps(bundle['mongo_root_password'])+');const d=db.getSiblingDB("shadowops_identity_staging"); '
     verify+='if(d.pending_accounts.findOne({_id:'+json.dumps(canary_subject)+'}) || d.sessions.findOne({subject:'+json.dumps(canary_subject)+'}) || !d.pending_accounts.findOne({_id:'+json.dumps(decoy_subject)+'}) || !d.admin_inventory_audit.findOne({_id:"synthetic-audit"})) throw Error("cleanup"); '
     verify+='d.pending_accounts.deleteOne({_id:'+json.dumps(decoy_subject)+'});d.admin_inventory_audit.deleteOne({_id:"synthetic-audit"}); print("CANARY_CLEANUP_VERIFIED");'

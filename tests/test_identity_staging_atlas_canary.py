@@ -80,3 +80,18 @@ class PrivateCanaryConfigTests(unittest.TestCase):
    with self.assertRaises(canary.CanaryError):canary.read_private_json(link,os.getuid())
    p.chmod(0o600);p.write_text('{"environment":"staging","environment":"production"}');p.chmod(0o400)
    with self.assertRaises(canary.CanaryError):canary.read_private_json(p,os.getuid())
+
+class CanaryRecoveryTests(unittest.TestCase):
+ def test_recovery_uses_fixed_checkpoint_and_always_removes_network(self):
+  import identity_staging_atlas_journey as journey
+  calls=[]
+  class FixtureCheckpoint:
+   def _read(self):return {'name':'identitycanary_'+'a'*16,'subject':'11111111-1111-4111-8111-111111111111'}
+  def run(args,timeout=120):
+   calls.append(args)
+   if args[:3]==['docker','network','ls']:return 'shadowops-identity-atlas-canary-net-'+NONCE+'\n'
+   return ''
+  with patch.object(journey,'JourneyCheckpoint',return_value=FixtureCheckpoint()),patch.object(journey,'recover_pending',return_value='IDENTITY_ATLAS_CANARY_RECOVERY_OK') as recover,patch.object(canary,'read_private_json',return_value={'admin_inventory_mongo_uri':'fixture'}):
+   self.assertEqual(canary.recover(runner=run,nonce=NONCE),'IDENTITY_ATLAS_CANARY_RECOVERY_OK')
+   self.assertEqual(recover.call_args.args[1:],('fixture','shadowops-identity-atlas-canary-net-'+NONCE))
+  self.assertTrue(any(args[:3]==['docker','network','rm'] for args in calls))
