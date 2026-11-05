@@ -9,7 +9,7 @@ import copy
 import secrets
 from urllib.parse import unquote, urlsplit
 
-from identity_staging_atlas import AtlasConfigurationError, _connection, atlas_service_config
+from identity_staging_atlas import AtlasConfigurationError, _connection, atlas_service_config, normalize_atlas_uri
 from identity_staging_atlas_backup import validate_backup_config
 from identity_staging_backup import BackupError
 
@@ -42,9 +42,14 @@ def prepare_atlas_custody(existing, application_uri, inventory_uri, backup_uri):
         if (not isinstance(existing, dict) or set(existing) != {'schema','environment','application_uri','inventory_uri','backup_uri','backup_key'}
                 or type(existing.get('schema')) is not int or existing['schema'] != 1 or existing['environment'] != 'staging'):
             raise AtlasCustodyError('Invalid independent Atlas staging custody')
-        if (existing['application_uri'], existing['inventory_uri'], existing['backup_uri']) != (application_uri, inventory_uri, backup_uri):
-            raise AtlasCustodyError('Atlas custody rotation requires a separate procedure')
-        backup_key = existing['backup_key']
+        old_uris = (existing['application_uri'], existing['inventory_uri'], existing['backup_uri'])
+        try:
+            if tuple(map(normalize_atlas_uri, old_uris)) != tuple(map(normalize_atlas_uri, (application_uri, inventory_uri, backup_uri))):
+                raise AtlasCustodyError('Atlas custody rotation requires a separate procedure')
+        except AtlasConfigurationError:
+            raise AtlasCustodyError('Invalid independent Atlas staging custody') from None
+        _parts(*old_uris, existing['backup_key'])
+        return copy.deepcopy(existing)
     _parts(application_uri, inventory_uri, backup_uri, backup_key)
     return {'schema': 1, 'environment': 'staging', 'application_uri': application_uri,
             'inventory_uri': inventory_uri, 'backup_uri': backup_uri, 'backup_key': backup_key}

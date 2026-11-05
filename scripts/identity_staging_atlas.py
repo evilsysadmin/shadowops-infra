@@ -5,7 +5,7 @@ or access a database. The callers must obtain an independently provisioned Atlas
 application credential and inventory credential through approved custody.
 """
 from copy import deepcopy
-from urllib.parse import parse_qsl, unquote, urlsplit
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
 
 DATABASE = 'shadowops_identity_staging'
 
@@ -38,6 +38,46 @@ def _connection(uri):
         return host, unquote(u.username, errors="strict")
     except (TypeError, ValueError, UnicodeError):
         raise AtlasConfigurationError('Invalid staging Atlas configuration') from None
+
+def normalize_atlas_uri(uri):
+    """Accept standard Atlas SRV URLs and pin staging DB, TLS and auth source.
+
+    Explicit conflicting databases or unsafe options are rejected, never
+    silently changed. Return the credential-bearing URL only to private custody.
+    """
+    try:
+        if not isinstance(uri, str) or len(uri) > 4096 or any(ord(c) < 32 for c in uri):
+            raise ValueError()
+        u = urlsplit(uri)
+        if (u.scheme != 'mongodb+srv' or not u.hostname or u.port is not None or not u.username
+                or not u.password or u.fragment or u.path not in ('', '/', '/' + DATABASE)):
+            raise ValueError()
+        host = u.hostname.lower()
+        if not host.endswith('.mongodb.net') or host == 'mongodb.net' or ',' in host:
+            raise ValueError()
+        user = unquote(u.username, errors='strict')
+        password = unquote(u.password, errors='strict')
+        if not user or not password or '<' in user or '>' in user or '<' in password or '>' in password:
+            raise ValueError()
+        allowed = {'tls':'tls', 'authsource':'authSource', 'retrywrites':'retryWrites', 'w':'w', 'appname':'appName'}
+        params = {}
+        for key, value in parse_qsl(u.query, keep_blank_values=True, strict_parsing=True):
+            lower = key.lower()
+            if lower not in allowed or lower in params or not value:
+                raise ValueError()
+            params[lower] = value
+        if params.get('tls', 'true') != 'true' or params.get('authsource', 'admin') != 'admin':
+            raise ValueError()
+        params['tls'] = 'true'
+        params['authsource'] = 'admin'
+        query = urlencode([(allowed[key], params[key]) for key in sorted(params)])
+        normalized = urlunsplit(('mongodb+srv', quote(user, safe='') + ':' + quote(password, safe='') + '@' + host,
+                               '/' + DATABASE, query, ''))
+        _connection(normalized)
+        return normalized
+    except (TypeError, ValueError, UnicodeError, AtlasConfigurationError):
+        raise AtlasConfigurationError('Invalid staging Atlas configuration') from None
+
 
 def atlas_service_config(local_config, application_uri, inventory_uri):
     """Return a copy bound to one Atlas cluster and two independent users."""
