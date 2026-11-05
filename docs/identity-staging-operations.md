@@ -122,7 +122,11 @@ Both require `source_sha` naming a protected-main commit with a published,
 attested Identity image and successful admission checks. Use that image SHA,
 which can differ from the latest workflow-only Infra commit. Both run through
 the fixed root wrapper under the existing host-operation concurrency group and
-host lock. An authenticated Atlas schema 2 backup less than 24 hours old and a
+host lock. Before invoking it, the operator action checks root ownership,
+permissions and exact SHA-256 hashes of the installed wrapper, preflight and
+all local Python modules against the protected workflow checkout. The image
+source SHA and the installed operator-code version are separate checks; an
+outdated installation must be updated through SSH before dispatch. An authenticated Atlas schema 2 backup less than 24 hours old and a
 successful connection preflight are mandatory. Missing wrappers, denied sudo,
 failed cleanup, missing output or mismatched source/digest receipts fail the job.
 No public traffic is switched. The expected receipts are respectively
