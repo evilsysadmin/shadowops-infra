@@ -15,7 +15,8 @@ def fixture():
    '_id':'11111111-1111-4111-8111-111111111111','environment':'staging',
    'state':'active','role':'admin','credentials_disabled':False,
    'credential_hash':'private-original-hash','recovery_digest':'private-recovery',
-   'session_version':{'$numberLong':'1'},'credential_version':{'$numberLong':'1'}}],
+   'session_version':{'$numberLong':'1'},'credential_version':{'$numberLong':'1'},
+   'login_fence':{'$numberLong':'9007199254740993'}}],
    'sessions':[{'digest':'private-session'}],'staging_cka_tokens':[{'digest':'private-token'}]}}
 
 
