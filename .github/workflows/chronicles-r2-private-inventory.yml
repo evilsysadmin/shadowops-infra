@@ -16,9 +16,21 @@ jobs:
           persist-credentials: false
       - name: Exercise inventory logic with synthetic pages; no secrets
         run: python3 -S -m unittest discover -s tests -p 'test_chronicles_r2_private_inventory.py' -v
+  edge:
+    name: Chronicles R2 · public edge proof (no secrets)
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify pinned public CDN before private Cloudflare inventory
+        run: python3 -S scripts/chronicles_r2_edge_probe.py
   inspect:
     name: Chronicles R2 · manual private read-only inventory
-    needs: contracts
+    needs: edge
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
