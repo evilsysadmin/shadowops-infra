@@ -67,7 +67,10 @@ class TestLockedPagesDeployment(unittest.TestCase):
         self.assertEqual(result["checks"],2*len(target.PATHS))
         self.assertTrue(result["locked"])
         self.assertFalse(result["gameReady"])
-        self.assertEqual(len(calls),12)
+        self.assertEqual(len(calls), 2 * len(target.PATHS))
+        self.assertGreaterEqual(len(target.PATHS), 17)
+        self.assertIn(("pawn-action-staging.pages.dev", "/index.audio.worklet.js", "GET"), calls)
+        self.assertIn(("pawn-action-staging.pages.dev", "/_shadowops/session.js", "HEAD"), calls)
         self.assertIn(("pawn-action-staging.pages.dev","/index.wasm","GET"),calls)
         self.assertIn(("pawn-action-staging.pages.dev","/index.wasm","HEAD"),calls)
 
@@ -77,6 +80,8 @@ class TestLockedPagesDeployment(unittest.TestCase):
 
     def test_no_arbitrary_external_requests_or_writes(self):
         for host, path, method in (("evil.pages.dev","/","GET"),
+                                  ("pawn-action-staging.attacker.example","/","GET"),
+                                  ("pawn-action-staging.pages.dev.evil.tld","/","GET"),
                                   ("pawn-action-staging.pages.dev","/index.html?token=x","GET"),
                                   ("pawn-action-staging.pages.dev","/","POST")):
             with self.subTest(host=host,path=path,method=method):
