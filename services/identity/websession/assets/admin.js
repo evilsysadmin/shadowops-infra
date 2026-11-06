@@ -12,7 +12,18 @@
     const id=document.createElement('small'); id.textContent=account.subject; identity.append(name,id);
     if (Number.isFinite(Date.parse(account.createdAt))) { const created=document.createElement('small'); created.textContent='Cuenta creada: '+new Intl.DateTimeFormat('es',{dateStyle:'medium',timeStyle:'short'}).format(new Date(account.createdAt)); identity.append(created); }
     if (recentAccessAvailable) { const games=(account.recentApplications || []).map(a=>labels[a.application]).filter(Boolean); const recent=document.createElement('small'); recent.textContent=games.length?'Intercambios de acceso (2 min): '+games.join(', '):'Sin intercambios recientes visibles'; identity.append(recent); }
-    if (accessHistoryAvailable) { const history=Array.isArray(account.accessHistory)?account.accessHistory:[]; const item=document.createElement('small'); const valid=history.filter(a=>labels[a.application] && Number.isFinite(Date.parse(a.firstAt)) && Number.isFinite(Date.parse(a.lastAt))); const format=value=>new Intl.DateTimeFormat('es',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value)); item.textContent=valid.length?'Canjes por aplicación: '+valid.map(a=>labels[a.application]+' · primero '+format(a.firstAt)+' · último '+format(a.lastAt)).join('; '):'Sin canjes registrados desde la activación'; identity.append(item); }
+    if (accessHistoryAvailable) {
+      const history=Array.isArray(account.accessHistory)?account.accessHistory:[];
+      const details=document.createElement('details'); details.className='game-access';
+      const summary=document.createElement('summary'); summary.textContent='Accesos por juego'; details.append(summary);
+      const list=document.createElement('ul'); const format=value=>new Intl.DateTimeFormat('es',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value));
+      for (const [application,label] of Object.entries(labels)) {
+        const record=history.find(a=>a && a.application===application && Number.isFinite(Date.parse(a.firstAt)) && Number.isFinite(Date.parse(a.lastAt)));
+        const entry=document.createElement('li'); entry.textContent=record?`${label}: primero ${format(record.firstAt)} · último ${format(record.lastAt)}`:`${label}: sin canjes registrados`;
+        list.append(entry);
+      }
+      details.append(list); identity.append(details);
+    }
     const badge=document.createElement('span'); const enabled=account.state==='active' && !account.credentialsDisabled;
     badge.className=enabled?'badge':'badge disabled'; badge.textContent=enabled?'Activa':account.credentialsDisabled?'Acceso deshabilitado':'No activa';
     const sessions=document.createElement('div'); sessions.className='sessions';
