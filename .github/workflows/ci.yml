@@ -36,6 +36,9 @@ jobs:
 
       - name: ShadowOps Identity explicit account-link migration preflight (synthetic)
         run: python3 -m unittest discover -s tests -p 'test_identity_link_preflight.py' -v
+      - name: Chronicles R2 public edge handoff (offline, no Cloudflare secrets)
+        run: python3 -S -m unittest discover -s tests -p 'test_chronicles_r2_edge_probe.py' -v
+
       # The original standalone policy workflows duplicated checkout + Node setup
       # on every PR and Infra main push. Keep all of their test files here.
       # Do not combine with deployment workflows: this job is offline/read-only.
