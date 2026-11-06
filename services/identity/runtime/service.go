@@ -230,7 +230,7 @@ func NewStagingService(ctx context.Context, cfg ServiceConfig) (*RunningService,
 	if err != nil {
 		return nil, ErrUnsafeConfiguration
 	}
-	var inventoryHandler http.Handler
+	var inventoryHandler, chroniclesHandler http.Handler
 	if cfg.AdminInventoryMongoURI != "" {
 		adminClient, err = mongo.Connect(options.Client().ApplyURI(cfg.AdminInventoryMongoURI).SetTLSConfig(mongoTLS).SetServerSelectionTimeout(3 * time.Second).SetConnectTimeout(3 * time.Second))
 		if err != nil {
@@ -246,6 +246,12 @@ func NewStagingService(ctx context.Context, cfg ServiceConfig) (*RunningService,
 		inventoryHandler, err = websession.NewStagingAdminInventoryHandler(reader)
 		if err != nil {
 			return nil, ErrUnsafeConfiguration
+		}
+		if cfg.Consumers[issuance.Chronicles] != "" {
+			chroniclesHandler, err = h.NewStagingAdminChroniclesHandler(reader)
+			if err != nil {
+				return nil, ErrUnsafeConfiguration
+			}
 		}
 	}
 	var aliases *adminAliasHandler
@@ -263,6 +269,10 @@ func NewStagingService(ctx context.Context, cfg ServiceConfig) (*RunningService,
 		}
 		if r.URL.Path == websession.AdminInventoryPath && inventoryHandler != nil {
 			inventoryHandler.ServeHTTP(w, r)
+			return
+		}
+		if r.URL.Path == websession.AdminChroniclesPath && chroniclesHandler != nil {
+			chroniclesHandler.ServeHTTP(w, r)
 			return
 		}
 		if r.URL.Path == AdminAliasesPath && aliases != nil {

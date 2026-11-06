@@ -7,7 +7,7 @@
     return fetch(path, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
   }
   function accountItem(account, recentAccessAvailable, accessHistoryAvailable) {
-    const item=document.createElement('li'); item.className='account';
+    const item=document.createElement('li'); item.className='account'; item.dataset.subject=account.subject;
     const identity=document.createElement('div'); const name=document.createElement('strong'); name.textContent=account.name;
     const id=document.createElement('small'); id.textContent=account.subject; identity.append(name,id);
     if (Number.isFinite(Date.parse(account.createdAt))) { const created=document.createElement('small'); created.textContent='Cuenta creada: '+new Intl.DateTimeFormat('es',{dateStyle:'medium',timeStyle:'short'}).format(new Date(account.createdAt)); identity.append(created); }
@@ -24,7 +24,7 @@
     status('Cargando cuentas…'); $('next').disabled=true; $('refresh').disabled=true; $('logout').disabled=true;
     try {
       const response=await send('/api/identity/admin/accounts',{after:append?cursor:'',limit:20});
-      if (response.status===401) { $('account-list').replaceChildren(); cursor=''; $('next').hidden=true; $('signin').hidden=false; $('accounts').hidden=true; $('logout').hidden=true; status('Inicia sesión con una cuenta administradora.'); return; }
+      if (response.status===401) { $('account-list').replaceChildren(); $('chronicles-list').replaceChildren(); $('chronicles-status').textContent=''; $('chronicles-next').hidden=true; chroniclesCursor=''; cursor=''; $('next').hidden=true; $('signin').hidden=false; $('accounts').hidden=true; $('logout').hidden=true; status('Inicia sesión con una cuenta administradora.'); return; }
       if (!response.ok) throw Error('unavailable');
       const page=await response.json(); if (!Array.isArray(page.accounts)) throw Error('invalid');
       if (!append) $('account-list').replaceChildren();
@@ -35,7 +35,36 @@
     finally { $('next').disabled=false; $('refresh').disabled=false; $('logout').disabled=false; }
   }
   $('login').addEventListener('submit',async event=>{event.preventDefault();const button=event.submitter;button.disabled=true;status('Iniciando sesión…');try{const response=await send('/api/identity/login',{username:$('username').value,password:$('password').value});$('password').value='';if(!response.ok){status('No se pudo iniciar sesión. Revisa tus datos.');return;}await load();}catch{status('No se pudo conectar con Identity.');}finally{button.disabled=false;}});
+  let chroniclesCursor='';
+  async function loadChronicles(append=false) {
+    const button=$('chronicles-load'); button.disabled=true; $('chronicles-next').disabled=true;
+    $('chronicles-status').textContent='Consultando Chronicles…';
+    try {
+      const response=await send('/api/identity/admin/chronicles',{after:append?chroniclesCursor:''});
+      if (!response.ok) throw Error('unavailable');
+      const page=await response.json(); if (!Array.isArray(page.accounts)) throw Error('invalid');
+      if (!append) $('chronicles-list').replaceChildren();
+      for (const account of page.accounts) {
+        if (typeof account.subject!=='string') continue;
+        const item=document.createElement('li'); const name=document.createElement('strong');
+        const match=Array.from($('account-list').children).find(row=>row.dataset.subject===account.subject);
+        name.textContent=match?.querySelector('strong')?.textContent || account.subject;
+        const detail=document.createElement('span');
+        const parts=[]; if (account.lastActivity && Number.isFinite(Date.parse(account.lastActivity))) parts.push('Última actividad: '+new Intl.DateTimeFormat('es',{dateStyle:'medium',timeStyle:'short'}).format(new Date(account.lastActivity)));
+        if (account.mapId) parts.push('Zona guardada: '+account.mapId);
+        if (account.savedAt && Number.isFinite(Date.parse(account.savedAt))) parts.push('Guardado: '+new Intl.DateTimeFormat('es',{dateStyle:'medium',timeStyle:'short'}).format(new Date(account.savedAt)));
+        if (Number.isInteger(account.savedExpeditions)) parts.push('Expediciones guardadas: '+account.savedExpeditions);
+        detail.textContent=parts.length?parts.join(' · '):'Sin actividad o progreso guardado disponible';
+        item.append(name,document.createTextNode(' — '),detail); $('chronicles-list').append(item);
+      }
+      chroniclesCursor=typeof page.next==='string'?page.next:''; $('chronicles-next').hidden=!chroniclesCursor;
+      $('chronicles-status').textContent=$('chronicles-list').children.length?'':'No hay actividad de cuentas compartidas en esta página.';
+    } catch { $('chronicles-status').textContent='No se pudo consultar Chronicles. Comprueba tu permiso de administración allí y vuelve a intentarlo.'; }
+    finally { button.disabled=false; $('chronicles-next').disabled=false; }
+  }
+  $('chronicles-load').addEventListener('click',()=>loadChronicles());
+  $('chronicles-next').addEventListener('click',()=>loadChronicles(true));
   $('refresh').addEventListener('click',()=>load()); $('next').addEventListener('click',()=>load(true));
-  $('logout').addEventListener('click',async()=>{try{const response=await send('/api/identity/logout',{});if(!response.ok)throw Error('logout');$('account-list').replaceChildren();$('accounts').hidden=true;$('logout').hidden=true;$('signin').hidden=false;cursor='';status('Sesión cerrada.');}catch{status('No se pudo cerrar la sesión.');}});
+  $('logout').addEventListener('click',async()=>{try{const response=await send('/api/identity/logout',{});if(!response.ok)throw Error('logout');$('account-list').replaceChildren();$('chronicles-list').replaceChildren();$('chronicles-status').textContent='';$('chronicles-next').hidden=true;chroniclesCursor='';$('accounts').hidden=true;$('logout').hidden=true;$('signin').hidden=false;cursor='';status('Sesión cerrada.');}catch{status('No se pudo cerrar la sesión.');}});
   load();
 })();
