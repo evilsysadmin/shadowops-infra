@@ -51,9 +51,11 @@ OCI Terraform state and policies.
 
 ## Chronicles R2 public-edge observation (staged handoff)
 
-The manually dispatched `Chronicles · public R2 edge proof (handoff)` workflow
-runs on protected Infra `main` only, after its no-network contract test. It
-uses no secrets and makes fixed HTTPS HEAD/GET requests for the known public
+The `Chronicles · public R2 edge proof (handoff)` workflow runs after relevant
+changes land on protected Infra `main` and is also manually dispatchable for
+diagnostics. Pull requests touching its workflow, probe or tests run only its
+offline contracts, while the exact `main` push runs the public HEAD/GET proof
+after the contracts pass. It never uses secrets and checks the known public
 `assets.chronicles.shadowops.dpdns.org` mutable goblin alias and the pinned,
 SHA-256-verified immutable goblin object. It rejects unexpected content type,
 CORS, browser cache policy, public size/digest and redirects. Infra CI runs the
@@ -63,9 +65,10 @@ offline tests on **every** PR.
 `chronicles-r2-public-probe.yml` still owns Cloudflare private bucket/domain
 inventory. Odo/goblin publicators also remain there. Infra's edge proof does
 not enumerate bucket objects, change Cloudflare resources, upload, delete or
-acquire publishing credentials. First run the Infra workflow manually and
-record the real public edge result, then separately design an inventory and
-publishing migration with least-privilege credentials and proven rollback.
+acquire publishing credentials. Inspect the Infra workflow's real public-edge result for the exact merged SHA
+(or dispatch it manually if needed), then separately validate the private
+inventory and design publishing migration with least-privilege credentials and
+proven rollback. Automatic public observation is **not** a publisher cutover.
 Until acceptance, do not disable the legacy operators or claim all R2 control
 has transferred. A red public-edge proof must not trigger automatic changes.
 
@@ -76,8 +79,9 @@ now runs **both** R2 proofs in one workflow run on protected Infra `main`:
 first the **public CDN edge** check in an isolated job with no secrets; only
 after its successful completion does a second job run the **private inventory**
 with scoped credentials. The existing standalone public-edge workflow remains
-available for independent diagnosis. Both jobs are manual-only and their
-synthetic contract tests run in the regular Infra PR CI. The private job
+available for independent diagnosis and now also runs after scoped `main`
+changes; the combined private-inventory workflow remains **manual-only**.
+Their synthetic contract tests run in the regular Infra PR CI. The private job
 performs Cloudflare GET requests solely against the fixed
 `chronicles` bucket's custom domains and paginated object list. It reports
 counts, total bytes, a coarse sprites/music/models/other breakdown and the
