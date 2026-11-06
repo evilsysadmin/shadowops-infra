@@ -5,6 +5,8 @@ on:
     paths:
       - '.github/workflows/pawn-action-pages-create.yml'
       - 'scripts/pawn_action_pages_create.py'
+      - 'scripts/pawn_action_pages_readiness.py'
+      - 'tests/test_pawn_action_pages_readiness.py'
       - 'tests/test_pawn_action_pages_create.py'
       - 'docs/pawn-action-pages-create.md'
   push:
@@ -12,6 +14,8 @@ on:
     paths:
       - '.github/workflows/pawn-action-pages-create.yml'
       - 'scripts/pawn_action_pages_create.py'
+      - 'scripts/pawn_action_pages_readiness.py'
+      - 'tests/test_pawn_action_pages_readiness.py'
       - 'tests/test_pawn_action_pages_create.py'
       - 'docs/pawn-action-pages-create.md'
   workflow_dispatch:
@@ -20,7 +24,7 @@ on:
         description: 'Offline plan or exact empty Pages project reservation'
         required: true
         type: choice
-        options: [plan, reserve]
+        options: [plan, inspect, reserve]
         default: plan
       confirm_project:
         description: 'For reserve ONLY: type pawn-action-staging'
@@ -41,7 +45,30 @@ jobs:
           persist-credentials: false
       - run: python3 -m unittest discover -s tests -p 'test_pawn_action_pages.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_pawn_action_pages_create.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_pawn_action_pages_readiness.py' -v
       - run: python3 scripts/pawn_action_pages_create.py plan
+
+  inspect:
+    name: Pawn Action · manual read-only Pages readiness
+    needs: contracts
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      inputs.operation == 'inspect'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: staging
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read-only Pages inventory and public deny-only alias proof
+        run: python3 scripts/pawn_action_pages_readiness.py inspect
 
   reserve:
     name: Pawn Action · manual empty Pages project reservation
