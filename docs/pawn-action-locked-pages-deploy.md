@@ -24,11 +24,12 @@ The previously reviewed \`pawn_action_pages_shell.py\` generator builds exactly:
    preflight before any Pages deployment**. On an uncertain result, stop
    and inspect manually: no retries or rollback/deletion are automatic.
 4. After the one deployment, read back the Pages project/deployments inventory
-   and require that anonymous GET and HEAD for root, \`index.html\`, WASM,
-   PCK, locked status and release pointer all return 404 on the exact
-   \`pawn-action-staging.pages.dev\` alias. The Worker recognizes ONLY
-   \`staging.pawnaction.shadowops.dpdns.org\`; the Pages alias is therefore
-   deliberately unusable. If Wrangler silently uploaded only the HTML
+   and require that anonymous GET and HEAD for every path in the
+   canonical locked-host deny list, plus the status endpoint, return 404
+   on the exact Cloudflare-assigned Pages alias. The alias is validated
+   against the strict pawn-action-staging[-suffix].pages.dev pattern,
+   NOT by permissive prefix matching. Any asset exposed on GET while
+   HEAD is denied still fails the external verification. If Wrangler silently uploaded only the HTML
    fallback, the public root would return 200 and verification must fail.
 
 **This does not attach the canonical staging DNS.** The canonical locked
