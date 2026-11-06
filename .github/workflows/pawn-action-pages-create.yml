@@ -1,0 +1,72 @@
+name: Pawn Action · empty Pages project create-once
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/pawn-action-pages-create.yml'
+      - 'scripts/pawn_action_pages_create.py'
+      - 'tests/test_pawn_action_pages_create.py'
+      - 'docs/pawn-action-pages-create.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/pawn-action-pages-create.yml'
+      - 'scripts/pawn_action_pages_create.py'
+      - 'tests/test_pawn_action_pages_create.py'
+      - 'docs/pawn-action-pages-create.md'
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: 'Offline plan or exact empty Pages project reservation'
+        required: true
+        type: choice
+        options: [plan, reserve]
+        default: plan
+      confirm_project:
+        description: 'For reserve ONLY: type pawn-action-staging'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: Pawn Action · Pages reservation offline contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_pawn_action_pages.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_pawn_action_pages_create.py' -v
+      - run: python3 scripts/pawn_action_pages_create.py plan
+
+  reserve:
+    name: Pawn Action · manual empty Pages project reservation
+    needs: contracts
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      inputs.operation == 'reserve' &&
+      inputs.confirm_project == 'pawn-action-staging'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment:
+      name: staging
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      PAWN_ACTION_PAGES_PROVISION_TOKEN: ${{ secrets.PAWN_ACTION_PAGES_PROVISION_TOKEN }}
+      CONFIRM_PROJECT: ${{ inputs.confirm_project }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Reserve only empty Pages project, verify no custom DNS/domain
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/pawn_action_pages_create.py reserve --confirm-project "$CONFIRM_PROJECT"
