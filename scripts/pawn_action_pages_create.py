@@ -79,6 +79,32 @@ class PagesCreator:
             raise ProvisionError("Pages project unexpectedly has custom domains")
         return result
 
+def require_empty_deployment_inventory(reader):
+    """No Pages preview/production release, even under the public pages.dev alias.
+
+    Domain ownership alone cannot prove an empty project. Cloudflare exposes
+    both the latest deployments on the project and the full preview/production
+    deployment inventory via a separate endpoint. A one-item first page is
+    enough to disprove emptiness; an unexpected result fails closed.
+    """
+    root = f"/accounts/{reader.account}/pages/projects/{PROJECT}"
+    status, project = reader.get(root)
+    if status != 200 or not isinstance(project, dict):
+        raise ProvisionError("Cannot inspect Pages project before claiming it empty")
+    if (project.get("name") != PROJECT or project.get("production_branch") != "main"
+            or project.get("source") is not None
+            or "latest_deployment" not in project
+            or "canonical_deployment" not in project):
+        raise ProvisionError("Pages project identity or deployment metadata unverified")
+    if project["latest_deployment"] is not None or project["canonical_deployment"] is not None:
+        raise ProvisionError("Pages project already has a production or preview deployment")
+    # Query without env=production: the result covers BOTH production and
+    # preview. Never accept a Pages project with even one previous deployment.
+    status, deployments = reader.get(root + "/deployments?per_page=1&page=1")
+    if status != 200 or not isinstance(deployments, list) or deployments:
+        raise ProvisionError("Pages deployment inventory not proven empty")
+
+
 def reserve_once(reader, creator, confirm):
     if confirm != PROJECT:
         raise ProvisionError("Exact project confirmation required")
@@ -89,6 +115,7 @@ def reserve_once(reader, creator, confirm):
     keys = ("pages", "dns", "custom_domain")
     state = tuple(before.get(k) for k in keys)
     if state == ("owned", "absent", "absent"):
+        require_empty_deployment_inventory(reader)
         return {"project": PROJECT, "state": "already_reserved_unrouted",
                 "published": False}
     if state != ("absent", "absent", "absent"):
@@ -97,6 +124,7 @@ def reserve_once(reader, creator, confirm):
     after = inspect(reader)
     if tuple(after.get(k) for k in keys) != ("owned", "absent", "absent"):
         raise ProvisionError("Pages reservation not verified; re-inventory manually")
+    require_empty_deployment_inventory(reader)
     return {"project": PROJECT, "state": "reserved_unrouted", "published": False}
 
 def main(argv=None, env=None):

@@ -21,15 +21,22 @@ The two token values MUST be distinct. PR/push jobs run offline tests only
 and never receive Cloudflare credentials.
 
 Reservation checks the existing zone, exact Pages name, source type,
-canonical subdomain and absence of custom staging DNS/domain. It performs
-at most one POST and rechecks ownership. A conflict, transport timeout,
+canonical subdomain and absence of custom staging DNS/domain. It also
+checks the project `latest_deployment`/`canonical_deployment` metadata
+and reads `GET /accounts/{account_id}/pages/projects/pawn-action-staging/deployments?per_page=1&page=1`
+**without a production-only filter**: even one preview deployment means the
+project is not empty. Missing permissions, malformed inventory or absent
+deployment metadata fail closed, including for an already-existing project.
+It performs at most one POST and rechecks ownership. A conflict, transport timeout,
 foreign resource, wrong account, unexpected deployment, or public custom
 domain is NOT retried or modified automatically. Re-inventory manually
 before another attempt; there is no rollback DELETE.
 
-An empty Pages namespace may still expose a pages.dev URL. It does not
-prove any holding Worker is deployed or that an existing project is safe
-to serve game files. Do not publish any app until the private R2 bucket,
+A reserved Pages namespace may still have a public `pages.dev` alias.
+The strict inventory makes sure the reservation itself contains zero
+deployments, but is only a point-in-time check, not a distributed lock.
+It does not prove any holding Worker is deployed or that an existing project
+is safe to serve game files in the future. Do not publish any app until the private R2 bucket,
 ShadowOps ID consumer, locked-edge gate and explicit visual acceptance are
 independently established. Pawn Action source PR #1 remains Draft and
 Chess Studio's legacy pointer/production remain unchanged.
