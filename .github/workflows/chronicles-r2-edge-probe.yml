@@ -1,0 +1,31 @@
+name: Chronicles · public R2 edge proof (handoff)
+# Deliberately manual live probe. Required CI runs the offline contracts on
+# every PR; this workflow must not compete with Chess Studio's existing probe.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contracts:
+    name: R2 edge · offline contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -S -m unittest discover -s tests -p 'test_chronicles_r2_edge_probe.py' -v
+  live:
+    name: R2 edge · manual public proof
+    needs: contracts
+    # First prove the public read-only path in Infra manually; do not silently
+    # replace or compete with Chess Studio's current Cloudflare inventory job.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify immutable bytes and CDN headers without secrets
+        run: python3 -S scripts/chronicles_r2_edge_probe.py
