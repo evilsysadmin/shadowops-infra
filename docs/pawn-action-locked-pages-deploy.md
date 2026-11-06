@@ -29,7 +29,14 @@ The previously reviewed \`pawn_action_pages_shell.py\` generator builds exactly:
    on the exact Cloudflare-assigned Pages alias. The alias is validated
    against the strict pawn-action-staging[-suffix].pages.dev pattern,
    NOT by permissive prefix matching. Any asset exposed on GET while
-   HEAD is denied still fails the external verification. If Wrangler silently uploaded only the HTML
+   HEAD is denied still fails the external verification. Every response must
+   also carry `X-Pawn-Action-Holding-Shell: deny-only-v1`, emitted by the
+   canonical holding Worker and *not* by the static fallback. A generic
+   Cloudflare 404 with otherwise plausible security headers is therefore
+   insufficient. The marker is a **non-secret identity hint**, not cryptographic
+   proof of source integrity or a substitute for inventory/visual review.
+   The future canonical-host locked-surface probe enforces the same marker.
+   If Wrangler silently uploaded only the HTML
    fallback, the public root would return 200 and verification must fail.
 
 **This does not attach the canonical staging DNS.** The canonical locked

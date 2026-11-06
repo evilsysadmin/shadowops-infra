@@ -12,6 +12,9 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "workers/pawn-action-staging/edge.mjs"
 HOST = "staging.pawnaction.shadowops.dpdns.org"
+# A publicly visible identity marker, not an auth or content-integrity proof.
+SHELL_MARKER_HEADER = "X-Pawn-Action-Holding-Shell"
+SHELL_MARKER_VALUE = "deny-only-v1"
 FALLBACK = ("""<!doctype html>
 <html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Pawn Action · Staging bloqueado</title>
@@ -31,7 +34,8 @@ class ShellError(ValueError):
 def expected() -> dict[str, bytes]:
     code = SOURCE.read_bytes()
     for marker in (HOST.encode(), b"state: 'locked'", b"game_ready: false",
-                   b"export default {fetch: handle}"):
+                   b"export default {fetch: handle}",
+                   ("'" + SHELL_MARKER_HEADER + "': '" + SHELL_MARKER_VALUE + "'").encode()):
         if marker not in code:
             raise ShellError("Staging Worker source missing its deny-only contract")
     # Hard reject direct static/game forwarding in executable source lines.

@@ -4,6 +4,9 @@ const HOST = 'staging.pawnaction.shadowops.dpdns.org';
 const HEADERS = {
   'Cache-Control': 'no-store, max-age=0',
   'X-Content-Type-Options': 'nosniff',
+  // A non-secret code-identity marker: distinguish our holding Worker
+  // from Cloudflare's generic 404 or an accidental static-only upload.
+  'X-Pawn-Action-Holding-Shell': 'deny-only-v1',
   'Referrer-Policy': 'no-referrer',
   'X-Frame-Options': 'DENY',
   'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
