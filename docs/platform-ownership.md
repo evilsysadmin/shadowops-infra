@@ -69,6 +69,39 @@ publishing migration with least-privilege credentials and proven rollback.
 Until acceptance, do not disable the legacy operators or claim all R2 control
 has transferred. A red public-edge proof must not trigger automatic changes.
 
+## Chronicles R2 private inventory (shadow mode, not cutover)
+
+The manually dispatched `Chronicles · private R2 inventory (handoff)` workflow
+is independent of the public-edge probe. Its synthetic unit tests also run in
+the normal Infra PR contracts gate. The live job is **manual on protected Infra
+`main` only** and performs Cloudflare GET requests solely against the fixed
+`chronicles` bucket's custom domains and paginated object list. It reports
+counts, total bytes, a coarse sprites/music/models/other breakdown and the
+number of objects that need privacy/manual review; it **never logs object
+names, cursor values, raw API responses or credentials**. The active public
+custom domain must be exactly `assets.chronicles.shadowops.dpdns.org`.
+
+Before manual dispatch, provision `CHRONICLES_R2_READ_TOKEN` and
+`CHRONICLES_R2_ACCOUNT_ID` as repository Actions secrets in **Infra**. Use
+an independently scoped Cloudflare token with only the account-level R2 read
+permissions required for bucket domain and object-list GET calls. Verify those
+specific endpoints work; do not copy the existing full-access Chess Studio
+token or grant object write, DNS, tunnel, account admin or Terraform rights.
+If credentials are not configured, the job must fail closed, not fall back to
+Chess Studio or an unauthenticated/public inventory. No secrets are available
+to pull requests. A manual green result validates observation only; it does
+not authorize content publishing or owner transfer.
+
+**Sequence before retiring the Chess Studio operator:** (1) run the public
+edge proof in Infra and preserve its SHA/response receipt; (2) configure and
+run the private inventory in Infra, recording only sanitized metrics; (3)
+compare the active domain and aggregate counts against the old Chess Studio
+probe under a separately reviewed evidence process; (4) design a distinct
+scoped publisher migration with rollback and explicit ownership cutover. Keep
+`chronicles-r2-public-probe.yml` and the Odo/goblin publishers in Chess Studio
+until the old and new capabilities have real matching evidence. A green PR CI
+or a passed synthetic test is **not** live Cloudflare acceptance.
+
 ## Guardrails
 
 - Infrastructure is **shared at the host level, not at the application
