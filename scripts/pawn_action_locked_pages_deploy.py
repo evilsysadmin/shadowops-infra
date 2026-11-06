@@ -81,7 +81,7 @@ def probe_alias(target, path, method):
             if (status != 404 or "location" in headers or
                     "no-store" not in headers.get("cache-control", "") or
                     headers.get("x-content-type-options") != "nosniff" or
-                    headers.get(SHELL_MARKER_HEADER.lower()) != SHELL_MARKER_VALUE)::
+                    headers.get(SHELL_MARKER_HEADER.lower()) != SHELL_MARKER_VALUE):
                 raise LockedDeploymentError("Pages alias does not prove deny-all Worker on " + path)
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         raise LockedDeploymentError("Pages alias not verifiably reachable: " + type(exc).__name__) from None
