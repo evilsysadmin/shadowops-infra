@@ -106,7 +106,7 @@ class EdgeProbeTests(unittest.TestCase):
         on = workflow.split("\non:\n", 1)[1].split("\npermissions:\n", 1)[0]
         pr_paths = on.split("  pull_request:\n    paths:\n", 1)[1].split("  push:\n", 1)[0]
         push_paths = on.split("  push:\n    branches: [main]\n    paths:\n", 1)[1].split(
-            "  workflow_dispatch:\n", 1
+            "  workflow_dispatch:", 1
         )[0]
         self.assertEqual({line.strip() for line in pr_paths.splitlines()}, expected_paths)
         self.assertEqual({line.strip() for line in push_paths.splitlines()}, expected_paths)
