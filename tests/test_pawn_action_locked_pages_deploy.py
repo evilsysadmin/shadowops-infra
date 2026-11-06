@@ -93,6 +93,53 @@ class TestLockedPagesDeployment(unittest.TestCase):
         self.assertNotIn('method="DELETE"',source)
         self.assertNotIn("chess-studio-assets",source)
 
+    def test_live_alias_probe_accepts_only_uncached_worker_404(self):
+        class Reply:
+            def __init__(self, status=404, headers=None):
+                self.status = status
+                self.headers = headers if headers is not None else {
+                    "Cache-Control": "no-store, max-age=0",
+                    "X-Content-Type-Options": "nosniff",
+                }
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+        class Opener:
+            def __init__(self, reply): self.reply = reply
+            def open(self, request, *, timeout):
+                self_request = request
+                assert self_request.full_url == "https://pawn-action-staging.pages.dev/index.wasm"
+                assert self_request.get_method() == "GET"
+                assert timeout == 8
+                return self.reply
+
+        valid = Reply()
+        with patch.object(target.urllib.request, "build_opener", return_value=Opener(valid)):
+            target.probe_alias("pawn-action-staging.pages.dev", "/index.wasm", "GET")
+        for bad in (Reply(status=200), Reply(status=302),
+                    Reply(headers={"Cache-Control": "public", "X-Content-Type-Options": "nosniff"}),
+                    Reply(headers={"Cache-Control": "no-store"}),
+                    Reply(headers={"Cache-Control": "no-store",
+                                   "X-Content-Type-Options": "nosniff",
+                                   "Location": "https://assets.chess-studio.shadowops.dpdns.org/"})):
+            with self.subTest(status=bad.status, headers=bad.headers):
+                with patch.object(target.urllib.request, "build_opener",
+                                  return_value=Opener(bad)):
+                    with self.assertRaises(target.LockedDeploymentError):
+                        target.probe_alias("pawn-action-staging.pages.dev", "/index.wasm", "GET")
+
+    def test_workflow_rechecks_exact_empty_project_immediately_before_wrangler(self):
+        workflow=(Path(__file__).resolve().parents[1] /
+                  ".github/workflows/pawn-action-locked-pages-deploy.yml").read_text()
+        deploy=workflow.split("      - name: Deploy the verified deny-all Worker; NO game or custom domain",1)[1]
+        admission="CLOUDFLARE_API_TOKEN=\"$CLOUDFLARE_READ_TOKEN\" python3 scripts/pawn_action_locked_pages_deploy.py preflight"
+        write="npx --yes wrangler@4.127.1 pages deploy"
+        self.assertIn(admission, deploy)
+        self.assertIn(write, deploy)
+        self.assertLess(deploy.index(admission), deploy.index(write))
+        self.assertIn("inputs.confirm == 'pawn-action-staging:locked'", workflow)
+        self.assertIn("github.event_name == 'workflow_dispatch'", workflow)
+        self.assertIn("secrets.PAWN_ACTION_PAGES_DEPLOY_TOKEN", workflow)
+
     def test_main_preflight_never_calls_cloud_without_exact_confirmation(self):
         with patch.object(target,"CloudflareReadClient") as reader:
             self.assertEqual(target.main(["preflight"],{}),1)
