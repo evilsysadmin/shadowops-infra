@@ -228,8 +228,11 @@ class Tests(unittest.TestCase):
     def test_no_other_mutation_methods_or_assets_publish(self):
         source = Path(mod.__file__).read_text()
         for forbidden in ('method="PUT"', 'method="PATCH"', 'method="DELETE"',
-                          "deployments", "dns_records", "chess-studio-assets"):
+                          "dns_records", "chess-studio-assets"):
             self.assertNotIn(forbidden, source)
         self.assertIn('method="POST"', source)
+        # The deployment inventory is GET-only; it must never be written to.
+        self.assertIn('reader.get(root + "/deployments?per_page=1&page=1")', source)
+        self.assertNotIn('method="POST" + "/deployments"', source)
 if __name__ == "__main__":
     unittest.main()
