@@ -1,6 +1,7 @@
 """Offline and mutation-free tests for Pawn Action's locked public perimeter."""
 from __future__ import annotations
 
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -29,11 +30,28 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(result["state"], "locked")
         self.assertFalse(result["gameReady"])
         self.assertFalse(result["published"])
-        self.assertEqual(len(calls), 15)
+        self.assertEqual(len(calls), 1 + 2 * len(surface.DENIED))
+        self.assertGreaterEqual(len(surface.DENIED), 16)
         self.assertEqual(calls[0], ("/_shadowops/status", "GET"))
         self.assertNotIn("https://assets.chess-studio.shadowops.dpdns.org", surface.BASE)
         self.assertIn(("/index.wasm", "GET"), calls)
         self.assertIn(("/index.wasm", "HEAD"), calls)
+        self.assertIn(("/_shadowops/session.js", "GET"), calls)
+        self.assertIn(("/api/pawn-action/session", "HEAD"), calls)
+
+    def test_private_worker_asset_allowlist_is_completely_covered(self):
+        """Do not claim a locked surface when a newly added Godot file leaks."""
+        worker = (Path(__file__).resolve().parents[1] /
+                  "workers/pawn-action-staging/private-delivery.mjs").read_text(
+                      encoding="utf-8")
+        match = re.search(r"const FILES = Object\.freeze\(\{(.*?)\n\}\);", worker, re.S)
+        self.assertIsNotNone(match, "Private Worker FILES allowlist changed shape")
+        files = set(re.findall(r"^\s*'([^']+)':", match.group(1), re.M))
+        self.assertGreaterEqual(len(files), 9)
+        self.assertEqual(files, {
+            item.removeprefix("/") for item in surface.DENIED
+            if item.startswith("/index.") and item not in ("/index.html",)
+        } | {"index.html"})
 
     def test_absent_or_wrong_identity_status_fails(self):
         import json
@@ -65,7 +83,10 @@ class SurfaceTests(unittest.TestCase):
                     surface.inspect(exposed)
 
     def test_get_exposure_even_when_head_is_denied(self):
-        for target in ("/index.wasm", "/index.pck", "/index.js", "/pawn-action/current.json"):
+        for target in ("/index.wasm", "/index.pck", "/index.js", "/pawn-action/current.json",
+                       "/index.audio.worklet.js", "/index.apple-touch-icon.png",
+                       "/_shadowops/session.js", "/api/pawn-action/session",
+                       "/pawn-action/releases/0000000000000000/index.wasm"):
             with self.subTest(target=target):
                 def exposed(path, method):
                     if path == target and method == "GET":
