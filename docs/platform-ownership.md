@@ -102,6 +102,42 @@ scoped publisher migration with rollback and explicit ownership cutover. Keep
 until the old and new capabilities have real matching evidence. A green PR CI
 or a passed synthetic test is **not** live Cloudflare acceptance.
 
+## Chronicles R2 handoff comparison (offline receipt gate)
+
+After successfully running both manual Infra probes and the **existing** Chess
+Studio `chronicles-r2-public-probe.yml`, compare their summaries with the
+read-only offline CLI from Infra. Extract the `CHRONICLES_R2_OPERATOR_INVENTORY`,
+`CHRONICLES_R2_OPERATOR_PROBE`, and `CHRONICLES_R2_IMMUTABLE_EDGE` lines from
+the original operator's successful run to one local file. Put the
+`CHRONICLES_R2_INVENTORY` lines from Infra's private probe in a second file
+and the `CHRONICLES_R2_EDGE_OK` line from Infra's public probe in a third.
+Do **not** commit or upload raw logs, object keys, Cloudflare responses or
+secrets; keep evidence files local and access-controlled.
+
+```bash
+python3 -S scripts/chronicles_r2_handoff_parity.py \
+  --operator /tmp/chronicles-operator-receipt.log \
+  --private /tmp/chronicles-infra-private-receipt.log \
+  --edge /tmp/chronicles-infra-edge-receipt.log
+```
+
+The comparison requires matching object counts, byte totals, sensitive-object
+review totals and family counts (unknown legacy prefixes are collapsed into
+`other`, never printed), plus the approved domain, immutable SHA/size and
+browser-cache/CORS success signals. Missing, duplicated, truncated or failing
+receipts stop the check without outputting private path names. The validator
+has no network requests, does not fetch GitHub logs itself, needs no secrets,
+and does not trigger uploads, deletions or DNS changes. Its offline regression
+tests run in the usual Infra PR CI.
+
+**This is a discrepancy detector, not authenticated provenance.** An operator
+must separately verify the successful workflow run URLs, commit SHAs, and the
+observation window (with no intervening R2 writes) before accepting the result.
+Green parity only means the supplied summaries agree: it explicitly says
+`cutover=not-authorized`. A real Cloudflare credentials handoff, publisher
+parity, promotion controls, rollback and retirement of Chess Studio workflows
+remain separate reviewed gates.
+
 ## Guardrails
 
 - Infrastructure is **shared at the host level, not at the application
