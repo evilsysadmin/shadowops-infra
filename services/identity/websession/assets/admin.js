@@ -50,10 +50,13 @@
         const match=Array.from($('account-list').children).find(row=>row.dataset.subject===account.subject);
         name.textContent=match?.querySelector('strong')?.textContent || account.subject;
         const detail=document.createElement('span');
-        const parts=[]; if (account.lastActivity && Number.isFinite(Date.parse(account.lastActivity))) parts.push('Última actividad: '+new Intl.DateTimeFormat('es',{dateStyle:'medium',timeStyle:'short'}).format(new Date(account.lastActivity)));
+        const parts=[]; if (account.online === true) parts.push('Actividad reciente al consultar');
+        if (account.lastActivity && Number.isFinite(Date.parse(account.lastActivity))) parts.push('Última actividad: '+new Intl.DateTimeFormat('es',{dateStyle:'medium',timeStyle:'short'}).format(new Date(account.lastActivity)));
         if (account.mapId) parts.push('Zona guardada: '+account.mapId);
         if (account.savedAt && Number.isFinite(Date.parse(account.savedAt))) parts.push('Guardado: '+new Intl.DateTimeFormat('es',{dateStyle:'medium',timeStyle:'short'}).format(new Date(account.savedAt)));
         if (Number.isInteger(account.savedExpeditions)) parts.push('Expediciones guardadas: '+account.savedExpeditions);
+        if (Number.isInteger(account.activeQuests) && account.activeQuests>0) parts.push('Misiones activas: '+account.activeQuests);
+        if (Number.isInteger(account.completedQuests) && account.completedQuests>0) parts.push('Misiones completadas: '+account.completedQuests);
         detail.textContent=parts.length?parts.join(' · '):'Sin actividad o progreso guardado disponible';
         item.append(name,document.createTextNode(' — '),detail); $('chronicles-list').append(item);
       }
