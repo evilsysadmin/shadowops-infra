@@ -1,0 +1,121 @@
+name: Chronicles · controlled R2 portrait publication
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/chronicles-r2-portraits.yml"
+      - "scripts/chronicles_r2_portrait_publish.py"
+      - "tests/test_chronicles_r2_portrait_publish.py"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/chronicles-r2-portraits.yml"
+      - "scripts/chronicles_r2_portrait_publish.py"
+      - "tests/test_chronicles_r2_portrait_publish.py"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Plan is read-only; publish creates only 24 immutable awake WebPs"
+        type: choice
+        required: true
+        default: plan
+        options: [plan, publish]
+      source_sha:
+        description: "Full 40-character Chronicles main SHA with green required CI"
+        type: string
+        required: true
+      confirm_bucket:
+        description: "For publish only, type exactly chronicles"
+        type: string
+        required: false
+permissions:
+  contents: read
+  actions: read
+jobs:
+  contracts:
+    name: Chronicles portrait publisher · offline security contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate immutable pack, CI admission and conditional S3 writes offline
+        run: python3 -S -m unittest discover -s tests -p 'test_chronicles_r2_portrait_publish.py' -v
+
+  candidate:
+    name: Chronicles · manual source-accredited portrait plan/publication
+    needs: contracts
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      (inputs.action == 'plan' ||
+       (inputs.action == 'publish' && inputs.confirm_bucket == 'chronicles'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    concurrency:
+      group: shadowops-chronicles-r2-portraits
+      cancel-in-progress: false
+    environment:
+      name: staging
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require actual owner and green current source main
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ && "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+          test "$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)" = "$SOURCE_SHA"
+          test "$(python3 scripts/chronicles_source_ci.py "$SOURCE_SHA")" = ready
+          echo "CHRONICLES_PORTRAITS_SOURCE_ADMITTED sha=$SOURCE_SHA"
+      - uses: actions/checkout@v4
+        with:
+          repository: evilsysadmin/chronicles-of-matthias
+          ref: ${{ inputs.source_sha }}
+          path: chronicles-source
+          persist-credentials: false
+      - name: Prepare precisely 24 awake WebPs without network or credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C chronicles-source rev-parse HEAD)" = "$SOURCE_SHA"
+          node chronicles-source/frontend/scripts/prepare-portrait-r2.mjs
+          python3 -S scripts/chronicles_r2_portrait_publish.py plan \
+            --stage chronicles-source/frontend/.portrait-r2-stage \
+            --source-sha "$SOURCE_SHA"
+      - name: Install scoped S3 client only for explicitly authorized publication
+        if: inputs.action == 'publish'
+        run: python3 -m pip install --disable-pip-version-check --no-cache-dir 'boto3==1.40.44'
+      - name: Recheck protected owner and source, then immutable S3 upload + public SHA proof
+        if: inputs.action == 'publish'
+        shell: bash
+        env:
+          CHRONICLES_R2_ACCOUNT_ID: ${{ secrets.CHRONICLES_R2_ACCOUNT_ID }}
+          CHRONICLES_R2_READ_TOKEN: ${{ secrets.CHRONICLES_R2_READ_TOKEN }}
+          CHRONICLES_R2_PORTRAIT_ACCESS_KEY_ID: ${{ secrets.CHRONICLES_R2_PORTRAIT_ACCESS_KEY_ID }}
+          CHRONICLES_R2_PORTRAIT_SECRET_ACCESS_KEY: ${{ secrets.CHRONICLES_R2_PORTRAIT_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+          test "$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)" = "$SOURCE_SHA"
+          test "$(python3 scripts/chronicles_source_ci.py "$SOURCE_SHA")" = ready
+          python3 scripts/chronicles_r2_portrait_publish.py publish \
+            --stage chronicles-source/frontend/.portrait-r2-stage \
+            --source-sha "$SOURCE_SHA" \
+            --confirm-bucket chronicles
+      - name: Retain candidate URLs as a manual activation receipt (no pointer writes)
+        if: inputs.action == 'publish'
+        uses: actions/upload-artifact@v4
+        with:
+          name: chronicles-portraits-r2-candidate-${{ inputs.source_sha }}
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            chronicles-source/frontend/.portrait-r2-stage/manifest.candidate.json
+            chronicles-source/frontend/.portrait-r2-stage/sha256sums.json
