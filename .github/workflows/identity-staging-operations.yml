@@ -92,6 +92,11 @@ jobs:
         env:
           IDENTITY_STACK_TEST: '1'
         run: python3 -m unittest discover -s tests -p 'test_identity_staging_stack.py' -v
+      - name: Rehearse Atlas transition rollback with disposable networkless containers
+        if: github.event_name != 'workflow_dispatch' || inputs.action != 'inspect'
+        env:
+          IDENTITY_ATLAS_TRANSITION_DOCKER: '1'
+        run: python3 -m unittest discover -s tests -p 'test_identity_staging_atlas_transition_docker.py' -v
   atlas-rotate-inventory:
     needs: contracts
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'atlas-rotate-inventory' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
