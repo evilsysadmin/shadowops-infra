@@ -1,0 +1,51 @@
+name: Pawn Action · locked staging HTTPS surface (read only)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/pawn-action-locked-surface.yml'
+      - 'scripts/pawn_action_staging_surface.py'
+      - 'tests/test_pawn_action_staging_surface.py'
+      - 'docs/pawn-action-locked-surface.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/pawn-action-locked-surface.yml'
+      - 'scripts/pawn_action_staging_surface.py'
+      - 'tests/test_pawn_action_staging_surface.py'
+      - 'docs/pawn-action-locked-surface.md'
+  workflow_dispatch:
+    inputs:
+      probe_live_locked:
+        description: 'Probe unauthenticated HTTPS holding edge (must be locked, never publish)'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  offline-contracts:
+    name: Pawn Action · locked edge offline contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_pawn_action_staging_surface.py' -v
+      - run: python3 -m py_compile scripts/pawn_action_staging_surface.py
+
+  live-locked:
+    name: Pawn Action · manual anonymous HTTPS locked probe
+    needs: offline-contracts
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra' && inputs.probe_live_locked
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify locked holding edge (GET status, HEAD game assets; no credentials)
+        run: python3 scripts/pawn_action_staging_surface.py probe
