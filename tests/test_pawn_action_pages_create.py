@@ -30,12 +30,25 @@ class Reader:
                 return 404, None
             obj = {"name": PROJECT, "production_branch": "main",
                    "source": None, "subdomain": PROJECT + ".pages.dev",
-                   "domains": [PROJECT + ".pages.dev"]}
+                   "domains": [PROJECT + ".pages.dev"],
+                   "latest_deployment": None, "canonical_deployment": None}
             if self.state == "foreign":
                 obj["source"] = {"type": "github"}
+            if self.state == "deployed":
+                obj["latest_deployment"] = {"id": "public-production"}
+            if self.state == "no_metadata":
+                obj.pop("canonical_deployment")
             return 200, obj
         if "/pages/projects/" in path and "/domains/" in path:
             return 404, None
+        if path.endswith("/pages/projects/" + PROJECT + "/deployments?per_page=1&page=1"):
+            if self.state == "preview_only":
+                return 200, [{"id": "public-preview"}]
+            if self.state == "bad_deployment_inventory":
+                return 200, {"result": []}
+            if self.state == "unreadable_deployments":
+                raise InventoryError("Pages deployment read denied")
+            return 200, []
         if "/dns_records?" in path:
             if self.state == "orphan":
                 return 200, [{"name": HOST, "type": "CNAME",
@@ -90,12 +103,32 @@ class Tests(unittest.TestCase):
         actual = mod.reserve_once(reader, writer, PROJECT)
         self.assertEqual(actual, {"project": PROJECT, "state": "reserved_unrouted", "published": False})
         self.assertEqual(writer.posts, 1)
-        self.assertEqual(len(reader.calls), 7)
+        self.assertEqual(len(reader.calls), 9)
+        self.assertTrue(reader.calls[-1].endswith("/deployments?per_page=1&page=1"))
 
     def test_existing_unrouted_project_is_noop(self):
         reader = Reader("created"); writer = Writer(reader)
         self.assertEqual(mod.reserve_once(reader, writer, PROJECT)["state"], "already_reserved_unrouted")
         self.assertEqual(writer.posts, 0)
+
+    def test_existing_project_with_any_deployment_is_never_adopted(self):
+        for state in ("deployed", "preview_only", "bad_deployment_inventory",
+                      "unreadable_deployments", "no_metadata"):
+            with self.subTest(state=state):
+                reader = Reader(state)
+                writer = Writer(reader)
+                with self.assertRaises((mod.ProvisionError, InventoryError)):
+                    mod.reserve_once(reader, writer, PROJECT)
+                self.assertEqual(writer.posts, 0)
+
+    def test_existing_empty_reservation_checks_both_project_and_deployments(self):
+        reader = Reader("created")
+        writer = Writer(reader)
+        result = mod.reserve_once(reader, writer, PROJECT)
+        self.assertFalse(result["published"])
+        self.assertEqual(writer.posts, 0)
+        self.assertTrue(any(path.endswith("/deployments?per_page=1&page=1")
+                            for path in reader.calls))
 
     def test_wrong_confirmation_account_blocks_before_reads(self):
         for confirmation in ("", "chess-studio", "football-staging", PROJECT + "2"):
@@ -115,7 +148,8 @@ class Tests(unittest.TestCase):
             self.assertEqual(writer.posts, 0)
 
     def test_postcheck_is_required_even_after_successful_post(self):
-        for state in ("absent", "foreign", "orphan"):
+        for state in ("absent", "foreign", "orphan", "deployed",
+                      "preview_only", "no_metadata", "bad_deployment_inventory"):
             reader = Reader(); writer = Writer(reader, state)
             with self.subTest(state=state), self.assertRaises((mod.ProvisionError, InventoryError)):
                 mod.reserve_once(reader, writer, PROJECT)
