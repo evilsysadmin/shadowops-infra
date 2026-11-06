@@ -49,6 +49,26 @@ OCI Terraform state and policies.
 6. **Future apps:** supply only a new product's immutable artifacts, scoped
    runtime configuration, admission policy and isolated smoke tests.
 
+## Chronicles R2 public-edge observation (staged handoff)
+
+The manually dispatched `Chronicles · public R2 edge proof (handoff)` workflow
+runs on protected Infra `main` only, after its no-network contract test. It
+uses no secrets and makes fixed HTTPS HEAD/GET requests for the known public
+`assets.chronicles.shadowops.dpdns.org` mutable goblin alias and the pinned,
+SHA-256-verified immutable goblin object. It rejects unexpected content type,
+CORS, browser cache policy, public size/digest and redirects. Infra CI runs the
+offline tests on **every** PR.
+
+**Not an ownership cutover:** the existing Chess Studio
+`chronicles-r2-public-probe.yml` still owns Cloudflare private bucket/domain
+inventory. Odo/goblin publicators also remain there. Infra's edge proof does
+not enumerate bucket objects, change Cloudflare resources, upload, delete or
+acquire publishing credentials. First run the Infra workflow manually and
+record the real public edge result, then separately design an inventory and
+publishing migration with least-privilege credentials and proven rollback.
+Until acceptance, do not disable the legacy operators or claim all R2 control
+has transferred. A red public-edge proof must not trigger automatic changes.
+
 ## Guardrails
 
 - Infrastructure is **shared at the host level, not at the application
