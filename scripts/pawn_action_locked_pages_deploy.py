@@ -19,11 +19,12 @@ from cloudflare_control_plane import CloudflareReadClient, InventoryError
 from pawn_action_pages import PROJECT, inspect, pages_target
 from pawn_action_pages_create import require_empty_deployment_inventory
 from pawn_action_pages_shell import verify as verify_shell
+from pawn_action_staging_surface import DENIED as LOCKED_PATHS, STATUS as LOCKED_STATUS
 
 ACCOUNT = re.compile(r"[a-f0-9]{32}\Z")
 WRITE_TOKEN = "PAWN_ACTION_PAGES_DEPLOY_TOKEN"
-PATHS = ("/", "/index.html", "/index.wasm", "/index.pck",
-         "/_shadowops/status", "/pawn-action/current.json")
+# Reuse the complete reviewed fixed canonical-host locked perimeter.
+PATHS = (LOCKED_STATUS, *LOCKED_PATHS)
 
 
 class LockedDeploymentError(ValueError):
@@ -61,12 +62,11 @@ def target_from_reader(reader):
 def probe_alias(target, path, method):
     if path not in PATHS or method not in ("GET", "HEAD"):
         raise LockedDeploymentError("Unexpected alias probe target")
-    if not isinstance(target, str) or not target.startswith(PROJECT + "."):
-        # The target may include a numeric suffix before .pages.dev, but
-        # must always match the exact Pages project namespace.
-        import re as _re
-        if not _re.fullmatch(r"pawn-action-staging(?:-[a-z0-9]+)?\.pages\.dev", str(target)):
+    try:
+        if not isinstance(target, str) or pages_target({"subdomain": target}) != target:
             raise LockedDeploymentError("Unexpected Pages alias")
+    except InventoryError:
+        raise LockedDeploymentError("Unexpected Pages alias") from None
     url = "https://" + target + path
     req = urllib.request.Request(url, method=method)
     try:
