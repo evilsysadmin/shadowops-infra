@@ -20,11 +20,13 @@ no writes.
 
 The probe fails closed unless the real TLS endpoint returns the exact public
 `/_shadowops/status` payload identifying Pawn Action staging as locked,
-plus HTTP 403/404/503 denial of anonymous root, game entry points, WASM, PCK
-and both new and legacy pointer paths. It rejects HTTP redirects, cachable
-responses and missing `nosniff`. The target list is constant, never
-user-supplied; it sends no cookies/tokens, never follows redirects and reads
-no gameplay payloads (only a bounded status JSON).
+plus HTTP 403/404/503 denial of anonymous root and BOTH GET and HEAD
+for game entry points, WASM, PCK and both new and legacy pointer paths.
+Testing HEAD alone would miss a Worker that serves bytes on GET.
+It rejects HTTP redirects, cacheable responses and missing `nosniff`.
+The target list is constant, never user-supplied; it sends no cookies/tokens,
+never follows redirects and reads no gameplay payloads (only a bounded
+status JSON).
 
 **A green offline test is not live evidence.** If DNS/Pages is absent, the
 manual live probe should fail, not claim success. When an authenticated

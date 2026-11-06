@@ -29,10 +29,11 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(result["state"], "locked")
         self.assertFalse(result["gameReady"])
         self.assertFalse(result["published"])
-        self.assertEqual(len(calls), 9)
+        self.assertEqual(len(calls), 15)
         self.assertEqual(calls[0], ("/_shadowops/status", "GET"))
         self.assertNotIn("https://assets.chess-studio.shadowops.dpdns.org", surface.BASE)
-        self.assertTrue(all(method == "HEAD" for _, method in calls[2:]))
+        self.assertIn(("/index.wasm", "GET"), calls)
+        self.assertIn(("/index.wasm", "HEAD"), calls)
 
     def test_absent_or_wrong_identity_status_fails(self):
         import json
@@ -58,6 +59,16 @@ class SurfaceTests(unittest.TestCase):
             with self.subTest(target=target):
                 def exposed(path, method):
                     if path == target and method == "HEAD":
+                        return 200, locked(path, method)[1], b""
+                    return locked(path, method)
+                with self.assertRaises(surface.SurfaceBlocked):
+                    surface.inspect(exposed)
+
+    def test_get_exposure_even_when_head_is_denied(self):
+        for target in ("/index.wasm", "/index.pck", "/index.js", "/pawn-action/current.json"):
+            with self.subTest(target=target):
+                def exposed(path, method):
+                    if path == target and method == "GET":
                         return 200, locked(path, method)[1], b""
                     return locked(path, method)
                 with self.assertRaises(surface.SurfaceBlocked):

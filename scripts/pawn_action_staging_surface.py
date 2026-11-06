@@ -56,7 +56,8 @@ def fetch(path: str, method: str):
 def inspect(request=fetch):
     checks = {}
     for path, method in ((STATUS, "GET"), ("/", "GET"), ("/", "HEAD"),
-                         *((p, "HEAD") for p in DENIED if p != "/")):
+                         *((p, method) for p in DENIED if p != "/"
+                           for method in ("HEAD", "GET"))):
         code, headers, body = request(path, method)
         if type(code) is not int or not isinstance(headers, dict) or not isinstance(body, bytes):
             raise SurfaceBlocked("Malformed staging HTTP response")

@@ -47,5 +47,5 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Verify locked holding edge (GET status, HEAD game assets; no credentials)
+      - name: Verify locked holding edge (GET status, GET + HEAD game assets; no credentials)
         run: python3 scripts/pawn_action_staging_surface.py probe
