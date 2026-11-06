@@ -12,6 +12,8 @@ import sys
 import urllib.error
 import urllib.request
 
+from pawn_action_pages_shell import SHELL_MARKER_HEADER, SHELL_MARKER_VALUE
+
 HOST = "staging.pawnaction.shadowops.dpdns.org"
 BASE = "https://" + HOST
 STATUS = "/_shadowops/status"
@@ -83,6 +85,7 @@ def inspect(request=fetch):
         lower = {str(k).lower(): str(v).lower() for k, v in headers.items()}
         if ("no-store" not in lower.get("cache-control", "")
                 or lower.get("x-content-type-options") != "nosniff"
+                or lower.get(SHELL_MARKER_HEADER.lower()) != SHELL_MARKER_VALUE
                 or "location" in lower or 300 <= code < 400):
             raise SurfaceBlocked("Staging response redirects, caches or lacks security headers")
         if path == STATUS:

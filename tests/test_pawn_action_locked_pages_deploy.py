@@ -100,6 +100,7 @@ class TestLockedPagesDeployment(unittest.TestCase):
                 self.headers = headers if headers is not None else {
                     "Cache-Control": "no-store, max-age=0",
                     "X-Content-Type-Options": "nosniff",
+                    "X-Pawn-Action-Holding-Shell": "deny-only-v1",
                 }
             def __enter__(self): return self
             def __exit__(self, *args): return False
@@ -116,6 +117,8 @@ class TestLockedPagesDeployment(unittest.TestCase):
         with patch.object(target.urllib.request, "build_opener", return_value=Opener(valid)):
             target.probe_alias("pawn-action-staging.pages.dev", "/index.wasm", "GET")
         for bad in (Reply(status=200), Reply(status=302),
+                    Reply(headers={"Cache-Control": "no-store",
+                                   "X-Content-Type-Options": "nosniff"}),
                     Reply(headers={"Cache-Control": "public", "X-Content-Type-Options": "nosniff"}),
                     Reply(headers={"Cache-Control": "no-store"}),
                     Reply(headers={"Cache-Control": "no-store",

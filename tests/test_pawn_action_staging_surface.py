@@ -13,7 +13,9 @@ STATUS = {"application": "pawn-action", "environment": "staging", "state": "lock
 
 
 def locked(path, method):
-    headers = {"Cache-Control": "no-store, max-age=0", "X-Content-Type-Options": "nosniff"}
+    headers = {"Cache-Control": "no-store, max-age=0",
+               "X-Content-Type-Options": "nosniff",
+               "X-Pawn-Action-Holding-Shell": "deny-only-v1"}
     if path == surface.STATUS:
         import json
         return 200, {**headers, "Content-Type": "application/json; charset=utf-8"}, json.dumps(STATUS).encode()
@@ -100,6 +102,7 @@ class SurfaceTests(unittest.TestCase):
             (302, {"Location": "https://assets.chess-studio.shadowops.dpdns.org/"}),
             (503, {"Cache-Control": "public, max-age=3600"}),
             (503, {"X-Content-Type-Options": "none"}),
+            (503, {"X-Pawn-Action-Holding-Shell": "unknown-worker"}),
         ]
         for code, patch in faults:
             with self.subTest(code=code, patch=patch):
@@ -111,6 +114,14 @@ class SurfaceTests(unittest.TestCase):
                     return status, headers, body
                 with self.assertRaises(surface.SurfaceBlocked):
                     surface.inspect(broken)
+
+    def test_generic_cloudflare_response_without_worker_identity_fails(self):
+        def generic(path, method):
+            code, headers, body = locked(path, method)
+            headers.pop("X-Pawn-Action-Holding-Shell")
+            return code, headers, body
+        with self.assertRaises(surface.SurfaceBlocked):
+            surface.inspect(generic)
 
     def test_status_rejects_unbounded_or_invalid_body(self):
         for body in (b"{"*5000, b"not json", b"[]"):

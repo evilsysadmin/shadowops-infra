@@ -15,6 +15,7 @@ test('the canonical status endpoint always reports locked and cannot expose game
   assert.deepEqual(await r.json(), {application: 'pawn-action', environment: 'staging',
     state: 'locked', game_ready: false});
   assert.equal(r.headers.get('Cache-Control'), 'no-store, max-age=0');
+  assert.equal(r.headers.get('X-Pawn-Action-Holding-Shell'), 'deny-only-v1');
   assert.equal(handle(new Request(origin + '/_shadowops/status?token=spoof'), env).status, 503);
 });
 
@@ -22,7 +23,9 @@ test('wrong-host and Pages aliases never become valid alternate hosts', async ()
   for (const url of ['https://pawn-action-staging.pages.dev/',
       'https://staging.football.shadowops.dpdns.org/',
       'http://' + HOST + '/', origin + ':8443/']) {
-    assert.equal(handle(new Request(url), env).status, 404, url);
+    const response = handle(new Request(url), env);
+    assert.equal(response.status, 404, url);
+    assert.equal(response.headers.get('X-Pawn-Action-Holding-Shell'), 'deny-only-v1', url);
   }
 });
 

@@ -18,7 +18,9 @@ import urllib.request
 from cloudflare_control_plane import CloudflareReadClient, InventoryError
 from pawn_action_pages import PROJECT, inspect, pages_target
 from pawn_action_pages_create import require_empty_deployment_inventory
-from pawn_action_pages_shell import verify as verify_shell
+from pawn_action_pages_shell import (
+    SHELL_MARKER_HEADER, SHELL_MARKER_VALUE, verify as verify_shell,
+)
 from pawn_action_staging_surface import DENIED as LOCKED_PATHS, STATUS as LOCKED_STATUS
 
 ACCOUNT = re.compile(r"[a-f0-9]{32}\Z")
@@ -78,7 +80,8 @@ def probe_alias(target, path, method):
             status, headers = resp.status, {k.lower(): v.lower() for k, v in resp.headers.items()}
             if (status != 404 or "location" in headers or
                     "no-store" not in headers.get("cache-control", "") or
-                    headers.get("x-content-type-options") != "nosniff"):
+                    headers.get("x-content-type-options") != "nosniff" or
+                    headers.get(SHELL_MARKER_HEADER.lower()) != SHELL_MARKER_VALUE):
                 raise LockedDeploymentError("Pages alias does not prove deny-all Worker on " + path)
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         raise LockedDeploymentError("Pages alias not verifiably reachable: " + type(exc).__name__) from None
