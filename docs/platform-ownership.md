@@ -72,9 +72,13 @@ has transferred. A red public-edge proof must not trigger automatic changes.
 ## Chronicles R2 private inventory (shadow mode, not cutover)
 
 The manually dispatched `Chronicles · private R2 inventory (handoff)` workflow
-is independent of the public-edge probe. Its synthetic unit tests also run in
-the normal Infra PR contracts gate. The live job is **manual on protected Infra
-`main` only** and performs Cloudflare GET requests solely against the fixed
+now runs **both** R2 proofs in one workflow run on protected Infra `main`:
+first the **public CDN edge** check in an isolated job with no secrets; only
+after its successful completion does a second job run the **private inventory**
+with scoped credentials. The existing standalone public-edge workflow remains
+available for independent diagnosis. Both jobs are manual-only and their
+synthetic contract tests run in the regular Infra PR CI. The private job
+performs Cloudflare GET requests solely against the fixed
 `chronicles` bucket's custom domains and paginated object list. It reports
 counts, total bytes, a coarse sprites/music/models/other breakdown and the
 number of objects that need privacy/manual review; it **never logs object
@@ -82,21 +86,30 @@ names, cursor values, raw API responses or credentials**. The active public
 custom domain must be exactly `assets.chronicles.shadowops.dpdns.org`.
 
 Before manual dispatch, provision `CHRONICLES_R2_READ_TOKEN` and
-`CHRONICLES_R2_ACCOUNT_ID` as repository Actions secrets in **Infra**. Use
-an independently scoped Cloudflare token with only the account-level R2 read
-permissions required for bucket domain and object-list GET calls. Verify those
-specific endpoints work; do not copy the existing full-access Chess Studio
-token or grant object write, DNS, tunnel, account admin or Terraform rights.
+`CHRONICLES_R2_ACCOUNT_ID` as repository Actions secrets in **Infra**.
+**Important permission distinction:** the two authenticated endpoints are
+Cloudflare **REST API** GETs, requiring `Workers R2 Storage Read` (account
+permission); an R2 `Object Read only` S3 access-key pair is **not** a REST
+Bearer token and is supported only by the **S3-compatible** API. The account
+permission can see more than the target bucket, so use a dedicated token,
+restrict its validity/management, and audit its creation and eventual
+revocation. The program itself fixes requests to the `chronicles` bucket;
+its path restrictions are not a substitute for Cloudflare-side account scope.
+See https://developers.cloudflare.com/r2/api/tokens/ and
+https://developers.cloudflare.com/api/resources/r2/subresources/buckets/subresources/domains/subresources/custom/methods/get/ .
+Do not copy the existing full-access Chess Studio token or grant R2 write,
+DNS, tunnel, account admin or Terraform permissions.
 If credentials are not configured, the job must fail closed, not fall back to
 Chess Studio or an unauthenticated/public inventory. No secrets are available
 to pull requests. A manual green result validates observation only; it does
 not authorize content publishing or owner transfer.
 
-**Sequence before retiring the Chess Studio operator:** (1) run the public
-edge proof in Infra and preserve its SHA/response receipt; (2) configure and
-run the private inventory in Infra, recording only sanitized metrics; (3)
-compare the active domain and aggregate counts against the old Chess Studio
-probe under a separately reviewed evidence process; (4) design a distinct
+**Sequence before retiring the Chess Studio operator:** (1) configure the
+dedicated read-only REST token in Infra; (2) manually run the **private R2
+inventory** workflow: the no-secret public-edge job runs first, then the
+credentialed private job; capture both receipts under the same workflow run
+ID and SHA; (3) capture the old Chess Studio operator probe and compare
+summaries from a comparable observation window; (4) design a distinct
 scoped publisher migration with rollback and explicit ownership cutover. Keep
 `chronicles-r2-public-probe.yml` and the Odo/goblin publishers in Chess Studio
 until the old and new capabilities have real matching evidence. A green PR CI
@@ -104,15 +117,17 @@ or a passed synthetic test is **not** live Cloudflare acceptance.
 
 ## Chronicles R2 handoff comparison (offline receipt gate)
 
-After successfully running both manual Infra probes and the **existing** Chess
-Studio `chronicles-r2-public-probe.yml`, compare their summaries with the
-read-only offline CLI from Infra. Extract the `CHRONICLES_R2_OPERATOR_INVENTORY`,
+After a successful **single Infra private-inventory workflow run** (its public
+edge and private inventory jobs) and the **existing** Chess Studio
+`chronicles-r2-public-probe.yml`, compare their summaries with the read-only
+offline CLI from Infra. Extract the `CHRONICLES_R2_OPERATOR_INVENTORY`,
 `CHRONICLES_R2_OPERATOR_PROBE`, and `CHRONICLES_R2_IMMUTABLE_EDGE` lines from
 the original operator's successful run to one local file. Put the
 `CHRONICLES_R2_INVENTORY` lines from Infra's private probe in a second file
-and the `CHRONICLES_R2_EDGE_OK` line from Infra's public probe in a third.
-Do **not** commit or upload raw logs, object keys, Cloudflare responses or
-secrets; keep evidence files local and access-controlled.
+and the `CHRONICLES_R2_EDGE_OK` line from Infra's public-edge job in a third.
+**The two Infra job receipts must come from the same workflow run ID and
+commit SHA.** Do **not** commit or upload raw logs, object keys, Cloudflare
+responses or secrets; keep evidence files local and access-controlled.
 
 ```bash
 python3 -S scripts/chronicles_r2_handoff_parity.py \
