@@ -40,3 +40,32 @@ is safe to serve game files in the future. Do not publish any app until the priv
 ShadowOps ID consumer, locked-edge gate and explicit visual acceptance are
 independently established. Pawn Action source PR #1 remains Draft and
 Chess Studio's legacy pointer/production remain unchanged.
+
+## Inspección real, solo lectura (sin reservar ni desplegar)
+
+Antes de usar el token de escritura, ejecutar manualmente en Infra `main`
+**Pawn Action · empty Pages project create-once** con `operation=inspect`.
+El job requiere el entorno protegido `staging` y únicamente
+`CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` con permisos de lectura
+de Pages, zonas y DNS. **No recibe** `PAWN_ACTION_PAGES_PROVISION_TOKEN`
+ni `PAWN_ACTION_PAGES_DEPLOY_TOKEN`. En PR/push solo se ejecutan tests offline.
+
+El recibo `PAWN_ACTION_PAGES_READINESS` informa:
+
+- `not_reserved`: el proyecto Pages y DNS no existen; el siguiente paso,
+  si se autoriza, es la reserva manual `operation=reserve`.
+- `reserved_empty`: Pages pertenece al proyecto correcto, sin dominio ni
+  DNS, sin deployments preview/production y con metadatos de último
+  deployment nulos; siguiente paso: `pawn-action-locked-pages-deploy.yml`.
+- `locked_alias_verified`: exactamente un primer deployment `production`,
+  IDs latest/canonical coincidentes y respuestas públicas GET/HEAD sin
+  archivos servidos en el alias `.pages.dev`; siguiente gate: dominio
+  canónico separado y verificación del shell bloqueado.
+
+Preview-only, múltiples deployments, DNS/dominio ya adjuntado, proyecto
+ajeno, metadatos inconsistentes, fallo de lectura o un alias que sirva
+contenido fallan **cerrado**. No intentamos reparar, sobrescribir,
+borrar o repetir operaciones de Cloudflare. La inspección produce una
+fotografía puntual, no garantiza exclusión mutua frente a un tercero.
+Un recibo verde no acredita juego publicado, autenticación o aceptación
+visual de la PR principal de Pawn Action.
