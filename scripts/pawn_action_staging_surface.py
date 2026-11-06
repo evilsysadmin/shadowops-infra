@@ -15,8 +15,27 @@ import urllib.request
 HOST = "staging.pawnaction.shadowops.dpdns.org"
 BASE = "https://" + HOST
 STATUS = "/_shadowops/status"
-DENIED = ("/", "/index.html", "/index.js", "/index.wasm", "/index.pck",
-          "/pawn-action/current.json", "/pawn-slug-godot/current.json")
+# Every file recognized by the private-delivery Worker's FILES allowlist
+# must be denied while the holding edge is locked. The offline contract
+# test reads that Worker allowlist to detect newly introduced files.
+DENIED = (
+    "/",
+    "/index.html",
+    "/index.js",
+    "/index.wasm",
+    "/index.pck",
+    "/index.png",
+    "/index.icon.png",
+    "/index.apple-touch-icon.png",
+    "/index.audio.worklet.js",
+    "/index.audio.position.worklet.js",
+    "/_shadowops/session.js",
+    "/api/pawn-action/session",
+    "/release.json",
+    "/pawn-action/current.json",
+    "/pawn-slug-godot/current.json",
+    "/pawn-action/releases/0000000000000000/index.wasm",
+)
 BODY_LIMIT = 4096
 
 

@@ -21,7 +21,11 @@ no writes.
 The probe fails closed unless the real TLS endpoint returns the exact public
 `/_shadowops/status` payload identifying Pawn Action staging as locked,
 plus HTTP 403/404/503 denial of anonymous root and BOTH GET and HEAD
-for game entry points, WASM, PCK and both new and legacy pointer paths.
+for the **entire nine-file Godot Web export** (including worklets and icons),
+the ShadowOps ID browser bootstrap/session paths, release manifest, both
+new and legacy pointers, and a representative immutable release URL.
+An offline test matches the deny list against the private-delivery Worker's
+FILES allowlist, so a future new file cannot silently escape coverage.
 Testing HEAD alone would miss a Worker that serves bytes on GET.
 It rejects HTTP redirects, cacheable responses and missing `nosniff`.
 The target list is constant, never user-supplied; it sends no cookies/tokens,
