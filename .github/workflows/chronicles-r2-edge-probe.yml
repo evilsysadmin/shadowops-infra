@@ -1,7 +1,19 @@
 name: Chronicles · public R2 edge proof (handoff)
-# Deliberately manual live probe. Required CI runs the offline contracts on
-# every PR; this workflow must not compete with Chess Studio's existing probe.
+# On an exact relevant main change, gather an independent, secretless
+# *public* CDN receipt. Manual dispatch remains available for diagnostics.
+# Do not enable automatic private inventory or mutate the legacy R2 operator.
 on:
+  pull_request:
+    paths:
+      - .github/workflows/chronicles-r2-edge-probe.yml
+      - scripts/chronicles_r2_edge_probe.py
+      - tests/test_chronicles_r2_edge_probe.py
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/chronicles-r2-edge-probe.yml
+      - scripts/chronicles_r2_edge_probe.py
+      - tests/test_chronicles_r2_edge_probe.py
   workflow_dispatch:
 permissions:
   contents: read
@@ -16,11 +28,11 @@ jobs:
           persist-credentials: false
       - run: python3 -S -m unittest discover -s tests -p 'test_chronicles_r2_edge_probe.py' -v
   live:
-    name: R2 edge · manual public proof
+    name: R2 edge · main public proof (no secrets)
     needs: contracts
-    # First prove the public read-only path in Infra manually; do not silently
-    # replace or compete with Chess Studio's current Cloudflare inventory job.
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    # Secretless HEAD/GET proof on the exact main merge (or manual dispatch).
+    # PRs exercise offline contracts only; no Cloudflare or R2 credentials.
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
     runs-on: ubuntu-24.04
     timeout-minutes: 4
     steps:

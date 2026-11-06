@@ -92,5 +92,46 @@ class EdgeProbeTests(unittest.TestCase):
         self.assertEqual(p.HOST, "assets.chronicles.shadowops.dpdns.org")
 
 
+    def test_public_edge_proof_runs_on_relevant_main_changes_not_unrelated_merges(self):
+        workflow = (
+            pathlib.Path(__file__).resolve().parents[1] /
+            ".github/workflows/chronicles-r2-edge-probe.yml"
+        ).read_text(encoding="utf-8")
+        expected_paths = {
+            "- .github/workflows/chronicles-r2-edge-probe.yml",
+            "- scripts/chronicles_r2_edge_probe.py",
+            "- tests/test_chronicles_r2_edge_probe.py",
+        }
+        self.assertIn("  workflow_dispatch:\n", workflow)
+        on = workflow.split("\non:\n", 1)[1].split("\npermissions:\n", 1)[0]
+        pr_paths = on.split("  pull_request:\n    paths:\n", 1)[1].split("  push:\n", 1)[0]
+        push_paths = on.split("  push:\n    branches: [main]\n    paths:\n", 1)[1].split(
+            "  workflow_dispatch:", 1
+        )[0]
+        self.assertEqual({line.strip() for line in pr_paths.splitlines()}, expected_paths)
+        self.assertEqual({line.strip() for line in push_paths.splitlines()}, expected_paths)
+        self.assertNotIn("  schedule:", workflow)
+        self.assertNotIn("    - '**'", on)
+
+    def test_public_live_job_requires_main_and_never_receives_secrets(self):
+        workflow = (
+            pathlib.Path(__file__).resolve().parents[1] /
+            ".github/workflows/chronicles-r2-edge-probe.yml"
+        ).read_text(encoding="utf-8")
+        live = workflow.split("\n  live:\n", 1)[1]
+        self.assertIn("    needs: contracts\n", live)
+        self.assertIn("github.event_name == 'push'", live)
+        self.assertIn("github.event_name == 'workflow_dispatch'", live)
+        self.assertIn("github.ref == 'refs/heads/main'", live)
+        self.assertIn("github.repository == 'evilsysadmin/shadowops-infra'", live)
+        self.assertIn("python3 -S scripts/chronicles_r2_edge_probe.py", live)
+        self.assertIn("persist-credentials: false", live)
+        self.assertIn("  contents: read\n", workflow)
+        self.assertNotIn("secrets.", workflow)
+        self.assertNotIn("    env:", workflow)
+        self.assertNotIn("CLOUDFLARE_API_TOKEN", workflow)
+        self.assertNotIn("terraform apply", workflow)
+
+
 if __name__ == "__main__":
     unittest.main()
