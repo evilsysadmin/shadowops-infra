@@ -1,0 +1,33 @@
+name: Chronicles · private R2 inventory (handoff)
+# Manual, read-only shadow inspection. It DOES NOT replace or disable the
+# existing Chess Studio R2 Cloudflare operator or publish anything.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contracts:
+    name: Chronicles R2 · inventory contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exercise inventory logic with synthetic pages; no secrets
+        run: python3 -S -m unittest discover -s tests -p 'test_chronicles_r2_private_inventory.py' -v
+  inspect:
+    name: Chronicles R2 · manual private read-only inventory
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CHRONICLES_R2_READ_TOKEN: ${{ secrets.CHRONICLES_R2_READ_TOKEN }}
+      CHRONICLES_R2_ACCOUNT_ID: ${{ secrets.CHRONICLES_R2_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require dedicated read-only Cloudflare credentials, summarize counts only
+        run: python3 -S scripts/chronicles_r2_private_inventory.py
