@@ -111,6 +111,10 @@ func (h *chroniclesAdminHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusForbidden {
+		http.Error(w, "chronicles admin required", http.StatusForbidden)
+		return
+	}
 	if response.StatusCode != http.StatusOK {
 		http.Error(w, "activity unavailable", http.StatusServiceUnavailable)
 		return

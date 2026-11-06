@@ -41,6 +41,8 @@
     $('chronicles-status').textContent='Consultando Chronicles…';
     try {
       const response=await send('/api/identity/admin/chronicles',{after:append?chroniclesCursor:''});
+      if (response.status===401) throw Error('session');
+      if (response.status===403) throw Error('permission');
       if (!response.ok) throw Error('unavailable');
       const page=await response.json(); if (!Array.isArray(page.accounts)) throw Error('invalid');
       if (!append) $('chronicles-list').replaceChildren();
@@ -62,7 +64,12 @@
       }
       chroniclesCursor=typeof page.next==='string'?page.next:''; $('chronicles-next').hidden=!chroniclesCursor;
       $('chronicles-status').textContent=$('chronicles-list').children.length?'':'No hay actividad de cuentas compartidas en esta página.';
-    } catch { $('chronicles-status').textContent='No se pudo consultar Chronicles. Comprueba tu permiso de administración allí y vuelve a intentarlo.'; }
+    } catch (error) {
+      if (!append) { $('chronicles-list').replaceChildren(); $('chronicles-next').hidden=true; chroniclesCursor=''; }
+      $('chronicles-status').textContent=error.message==='session'?'Tu sesión de Identity ha caducado. Vuelve a iniciar sesión.'
+        :error.message==='permission'?'Tu cuenta no tiene permiso de administración en Chronicles staging.'
+        :'No se pudo conectar con Chronicles. Vuelve a intentarlo.';
+    }
     finally { button.disabled=false; $('chronicles-next').disabled=false; }
   }
   $('chronicles-load').addEventListener('click',()=>loadChronicles());

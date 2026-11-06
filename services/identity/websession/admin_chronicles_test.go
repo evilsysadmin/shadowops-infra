@@ -77,6 +77,23 @@ func TestChroniclesActivityRejectsWrongOriginAndDownstreamErrors(t *testing.T) {
 	}
 }
 
+func TestChroniclesPermissionDenialIsDistinctFromServiceFailure(t *testing.T) {
+	for _, tc := range []struct{ upstream, want int }{{403, 403}, {401, 503}, {500, 503}} {
+		t.Run(http.StatusText(tc.upstream), func(t *testing.T) {
+			h := &chroniclesAdminHandler{read: func(context.Context, string, string, int) (admininventory.Page, error) {
+				return admininventory.Page{}, nil
+			}, sign: func(context.Context, string) (string, error) { return "token", nil }, client: &http.Client{Transport: chroniclesRoundTrip(func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: tc.upstream, Body: io.NopCloser(strings.NewReader("private detail")), Header: make(http.Header)}, nil
+			})}}
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, chroniclesRequest())
+			if w.Code != tc.want || strings.Contains(w.Body.String(), "private detail") {
+				t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
 func TestChroniclesActivityRejectsForgedInputsBeforeSigning(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
