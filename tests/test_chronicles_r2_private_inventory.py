@@ -135,5 +135,46 @@ class PrivateInventoryTests(unittest.TestCase):
             self.assertNotIn(unsafe, source)
 
 
+    def test_manual_r2_handoff_proves_public_edge_before_private_inventory(self):
+        workflow = (
+            pathlib.Path(__file__).resolve().parents[1] /
+            ".github/workflows/chronicles-r2-private-inventory.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("  workflow_dispatch:\n", workflow)
+        self.assertNotIn("  pull_request:\n", workflow)
+        self.assertNotIn("  push:\n", workflow)
+        self.assertIn("  contents: read\n", workflow)
+        self.assertEqual(workflow.count("scripts/chronicles_r2_edge_probe.py"), 1)
+        self.assertEqual(workflow.count("scripts/chronicles_r2_private_inventory.py"), 1)
+        edge = workflow.split("\n  edge:\n", 1)[1].split("\n  inspect:\n", 1)[0]
+        inspect = workflow.split("\n  inspect:\n", 1)[1]
+        self.assertIn("needs: contracts", edge)
+        self.assertIn("needs: edge", inspect)
+        self.assertIn("python3 -S scripts/chronicles_r2_edge_probe.py", edge)
+        self.assertIn("python3 -S scripts/chronicles_r2_private_inventory.py", inspect)
+        # Public checks never inherit Cloudflare's private token/environment.
+        self.assertNotIn("secrets.", edge)
+        self.assertNotIn("CHRONICLES_R2_READ_TOKEN", edge)
+        self.assertNotIn("\n    env:\n", edge)
+        self.assertIn("CHRONICLES_R2_READ_TOKEN:", inspect)
+        self.assertIn("CHRONICLES_R2_ACCOUNT_ID:", inspect)
+        for job in (edge, inspect):
+            self.assertIn("github.event_name == 'workflow_dispatch'", job)
+            self.assertIn("github.ref == 'refs/heads/main'", job)
+            self.assertIn("github.repository == 'evilsysadmin/shadowops-infra'", job)
+            self.assertIn("persist-credentials: false", job)
+        self.assertNotIn("terraform apply", workflow)
+        self.assertNotIn("rclone copy", workflow)
+
+    def test_read_only_cloudflare_rest_permission_is_documented(self):
+        doc = (
+            pathlib.Path(__file__).resolve().parents[1] /
+            "docs/platform-ownership.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Workers R2 Storage Read", doc)
+        self.assertIn("Object Read only", doc)
+        self.assertIn("S3-compatible", doc)
+
+
 if __name__ == "__main__":
     unittest.main()
