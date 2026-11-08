@@ -1,0 +1,50 @@
+name: Snooker · verify current source main for staging
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/snooker-source-admission.yml'
+      - 'scripts/snooker_source_admission.py'
+      - 'tests/test_snooker_source_admission.py'
+      - 'docs/snooker-staging.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/snooker-source-admission.yml'
+      - 'scripts/snooker_source_admission.py'
+      - 'tests/test_snooker_source_admission.py'
+      - 'docs/snooker-staging.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  contracts:
+    name: Exact green source CI and safe artifact contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_snooker_source_admission.py' -v
+      - run: python3 -m py_compile scripts/snooker_source_admission.py
+
+  candidate:
+    name: Read-only Snooker source SHA admission
+    needs: contracts
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 scripts/snooker_source_admission.py check-current

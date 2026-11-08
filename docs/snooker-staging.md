@@ -40,6 +40,20 @@ An inventory receipt only means ownership was classifiable, **not** that
 authentication works. Missing Cloudflare credentials stop the workflow
 without creating anything.
 
+## Exact-source admission
+
+The independent `Snooker · verify current source main for staging` workflow
+checks a *push* on `main` for its immutable SHA, successful physics/build and
+real desktop/mobile Chromium steps, and the unique non-expired
+`snooker-web-dist` with its GitHub-recorded SHA256 ZIP digest. Its validator
+also rejects archive path traversal, symlinks, scripts outside `assets/`, huge
+entries and source-supplied `_worker.js`; Infra owns the authenticated edge.
+
+Run `python3 scripts/snooker_source_admission.py check-current` with an
+independent GitHub read token to obtain a SHA/run/artifact receipt. Recheck
+source HEAD immediately before any future publication. **Admission is not
+deployment, authentication or an authorization to create Pages resources.**
+
 ## Subsequent incremental release gates
 
 1. Prove exact current green game `main` SHA (unit/build/Chromium) and verify
