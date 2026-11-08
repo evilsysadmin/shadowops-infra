@@ -24,7 +24,7 @@ class IdentityPlatformContractTests(unittest.TestCase):
         stage = {a["audience"]: a["origin"] for a in self.stage["consumers"]}
         prod = {a["audience"]: a["origin"] for a in self.prod["consumers"]}
         self.assertEqual(set(stage), {"chess-studio", "chronicles", "cka-simulator", "football", "pawn-action", "snooker"})
-        self.assertEqual(set(stage) - set(prod), {"football", "pawn-action"})
+        self.assertEqual(set(stage) - set(prod), {"football", "pawn-action", "snooker"})
         self.assertEqual(set(prod), {"chess-studio", "chronicles", "cka-simulator"})
         self.assertEqual(stage['pawn-action'], 'https://staging.pawnaction.shadowops.dpdns.org')
         self.assertEqual(next(c for c in self.stage['consumers'] if c['audience'] == 'pawn-action')['status'], 'explicit-opt-in-required-not-activated')
