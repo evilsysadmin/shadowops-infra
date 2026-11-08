@@ -9,11 +9,12 @@ const (
 	CKASimulator Application = "cka-simulator"
 	Football     Application = "football"
 	PawnAction   Application = "pawn-action"
+	Snooker      Application = "snooker"
 )
 
 func (a Application) valid() bool {
 	switch a {
-	case ChessStudio, Chronicles, CKASimulator, Football, PawnAction:
+	case ChessStudio, Chronicles, CKASimulator, Football, PawnAction, Snooker:
 		return true
 	}
 	return false

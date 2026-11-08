@@ -62,6 +62,11 @@
           "audience": "pawn-action",
           "origin": "https://staging.pawnaction.shadowops.dpdns.org",
           "status": "explicit-opt-in-required-not-activated"
+        },
+        {
+          "audience": "snooker",
+          "origin": "https://staging.snooker.shadowops.dpdns.org",
+          "status": "explicit-opt-in-required-not-activated"
         }
       ]
     },

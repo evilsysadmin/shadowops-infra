@@ -72,3 +72,13 @@ deployment, authentication or an authorization to create Pages resources.**
 
 No unrelated Football, Chronicles, Chess, Portal or production resources may
 be changed by Snooker onboarding.
+
+
+## Identity service contract (default-off)
+
+The candidate code now recognizes a `snooker` issuer audience and a pinned
+staging HTTPS origin. Existing staging runtime consumers remain exactly those
+provisioned in the independent Vault bundle. **No Snooker credential can be
+provisioned by this increment**; the operator opt-in, Vault validation and
+Pages edge service binding must follow in separately tested steps. A green
+contract is not evidence of public Snooker login or staging publication.
