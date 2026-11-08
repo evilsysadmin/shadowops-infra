@@ -1,0 +1,57 @@
+name: Snooker · staging Pages read-only inventory
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/snooker-pages-staging.yml'
+      - 'scripts/snooker_pages_readiness.py'
+      - 'tests/test_snooker_pages_readiness.py'
+      - 'docs/snooker-staging.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/snooker-pages-staging.yml'
+      - 'scripts/snooker_pages_readiness.py'
+      - 'tests/test_snooker_pages_readiness.py'
+      - 'docs/snooker-staging.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shadowops-snooker-pages-readiness
+  cancel-in-progress: false
+
+jobs:
+  contracts:
+    name: Offline identity and foreign-resource rejection
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_snooker_pages_readiness.py' -v
+      - run: python3 scripts/snooker_pages_readiness.py plan
+
+  inventory:
+    name: Read existing Cloudflare Pages and DNS, no writes
+    needs: contracts
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    environment:
+      name: staging
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inventory only, block foreign/ambiguous assets
+        run: python3 scripts/snooker_pages_readiness.py inspect
