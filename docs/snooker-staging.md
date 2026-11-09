@@ -82,3 +82,19 @@ provisioned in the independent Vault bundle. **No Snooker credential can be
 provisioned by this increment**; the operator opt-in, Vault validation and
 Pages edge service binding must follow in separately tested steps. A green
 contract is not evidence of public Snooker login or staging publication.
+
+
+## Explicit Snooker Identity provisioning (code path, not activation)
+
+The protected `ShadowOps Identity · isolated staging operational handoff`
+workflow now accepts `snooker_consumer: preserve | enable`. Default
+`preserve` does not create the consumer. A deliberate `action=provision`,
+`snooker_consumer=enable` on protected Infra `main` can append exactly one
+independent `soc1_` proof to the existing staging Vault bundle; retries reuse
+the same proof, preserve every other consumer and do not rotate database or
+signing keys. Invalid input fails *before* cloud activity.
+
+**Do not provision yet as an assumed consequence of merging.** The explicit
+operator dispatch still needs to occur, followed by a tested Identity rollout,
+separate Snooker Pages edge service binding and all-URL fail-closed smoke.
+Never place the generated secret or full bundle in this repository or a log.

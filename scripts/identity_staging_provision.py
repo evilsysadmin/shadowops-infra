@@ -8,7 +8,7 @@ import os
 import urllib.parse
 
 from chronicles_api_provision import Cloudflare, ProvisionError, UUID_RE, resolve_vault
-from identity_staging_bundle import HOST, BundleError, generate, validate, enable_football, enable_pawn_action, enable_admin_inventory
+from identity_staging_bundle import HOST, BundleError, generate, validate, enable_football, enable_pawn_action, enable_snooker, enable_admin_inventory
 from oci_control_plane import config_from_env, resolve_existing_host
 
 TUNNEL_NAME = 'identity-staging'
@@ -110,6 +110,9 @@ def provision(sdk, env, cf):
     pawn_action = env.get('IDENTITY_STAGING_PAWN_ACTION', 'preserve')
     if pawn_action not in {'preserve', 'enable'}:
         raise ProvisionError('Invalid Pawn Action consumer opt-in')
+    snooker = env.get('IDENTITY_STAGING_SNOOKER', 'preserve')
+    if snooker not in {'preserve', 'enable'}:
+        raise ProvisionError('Invalid Snooker consumer opt-in')
     admin_inventory=env.get('IDENTITY_STAGING_ADMIN_INVENTORY','preserve')
     if admin_inventory not in {'preserve','enable'}:
         raise ProvisionError('Invalid administrative inventory opt-in')
@@ -126,6 +129,8 @@ def provision(sdk, env, cf):
         bundle = enable_football(bundle)
     if pawn_action == 'enable':
         bundle = enable_pawn_action(bundle)
+    if snooker == 'enable':
+        bundle = enable_snooker(bundle)
     if admin_inventory == 'enable':
         bundle = enable_admin_inventory(bundle)
     validate(bundle)
