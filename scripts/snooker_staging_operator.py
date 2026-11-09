@@ -168,7 +168,23 @@ def identity_ready():
         return False
 
 
-def activate(identity_sha):
+def source_admitted(game_sha):
+    # Exercise the SAME exact-main CI/immutable-artifact gate that the protected
+    # publisher will enforce, without holding any GitHub token in Python.
+    from snooker_source_admission import admit, AdmissionError
+
+    class OperatorGithubReader:
+        def get(self, path):
+            return api(path.removeprefix("/"))
+
+    try:
+        return admit(OperatorGithubReader(), game_sha)
+    except AdmissionError:
+        raise ActivationBlocked("Current Snooker main CI/artifact is not admissible") from None
+
+
+def preflight(identity_sha):
+    """Read-only; never provision a Vault consumer before resolving blockers."""
     if identity_sha is not None and not SHA.fullmatch(identity_sha):
         raise ActivationBlocked("Provide a lowercase 40-hex Identity image source SHA")
     actor = api("user").get("login")
@@ -176,12 +192,25 @@ def activate(identity_sha):
         raise ActivationBlocked("Authenticated gh operator identity unavailable")
     infra_sha = main_sha(INFRA)
     game_sha = main_sha(GAME)
-
-    # All checks that can block a staged Identity deploy happen before even
-    # provisioning its new secret. No downgrade override is supported.
+    admission = source_admitted(game_sha)
+    ready = identity_ready()
+    if not ready and identity_sha is None:
+        raise ActivationBlocked(
+            "Identity has no active Snooker audience; supply --identity-sha "
+            "for a non-downgrade signed release before any provisioning",
+        )
     if identity_sha is not None:
         no_downgrade(deployed_identity_sha(), identity_sha)
+    if main_sha(INFRA) != infra_sha or main_sha(GAME) != game_sha:
+        raise ActivationBlocked("Source main advanced during read-only preflight")
+    print("SNOOKER_OPERATOR_PREFLIGHT_OK writes=false game_sha=" + game_sha
+          + " ci_run=" + str(admission["run_id"])
+          + " identity_ready=" + str(ready).lower(), flush=True)
+    return actor, infra_sha, game_sha
 
+
+def activate(identity_sha):
+    actor, infra_sha, game_sha = preflight(identity_sha)
     run_protected(IDENTITY_WORKFLOW, "provision", actor, infra_sha,
                   {"action": "provision", "snooker_consumer": "enable"})
 
@@ -208,12 +237,15 @@ def activate(identity_sha):
 
 def main():
     parser = argparse.ArgumentParser(description="Snooker staging — protected operator handoff")
-    parser.add_argument("--apply", action="store_true",
-                        help="Explicitly dispatch protected workflows via your own gh auth")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--apply", action="store_true",
+                      help="Explicitly dispatch protected workflows via your own gh auth")
+    mode.add_argument("--check", action="store_true",
+                      help="Read-only source/Identity/candidate gate before provisioning")
     parser.add_argument("--identity-sha", default=None,
                         help="Admitted Identity image source SHA (never a mutable tag)")
     args = parser.parse_args()
-    if not args.apply:
+    if not args.apply and not args.check:
         print("SNOOKER_OPERATOR_PLAN writes=false")
         print("Requires gh auth with Actions write permission and protected staging approval.")
         print("On --apply: provision isolated Snooker audience; deploy only if not active; "
@@ -221,7 +253,10 @@ def main():
         print("A live signed-in/revoked-session WebGL acceptance remains separate.")
         return 0
     try:
-        activate(args.identity_sha)
+        if args.check:
+            preflight(args.identity_sha)
+        else:
+            activate(args.identity_sha)
         return 0
     except ActivationBlocked as exc:
         print("SNOOKER_OPERATOR_BLOCKED " + str(exc), file=sys.stderr)
