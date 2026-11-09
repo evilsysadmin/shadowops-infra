@@ -172,6 +172,43 @@ full staging rollout accepted. Failed steps are fail-closed; do not bypass the
 Worker, make aliases public, or modify other games' Pages projects.
 
 
+## One-use staging resume after SSH Identity host repair (2026-11-09)
+
+The first actual protected rollout reached OCI after the one-use request
+[#541](https://github.com/evilsysadmin/shadowops-infra/pull/541) but stopped
+before Pages because the root-owned Identity deployment wrapper rejected the
+newly provisioned Snooker consumer. The read-only
+[OCI fingerprint](https://github.com/evilsysadmin/shadowops-infra/actions/workflows/identity-wrapper-fingerprint.yml)
+confirmed `IDENTITY_WRAPPER_FINGERPRINT_OUTDATED_BUNDLE`; the operator then
+ran `host/bootstrap-identity-staging-over-ssh.sh` and received both required
+installer success markers. The installer alone does not prove the currently
+running host matches the repository or that a deployment has happened.
+
+The new one-use request
+`ops/snooker-staging/resume-after-identity-ssh-2026-11-09.json`
+starts the
+[protected resume workflow](https://github.com/evilsysadmin/shadowops-infra/actions/workflows/snooker-staging-resume.yml)
+**only on its first addition** to the exact current protected Infra `main`
+base `f57d3190273dd3c07e387ee2e7e4425935e765a8`.
+It first uses the existing fixed, read-only OCI agent fingerprint to demand
+`IDENTITY_WRAPPER_FINGERPRINT_CURRENT`, including both executable and
+bundle validator hashes. Any mismatch, unsafe host file, missing receipt,
+unauthorized source change, or advanced main fails closed.
+
+**Only after the live OCI fingerprint passes** does the staging-approved
+job use its ephemeral GitHub Actions token to dispatch the already reviewed
+[Snooker protected activation](https://github.com/evilsysadmin/shadowops-infra/actions/workflows/snooker-staging-activate.yml).
+That workflow still independently validates CI, admitted signed Identity
+image, actual protected provision/deploy receipts and private Cloudflare
+Pages. No Cloudflare/OCI secrets are added to the activation workflow itself
+and this request does not rearm on later pushes.
+
+A green **resume** job is evidence of dispatch, not evidence of deployment.
+The signed-in browser / mobile WebGL, guest denial and revocation checks
+remain release-acceptance criteria. If protected main changes before the
+single-use request is merged, stop and update its pinned base under review
+rather than disable the guard.
+
 ## One-time activation request on PR merge (2026-11-09)
 
 The original Snooker staging activation was stuck because no authorized
