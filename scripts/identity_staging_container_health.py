@@ -13,44 +13,9 @@ import time
 
 from oci_control_plane import InventoryError, config_from_env, verified_run_command_host
 
-SOURCE = r"""set -eu
-if ! command -v docker >/dev/null 2>&1; then
-  printf '%s\n' 'IDENTITY_CONTAINERS_DOCKER_UNAVAILABLE'
-  exit 0
-fi
-if ! docker info --format '{{.ServerVersion}}' >/dev/null 2>&1; then
-  printf '%s\n' 'IDENTITY_CONTAINERS_DOCKER_INACCESSIBLE'
-  exit 0
-fi
-for service in identity-mongo identity identity-tunnel; do
-  if ! ids="$(docker ps -aq --filter 'label=com.docker.compose.project=shadowops-identity-staging' --filter "label=com.docker.compose.service=$service")"; then
-    printf '%s\n' 'IDENTITY_CONTAINERS_DOCKER_INACCESSIBLE'
-    exit 0
-  fi
-  if [ -z "$ids" ]; then
-    state=missing
-    health=none
-  else
-    count="$(printf '%s\n' "$ids" | grep -c . || true)"
-    if [ "$count" != 1 ]; then
-      printf '%s\n' 'IDENTITY_CONTAINERS_COLLISION'
-      exit 0
-    fi
-    if ! state="$(docker inspect --format '{{.State.Status}}' "$ids")" ||
-       ! health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$ids")"; then
-      printf '%s\n' 'IDENTITY_CONTAINERS_DOCKER_INACCESSIBLE'
-      exit 0
-    fi
-  fi
-  case "$state" in running|created|exited|restarting|paused|removing|dead|missing) ;; *)
-    printf '%s\n' 'IDENTITY_CONTAINERS_INVALID_STATE'; exit 0 ;;
-  esac
-  case "$health" in healthy|starting|unhealthy|none) ;; *)
-    printf '%s\n' 'IDENTITY_CONTAINERS_INVALID_STATE'; exit 0 ;;
-  esac
-  printf 'IDENTITY_CONTAINER service=%s status=%s health=%s\n' "$service" "$state" "$health"
-done
-"""
+# OCI Agent runs as unprivileged ocarun. Docker's socket is root-only. Ask
+# sudo for EXACTLY one pre-reviewed root-owned status command, never docker.
+SOURCE = "set -eu\\nsudo --non-interactive /usr/local/sbin/shadowops-identity-staging status\\n"
 
 SERVICES = ("identity-mongo", "identity", "identity-tunnel")
 STATES = {"running", "created", "exited", "restarting", "paused", "removing", "dead", "missing"}
@@ -90,10 +55,7 @@ def normalize(output):
 
 
 def observe(sdk, config, *, pause=time.sleep, clock=time.monotonic):
-    if len(SOURCE) > 4000 or any(x in SOURCE for x in (
-        "sudo ", "docker exec", "docker compose up", "docker compose down",
-        "docker logs", "docker run", "docker rm", "ssh ", "curl ", "cat /etc",
-    )):
+    if SOURCE != "set -eu\\nsudo --non-interactive /usr/local/sbin/shadowops-identity-staging status\\n":
         raise InventoryError("Unsafe Identity host probe")
     compartment, instance = verified_run_command_host(sdk, config)
     models = sdk.compute_instance_agent.models
