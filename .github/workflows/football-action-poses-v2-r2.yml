@@ -1,0 +1,72 @@
+name: Football · publish exact canonical-style v2 action poses
+on:
+  pull_request:
+    paths:
+      - .github/workflows/football-action-poses-v2-r2.yml
+      - scripts/football_action_poses_v2_publish.py
+      - tests/test_football_action_poses_v2_publish.py
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/football-action-poses-v2-r2.yml
+      - scripts/football_action_poses_v2_publish.py
+      - tests/test_football_action_poses_v2_publish.py
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    name: Rebuild exact 8 v2 sprites from SHA-verified canonical R2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify fail-closed publisher contracts
+        run: python3 -m unittest discover -s tests -p test_football_action_poses_v2_publish.py -v
+      - name: Install pinned reproducible art dependencies
+        run: python3 -m pip install --disable-pip-version-check --no-cache-dir 'Pillow==12.3.0' 'numpy==2.3.5' 'opencv-python-headless==4.13.0.92'
+      - name: Rebuild exactly the eight reviewed WebPs; reject all SHA drift
+        run: python3 scripts/football_action_poses_v2_publish.py verify
+  publish:
+    name: Publish verified v2 bytes to isolated football R2 keys
+    needs: verify
+    if: >-
+      ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' &&
+          github.repository == 'evilsysadmin/shadowops-infra' }}
+    concurrency:
+      group: shadowops-football-staging-pages
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: staging
+      url: https://staging.football.shadowops.dpdns.org/
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      FOOTBALL_R2_API_TOKEN: ${{ secrets.FOOTBALL_R2_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install pinned reproducible art dependencies
+        run: python3 -m pip install --disable-pip-version-check --no-cache-dir 'Pillow==12.3.0' 'numpy==2.3.5' 'opencv-python-headless==4.13.0.92'
+      - name: Verify exact source and installed Infra publisher at cloud-mutation boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in scripts/football_action_poses_v2_publish.py .github/workflows/football-action-poses-v2-r2.yml; do
+            test "$(gh api "repos/evilsysadmin/shadowops-infra/contents/$path?ref=main" --jq .sha)" = "$(git rev-parse "HEAD:$path")"
+          done
+          test "$(gh api repos/evilsysadmin/football-of-matthias/commits/main --jq .sha)" = '17f8286085869caaa9319310d467cca24a5eb24c'
+      - name: Rebuild again; check R2 budget/immutability; publish; read back exact public bytes
+        run: python3 scripts/football_action_poses_v2_publish.py publish
