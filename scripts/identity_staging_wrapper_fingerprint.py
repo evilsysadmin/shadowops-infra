@@ -19,7 +19,7 @@ SOURCES = (
     ("host/identity-staging-deploy.py", "/usr/local/sbin/shadowops-identity-staging", "755"),
     ("scripts/identity_staging_bundle.py", "/usr/local/lib/shadowops/identity_staging_bundle.py", "644"),
 )
-OBSERVATION = """set -eu
+OBSERVATION = r"""set -eu
 wrapper=/usr/local/sbin/shadowops-identity-staging
 bundle=/usr/local/lib/shadowops/identity_staging_bundle.py
 for file in "$wrapper" "$bundle"; do
