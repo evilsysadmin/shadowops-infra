@@ -64,18 +64,20 @@ class OperatorTests(unittest.TestCase):
         with self.assertRaises(op.ActivationBlocked):
             op.no_downgrade("not-a-sha", NEW_SHA)
 
-    def test_missing_identity_sha_blocks_before_any_provision(self):
+    def test_no_published_identity_image_blocks_before_any_provision(self):
         with patch.object(op, "api", return_value={"login": ACTOR}), \
              patch.object(op, "main_sha", side_effect=[NEW_SHA, OLD_SHA]), \
              patch.object(op, "source_admitted", return_value={"run_id": 123}), \
              patch.object(op, "identity_ready", return_value=False), \
+             patch.object(op, "latest_identity_image_sha",
+                          side_effect=op.ActivationBlocked("No published Identity image")), \
              patch.object(op, "run_protected") as dispatch:
-            with self.assertRaisesRegex(op.ActivationBlocked, "supply --identity-sha"):
+            with self.assertRaisesRegex(op.ActivationBlocked, "No published Identity image"):
                 op.activate(None)
             dispatch.assert_not_called()
 
     def test_already_active_identity_does_not_redeploy(self):
-        with patch.object(op, "preflight", return_value=(ACTOR, NEW_SHA, OLD_SHA)), \
+        with patch.object(op, "preflight", return_value=(ACTOR, NEW_SHA, OLD_SHA, None)), \
              patch.object(op, "main_sha", return_value=OLD_SHA), \
              patch.object(op, "identity_ready", return_value=True), \
              patch.object(op, "run_protected") as dispatch, \
@@ -85,7 +87,7 @@ class OperatorTests(unittest.TestCase):
                              ["provision", "publish"])
 
     def test_full_sequence_deploys_before_publish_and_rechecks_issuer(self):
-        with patch.object(op, "preflight", return_value=(ACTOR, NEW_SHA, OLD_SHA)), \
+        with patch.object(op, "preflight", return_value=(ACTOR, NEW_SHA, OLD_SHA, NEW_SHA)), \
              patch.object(op, "main_sha", return_value=OLD_SHA), \
              patch.object(op, "identity_ready", side_effect=[False, True]), \
              patch.object(op, "run_protected") as dispatch, \
@@ -96,7 +98,7 @@ class OperatorTests(unittest.TestCase):
             self.assertEqual(dispatch.call_args_list[1].args[-1]["source_sha"], NEW_SHA)
 
     def test_stale_game_main_refuses_publication(self):
-        with patch.object(op, "preflight", return_value=(ACTOR, NEW_SHA, OLD_SHA)), \
+        with patch.object(op, "preflight", return_value=(ACTOR, NEW_SHA, OLD_SHA, None)), \
              patch.object(op, "main_sha", return_value=NEW_SHA), \
              patch.object(op, "identity_ready", return_value=True), \
              patch.object(op, "run_protected") as dispatch:
@@ -112,7 +114,7 @@ class OperatorTests(unittest.TestCase):
              patch.object(op, "identity_ready", return_value=True), \
              patch.object(op, "run_protected") as dispatch, \
              contextlib.redirect_stdout(io.StringIO()) as output:
-            self.assertEqual(op.preflight(None), (ACTOR, NEW_SHA, OLD_SHA))
+            self.assertEqual(op.preflight(None), (ACTOR, NEW_SHA, OLD_SHA, None))
             admission.assert_called_once_with(OLD_SHA)
             dispatch.assert_not_called()
             self.assertIn("writes=false", output.getvalue())
@@ -150,7 +152,7 @@ class OperatorTests(unittest.TestCase):
     def test_check_cli_is_read_only_even_with_a_candidate_sha(self):
         with patch.object(sys, "argv", [
             "snooker_staging_operator.py", "--check", "--identity-sha", NEW_SHA,
-        ]), patch.object(op, "preflight", return_value=(ACTOR, NEW_SHA, OLD_SHA)) as check, \
+        ]), patch.object(op, "preflight", return_value=(ACTOR, NEW_SHA, OLD_SHA, NEW_SHA)) as check, \
              patch.object(op, "run_protected") as dispatch:
             self.assertEqual(op.main(), 0)
             check.assert_called_once_with(NEW_SHA)
@@ -167,6 +169,76 @@ class OperatorTests(unittest.TestCase):
         with patch.object(admission, "admit", side_effect=admission.AdmissionError("bad")):
             with self.assertRaisesRegex(op.ActivationBlocked, "not admissible"):
                 op.source_admitted(OLD_SHA)
+
+
+    def test_image_discovery_requires_real_publish_and_attestation_steps(self):
+        def image_run(identifier, sha, **changes):
+            return {"id": identifier, "head_sha": sha, "head_branch": "main",
+                    "event": "push", "status": "completed", "conclusion": "success", **changes}
+        def publication(steps, conclusion="success"):
+            return {"jobs": [{"name": "Publish SHA-pinned Identity staging image",
+                              "conclusion": conclusion, "steps": [
+                                  {"name": name, "status": "completed", "conclusion": "success"}
+                                  for name in steps]}]}
+        # Latest workflow is green but only unit tests completed; ignore it.
+        responses = [
+            {"workflow_runs": [
+                image_run(6, NEW_SHA),
+                image_run(5, "3"*40, event="pull_request"),
+                image_run(4, "4"*40),
+                image_run(3, OLD_SHA),
+            ]},
+            publication([]),  # publisher did not upload/attest
+            publication({"Run docker/build-push-action@v7"}),  # no attestation
+            publication(op.IMAGE_PUBLICATION_STEPS),
+        ]
+        with patch.object(op, "api", side_effect=responses) as reader:
+            self.assertEqual(op.latest_identity_image_sha(), OLD_SHA)
+            self.assertEqual(reader.call_count, 4)
+            self.assertIn("identity-service.yml", reader.call_args_list[0].args[0])
+
+    def test_image_discovery_fail_closed_if_no_proven_published_image(self):
+        row = {"id": 7, "head_sha": NEW_SHA, "head_branch": "main",
+               "event": "push", "status": "completed", "conclusion": "success"}
+        with patch.object(op, "api", side_effect=[
+            {"workflow_runs": [row]},
+            {"jobs": [{"name": "Publish SHA-pinned Identity staging image",
+                       "conclusion": "skipped", "steps": []}]},
+        ]):
+            with self.assertRaisesRegex(op.ActivationBlocked, "No published Identity image"):
+                op.latest_identity_image_sha()
+        with patch.object(op, "api", return_value={"workflow_runs": None}):
+            with self.assertRaisesRegex(op.ActivationBlocked, "inventory unavailable"):
+                op.latest_identity_image_sha()
+
+    def test_preflight_auto_selects_image_before_provision_and_checks_downgrade(self):
+        with patch.object(op, "api", return_value={"login": ACTOR}), \
+             patch.object(op, "main_sha", side_effect=[NEW_SHA, OLD_SHA, NEW_SHA, OLD_SHA]), \
+             patch.object(op, "source_admitted", return_value={"run_id": 123}), \
+             patch.object(op, "identity_ready", return_value=False), \
+             patch.object(op, "latest_identity_image_sha", return_value=NEW_SHA) as discover, \
+             patch.object(op, "deployed_identity_sha", return_value=OLD_SHA), \
+             patch.object(op, "no_downgrade") as gate, \
+             patch.object(op, "run_protected") as dispatch, \
+             contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(op.preflight(None), (ACTOR, NEW_SHA, OLD_SHA, NEW_SHA))
+            discover.assert_called_once_with()
+            gate.assert_called_once_with(OLD_SHA, NEW_SHA)
+            dispatch.assert_not_called()
+            self.assertIn("identity_image_sha=" + NEW_SHA, output.getvalue())
+
+    def test_explicit_image_override_never_selects_an_unrelated_image(self):
+        with patch.object(op, "api", return_value={"login": ACTOR}), \
+             patch.object(op, "main_sha", side_effect=[NEW_SHA, OLD_SHA, NEW_SHA, OLD_SHA]), \
+             patch.object(op, "source_admitted", return_value={"run_id": 123}), \
+             patch.object(op, "identity_ready", return_value=False), \
+             patch.object(op, "latest_identity_image_sha") as discover, \
+             patch.object(op, "deployed_identity_sha", return_value=OLD_SHA), \
+             patch.object(op, "no_downgrade") as gate, \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(op.preflight(NEW_SHA), (ACTOR, NEW_SHA, OLD_SHA, NEW_SHA))
+            discover.assert_not_called()
+            gate.assert_called_once_with(OLD_SHA, NEW_SHA)
 
     def test_invalid_identity_sha_rejected_before_any_dispatch(self):
         with patch.object(op, "run_protected") as dispatch:
