@@ -115,3 +115,17 @@ must be provisioned through the protected operator workflow and bound to Pages.
 Offline tests do **not** prove Pages delivery, alias denial or an active login.
 Future publication must enforce `fail_open=false` on both production/preview,
 verify real deployed hashes and browser play, plus guest/revoked denial.
+
+
+## Empty dedicated Pages project provisioning (manual only)
+
+After inspecting that the `snooker-staging` project and its DNS do not belong
+to another app, dispatch **Snooker · create private Pages project (manual only)**
+from protected Infra `main` with the existing staging-environment Cloudflare
+credentials. The workflow only creates/claims an empty dedicated Direct Upload
+project and sets `deployment_configs.production.fail_open=false` and
+`deployment_configs.preview.fail_open=false`, plus a public-routed HTTPS
+fetch compatibility flag. A second GET confirms both settings. It does **not**
+attach the custom domain, upload assets, configure service secrets or publish
+any build. Missing credentials/foreign resources/unexpected settings abort.
+Do not treat the empty project as a playable staging deployment.
