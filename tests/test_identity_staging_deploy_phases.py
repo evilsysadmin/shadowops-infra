@@ -71,10 +71,15 @@ class IdentityDeployPhaseTests(unittest.TestCase):
             'IDENTITY_STAGING_DEPLOY_BLOCKED type=DeployError phase=secrets',
             'IDENTITY_STAGING_DEPLOY_BLOCKED type=DeployError phase=../../../etc',
             'IDENTITY_STAGING_DEPLOY_BLOCKED type=DeployError phase=images secret=abc',
-            'IDENTITY_STAGING_DEPLOY_BLOCKED type=DeployError phase=images\nleak',
         ):
             with self.subTest(raw=raw):
                 self.assertEqual(release.failure_reason(raw), 'no-wrapper-receipt')
+
+        # Extra private host text is deliberately discarded, not echoed to CI.
+        self.assertEqual(
+            release.failure_reason('private-host-data\\nIDENTITY_STAGING_DEPLOY_BLOCKED type=DeployError phase=images'),
+            'IDENTITY_STAGING_DEPLOY_BLOCKED type=DeployError phase=images',
+        )
 
 
 if __name__ == '__main__':
