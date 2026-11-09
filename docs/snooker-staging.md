@@ -142,3 +142,31 @@ source SHA, authentication audience, per-file byte lengths and SHA256.
 `verify` rejects edited worker/assets, extra files and mixed/foreign hashes.
 The candidate is not a hosted website; the future publisher must securely
 consume it without bypassing Identity and then smoke its live behavior.
+
+
+## Protected manual staging publication
+
+Workflow **Snooker · publish authenticated staging Pages (manual)** is only
+authorized on Infra protected `main`, with existing staging environment
+Cloudflare and OCI Vault credentials. It verifies:
+
+1. Current Snooker `main` exact SHA, its green CI and immutable ZIP digest.
+2. An explicitly provisioned `snooker` Vault service proof, and that deployed
+   `id-staging` login recognizes the pinned Snooker return origin.
+3. The ZIP's source digest and contents, then adds reviewed Infra `_worker.js`
+   and hashes all release bytes; rechecks source and Infra `main` before writes.
+4. Creates only `snooker-staging` Pages, fails closed for both production and
+   preview, binds **only** `SHADOWOPS_SNOOKER_SERVICE_CREDENTIAL` as a Pages
+   secret, and uploads through pinned Wrangler.
+5. Checks that live `snooker-staging.pages.dev` responds 404 **before**
+   attaching the custom host or writing its proxied CNAME; rejects foreign DNS.
+6. Requires guest denial on both custom host and alias, writes the pinned
+   source SHA and digest to GitHub's run summary, never the service proof.
+
+The manual release cannot start before the separate protected Identity
+`provision` (with `snooker_consumer=enable`) and audited Identity service
+`deploy` have succeeded. A successful guest-denial probe is **not**
+proof that a real authenticated desktop/mobile WebGL session works: test a
+normal signed-in account, refresh, logout and revocation before declaring the
+full staging rollout accepted. Failed steps are fail-closed; do not bypass the
+Worker, make aliases public, or modify other games' Pages projects.
