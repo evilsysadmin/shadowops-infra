@@ -15,7 +15,7 @@ from oci_control_plane import InventoryError, config_from_env, verified_run_comm
 
 # OCI Agent runs as unprivileged ocarun. Docker's socket is root-only. Ask
 # sudo for EXACTLY one pre-reviewed root-owned status command, never docker.
-SOURCE = "set -eu\\nsudo --non-interactive /usr/local/sbin/shadowops-identity-staging status\\n"
+SOURCE = "set -eu\nsudo --non-interactive /usr/local/sbin/shadowops-identity-staging status\n"
 
 SERVICES = ("identity-mongo", "identity", "identity-tunnel")
 STATES = {"running", "created", "exited", "restarting", "paused", "removing", "dead", "missing"}
@@ -55,7 +55,7 @@ def normalize(output):
 
 
 def observe(sdk, config, *, pause=time.sleep, clock=time.monotonic):
-    if SOURCE != "set -eu\\nsudo --non-interactive /usr/local/sbin/shadowops-identity-staging status\\n":
+    if SOURCE != "set -eu\nsudo --non-interactive /usr/local/sbin/shadowops-identity-staging status\n":
         raise InventoryError("Unsafe Identity host probe")
     compartment, instance = verified_run_command_host(sdk, config)
     models = sdk.compute_instance_agent.models
