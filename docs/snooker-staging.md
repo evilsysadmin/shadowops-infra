@@ -98,3 +98,20 @@ signing keys. Invalid input fails *before* cloud activity.
 operator dispatch still needs to occur, followed by a tested Identity rollout,
 separate Snooker Pages edge service binding and all-URL fail-closed smoke.
 Never place the generated secret or full bundle in this repository or a log.
+
+
+## Identity-gated Pages edge (not deployed)
+
+`edge/snooker-identity-gate.mjs` is the Infra-owned advanced Pages Worker
+and will be injected as `_worker.js` into the exact admitted Vite build only
+during a future release. The app repository never holds the edge secret.
+Unknown hosts and all `*.pages.dev` aliases return 404; the custom domain
+returns an unauthenticated 401 login shell but never the app's HTML/JS/CSS.
+Signed Ed25519 audience `snooker` tokens and live Identity freshness establish
+a short-lived Secure/HttpOnly host-only cookie. Wrong audiences, revoked/expired
+tokens and Identity outages fail closed. The independent Vault service proof
+must be provisioned through the protected operator workflow and bound to Pages.
+
+Offline tests do **not** prove Pages delivery, alias denial or an active login.
+Future publication must enforce `fail_open=false` on both production/preview,
+verify real deployed hashes and browser play, plus guest/revoked denial.
