@@ -84,9 +84,12 @@ def bind(client, proof):
         if not isinstance(vars_, dict) or set(vars_) - ({KEY} if mode == "production" else set()):
             raise ProvisionError("Unexpected Pages environment binding")
     path = project_path(client)
-    client.write("PATCH", path, {"deployment_configs": {"production": {"env_vars": {
-        KEY: {"type": "secret_text", "value": proof},
-    }}}})
+    flags = project["deployment_configs"]["production"]["compatibility_flags"]
+    client.write("PATCH", path, {"deployment_configs": {"production": {
+        "fail_open": False,
+        "compatibility_flags": flags,
+        "env_vars": {KEY: {"type": "secret_text", "value": proof}},
+    }}})
     updated = require_private(client)
     vars_ = (updated.get("deployment_configs") or {}).get("production", {}).get("env_vars") or {}
     if set(vars_) != {KEY} or vars_[KEY].get("type") != "secret_text":
