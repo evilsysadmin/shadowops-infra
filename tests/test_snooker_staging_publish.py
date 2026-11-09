@@ -43,8 +43,10 @@ class Fake:
     def write(self, method, path, value):
         self.writes.append((method, path))
         if method == "PATCH":
-            self.project["deployment_configs"]["production"]["env_vars"] = value[
-                "deployment_configs"]["production"]["env_vars"]
+            production = value["deployment_configs"]["production"]
+            if production.get("fail_open") is not False or "global_fetch_strictly_public" not in production.get("compatibility_flags", []):
+                raise AssertionError("Secret binding must retain explicit fail-closed Pages policy")
+            self.project["deployment_configs"]["production"]["env_vars"] = production["env_vars"]
             return self.project
         if path == P + "/domains":
             self.domain = {"name": readiness.HOST, "status": "active"}
