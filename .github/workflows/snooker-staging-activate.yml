@@ -1,0 +1,57 @@
+name: Snooker · activate protected staging (one click)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/snooker-staging-activate.yml'
+      - 'scripts/snooker_staging_operator.py'
+      - 'tests/test_snooker_staging_operator.py'
+      - 'docs/snooker-staging.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contracts:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Offline operator and exact-run contract tests
+        run: python3 -m unittest discover -s tests -p test_snooker_staging_operator.py -v
+      - name: Default CLI must never dispatch
+        run: python3 scripts/snooker_staging_operator.py
+  activate:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 95
+    environment:
+      name: staging
+      url: https://staging.snooker.shadowops.dpdns.org/
+    concurrency:
+      group: shadowops-snooker-protected-staging-activation
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Read-only source and Identity image admission
+        run: python3 scripts/snooker_staging_operator.py --check --github-actions
+      - name: Dispatch and verify existing protected Identity and Snooker Pages workflows
+        run: python3 scripts/snooker_staging_operator.py --apply --github-actions
+      - name: Record guest-denial acceptance; signed-in browser still required
+        run: |
+          echo 'Snooker staging operator: protected provision/deploy/Pages publication verified.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Authenticated human desktop/mobile WebGL, logout and revocation acceptance remain pending.' >> "$GITHUB_STEP_SUMMARY"

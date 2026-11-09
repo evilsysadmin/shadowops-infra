@@ -240,6 +240,86 @@ class OperatorTests(unittest.TestCase):
             discover.assert_not_called()
             gate.assert_called_once_with(OLD_SHA, NEW_SHA)
 
+
+    def test_actions_mode_requires_exact_protected_manual_workflow_and_main(self):
+        valid = {
+            "GITHUB_ACTIONS": "true",
+            "GITHUB_EVENT_NAME": "workflow_dispatch",
+            "GITHUB_REPOSITORY": op.INFRA,
+            "GITHUB_REF": "refs/heads/main",
+            "GITHUB_SHA": NEW_SHA,
+            "GITHUB_WORKFLOW_REF": (
+                op.INFRA + "/.github/workflows/snooker-staging-activate.yml@refs/heads/main"
+            ),
+            "GITHUB_RUN_ID": "12345",
+            "GH_TOKEN": "testing-placeholder-not-real",
+        }
+        with patch.dict(op.os.environ, valid, clear=True):
+            self.assertEqual(op.actions_dispatch_actor(NEW_SHA), "github-actions[bot]")
+        for key, wrong in [
+            ("GITHUB_ACTIONS", "false"),
+            ("GITHUB_EVENT_NAME", "pull_request"),
+            ("GITHUB_REPOSITORY", "evilsysadmin/foreign"),
+            ("GITHUB_REF", "refs/heads/feature"),
+            ("GITHUB_SHA", OLD_SHA),
+            ("GITHUB_WORKFLOW_REF", "foreign/workflow@refs/heads/main"),
+            ("GITHUB_RUN_ID", "not-a-run"),
+            ("GH_TOKEN", ""),
+        ]:
+            with self.subTest(key=key), patch.dict(
+                op.os.environ, {**valid, key: wrong}, clear=True,
+            ), self.assertRaises(op.ActivationBlocked):
+                op.actions_dispatch_actor(NEW_SHA)
+
+    def test_actions_mode_avoids_user_api_and_still_revalidates_everything(self):
+        valid = {
+            "GITHUB_ACTIONS": "true",
+            "GITHUB_EVENT_NAME": "workflow_dispatch",
+            "GITHUB_REPOSITORY": op.INFRA,
+            "GITHUB_REF": "refs/heads/main",
+            "GITHUB_SHA": NEW_SHA,
+            "GITHUB_WORKFLOW_REF": (
+                op.INFRA + "/.github/workflows/snooker-staging-activate.yml@refs/heads/main"
+            ),
+            "GITHUB_RUN_ID": "456",
+            "GH_TOKEN": "testing-placeholder-not-real",
+        }
+        with patch.dict(op.os.environ, valid, clear=True), \
+             patch.object(op, "main_sha",
+                          side_effect=[NEW_SHA, OLD_SHA, NEW_SHA, OLD_SHA]), \
+             patch.object(op, "api") as http, \
+             patch.object(op, "source_admitted", return_value={"run_id": 123}), \
+             patch.object(op, "identity_ready", return_value=True), \
+             patch.object(op, "run_protected") as dispatch, \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(
+                op.preflight(None, github_actions=True),
+                ("github-actions[bot]", NEW_SHA, OLD_SHA, None),
+            )
+            http.assert_not_called()
+            dispatch.assert_not_called()
+
+    def test_actions_cli_flag_is_rejected_outside_manual_staging_context(self):
+        with patch.dict(op.os.environ, {}, clear=True), \
+             patch.object(sys, "argv", [
+                 "snooker_staging_operator.py", "--apply", "--github-actions",
+             ]), patch.object(op, "main_sha", return_value=NEW_SHA), \
+             patch.object(op, "run_protected") as dispatch, \
+             contextlib.redirect_stderr(io.StringIO()) as output:
+            self.assertEqual(op.main(), 1)
+            dispatch.assert_not_called()
+            self.assertIn("Untrusted Actions dispatch context", output.getvalue())
+
+    def test_actions_cli_check_is_read_only(self):
+        with patch.object(sys, "argv", [
+            "snooker_staging_operator.py", "--check", "--github-actions",
+        ]), patch.object(op, "preflight", return_value=(
+            "github-actions[bot]", NEW_SHA, OLD_SHA, None,
+        )) as verify, patch.object(op, "run_protected") as dispatch:
+            self.assertEqual(op.main(), 0)
+            verify.assert_called_once_with(None, github_actions=True)
+            dispatch.assert_not_called()
+
     def test_invalid_identity_sha_rejected_before_any_dispatch(self):
         with patch.object(op, "run_protected") as dispatch:
             with self.assertRaises(op.ActivationBlocked):

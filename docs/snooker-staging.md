@@ -171,6 +171,36 @@ normal signed-in account, refresh, logout and revocation before declaring the
 full staging rollout accepted. Failed steps are fail-closed; do not bypass the
 Worker, make aliases public, or modify other games' Pages projects.
 
+
+## One-click protected activation from GitHub Actions
+
+For operators without a local checkout or `gh`, use
+[Snooker · activate protected staging (one click)](https://github.com/evilsysadmin/shadowops-infra/actions/workflows/snooker-staging-activate.yml)
+on **`main`**, choose **Run workflow**, and approve the existing
+**`staging` environment** when requested. This is **manual only**; merging a
+PR, a green build, or pushing `main` cannot start the activation.
+
+The entrypoint uses GitHub's short-lived `GITHUB_TOKEN` with `actions:write`
+**only in the manually dispatched, staging-approved job**, and no Cloudflare,
+OCI, GitHub PAT, or Identity secrets. It launches the exact same
+`snooker_staging_operator.py --check` and `--apply` as the local operator,
+with a strict Actions-only flag requiring the expected workflow ref, protected
+`main` SHA and run identity. The children remain the existing independent
+Identity provision / signed-image deploy / private Pages publish workflows,
+each with its own environment approval and fail-closed checks.
+
+The one-click workflow fails if any child run cannot be uniquely identified,
+fails CI, skips its actual protected mutation job or fails the guest-denial
+smoke. It never substitutes a successful workflow status for a successful
+deployment job. A platform-assigned Actions actor different from the strictly
+expected `github-actions[bot]` also causes a fail-closed stop for investigation,
+rather than accepting an ambiguous dispatch.
+
+After a successful first activation, still perform a real **signed-in**
+desktop/mobile WebGL smoke, refresh, logout and account/session revocation
+before marking #527 completed. For more control or CLI debugging, the local
+`--check` / `--apply` path below remains supported.
+
 ## One-command protected operator activation (optional)
 
 The manual GitHub Actions steps above remain authoritative. To avoid three
