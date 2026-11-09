@@ -182,21 +182,30 @@ From a checkout of `shadowops-infra`, with Python 3.10+ and `gh`:
 
 ```sh
 python3 scripts/snooker_staging_operator.py
-# Replace the placeholder with a signed non-downgrade Identity image SHA,
-# selected against the live staging Identity release and issue #527.
+# Read-only: discovers last actually published Identity image (not just green CI).
+python3 scripts/snooker_staging_operator.py --check
+# Explicitly authorize the existing staging environment workflows:
+python3 scripts/snooker_staging_operator.py --apply
+
+# Optional override only if an operator has independently verified an image:
 python3 scripts/snooker_staging_operator.py --check --identity-sha <40-hex-admitted-identity-sha>
-python3 scripts/snooker_staging_operator.py --apply --identity-sha <40-hex-admitted-identity-sha>
 ```
 
 The first command is a static read-only plan. `--check` runs a **live,
 read-only preflight before any Vault/Cloudflare mutation**: it independently
 re-admits the current game's exact green `main` CI and SHA256-bound Pages ZIP,
 checks the trusted GitHub operator and both repos' unchanged `main` SHAs,
-verifies the current staging Identity readiness, and rejects a supplied
-Identity image SHA that would downgrade the running release or omit the Snooker
-consumer contract. If Identity does not serve Snooker, missing
-`--identity-sha` now fails **before provisioning**, rather than creating a
-partial state then stopping.
+verifies the current staging Identity readiness, and **automatically selects
+the newest proven published Identity image** from successful protected-main
+`identity-service.yml` runs. Green CI alone is not accepted: the exact
+publish job must have completed its actual GHCR image upload, attestation and
+digest-receipt steps. It rejects an image older than either the Snooker
+consumer contract or the currently running staging Identity. An explicitly
+provided `--identity-sha` overrides discovery but must pass the same
+non-downgrade gate. Missing publish evidence or an obsolete image fails
+**before** provisioning. The protected deploy workflow additionally verifies
+the image's real GHCR manifest, arm64 platform, signature/attestation,
+required checks and SHA ancestry; discovery never substitutes for admission.
 
 `--apply` runs this same read-only preflight first; only if it passes does it
 dispatch the **existing protected** Identity `provision` (only
