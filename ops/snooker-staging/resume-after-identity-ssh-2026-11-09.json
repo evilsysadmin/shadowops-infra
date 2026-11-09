@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "application": "snooker",
+  "environment": "staging",
+  "request": "resume-after-identity-ssh-install",
+  "issue": 527,
+  "base_main_sha": "f57d3190273dd3c07e387ee2e7e4425935e765a8",
+  "single_use": true,
+  "requires": "IDENTITY_WRAPPER_FINGERPRINT_CURRENT"
+}

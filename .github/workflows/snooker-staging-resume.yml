@@ -1,0 +1,99 @@
+name: Snooker · resume staging after Identity host repair (one time)
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/snooker-staging/resume-after-identity-ssh-2026-11-09.json'
+  pull_request:
+    paths:
+      - 'ops/snooker-staging/resume-after-identity-ssh-2026-11-09.json'
+      - '.github/workflows/snooker-staging-resume.yml'
+      - 'scripts/snooker_staging_resume_request.py'
+      - 'tests/test_snooker_staging_resume_request.py'
+permissions:
+  contents: read
+jobs:
+  contracts:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify single-use trust envelope and intentional staging-only request
+        run: python3 -m unittest discover -s tests -p test_snooker_staging_resume_request.py -v
+      - name: Verify host probe's offline contract tests
+        run: python3 -m unittest discover -s tests -p test_identity_staging_wrapper_fingerprint.py -v
+  resume:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    environment:
+      name: staging
+      url: https://staging.snooker.shadowops.dpdns.org/
+    concurrency:
+      group: shadowops-snooker-staging-single-use-resume
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify single-use activation request is first added to exact protected main
+        run: python3 scripts/snooker_staging_resume_request.py
+      - name: Reject superseded main before consulting OCI
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          [[ "$current" == "$GITHUB_SHA" ]]
+      - name: Install pinned OCI SDK for read-only installed-code fingerprint
+        run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Refuse activation unless the installed host Identity bundle is CURRENT
+        shell: bash
+        run: |
+          set -euo pipefail
+          result="$(python3 scripts/identity_staging_wrapper_fingerprint.py run)"
+          case "$result" in
+            IDENTITY_WRAPPER_FINGERPRINT_CURRENT)
+              echo 'SNOOKER_IDENTITY_HOST_READY installed_code=current'
+              ;;
+            IDENTITY_WRAPPER_FINGERPRINT_OUTDATED_WRAPPER|IDENTITY_WRAPPER_FINGERPRINT_OUTDATED_BUNDLE|IDENTITY_WRAPPER_FINGERPRINT_OUTDATED_BOTH|IDENTITY_WRAPPER_FINGERPRINT_MISSING|IDENTITY_WRAPPER_FINGERPRINT_UNSAFE)
+              printf 'SNOOKER_IDENTITY_HOST_BLOCKED %s\n' "$result" >&2
+              exit 1
+              ;;
+            *)
+              echo 'SNOOKER_IDENTITY_HOST_BLOCKED unknown_probe_result' >&2
+              exit 1
+              ;;
+          esac
+      - name: Refuse superseded main before dispatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          [[ "$current" == "$GITHUB_SHA" ]]
+      - name: Dispatch previously approved Snooker provision/deploy/Pages sequence
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run snooker-staging-activate.yml --repo "$GITHUB_REPOSITORY" --ref main
+          printf '%s\n' 'Snooker staging activation dispatched only after root-owned Identity host code was verified current.' >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' 'Existing child staging approvals, image admission, Pages security and signed-in E2E acceptance remain required.' >> "$GITHUB_STEP_SUMMARY"
