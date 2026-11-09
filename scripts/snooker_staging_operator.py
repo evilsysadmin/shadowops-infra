@@ -19,6 +19,12 @@ INFRA = "evilsysadmin/shadowops-infra"
 GAME = "evilsysadmin/snooker-of-matthias"
 IDENTITY_WORKFLOW = "identity-staging-operations.yml"
 PAGES_WORKFLOW = "snooker-pages-release.yml"
+IDENTITY_IMAGE_WORKFLOW = "identity-service.yml"
+IMAGE_PUBLICATION_STEPS = {
+    "Run docker/build-push-action@v7",
+    "Run actions/attest-build-provenance@v4",
+    "Record admitted image digest",
+}
 SNOOKER_CONTRACT_SHA = "5bd2388d47337619cff80ab06bbf21b9f4cd31cc"
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 RELEASE_URL = "https://id-staging.shadowops.dpdns.org/api/identity/release"
@@ -67,6 +73,53 @@ def no_downgrade(current, candidate):
         comparison = api(f"repos/{INFRA}/compare/{base}...{candidate}")
         if comparison.get("status") not in ("ahead", "identical"):
             raise ActivationBlocked("Identity candidate would omit Snooker or downgrade staging")
+
+
+def latest_identity_image_sha():
+    """Read-only discovery of last actually published protected Identity image.
+
+    This is a candidate only: the protected deploy still verifies GHCR manifest,
+    arm64 image, signed attestation and required checks before any installation.
+    """
+    result = api(
+        f"repos/{INFRA}/actions/workflows/{IDENTITY_IMAGE_WORKFLOW}/runs?"
+        "event=push&branch=main&per_page=50"
+    )
+    runs = result.get("workflow_runs")
+    if not isinstance(runs, list):
+        raise ActivationBlocked("Identity image run inventory unavailable")
+    for run in runs:
+        if not isinstance(run, dict):
+            continue
+        candidate = run.get("head_sha")
+        if (
+            not isinstance(candidate, str) or not SHA.fullmatch(candidate)
+            or run.get("event") != "push"
+            or run.get("head_branch") != "main"
+            or run.get("status") != "completed"
+            or run.get("conclusion") != "success"
+        ):
+            continue
+        run_id = run.get("id")
+        if type(run_id) is not int or run_id <= 0:
+            continue
+        jobs = api(f"repos/{INFRA}/actions/runs/{run_id}/jobs?per_page=100").get("jobs")
+        if not isinstance(jobs, list):
+            raise ActivationBlocked("Identity image jobs unavailable")
+        publish = [job for job in jobs if isinstance(job, dict)
+                   and job.get("name") == "Publish SHA-pinned Identity staging image"]
+        if len(publish) != 1 or publish[0].get("conclusion") != "success":
+            continue
+        passed = {step.get("name") for step in (publish[0].get("steps") or [])
+                  if isinstance(step, dict) and step.get("status") == "completed"
+                  and step.get("conclusion") == "success"}
+        if not IMAGE_PUBLICATION_STEPS.issubset(passed):
+            continue
+        return candidate
+    raise ActivationBlocked(
+        "No published Identity image found; run identity-service.yml "
+        "on protected main and retry",
+    )
 
 
 def deployed_identity_sha():
@@ -194,34 +247,30 @@ def preflight(identity_sha):
     game_sha = main_sha(GAME)
     admission = source_admitted(game_sha)
     ready = identity_ready()
-    if not ready and identity_sha is None:
-        raise ActivationBlocked(
-            "Identity has no active Snooker audience; supply --identity-sha "
-            "for a non-downgrade signed release before any provisioning",
-        )
-    if identity_sha is not None:
-        no_downgrade(deployed_identity_sha(), identity_sha)
+    selected_sha = identity_sha
+    if not ready and selected_sha is None:
+        selected_sha = latest_identity_image_sha()
+    if selected_sha is not None:
+        no_downgrade(deployed_identity_sha(), selected_sha)
     if main_sha(INFRA) != infra_sha or main_sha(GAME) != game_sha:
         raise ActivationBlocked("Source main advanced during read-only preflight")
     print("SNOOKER_OPERATOR_PREFLIGHT_OK writes=false game_sha=" + game_sha
           + " ci_run=" + str(admission["run_id"])
-          + " identity_ready=" + str(ready).lower(), flush=True)
-    return actor, infra_sha, game_sha
+          + " identity_ready=" + str(ready).lower()
+          + " identity_image_sha=" + (selected_sha or "not-needed"), flush=True)
+    return actor, infra_sha, game_sha, selected_sha
 
 
 def activate(identity_sha):
-    actor, infra_sha, game_sha = preflight(identity_sha)
+    actor, infra_sha, game_sha, selected_sha = preflight(identity_sha)
     run_protected(IDENTITY_WORKFLOW, "provision", actor, infra_sha,
                   {"action": "provision", "snooker_consumer": "enable"})
 
     if not identity_ready():
-        if not identity_sha:
-            raise ActivationBlocked(
-                "Identity has no active Snooker audience. Supply --identity-sha "
-                "for an admitted non-downgrade deploy and rerun; provision is idempotent",
-            )
+        if not selected_sha:
+            raise ActivationBlocked("Identity image unexpectedly missing after preflight")
         run_protected(IDENTITY_WORKFLOW, "deploy", actor, infra_sha,
-                      {"action": "deploy", "source_sha": identity_sha})
+                      {"action": "deploy", "source_sha": selected_sha})
         if not identity_ready():
             raise ActivationBlocked("Deployed Identity still does not recognize Snooker")
 
@@ -241,9 +290,9 @@ def main():
     mode.add_argument("--apply", action="store_true",
                       help="Explicitly dispatch protected workflows via your own gh auth")
     mode.add_argument("--check", action="store_true",
-                      help="Read-only source/Identity/candidate gate before provisioning")
+                      help="Read-only source/Identity/image discovery gate before provisioning")
     parser.add_argument("--identity-sha", default=None,
-                        help="Admitted Identity image source SHA (never a mutable tag)")
+                        help="Override auto-discovery with a pinned Identity image SHA")
     args = parser.parse_args()
     if not args.apply and not args.check:
         print("SNOOKER_OPERATOR_PLAN writes=false")
