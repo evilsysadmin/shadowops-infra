@@ -1,0 +1,30 @@
+name: Snooker · authenticated Pages edge contract
+on:
+  pull_request:
+    paths:
+      - 'edge/snooker-identity-gate.mjs'
+      - 'tests/snooker-identity-gate.test.mjs'
+      - '.github/workflows/snooker-edge-contracts.yml'
+      - 'docs/snooker-staging.md'
+  push:
+    branches: [main]
+    paths:
+      - 'edge/snooker-identity-gate.mjs'
+      - 'tests/snooker-identity-gate.test.mjs'
+      - '.github/workflows/snooker-edge-contracts.yml'
+      - 'docs/snooker-staging.md'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check edge/snooker-identity-gate.mjs
+      - run: node --test tests/snooker-identity-gate.test.mjs
