@@ -129,3 +129,16 @@ fetch compatibility flag. A second GET confirms both settings. It does **not**
 attach the custom domain, upload assets, configure service secrets or publish
 any build. Missing credentials/foreign resources/unexpected settings abort.
 Do not treat the empty project as a playable staging deployment.
+
+
+## Immutable Pages delivery candidate (still offline)
+
+`scripts/snooker_release_package.py prepare ZIP sha256:<digest> <source_sha> OUT`
+accepts only a ZIP passing the exact-main source admission archive rules,
+reuses the original `index.html`/Vite assets **without rebuild** and injects
+only the reviewed Infra `edge/snooker-identity-gate.mjs` as `_worker.js`.
+The generated `release.json` records original artifact digest, exact green
+source SHA, authentication audience, per-file byte lengths and SHA256.
+`verify` rejects edited worker/assets, extra files and mixed/foreign hashes.
+The candidate is not a hosted website; the future publisher must securely
+consume it without bypassing Identity and then smoke its live behavior.
