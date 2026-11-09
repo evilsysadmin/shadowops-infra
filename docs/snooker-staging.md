@@ -172,6 +172,36 @@ full staging rollout accepted. Failed steps are fail-closed; do not bypass the
 Worker, make aliases public, or modify other games' Pages projects.
 
 
+## One-time activation request on PR merge (2026-11-09)
+
+The original Snooker staging activation was stuck because no authorized
+`workflow_dispatch` was sent from the GitHub UI. To initiate the first
+activation directly from the repository's reviewed change, this single-use
+request lives at `ops/snooker-staging/activate-2026-11-09.json`.
+
+On its **first addition** to protected `main`, the path-filtered
+[one-time activation request workflow](https://github.com/evilsysadmin/shadowops-infra/actions/workflows/snooker-staging-request.yml)
+enters the existing `staging` environment. The job refuses any unrelated
+source changes, replayed/modified request file, different base commit,
+repository or branch. With environment permissions, it sends a GitHub Actions
+`workflow_dispatch` to the already-reviewed
+[Snooker activation workflow](https://github.com/evilsysadmin/shadowops-infra/actions/workflows/snooker-staging-activate.yml).
+
+The child activation workflow and its separate Identity and Pages deployments
+still require their existing staging approvals and independently validate
+artifact/signature, current source, Identity live receipt and guest denial.
+This request **does not** grant or replace a Cloudflare/OCI credential, and
+does not activate Snooker on normal future pushes. A skipped or approval-waiting
+job is not a deployed release. Follow the exact Actions run URLs and stop on
+any failure; do not disable the private edge gate.
+
+The request is deliberately tied to base Infra main
+`bbdee7e1b83ab7d2b4688fdc94fc3e59192a7e7e`. If main advances before
+this PR merges, the request will fail closed and must be deliberately reissued.
+After the first successful request, leave the file untouched: modifications
+or deletion cannot reauthorize it. Always complete authenticated
+browser/WebGL + logout/revocation acceptance before declaring staging live.
+
 ## One-click protected activation from GitHub Actions
 
 For operators without a local checkout or `gh`, use
