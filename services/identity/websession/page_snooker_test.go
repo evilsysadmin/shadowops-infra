@@ -37,8 +37,8 @@ func TestSnookerLoginHasHumanNameAndPinnedReturnURL(t *testing.T) {
 
 func TestSnookerLoginMustRemainDisabledWithoutConsumerOptIn(t *testing.T) {
 	for _, tc := range []struct {
-		label	string
-		enabled	map[issuance.Application]bool
+		label   string
+		enabled map[issuance.Application]bool
 	}{
 		{"disabled", map[issuance.Application]bool{issuance.Snooker: false}},
 		{"missing", map[issuance.Application]bool{issuance.Football: true}},
