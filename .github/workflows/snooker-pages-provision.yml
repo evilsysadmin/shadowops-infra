@@ -1,0 +1,51 @@
+name: Snooker · create private Pages project (manual only)
+on:
+  pull_request:
+    paths:
+      - 'scripts/snooker_pages_provision.py'
+      - 'tests/test_snooker_pages_provision.py'
+      - '.github/workflows/snooker-pages-provision.yml'
+      - 'docs/snooker-staging.md'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/snooker_pages_provision.py'
+      - 'tests/test_snooker_pages_provision.py'
+      - '.github/workflows/snooker-pages-provision.yml'
+      - 'docs/snooker-staging.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: shadowops-snooker-pages-provision
+  cancel-in-progress: false
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_snooker_pages_readiness.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_snooker_pages_provision.py' -v
+      - run: python3 -m py_compile scripts/snooker_pages_provision.py
+  provision:
+    needs: contracts
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'evilsysadmin/shadowops-infra'
+    environment:
+      name: staging
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Create isolated empty Pages project; deny Functions fallthrough
+        run: python3 scripts/snooker_pages_provision.py project
