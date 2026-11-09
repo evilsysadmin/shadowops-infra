@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -236,14 +237,41 @@ def source_admitted(game_sha):
         raise ActivationBlocked("Current Snooker main CI/artifact is not admissible") from None
 
 
-def preflight(identity_sha):
+def actions_dispatch_actor(infra_sha):
+    """Only the explicit, staging-protected main workflow may use its app token.
+
+    GITHUB_TOKEN is a GitHub App installation token: /user is not a human
+    endpoint for it. Workflow dispatches it makes must belong to the Actions bot.
+    """
+    expected = {
+        "GITHUB_ACTIONS": "true",
+        "GITHUB_EVENT_NAME": "workflow_dispatch",
+        "GITHUB_REPOSITORY": INFRA,
+        "GITHUB_REF": "refs/heads/main",
+        "GITHUB_SHA": infra_sha,
+        "GITHUB_WORKFLOW_REF": (
+            f"{INFRA}/.github/workflows/snooker-staging-activate.yml@refs/heads/main"
+        ),
+    }
+    if any(os.environ.get(key) != value for key, value in expected.items()):
+        raise ActivationBlocked("Untrusted Actions dispatch context")
+    run_id = os.environ.get("GITHUB_RUN_ID", "")
+    if not run_id.isdecimal() or int(run_id) <= 0 or not os.environ.get("GH_TOKEN"):
+        raise ActivationBlocked("Missing authorized GitHub Actions run/token")
+    return "github-actions[bot]"
+
+
+def preflight(identity_sha, *, github_actions=False):
     """Read-only; never provision a Vault consumer before resolving blockers."""
     if identity_sha is not None and not SHA.fullmatch(identity_sha):
         raise ActivationBlocked("Provide a lowercase 40-hex Identity image source SHA")
-    actor = api("user").get("login")
-    if not isinstance(actor, str) or not actor:
-        raise ActivationBlocked("Authenticated gh operator identity unavailable")
     infra_sha = main_sha(INFRA)
+    if github_actions:
+        actor = actions_dispatch_actor(infra_sha)
+    else:
+        actor = api("user").get("login")
+        if not isinstance(actor, str) or not actor:
+            raise ActivationBlocked("Authenticated gh operator identity unavailable")
     game_sha = main_sha(GAME)
     admission = source_admitted(game_sha)
     ready = identity_ready()
@@ -261,8 +289,13 @@ def preflight(identity_sha):
     return actor, infra_sha, game_sha, selected_sha
 
 
-def activate(identity_sha):
-    actor, infra_sha, game_sha, selected_sha = preflight(identity_sha)
+def activate(identity_sha, *, github_actions=False):
+    if github_actions:
+        actor, infra_sha, game_sha, selected_sha = preflight(
+            identity_sha, github_actions=True,
+        )
+    else:
+        actor, infra_sha, game_sha, selected_sha = preflight(identity_sha)
     run_protected(IDENTITY_WORKFLOW, "provision", actor, infra_sha,
                   {"action": "provision", "snooker_consumer": "enable"})
 
@@ -293,7 +326,12 @@ def main():
                       help="Read-only source/Identity/image discovery gate before provisioning")
     parser.add_argument("--identity-sha", default=None,
                         help="Override auto-discovery with a pinned Identity image SHA")
+    parser.add_argument("--github-actions", action="store_true",
+                        help="Only for the staging-protected one-click Actions workflow")
     args = parser.parse_args()
+    if args.github_actions and not (args.apply or args.check):
+        print("SNOOKER_OPERATOR_BLOCKED Actions mode requires --apply or --check", file=sys.stderr)
+        return 1
     if not args.apply and not args.check:
         print("SNOOKER_OPERATOR_PLAN writes=false")
         print("Requires gh auth with Actions write permission and protected staging approval.")
@@ -303,9 +341,15 @@ def main():
         return 0
     try:
         if args.check:
-            preflight(args.identity_sha)
+            if args.github_actions:
+                preflight(args.identity_sha, github_actions=True)
+            else:
+                preflight(args.identity_sha)
         else:
-            activate(args.identity_sha)
+            if args.github_actions:
+                activate(args.identity_sha, github_actions=True)
+            else:
+                activate(args.identity_sha)
         return 0
     except ActivationBlocked as exc:
         print("SNOOKER_OPERATOR_BLOCKED " + str(exc), file=sys.stderr)
