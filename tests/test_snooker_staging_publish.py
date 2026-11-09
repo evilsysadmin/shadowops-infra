@@ -22,6 +22,8 @@ class Fake:
         self.project = {
             "name": readiness.PROJECT, "production_branch": "main",
             "subdomain": "snooker-staging.pages.dev", "source": None, "domains": [],
+            "latest_deployment": {"url": "https://release.snooker-staging.pages.dev"},
+            "canonical_deployment": {"url": "https://snooker-staging.pages.dev"},
             "deployment_configs": {
                 "production": {"fail_open": not private, "compatibility_flags": flags,
                                "env_vars": {"UNKNOWN": {"type": "plain_text"}} if unknown_binding else {}},
@@ -109,6 +111,25 @@ class PublishTests(unittest.TestCase):
                 pub.issuer_ready(lambda _:body)
 
     def test_guest_smoke_requires_both_alias_and_custom_host_denial(self):
-        pub.smoke_guest(lambda u:404 if "pages.dev" in u else 401)
+        aliases = pub.actual_alias_hosts(Fake().project)
+        self.assertEqual(set(aliases), {"snooker-staging.pages.dev", "release.snooker-staging.pages.dev"})
+        pub.smoke_guest(lambda u:404 if "pages.dev" in u else 401, aliases=aliases)
         with self.assertRaises(ProvisionError):
-            pub.smoke_guest(lambda u:200)
+            pub.smoke_guest(lambda u:200, aliases=aliases)
+        with self.assertRaises(ProvisionError):
+            pub.smoke_guest(lambda u:404)
+
+    def test_foreign_or_missing_deployment_alias_blocks_domain_writes(self):
+        for candidate in ("https://foreign.pages.dev", "http://release.snooker-staging.pages.dev",
+                          "https://release.snooker-staging.pages.dev.evil.test", None):
+            cloud = Fake()
+            pub.bind(cloud, PROOF)
+            cloud.writes.clear()
+            if candidate is None:
+                cloud.project.pop("latest_deployment")
+                cloud.project.pop("canonical_deployment")
+            else:
+                cloud.project["latest_deployment"]["url"] = candidate
+            with self.subTest(candidate=candidate), self.assertRaises(ProvisionError):
+                pub.attach_domain(cloud, lambda _:404)
+            self.assertEqual(cloud.writes, [])
