@@ -334,7 +334,70 @@ def deploy(digest, sha, vault):
         print('IDENTITY_STAGING_SERVICE_STARTED source_sha=' + sha + ' digest=' + digest)
 
 
+
+# Only the root-owned fixed wrapper may inspect Docker state. No arbitrary
+# Docker commands, secrets, logs, mounts, or process environment are exposed.
+# The three statuses are useful after an interrupted signed-image rollout.
+STATUS_SERVICES = ('identity-mongo', 'identity', 'identity-tunnel')
+STATUS_STATES = frozenset({'running', 'created', 'exited', 'restarting', 'paused', 'removing', 'dead'})
+STATUS_HEALTH = frozenset({'healthy', 'starting', 'unhealthy', 'none'})
+STATUS_INVALID = 'IDENTITY_CONTAINERS_INVALID_STATE'
+STATUS_INACCESSIBLE = 'IDENTITY_CONTAINERS_DOCKER_INACCESSIBLE'
+STATUS_COLLISION = 'IDENTITY_CONTAINERS_COLLISION'
+
+
+def bounded_identity_status(*, command=run, uid=os.geteuid, docker_available=None):
+    """Return ONLY a fixed, secretless three-service receipt or a finite error."""
+    if uid() != 0:
+        return STATUS_INACCESSIBLE
+    if docker_available is None:
+        from shutil import which
+        docker_available = which('docker', path='/usr/sbin:/usr/bin:/sbin:/bin') is not None
+    if not docker_available:
+        return 'IDENTITY_CONTAINERS_DOCKER_UNAVAILABLE'
+    try:
+        # A non-root OCI agent may not access docker.sock; sudo delegates only
+        # this narrowly validated operation, never docker or a general shell.
+        command(['docker', 'info', '--format', '{{.ServerVersion}}'], timeout=8)
+        rows = []
+        for service in STATUS_SERVICES:
+            ids = command([
+                'docker', 'ps', '-aq',
+                '--filter', 'label=com.docker.compose.project=' + PROJECT,
+                '--filter', 'label=com.docker.compose.service=' + service,
+            ], timeout=8).splitlines()
+            if not ids:
+                state, health = 'missing', 'none'
+            else:
+                if len(ids) != 1 or not re.fullmatch(r'[a-f0-9]{12,64}', ids[0]):
+                    return STATUS_COLLISION
+                state_health = command([
+                    'docker', 'inspect', '--format',
+                    '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}',
+                    ids[0],
+                ], timeout=8).strip().split()
+                if len(state_health) != 2:
+                    return STATUS_INVALID
+                state, health = state_health
+                if state not in STATUS_STATES or health not in STATUS_HEALTH:
+                    return STATUS_INVALID
+            rows.append('IDENTITY_CONTAINER service=' + service +
+                        ' status=' + state + ' health=' + health)
+        return '\n'.join(rows)
+    except (DeployError, OSError, subprocess.TimeoutExpired):
+        return STATUS_INACCESSIBLE
+
+
 def main():
+    # Exact fixed sudoers command: no args, path, shell or service selection.
+    if sys.argv[1:] == ['status']:
+        try:
+            trusted(Path('/usr/local/sbin/shadowops-identity-staging'))
+            print(bounded_identity_status())
+            return 0
+        except Exception:
+            print(STATUS_INACCESSIBLE)
+            return 1
     try:
         if len(sys.argv) != 5:
             raise DeployError('Expected fixed deploy request')

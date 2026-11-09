@@ -328,3 +328,53 @@ rules, CI provenance and Cloudflare secret custody remain unchanged. Running
 this script in ChatGPT without an authorized `gh` session does not activate
 staging. Even after successful guest-denial checks, **human signed-in browser
 and revoked-session validation remains a separate release-acceptance gate**.
+
+## OCI root-only Docker diagnosis after the 2026-11-09 deploy failure
+
+The first protected activation reached the admitted, signed ARM64 Identity
+image, but the root-owned container deployment returned a generic
+`IDENTITY_STAGING_DEPLOY_BLOCKED type=DeployError` in
+[run 42630458811](https://github.com/evilsysadmin/shadowops-infra/actions/runs/42630458811).
+The subsequent OCI Agent probe returned `IDENTITY_CONTAINERS_DOCKER_INACCESSIBLE`
+in [run 42632260078](https://github.com/evilsysadmin/shadowops-infra/actions/runs/42632260078).
+**That marker is not evidence that Docker or the IdP is down:** the agent user
+`ocarun` deliberately cannot access root's Docker socket.
+
+The repair retains that isolation. Only the root-owned
+`/usr/local/sbin/shadowops-identity-staging status` operation is added to
+the existing sudoers allowlist for `ocarun`. It runs fixed `docker info`,
+`ps`, and `inspect` *state/health only*, restricted by exact Compose project
+and three service labels, returning finite sanitized statuses. It neither
+executes inside containers nor reads logs, mounts, private config or secrets.
+The OCI agent is granted no general Docker/shell privileges.
+
+**After this change is reviewed and merged, the installed host wrapper must
+be deliberately refreshed before the probe can work.** From an already
+authorized operator workstation with the existing SSH/Cloudflare Access route:
+
+```sh
+# Installs reviewed host policy only; no container start or Pages write.
+bash host/bootstrap-identity-staging-over-ssh.sh
+```
+
+That command fetches and verifies exact protected Infra `main` on OCI, then
+reinstalls the root-owned wrapper/sudoers with the existing trust checks.
+It does not update Identity images or start/restart services. The host
+fingerprint must be current again afterward.
+
+Next use [ShadowOps Identity isolated container health (read-only)](https://github.com/evilsysadmin/shadowops-infra/actions/workflows/identity-container-health.yml)
+on `main` and inspect the **probe job**, not just an offline green contract:
+`IDENTITY_CONTAINER_STATUS identity-mongo=... identity=... identity-tunnel=...`.
+A `missing`, `exited`, `restarting` or `unhealthy` service is the
+next debugging target; a Docker-denied/unknown receipt means stop and inspect
+the narrowly scoped installation or host reachability. Never infer readiness
+from a green tests-only workflow.
+
+Only once the actual Identity boot/health failure is corrected, re-run the
+[manual protected Snooker activation](https://github.com/evilsysadmin/shadowops-infra/actions/workflows/snooker-staging-activate.yml).
+That must independently publish private Pages, attach the exact proxied DNS,
+and verify guest denial. Finally prove **signed-in** desktop/mobile WebGL,
+login/logout and revocation on the custom domain before accepting issue #527.
+
+No automatic staging deployment, DNS write, secret change, Identity restart or
+approval is performed by this diagnostic PR.

@@ -53,12 +53,13 @@ class StagingIdentityContainerHealthTests(unittest.TestCase):
                 probe.normalize(output)
 
     def test_on_host_script_is_fixed_and_nondestructive(self):
-        self.assertIn("label=com.docker.compose.project=shadowops-identity-staging",
-                      probe.SOURCE)
+        self.assertEqual(
+            probe.SOURCE,
+            "set -eu\nsudo --non-interactive /usr/local/sbin/shadowops-identity-staging status\n",
+        )
         for forbidden in (
-            "sudo ", "docker exec", "docker run", "docker logs",
-            "docker compose down", "docker compose up", "ssh ", "curl ",
-            "docker rm", "cat /etc",
+            "docker ", "bash ", "sh -c", "docker exec", "docker run",
+            "docker logs", "docker compose", "ssh ", "curl ", "cat /etc",
         ):
             self.assertNotIn(forbidden, probe.SOURCE)
 
