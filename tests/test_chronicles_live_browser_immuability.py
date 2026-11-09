@@ -41,6 +41,10 @@ class LiveJourneySafety(unittest.TestCase):
                          "${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}")
         self.assertIn("node --check smoke/public-staging-playtest.mjs", playtest["run"])
         self.assertIn("node smoke/public-staging-playtest.mjs", playtest["run"])
+        summary = by_name["Summarize player-bot health and balance observations"]
+        self.assertEqual(summary["if"], "always()")
+        self.assertIn("GITHUB_STEP_SUMMARY", summary["run"])
+        self.assertIn("averageHpLost", summary["run"])
         captures = by_name["Keep browser captures for failures or inspection"]
         self.assertEqual(captures["if"], "always()")
         for path in ("chronicles-playtest-*.png", "chronicles-playtest-report.json"):
