@@ -12,6 +12,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
@@ -43,6 +44,32 @@ print(b.secret_bundle_content.content)
 
 class DeployError(ValueError):
     pass
+
+
+# Finite, nonsecret stage labels for failures of an admitted, fixed host deploy.
+# No exception messages, command lines, image values, or Vault data cross OCI.
+DEPLOY_PHASES = frozenset((
+    'source', 'custody', 'images', 'database-start',
+    'database-ready', 'database-bootstrap', 'services-start',
+))
+
+
+class DeployPhaseError(DeployError):
+    def __init__(self, phase):
+        if phase not in DEPLOY_PHASES:
+            raise DeployError('Unknown fixed deploy phase')
+        self.phase = phase
+        super().__init__('Identity staging phase failed')
+
+
+@contextmanager
+def deployment_phase(phase):
+    if phase not in DEPLOY_PHASES:
+        raise DeployError('Unknown fixed deploy phase')
+    try:
+        yield
+    except Exception:
+        raise DeployPhaseError(phase) from None
 
 
 def request(operation, digest, sha, vault):
@@ -284,52 +311,59 @@ def reject_atlas_active(state):
 
 
 def deploy(digest, sha, vault):
-    request('deploy', digest, sha, vault)
-    if os.geteuid() != 0:
-        raise DeployError('Root-owned operator installation required')
-    trusted(POLICY)
-    trusted(STATE)
-    for path in (ROOT, STATE):
-        if path.is_symlink() or path.stat().st_uid != 0 or path.stat().st_mode & 0o077:
-            raise DeployError('Private root directory required')
+    with deployment_phase('source'):
+        request('deploy', digest, sha, vault)
+        if os.geteuid() != 0:
+            raise DeployError('Root-owned operator installation required')
+        trusted(POLICY)
+        trusted(STATE)
+        for path in (ROOT, STATE):
+            if path.is_symlink() or path.stat().st_uid != 0 or path.stat().st_mode & 0o077:
+                raise DeployError('Private root directory required')
     with (STATE / 'deploy.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        reject_atlas_active(STATE)
-        verify_shared_a1_containers()
-        identity_ownership_guard()
-        bundle = read_bundle(vault)
-        require_admin_backup(bundle)
-        prepare(bundle)
-        env = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'IDENTITY_IMAGE_DIGEST': digest}
-        compose = ['docker', 'compose', '--project-directory', str(ROOT), '-f', str(POLICY)]
-        config = json.loads(run(compose + ['config', '--format', 'json'], env=env))
-        assert_compose(config, digest)
-        # Only our exact Compose project. Never stack with another file or delete a volume.
-        run(compose + ['pull', 'identity-mongo', 'identity', 'identity-tunnel'], env=env)
-        labels = json.loads(run(['docker', 'image', 'inspect', IMAGE + digest, '--format', '{{json .Config.Labels}}'])) or {}
-        if labels.get('org.opencontainers.image.revision') != sha or labels.get('org.opencontainers.image.source') != 'https://github.com/evilsysadmin/shadowops-infra':
-            raise DeployError('Image source receipt does not match the admitted request')
-        verify_shared_a1_containers()
-        identity_ownership_guard()
-        run(compose + ['up', '-d', '--no-build', '--no-deps', 'identity-mongo'], env=env)
-        container = run(compose + ['ps', '-q', 'identity-mongo'], env=env).strip()
-        if not re.fullmatch('[a-f0-9]{12,64}', container):
-            raise DeployError('Ambiguous Identity database container')
-        # mongod may still be starting. All retries are bounded and scoped to our container.
-        import time
-        for attempt in range(30):
-            try:
-                run(['docker','exec',container,'mongosh','--quiet','--norc','--tls','--tlsCAFile','/run/identity/ca.pem',
-                     'mongodb://127.0.0.1:27017/?directConnection=true','--eval','if (db.adminCommand({ping:1}).ok !== 1) quit(1)'], timeout=5)
-                break
-            except DeployError:
-                if attempt == 29:
-                    raise
-                time.sleep(1)
-        run(['docker', 'exec', '-i', container, 'mongosh', '--quiet', '--norc', '--tls', '--tlsCAFile',
-             '/run/identity/ca.pem', 'mongodb://127.0.0.1:27017/?directConnection=true', '--file', '/dev/stdin'],
-            data=bootstrap_script(bundle), timeout=100)
-        run(compose + ['up', '-d', '--wait', '--wait-timeout', '150', '--no-build', '--pull', 'never', '--force-recreate', 'identity', 'identity-tunnel'], env=env)
+        with deployment_phase('custody'):
+            reject_atlas_active(STATE)
+            verify_shared_a1_containers()
+            identity_ownership_guard()
+            bundle = read_bundle(vault)
+            require_admin_backup(bundle)
+            prepare(bundle)
+        with deployment_phase('images'):
+            env = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'IDENTITY_IMAGE_DIGEST': digest}
+            compose = ['docker', 'compose', '--project-directory', str(ROOT), '-f', str(POLICY)]
+            config = json.loads(run(compose + ['config', '--format', 'json'], env=env))
+            assert_compose(config, digest)
+            # Only our exact Compose project. Never stack with another file or delete a volume.
+            run(compose + ['pull', 'identity-mongo', 'identity', 'identity-tunnel'], env=env)
+            labels = json.loads(run(['docker', 'image', 'inspect', IMAGE + digest, '--format', '{{json .Config.Labels}}'])) or {}
+            if labels.get('org.opencontainers.image.revision') != sha or labels.get('org.opencontainers.image.source') != 'https://github.com/evilsysadmin/shadowops-infra':
+                raise DeployError('Image source receipt does not match the admitted request')
+            verify_shared_a1_containers()
+            identity_ownership_guard()
+        with deployment_phase('database-start'):
+            run(compose + ['up', '-d', '--no-build', '--no-deps', 'identity-mongo'], env=env)
+            container = run(compose + ['ps', '-q', 'identity-mongo'], env=env).strip()
+            if not re.fullmatch('[a-f0-9]{12,64}', container):
+                raise DeployError('Ambiguous Identity database container')
+        with deployment_phase('database-ready'):
+            # mongod may still be starting. All retries are bounded and scoped to our container.
+            import time
+            for attempt in range(30):
+                try:
+                    run(['docker','exec',container,'mongosh','--quiet','--norc','--tls','--tlsCAFile','/run/identity/ca.pem',
+                         'mongodb://127.0.0.1:27017/?directConnection=true','--eval','if (db.adminCommand({ping:1}).ok !== 1) quit(1)'], timeout=5)
+                    break
+                except DeployError:
+                    if attempt == 29:
+                        raise
+                    time.sleep(1)
+        with deployment_phase('database-bootstrap'):
+            run(['docker', 'exec', '-i', container, 'mongosh', '--quiet', '--norc', '--tls', '--tlsCAFile',
+                 '/run/identity/ca.pem', 'mongodb://127.0.0.1:27017/?directConnection=true', '--file', '/dev/stdin'],
+                data=bootstrap_script(bundle), timeout=100)
+        with deployment_phase('services-start'):
+            run(compose + ['up', '-d', '--wait', '--wait-timeout', '150', '--no-build', '--pull', 'never', '--force-recreate', 'identity', 'identity-tunnel'], env=env)
         write_private(STATE / 'last-started.json', json.dumps({'source_sha': sha, 'digest': digest, 'public_login_verified': False}) + '\n')
         print('IDENTITY_STAGING_SERVICE_STARTED source_sha=' + sha + ' digest=' + digest)
 
@@ -404,7 +438,11 @@ def main():
         request(*sys.argv[1:])
         deploy(*sys.argv[2:])
     except Exception as exc:
-        print('IDENTITY_STAGING_DEPLOY_BLOCKED type=' + type(exc).__name__)
+        # Keep the historic type marker while optionally adding one closed
+        # nonsecret phase. Never print an underlying exception or Docker text.
+        kind = 'DeployError' if isinstance(exc, DeployPhaseError) else type(exc).__name__
+        phase = ' phase=' + exc.phase if isinstance(exc, DeployPhaseError) else ''
+        print('IDENTITY_STAGING_DEPLOY_BLOCKED type=' + kind + phase)
         return 1
     return 0
 
