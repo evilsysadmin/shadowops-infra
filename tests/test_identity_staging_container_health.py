@@ -55,7 +55,7 @@ class StagingIdentityContainerHealthTests(unittest.TestCase):
     def test_on_host_script_is_fixed_and_nondestructive(self):
         self.assertEqual(
             probe.SOURCE,
-            "set -eu\\nsudo --non-interactive /usr/local/sbin/shadowops-identity-staging status\\n",
+            "set -eu\nsudo --non-interactive /usr/local/sbin/shadowops-identity-staging status\n",
         )
         for forbidden in (
             "docker ", "bash ", "sh -c", "docker exec", "docker run",
