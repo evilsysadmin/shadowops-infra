@@ -1,0 +1,64 @@
+name: Snooker · first staging activation request (one time)
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/snooker-staging/activate-2026-11-09.json'
+  pull_request:
+    paths:
+      - 'ops/snooker-staging/activate-2026-11-09.json'
+      - '.github/workflows/snooker-staging-request.yml'
+      - 'scripts/snooker_staging_request.py'
+      - 'tests/test_snooker_staging_request.py'
+permissions:
+  contents: read
+jobs:
+  contracts:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Reject replay, foreign repo, wrong branch and modified request
+        run: python3 -m unittest discover -s tests -p test_snooker_staging_request.py -v
+  request:
+    if: >-
+      github.event_name == 'push' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    environment:
+      name: staging
+      url: https://staging.snooker.shadowops.dpdns.org/
+    concurrency:
+      group: shadowops-snooker-one-time-activation-request
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Verify authorized one-time addition and exact protected main parent
+        run: python3 scripts/snooker_staging_request.py
+      - name: Refuse superseded source before any protected workflow dispatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          [[ "$current" == "$GITHUB_SHA" ]]
+          gh workflow view snooker-staging-activate.yml --repo "$GITHUB_REPOSITORY" >/dev/null
+      - name: Dispatch existing manually approvable staging activation
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run snooker-staging-activate.yml --repo "$GITHUB_REPOSITORY" --ref main
+          echo 'Submitted Snooker staging activation to the existing protected workflow.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'The child workflow and its Identity/Pages jobs retain staging approvals. Verify every child job before accepting a release.' >> "$GITHUB_STEP_SUMMARY"
