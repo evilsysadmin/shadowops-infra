@@ -64,19 +64,19 @@ class OperatorTests(unittest.TestCase):
         with self.assertRaises(op.ActivationBlocked):
             op.no_downgrade("not-a-sha", NEW_SHA)
 
-    def test_missing_identity_sha_stops_after_provision_not_before(self):
+    def test_missing_identity_sha_blocks_before_any_provision(self):
         with patch.object(op, "api", return_value={"login": ACTOR}), \
              patch.object(op, "main_sha", side_effect=[NEW_SHA, OLD_SHA]), \
+             patch.object(op, "source_admitted", return_value={"run_id": 123}), \
              patch.object(op, "identity_ready", return_value=False), \
              patch.object(op, "run_protected") as dispatch:
-            with self.assertRaisesRegex(op.ActivationBlocked, "Supply --identity-sha"):
+            with self.assertRaisesRegex(op.ActivationBlocked, "supply --identity-sha"):
                 op.activate(None)
-            self.assertEqual(dispatch.call_count, 1)
-            self.assertEqual(dispatch.call_args.args[:2], (op.IDENTITY_WORKFLOW, "provision"))
+            dispatch.assert_not_called()
 
     def test_already_active_identity_does_not_redeploy(self):
-        with patch.object(op, "api", return_value={"login": ACTOR}), \
-             patch.object(op, "main_sha", side_effect=[NEW_SHA, OLD_SHA, OLD_SHA]), \
+        with patch.object(op, "preflight", return_value=(ACTOR, NEW_SHA, OLD_SHA)), \
+             patch.object(op, "main_sha", return_value=OLD_SHA), \
              patch.object(op, "identity_ready", return_value=True), \
              patch.object(op, "run_protected") as dispatch, \
              contextlib.redirect_stdout(io.StringIO()):
@@ -85,27 +85,88 @@ class OperatorTests(unittest.TestCase):
                              ["provision", "publish"])
 
     def test_full_sequence_deploys_before_publish_and_rechecks_issuer(self):
-        with patch.object(op, "api", return_value={"login": ACTOR}), \
-             patch.object(op, "main_sha", side_effect=[NEW_SHA, OLD_SHA, OLD_SHA]), \
-             patch.object(op, "deployed_identity_sha", return_value=OLD_SHA), \
-             patch.object(op, "no_downgrade") as guard, \
+        with patch.object(op, "preflight", return_value=(ACTOR, NEW_SHA, OLD_SHA)), \
+             patch.object(op, "main_sha", return_value=OLD_SHA), \
              patch.object(op, "identity_ready", side_effect=[False, True]), \
              patch.object(op, "run_protected") as dispatch, \
              contextlib.redirect_stdout(io.StringIO()):
             op.activate(NEW_SHA)
-            guard.assert_called_once_with(OLD_SHA, NEW_SHA)
             self.assertEqual([c.args[1] for c in dispatch.call_args_list],
                              ["provision", "deploy", "publish"])
             self.assertEqual(dispatch.call_args_list[1].args[-1]["source_sha"], NEW_SHA)
 
     def test_stale_game_main_refuses_publication(self):
-        with patch.object(op, "api", return_value={"login": ACTOR}), \
-             patch.object(op, "main_sha", side_effect=[NEW_SHA, OLD_SHA, NEW_SHA]), \
+        with patch.object(op, "preflight", return_value=(ACTOR, NEW_SHA, OLD_SHA)), \
+             patch.object(op, "main_sha", return_value=NEW_SHA), \
              patch.object(op, "identity_ready", return_value=True), \
              patch.object(op, "run_protected") as dispatch:
             with self.assertRaisesRegex(op.ActivationBlocked, "Game main advanced"):
                 op.activate(None)
             self.assertEqual(dispatch.call_count, 1)
+
+
+    def test_preflight_proves_exact_game_artifact_and_main_heads_without_mutation(self):
+        with patch.object(op, "api", return_value={"login": ACTOR}), \
+             patch.object(op, "main_sha", side_effect=[NEW_SHA, OLD_SHA, NEW_SHA, OLD_SHA]), \
+             patch.object(op, "source_admitted", return_value={"run_id": 42600868589}) as admission, \
+             patch.object(op, "identity_ready", return_value=True), \
+             patch.object(op, "run_protected") as dispatch, \
+             contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(op.preflight(None), (ACTOR, NEW_SHA, OLD_SHA))
+            admission.assert_called_once_with(OLD_SHA)
+            dispatch.assert_not_called()
+            self.assertIn("writes=false", output.getvalue())
+            self.assertIn("ci_run=42600868589", output.getvalue())
+
+    def test_stale_main_or_invalid_ci_artifact_stops_before_provision(self):
+        with patch.object(op, "api", return_value={"login": ACTOR}), \
+             patch.object(op, "main_sha", side_effect=[NEW_SHA, OLD_SHA]), \
+             patch.object(op, "source_admitted", side_effect=op.ActivationBlocked("unverified artifact")), \
+             patch.object(op, "run_protected") as dispatch:
+            with self.assertRaisesRegex(op.ActivationBlocked, "unverified artifact"):
+                op.activate(None)
+            dispatch.assert_not_called()
+        with patch.object(op, "api", return_value={"login": ACTOR}), \
+             patch.object(op, "main_sha", side_effect=[NEW_SHA, OLD_SHA, NEW_SHA, NEW_SHA]), \
+             patch.object(op, "source_admitted", return_value={"run_id": 123}), \
+             patch.object(op, "identity_ready", return_value=True), \
+             patch.object(op, "run_protected") as dispatch:
+            with self.assertRaisesRegex(op.ActivationBlocked, "advanced during"):
+                op.activate(None)
+            dispatch.assert_not_called()
+
+    def test_downgrade_rejected_at_read_only_preflight(self):
+        with patch.object(op, "api", return_value={"login": ACTOR}), \
+             patch.object(op, "main_sha", side_effect=[NEW_SHA, OLD_SHA]), \
+             patch.object(op, "source_admitted", return_value={"run_id": 123}), \
+             patch.object(op, "identity_ready", return_value=False), \
+             patch.object(op, "deployed_identity_sha", return_value=OLD_SHA), \
+             patch.object(op, "no_downgrade", side_effect=op.ActivationBlocked("downgrade")), \
+             patch.object(op, "run_protected") as dispatch:
+            with self.assertRaisesRegex(op.ActivationBlocked, "downgrade"):
+                op.activate(NEW_SHA)
+            dispatch.assert_not_called()
+
+    def test_check_cli_is_read_only_even_with_a_candidate_sha(self):
+        with patch.object(sys, "argv", [
+            "snooker_staging_operator.py", "--check", "--identity-sha", NEW_SHA,
+        ]), patch.object(op, "preflight", return_value=(ACTOR, NEW_SHA, OLD_SHA)) as check, \
+             patch.object(op, "run_protected") as dispatch:
+            self.assertEqual(op.main(), 0)
+            check.assert_called_once_with(NEW_SHA)
+            dispatch.assert_not_called()
+
+    def test_source_admission_reuses_exact_release_gate(self):
+        import snooker_source_admission as admission
+        with patch.object(op, "api", return_value={"sha": OLD_SHA}) as reader, \
+             patch.object(admission, "admit", return_value={"run_id": 33}) as gate:
+            self.assertEqual(op.source_admitted(OLD_SHA), {"run_id": 33})
+            gate.call_args.args[0].get("/repos/evilsysadmin/snooker-of-matthias/commits/main")
+            reader.assert_called_once_with("repos/evilsysadmin/snooker-of-matthias/commits/main")
+            self.assertEqual(gate.call_args.args[1], OLD_SHA)
+        with patch.object(admission, "admit", side_effect=admission.AdmissionError("bad")):
+            with self.assertRaisesRegex(op.ActivationBlocked, "not admissible"):
+                op.source_admitted(OLD_SHA)
 
     def test_invalid_identity_sha_rejected_before_any_dispatch(self):
         with patch.object(op, "run_protected") as dispatch:

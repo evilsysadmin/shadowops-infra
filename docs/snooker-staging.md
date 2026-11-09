@@ -182,13 +182,24 @@ From a checkout of `shadowops-infra`, with Python 3.10+ and `gh`:
 
 ```sh
 python3 scripts/snooker_staging_operator.py
-# First inspect the staging Identity live-release SHA and confirm a signed
-# non-downgrade Identity image SHA that includes Snooker (issue #527).
+# Replace the placeholder with a signed non-downgrade Identity image SHA,
+# selected against the live staging Identity release and issue #527.
+python3 scripts/snooker_staging_operator.py --check --identity-sha <40-hex-admitted-identity-sha>
 python3 scripts/snooker_staging_operator.py --apply --identity-sha <40-hex-admitted-identity-sha>
 ```
 
-The first command is read-only. `--apply` is an explicit operator action that
-dispatches the **existing protected** Identity `provision` (only
+The first command is a static read-only plan. `--check` runs a **live,
+read-only preflight before any Vault/Cloudflare mutation**: it independently
+re-admits the current game's exact green `main` CI and SHA256-bound Pages ZIP,
+checks the trusted GitHub operator and both repos' unchanged `main` SHAs,
+verifies the current staging Identity readiness, and rejects a supplied
+Identity image SHA that would downgrade the running release or omit the Snooker
+consumer contract. If Identity does not serve Snooker, missing
+`--identity-sha` now fails **before provisioning**, rather than creating a
+partial state then stopping.
+
+`--apply` runs this same read-only preflight first; only if it passes does it
+dispatch the **existing protected** Identity `provision` (only
 `snooker_consumer=enable`) then, if the deployed Identity does not yet
 recognize Snooker, `deploy` with the specified immutable image source SHA.
 It refuses a deployment older than the currently running Identity release
