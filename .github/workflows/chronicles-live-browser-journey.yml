@@ -120,7 +120,7 @@ jobs:
             const rows = [
               '## Chronicles player-bot · staging',
               '',
-              'SHA: \`' + r.sourceSha + '\` · ' + r.summary.episodes + ' bounded episodes',
+              'SHA: `' + r.sourceSha + '` · ' + r.summary.episodes + ' bounded episodes',
               '',
               '| Strategy | Outcome | Actions | HP lost | Warnings |',
               '|---|---|---:|---:|---|',
@@ -132,7 +132,7 @@ jobs:
               '',
               'A defeat or costly win is a balance observation, not an automatic CI failure.',
             ];
-            appendFileSync(process.env.GITHUB_STEP_SUMMARY, rows.join('\\n') + '\\n');
+            appendFileSync(process.env.GITHUB_STEP_SUMMARY, rows.join('\n') + '\n');
           }
           NODE
       - name: Keep browser captures for failures or inspection
