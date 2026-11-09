@@ -1,0 +1,79 @@
+name: ShadowOps Identity · installed host code fingerprint (read-only)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/identity-wrapper-fingerprint.yml'
+      - 'scripts/identity_staging_wrapper_fingerprint.py'
+      - 'tests/test_identity_staging_wrapper_fingerprint.py'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/identity-wrapper-fingerprint.yml'
+      - 'scripts/identity_staging_wrapper_fingerprint.py'
+      - 'tests/test_identity_staging_wrapper_fingerprint.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Nonprivileged OCI fingerprint and output-redaction tests
+        run: python3 -m unittest discover -s tests -p test_identity_staging_wrapper_fingerprint.py -v
+      - name: Offline fingerprint self-test
+        run: python3 scripts/identity_staging_wrapper_fingerprint.py self-test
+  probe:
+    name: Compare installed Identity wrapper+bundle with current protected source
+    needs: contracts
+    if: >-
+      (github.event_name == 'workflow_dispatch' || github.event_name == 'push') &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    concurrency:
+      group: shadowops-oci-host-operations
+      cancel-in-progress: false
+    env:
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Refuse superseded source before any OCI request
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          [[ "$current" == "$GITHUB_SHA" ]]
+      - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Read only the installed executable and bundle fingerprints
+        shell: bash
+        run: |
+          set -euo pipefail
+          result="$(python3 scripts/identity_staging_wrapper_fingerprint.py run)"
+          case "$result" in
+            IDENTITY_WRAPPER_FINGERPRINT_CURRENT|IDENTITY_WRAPPER_FINGERPRINT_OUTDATED_WRAPPER|IDENTITY_WRAPPER_FINGERPRINT_OUTDATED_BUNDLE|IDENTITY_WRAPPER_FINGERPRINT_OUTDATED_BOTH|IDENTITY_WRAPPER_FINGERPRINT_MISSING|IDENTITY_WRAPPER_FINGERPRINT_UNSAFE) ;;
+            *) echo 'IDENTITY_WRAPPER_FINGERPRINT_UNEXPECTED' >&2; exit 1 ;;
+          esac
+          printf '%s\n' "$result"
+          printf '### Identity staging installed host code\n\n- Protected main: `%s`\n- Read-only verdict: `%s`\n- Host changes: none\n' "$GITHUB_SHA" "$result" >> "$GITHUB_STEP_SUMMARY"
+          [[ "$result" == IDENTITY_WRAPPER_FINGERPRINT_CURRENT ]]
+      - name: Recheck protected main after host observation
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          [[ "$current" == "$GITHUB_SHA" ]]
