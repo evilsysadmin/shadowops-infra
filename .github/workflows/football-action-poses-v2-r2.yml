@@ -30,7 +30,7 @@ jobs:
       - name: Verify fail-closed publisher contracts
         run: python3 -m unittest discover -s tests -p test_football_action_poses_v2_publish.py -v
       - name: Install pinned reproducible art dependencies
-        run: python3 -m pip install --disable-pip-version-check --no-cache-dir 'Pillow==12.3.0' 'numpy==2.3.5' 'opencv-python-headless==4.13.0.90'
+        run: python3 -m pip install --disable-pip-version-check --no-cache-dir 'Pillow==12.3.0' 'numpy==2.3.5' 'opencv-python-headless==4.13.0.92'
       - name: Rebuild exactly the eight reviewed WebPs; reject all SHA drift
         run: python3 scripts/football_action_poses_v2_publish.py verify
   publish:
@@ -59,7 +59,7 @@ jobs:
         with:
           python-version: '3.13'
       - name: Install pinned reproducible art dependencies
-        run: python3 -m pip install --disable-pip-version-check --no-cache-dir 'Pillow==12.3.0' 'numpy==2.3.5' 'opencv-python-headless==4.13.0.90'
+        run: python3 -m pip install --disable-pip-version-check --no-cache-dir 'Pillow==12.3.0' 'numpy==2.3.5' 'opencv-python-headless==4.13.0.92'
       - name: Verify exact source and installed Infra publisher at cloud-mutation boundary
         shell: bash
         run: |
