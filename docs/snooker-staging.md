@@ -378,3 +378,43 @@ login/logout and revocation on the custom domain before accepting issue #527.
 
 No automatic staging deployment, DNS write, secret change, Identity restart or
 approval is performed by this diagnostic PR.
+
+## Fixed Identity deploy stage receipts for Snooker rollout (2026-11-09)
+
+After the original protected release returned only `IDENTITY_STAGING_DEPLOY_BLOCKED
+type=DeployError`, the OCI diagnosis rerun
+[42643741461](https://github.com/evilsysadmin/shadowops-infra/actions/runs/42643741461)
+also failed with `IDENTITY_CONTAINER_PROBE_BLOCKED type=InventoryError`.
+Neither result authorizes a guess about whether Mongo, the main Identity service,
+or its tunnel is at fault; **the reviewed OCI wrapper needs installing**.
+This remains a DNS/Identity blocker, not a Vite build failure.
+
+The root-owned host deploy code now classifies only the following **finite,
+secretless failure phases**: `source` (host and policy), `custody` (Vault,
+backup, credentials, ownership), `images` (Compose and digest),
+`database-start`, `database-ready`, `database-bootstrap`, and
+`services-start` (Identity/tunnel start and wait). A failure emits a
+single `IDENTITY_STAGING_DEPLOY_BLOCKED type=DeployError phase=<code>`
+marker instead of a private Docker/OCI exception. The CI parser accepts only
+those fixed phase names and remains compatible with the legacy generic marker.
+It refuses to copy arbitrary stdout, stderr, Vault data or Docker output to
+the logs. A phase marker is diagnostic information, **not** proof of service
+health or release acceptance.
+
+Once reviewed and merged, the authorized operator should refresh the host
+**once from the latest protected main**:
+
+```sh
+git pull --ff-only
+bash host/bootstrap-identity-staging-over-ssh.sh
+```
+
+Then use the existing [read-only Identity container probe](https://github.com/evilsysadmin/shadowops-infra/actions/workflows/identity-container-health.yml)
+on protected `main`. If it shows a missing/unhealthy Identity container,
+investigate that service; if the stack is ready, the operator may explicitly
+start the existing [protected Snooker activation](https://github.com/evilsysadmin/shadowops-infra/actions/workflows/snooker-staging-activate.yml).
+If activation still fails in a root deploy stage, investigate the finite phase
+rather than restarting services or weakening the edge. **Do not rerun the
+original stale release run**; re-admit the current signed image and current
+Snooker `main` through the canonical workflow. Custom DNS and signed-in
+desktop/mobile WebGL acceptance must remain last and separately verified.
