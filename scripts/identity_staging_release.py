@@ -26,10 +26,22 @@ def command_for(digest,sha,vault):
     return 'set -eu\ntest -x '+WRAPPER+'\nsudo --non-interactive '+WRAPPER+' deploy '+digest+' '+sha+' '+vault+'\n'
 
 
+# These fixed labels are emitted only by the root-owned installed wrapper.
+# A malicious/compromised remote output must never echo arbitrary text to CI.
+DEPLOY_PHASES = frozenset((
+    'source', 'custody', 'images', 'database-start',
+    'database-ready', 'database-bootstrap', 'services-start',
+))
+DEPLOY_BLOCKED = re.compile(
+    r'IDENTITY_STAGING_DEPLOY_BLOCKED type=[A-Za-z]{1,40}(?: phase=([a-z-]{1,32}))?\\Z'
+)
+
+
 def failure_reason(output):
-    marker = next((line for line in output.splitlines() if re.fullmatch(r'IDENTITY_STAGING_DEPLOY_BLOCKED type=[A-Za-z]{1,40}',line)),None)
-    if marker:
-        return marker
+    for line in output.splitlines():
+        match = DEPLOY_BLOCKED.fullmatch(line)
+        if match and (match.group(1) is None or match.group(1) in DEPLOY_PHASES):
+            return line
     if re.fullmatch(r'IDENTITY_STAGING_SERVICE_STARTED source_sha=[a-f0-9]{40} digest=sha256:[a-f0-9]{64}',output.strip()):
         return 'startup-receipt'
     if 'sudo:' in output:
