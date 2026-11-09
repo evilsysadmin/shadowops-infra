@@ -33,7 +33,7 @@ DEPLOY_PHASES = frozenset((
     'database-ready', 'database-bootstrap', 'services-start',
 ))
 DEPLOY_BLOCKED = re.compile(
-    r'IDENTITY_STAGING_DEPLOY_BLOCKED type=[A-Za-z]{1,40}(?: phase=([a-z-]{1,32}))?\\Z'
+    r'IDENTITY_STAGING_DEPLOY_BLOCKED type=[A-Za-z]{1,40}(?: phase=([a-z-]{1,32}))?\Z'
 )
 
 
