@@ -61,7 +61,8 @@ class RootOwnedIdentityHealthTests(unittest.TestCase):
             if args[1] == "ps":
                 self.assertEqual(args[2:4], ["-aq", "--filter"])
                 self.assertEqual(args[4], "label=com.docker.compose.project=shadowops-identity-staging")
-                service = args[5].removeprefix("label=com.docker.compose.service=")
+                self.assertEqual(args[5], "--filter")
+                service = args[6].removeprefix("label=com.docker.compose.service=")
                 self.assertIn(service, host.STATUS_SERVICES)
                 return expected_ids[service] + "\n"
             if args[1] == "inspect":
