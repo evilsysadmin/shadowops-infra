@@ -170,3 +170,44 @@ proof that a real authenticated desktop/mobile WebGL session works: test a
 normal signed-in account, refresh, logout and revocation before declaring the
 full staging rollout accepted. Failed steps are fail-closed; do not bypass the
 Worker, make aliases public, or modify other games' Pages projects.
+
+## One-command protected operator activation (optional)
+
+The manual GitHub Actions steps above remain authoritative. To avoid three
+separate UI dispatches, a trusted human operator with the **GitHub CLI** already
+authenticated to an Actions-write account may use the auditable, locally run
+helper. It does **not** embed, read or print Cloudflare, OCI or Identity secrets.
+
+From a checkout of `shadowops-infra`, with Python 3.10+ and `gh`:
+
+```sh
+python3 scripts/snooker_staging_operator.py
+# First inspect the staging Identity live-release SHA and confirm a signed
+# non-downgrade Identity image SHA that includes Snooker (issue #527).
+python3 scripts/snooker_staging_operator.py --apply --identity-sha <40-hex-admitted-identity-sha>
+```
+
+The first command is read-only. `--apply` is an explicit operator action that
+dispatches the **existing protected** Identity `provision` (only
+`snooker_consumer=enable`) then, if the deployed Identity does not yet
+recognize Snooker, `deploy` with the specified immutable image source SHA.
+It refuses a deployment older than the currently running Identity release
+or older than the Snooker consumer contract. It lastly calls the existing
+Snooker Pages `publish` workflow, which rechecks source CI and SHA, Pages
+ownership, the protected Worker, alias guest denial and custom-host guest
+denial before enabling DNS.
+
+The helper requires a unique fresh run for the exact Infra `main` and the
+same authenticated operator. It **waits for the specific protected job**, not
+just a green workflow with skipped deployment steps. Any failure,
+ambiguous dispatch, unexpected Infra/game SHA change, or missing live Identity
+release receipt stops the sequence. You can inspect the reported Actions run
+URLs to diagnose; do not disable protection or rotate other credentials.
+Retrying after partial success is safe at the existing workflow contract
+level, but the helper revalidates the live state before any new invocation.
+
+**No operator approval is delegated to the helper.** Actions environment
+rules, CI provenance and Cloudflare secret custody remain unchanged. Running
+this script in ChatGPT without an authorized `gh` session does not activate
+staging. Even after successful guest-denial checks, **human signed-in browser
+and revoked-session validation remains a separate release-acceptance gate**.
