@@ -107,15 +107,43 @@ def probe(url):
     except urllib.error.URLError:
         raise ProvisionError("Snooker staging HTTPS unavailable") from None
 
+def actual_alias_hosts(project):
+    alias = project["subdomain"]
+    hosts = {alias}
+    found_deployment = False
+    for field in ("latest_deployment", "canonical_deployment"):
+        deployment = project.get(field)
+        if deployment is None:
+            continue
+        if not isinstance(deployment, dict):
+            raise ProvisionError("Invalid Pages deployment metadata")
+        url = deployment.get("url")
+        if not isinstance(url, str) or not url:
+            continue
+        parsed = urllib.parse.urlsplit(url)
+        if (parsed.scheme != "https" or parsed.username or parsed.password or
+                parsed.port is not None or parsed.path not in ("", "/") or
+                parsed.query or parsed.fragment or
+                not (parsed.hostname == alias or parsed.hostname.endswith("." + alias))):
+            raise ProvisionError("Unexpected Pages deployment alias")
+        hosts.add(parsed.hostname)
+        found_deployment = True
+    if not found_deployment:
+        raise ProvisionError("No confirmed deployed Pages Worker")
+    return sorted(hosts)
+
+
 def attach_domain(client, read_status=probe):
     project = require_private(client)
     vars_ = (project.get("deployment_configs") or {}).get("production", {}).get("env_vars") or {}
     if set(vars_) != {KEY} or vars_[KEY].get("type") != "secret_text":
         raise ProvisionError("Identity service proof not bound before domain exposure")
     alias = project["subdomain"]
-    # A protected, *actually deployed* Worker must reject the global alias.
-    if read_status("https://" + alias + "/") != 404:
-        raise ProvisionError("Pages alias is not fail-closed: refusing custom domain")
+    # The assigned project host AND actual immutable deployment aliases must
+    # deny. Never guess a generic pages.dev URL.
+    for hostname in actual_alias_hosts(project):
+        if read_status("https://" + hostname + "/") != 404:
+            raise ProvisionError("Pages alias is not fail-closed: refusing custom domain")
     project_url = project_path(client)
     domain_path = project_url + "/domains/" + urllib.parse.quote(HOST, safe="")
     if client.get(domain_path) is None:
@@ -146,14 +174,17 @@ def attach_domain(client, read_status=probe):
         raise ProvisionError("Snooker custom domain and DNS not converged")
     return {"domain": "owned", "dns": "owned", "alias_guest": "denied"}
 
-def smoke_guest(read_status=probe, alias=ALIAS):
-    for address, expected in (
-        ("https://" + alias + "/", 404),
-        ("https://" + alias + "/release.json", 404),
+def smoke_guest(read_status=probe, aliases=None):
+    if not aliases:
+        raise ProvisionError("Explicit real Pages alias inventory required")
+    checks = [(f"https://{alias}/", 404) for alias in aliases]
+    checks += [(f"https://{alias}/release.json", 404) for alias in aliases]
+    checks += [
         ("https://" + HOST + "/", 401),
         ("https://" + HOST + "/assets/guest.js", 401),
         ("https://" + HOST + "/release.json", 401),
-    ):
+    ]
+    for address, expected in checks:
         if read_status(address) != expected:
             raise ProvisionError("Staging anonymous/alias protection smoke failed")
     return {"guest": "denied", "pages_alias": "denied", "identity_login": "required"}
@@ -172,7 +203,8 @@ def main():
             attach_domain(Client(os.environ))
             print("SNOOKER_PAGES_DOMAIN_BOUND alias_guest=denied")
         elif sys.argv[1:] == ["smoke-guest"]:
-            smoke_guest()
+            project = require_private(Client(os.environ))
+            smoke_guest(aliases=actual_alias_hosts(project))
             print("SNOOKER_STAGING_GUEST_DENIAL_VERIFIED")
         else:
             raise ProvisionError("Usage: identity-ready | bind | domain | smoke-guest")
