@@ -1,0 +1,82 @@
+name: ShadowOps Identity · isolated container health (read-only)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/identity-container-health.yml'
+      - 'scripts/identity_staging_container_health.py'
+      - 'tests/test_identity_staging_container_health.py'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/identity-container-health.yml'
+      - 'scripts/identity_staging_container_health.py'
+      - 'tests/test_identity_staging_container_health.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Nonprivileged bounded Docker state contract tests
+        run: python3 -m unittest discover -s tests -p test_identity_staging_container_health.py -v
+      - name: Offline source receipt self-test
+        run: python3 scripts/identity_staging_container_health.py self-test
+  probe:
+    name: Inspect only Identity staging container status (no host mutation)
+    needs: contracts
+    if: >-
+      (github.event_name == 'workflow_dispatch' || github.event_name == 'push') &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    concurrency:
+      group: shadowops-oci-host-operations
+      cancel-in-progress: false
+    env:
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Refuse superseded protected Infra main
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" == "$GITHUB_SHA" ]]
+      - name: Install pinned OCI SDK
+        run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Observe Identity's three fixed container statuses
+        shell: bash
+        run: |
+          set -euo pipefail
+          result="$(python3 scripts/identity_staging_container_health.py run)"
+          case "$result" in
+            IDENTITY_CONTAINER_STATUS\ identity-mongo=*|IDENTITY_CONTAINERS_DOCKER_UNAVAILABLE|IDENTITY_CONTAINERS_DOCKER_INACCESSIBLE|IDENTITY_CONTAINERS_COLLISION|IDENTITY_CONTAINERS_INVALID_STATE) ;;
+            *) echo 'IDENTITY_CONTAINER_PROBE_UNEXPECTED' >&2; exit 1 ;;
+          esac
+          printf '%s\n' "$result"
+          printf '### Identity staging Docker state\n\n- Protected Infra main: `%s`\n- Nonsecret read-only verdict: `%s`\n- Host changes: none\n' "$GITHUB_SHA" "$result" >> "$GITHUB_STEP_SUMMARY"
+          case "$result" in
+            IDENTITY_CONTAINERS_DOCKER_UNAVAILABLE|IDENTITY_CONTAINERS_DOCKER_INACCESSIBLE|IDENTITY_CONTAINERS_COLLISION|IDENTITY_CONTAINERS_INVALID_STATE)
+              exit 1
+              ;;
+          esac
+      - name: Recheck protected main after host observation
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" == "$GITHUB_SHA" ]]
