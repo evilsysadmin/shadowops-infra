@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "application": "snooker",
+  "environment": "staging",
+  "request": "first-activation",
+  "issue": 527,
+  "base_main_sha": "bbdee7e1b83ab7d2b4688fdc94fc3e59192a7e7e",
+  "single_use": true
+}
