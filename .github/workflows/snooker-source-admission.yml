@@ -5,6 +5,8 @@ on:
     paths:
       - '.github/workflows/snooker-source-admission.yml'
       - 'scripts/snooker_source_admission.py'
+      - 'scripts/snooker_release_package.py'
+      - 'tests/test_snooker_release_package.py'
       - 'tests/test_snooker_source_admission.py'
       - 'docs/snooker-staging.md'
   push:
@@ -12,6 +14,8 @@ on:
     paths:
       - '.github/workflows/snooker-source-admission.yml'
       - 'scripts/snooker_source_admission.py'
+      - 'scripts/snooker_release_package.py'
+      - 'tests/test_snooker_release_package.py'
       - 'tests/test_snooker_source_admission.py'
       - 'docs/snooker-staging.md'
   workflow_dispatch:
@@ -31,6 +35,8 @@ jobs:
           persist-credentials: false
       - run: python3 -m unittest discover -s tests -p 'test_snooker_source_admission.py' -v
       - run: python3 -m py_compile scripts/snooker_source_admission.py
+      - run: python3 -m unittest discover -s tests -p 'test_snooker_release_package.py' -v
+      - run: python3 -m py_compile scripts/snooker_release_package.py
 
   candidate:
     name: Read-only Snooker source SHA admission
