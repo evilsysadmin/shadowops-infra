@@ -90,7 +90,7 @@ def validate(bundle: dict) -> None:
         raise BundleError('Invalid independent signing seed')
     consumers = bundle['consumers']
     if (not isinstance(consumers, dict) or 'chronicles' not in consumers
-            or not set(consumers) <= {'chronicles', 'cka-simulator', 'football', 'pawn-action'}
+            or not set(consumers) <= {'chronicles', 'cka-simulator', 'football', 'pawn-action', 'snooker'}
             or any(not isinstance(v, str) or not re.fullmatch('soc1_[A-Za-z0-9_-]{43}', v) for v in consumers.values())
             or len(set(consumers.values())) != len(consumers)
             or any(v[5:] in {bundle['signing_seed'], bundle['backup_key'].rstrip('=')} for v in consumers.values())):
@@ -165,5 +165,16 @@ def enable_pawn_action(bundle: dict) -> dict:
     result['consumers'] = dict(bundle['consumers'])
     if 'pawn-action' not in result['consumers']:
         result['consumers']['pawn-action'] = 'soc1_' + random32()
+    validate(result)
+    return result
+
+
+def enable_snooker(bundle: dict) -> dict:
+    """Opt-in staging Snooker proof once, preserving all other Vault material."""
+    validate(bundle)
+    result = dict(bundle)
+    result['consumers'] = dict(bundle['consumers'])
+    if 'snooker' not in result['consumers']:
+        result['consumers']['snooker'] = 'soc1_' + random32()
     validate(result)
     return result

@@ -15,6 +15,7 @@ on:
       - 'scripts/identity_staging_*.py'
       - 'tests/test_identity_staging_*.py'
       - 'tests/test_identity_pawn_action.py'
+      - 'tests/test_identity_snooker.py'
       - 'tests/test_identity_platform_contract.py'
       - 'config/identity/platform-contract.json'
       - '.github/workflows/identity-staging-operations.yml'
@@ -34,6 +35,7 @@ on:
       - 'scripts/identity_staging_*.py'
       - 'tests/test_identity_staging_*.py'
       - 'tests/test_identity_pawn_action.py'
+      - 'tests/test_identity_snooker.py'
       - 'tests/test_identity_platform_contract.py'
       - 'config/identity/platform-contract.json'
       - '.github/workflows/identity-staging-operations.yml'
@@ -59,6 +61,11 @@ on:
         options: [preserve, enable]
         default: preserve
         description: Provision only — add Pawn Action's own staging audience, preserving all existing credentials
+      snooker_consumer:
+        type: choice
+        options: [preserve, enable]
+        default: preserve
+        description: Provision only — create isolated Snooker staging service proof; preserve all existing applications
       admin_inventory:
         type: choice
         options: [preserve, enable]
@@ -83,6 +90,7 @@ jobs:
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_identity_activation.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_identity_football.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_identity_pawn_action.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_identity_snooker.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_identity_platform_contract.py' -v
       - run: bash -n host/install-identity-staging.sh && bash -n host/bootstrap-identity-staging-over-ssh.sh
       - run: bash -n host/install-shared-identity-staging.sh
@@ -153,6 +161,7 @@ jobs:
       IDENTITY_STAGING_CKA: ${{ inputs.cka_consumer || 'preserve' }}
       IDENTITY_STAGING_FOOTBALL: ${{ inputs.football_consumer || 'preserve' }}
       IDENTITY_STAGING_PAWN_ACTION: ${{ inputs.pawn_action_consumer || 'preserve' }}
+      IDENTITY_STAGING_SNOOKER: ${{ inputs.snooker_consumer || 'preserve' }}
       IDENTITY_STAGING_ADMIN_INVENTORY: ${{ inputs.admin_inventory || 'preserve' }}
       OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
       OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
