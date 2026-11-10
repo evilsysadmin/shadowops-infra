@@ -32,3 +32,8 @@ ocarun ALL=(root) NOPASSWD: SHADOWOPS_IDENTITY_ATLAS_RELEASE
 # The fixed root operator rejects any file except the root-owned empty 0644 lock.
 Cmnd_Alias SHADOWOPS_IDENTITY_ATLAS_LOCK = /usr/local/sbin/shadowops-identity-atlas-lock status, /usr/local/sbin/shadowops-identity-atlas-lock repair
 ubuntu ALL=(root) NOPASSWD: SHADOWOPS_IDENTITY_ATLAS_LOCK
+
+# Explicit one-file Snooker candidate preparation. Root operator validates only
+# the preapproved Vault OCID; neither legacy Atlas config nor runtime is changed.
+Cmnd_Alias SHADOWOPS_IDENTITY_ATLAS_SNOOKER_STAGE = /usr/local/sbin/shadowops-identity-atlas-snooker-config stage *
+ocarun ALL=(root) NOPASSWD: SHADOWOPS_IDENTITY_ATLAS_SNOOKER_STAGE

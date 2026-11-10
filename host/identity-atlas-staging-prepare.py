@@ -14,6 +14,7 @@ import tempfile
 sys.path.insert(0, '/usr/local/lib/shadowops')
 from identity_staging_atlas_custody import derived_configs
 from identity_staging_atlas import _connection
+from identity_staging_atlas_lock import exclusive as atlas_lock
 
 ROOT = Path('/etc/shadowops/identity-staging')
 STATE = Path('/var/lib/shadowops/identity-staging')
@@ -202,8 +203,7 @@ def main():
             raise PrepareError('Invalid Atlas staging preparation request')
         trusted_dir(ROOT)
         trusted_dir(STATE)
-        with (STATE / 'deploy.lock').open('a') as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with atlas_lock(STATE):
             if sys.argv[1] == 'check-inventory-inactive':
                 load_private(ROOT / 'atlas-service.json', 65532)
                 if candidate_is_mounted(ROOT / 'atlas-service.json'):

@@ -182,6 +182,45 @@ def execute_atlas_prepare(sdk,config,pause=time.sleep,clock=time.monotonic,mode=
         pause(3)
     raise ReleaseError('Atlas configuration preparation timed out')
 
+def execute_atlas_snooker_config(sdk,config,pause=time.sleep,clock=time.monotonic):
+    """Stage a separate, never-mounted candidate config; no service mutation."""
+    inspect(sdk,config)
+    compartment,instance=resolve_existing_host(sdk,config)
+    vault,_,_=resolve_vault(sdk,config,compartment)
+    if not VAULT.fullmatch(vault):
+        raise ReleaseError('Invalid fixed staging Vault custody')
+    wrapper='/usr/local/sbin/shadowops-identity-atlas-snooker-config'
+    command='set -eu\ntest -x '+wrapper+'\nsudo --non-interactive '+wrapper+' stage '+vault+'\n'
+    models=sdk.compute_instance_agent.models
+    details=models.CreateInstanceAgentCommandDetails(
+        compartment_id=compartment,execution_time_out_in_seconds=300,
+        target=models.InstanceAgentCommandTarget(instance_id=instance),
+        content=models.InstanceAgentCommandContent(
+            source=models.InstanceAgentCommandSourceViaTextDetails(text=command),
+            output=models.InstanceAgentCommandOutputViaTextDetails(output_type='TEXT')),
+        display_name='identity-staging-atlas-snooker-config-stage')
+    client=sdk.compute_instance_agent.ComputeInstanceAgentClient(config)
+    created=client.create_instance_agent_command(create_instance_agent_command_details=details).data
+    if not getattr(created,'id',None):
+        raise ReleaseError('Missing protected candidate staging command')
+    deadline=clock()+480
+    pattern=re.compile(r'IDENTITY_ATLAS_SNOOKER_CONFIG_STAGED result=(created|already-matching) previous_config=unchanged local_source=unchanged deploy=not-attempted\Z')
+    while clock()<deadline:
+        execution=client.get_instance_agent_command_execution(
+            instance_agent_command_id=created.id,instance_id=instance).data
+        state=str(getattr(execution,'lifecycle_state','')).upper()
+        if state in {'SUCCEEDED','FAILED','TIMED_OUT','CANCELED'}:
+            output=str(getattr(getattr(execution,'content',None),'text','') or '').strip()
+            if (state!='SUCCEEDED'
+                or getattr(getattr(execution,'content',None),'exit_code',None)!=0
+                or not pattern.fullmatch(output)):
+                # Never print OCI execution text or the Vault ID.
+                raise ReleaseError('Snooker Atlas candidate stage not verified')
+            return 'IDENTITY_ATLAS_SNOOKER_CONFIG_COMMAND_COMPLETED legacy=unchanged activation=not-attempted'
+        pause(3)
+    raise ReleaseError('Snooker Atlas candidate stage timed out')
+
+
 def execute_atlas_preflight(sdk,config,digest,sha,pause=time.sleep,clock=time.monotonic):
     if not DIGEST.fullmatch(digest) or not SHA.fullmatch(sha):
         raise ReleaseError('Invalid Atlas preflight source')
@@ -421,6 +460,8 @@ def main():
             print(execute_atlas_canary(oci,config,os.environ.get('ADMITTED_DIGEST',''),os.environ.get('ADMITTED_SHA',''),mode=mode))
         elif sys.argv[1:]==['atlas-preflight']:
             print(execute_atlas_preflight(oci,config,os.environ.get('ADMITTED_DIGEST',''),os.environ.get('ADMITTED_SHA','')))
+        elif sys.argv[1:]==['atlas-snooker-config']:
+            print(execute_atlas_snooker_config(oci,config))
         elif sys.argv[1:]==['atlas-prepare']:
             print(execute_atlas_prepare(oci,config))
         elif sys.argv[1:]==['atlas-prepare-database-scoped']:

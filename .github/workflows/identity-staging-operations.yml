@@ -13,6 +13,7 @@ on:
       - 'host/identity-atlas-staging-preflight.py'
       - 'host/identity-atlas-staging-canary.py'
       - 'host/identity-atlas-staging-deploy.py'
+      - 'host/identity-atlas-staging-snooker-config.py'
       - 'host/inspect-identity-atlas-snooker-audience-over-ssh.sh'
       - 'scripts/identity_staging_*.py'
       - 'tests/test_identity_staging_*.py'
@@ -35,6 +36,7 @@ on:
       - 'host/identity-atlas-staging-preflight.py'
       - 'host/identity-atlas-staging-canary.py'
       - 'host/identity-atlas-staging-deploy.py'
+      - 'host/identity-atlas-staging-snooker-config.py'
       - 'host/inspect-identity-atlas-snooker-audience-over-ssh.sh'
       - 'scripts/identity_staging_*.py'
       - 'tests/test_identity_staging_*.py'
@@ -47,7 +49,7 @@ on:
     inputs:
       action:
         type: choice
-        options: [provision, deploy, inspect, backup, atlas-custody, atlas-prepare, atlas-prepare-database-scoped, atlas-preflight, atlas-canary, atlas-journey, atlas-restore-rehearsal, atlas-release, atlas-backup, atlas-roles-plan, atlas-roles-apply, atlas-roles-check, atlas-rotate-inventory, atlas-refresh-inventory]
+        options: [provision, deploy, inspect, backup, atlas-custody, atlas-prepare, atlas-prepare-database-scoped, atlas-snooker-config, atlas-preflight, atlas-canary, atlas-journey, atlas-restore-rehearsal, atlas-release, atlas-backup, atlas-roles-plan, atlas-roles-apply, atlas-roles-check, atlas-rotate-inventory, atlas-refresh-inventory]
         required: true
         description: Provision local custody, deploy, inspect, backup, or create separate Atlas custody
       cka_consumer:
@@ -243,6 +245,31 @@ jobs:
       - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
       - name: Prepare separate Atlas configuration only
         run: python scripts/identity_staging_release.py "$ATLAS_PREPARE_ACTION"
+  atlas-snooker-config:
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'atlas-snooker-config' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    environment: staging
+    concurrency:
+      group: shadowops-oci-host-operations
+      cancel-in-progress: false
+    env:
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Stage distinct Snooker config, leave mounted legacy configuration intact
+        run: python scripts/identity_staging_release.py atlas-snooker-config
   atlas-backup:
     needs: contracts
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'atlas-backup' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
