@@ -33,7 +33,7 @@ INTENT = {
 }
 FILES = frozenset({REQUEST, ".github/workflows/" + WORKFLOW,
                    "scripts/snooker_atlas_release_request.py", "tests/test_snooker_atlas_release_request.py"})
-SHA = re.compile(r"[a-f0-9]{40}\\Z")
+SHA = re.compile(r"[a-f0-9]{40}\Z")
 
 
 class RequestBlocked(ValueError):
