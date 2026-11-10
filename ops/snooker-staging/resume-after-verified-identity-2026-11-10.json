@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "application": "snooker",
+  "environment": "staging",
+  "request": "resume-after-verified-identity-health",
+  "issue": 527,
+  "base_main_sha": "5add17a61c7471f25b05267e1d601458b313a863",
+  "single_use": true,
+  "requires": "IDENTITY_WRAPPER_FINGERPRINT_CURRENT",
+  "health": "identity-mongo=running/healthy identity=running/healthy identity-tunnel=running"
+}

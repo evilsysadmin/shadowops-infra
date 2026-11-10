@@ -51,6 +51,7 @@ class OneUseResumeTests(unittest.TestCase):
             ("base_main_sha", HEAD),
             ("single_use", False),
             ("requires", "no-host-verification"),
+            ("health", "identity=unhealthy"),
             ("issue", 999),
         ]:
             with self.subTest(name=name), self.assertRaises(ticket.RequestBlocked):

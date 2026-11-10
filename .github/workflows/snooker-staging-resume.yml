@@ -1,12 +1,14 @@
-name: Snooker · resume staging after Identity host repair (one time)
+name: Snooker · resume staging after verified Identity health (one time)
 on:
   push:
     branches: [main]
     paths:
       - 'ops/snooker-staging/resume-after-identity-ssh-2026-11-09.json'
+      - 'ops/snooker-staging/resume-after-verified-identity-2026-11-10.json'
   pull_request:
     paths:
       - 'ops/snooker-staging/resume-after-identity-ssh-2026-11-09.json'
+      - 'ops/snooker-staging/resume-after-verified-identity-2026-11-10.json'
       - '.github/workflows/snooker-staging-resume.yml'
       - 'scripts/snooker_staging_resume_request.py'
       - 'tests/test_snooker_staging_resume_request.py'
@@ -31,7 +33,7 @@ jobs:
       github.ref == 'refs/heads/main' &&
       github.repository == 'evilsysadmin/shadowops-infra'
     runs-on: ubuntu-24.04
-    timeout-minutes: 22
+    timeout-minutes: 32
     environment:
       name: staging
       url: https://staging.snooker.shadowops.dpdns.org/
@@ -84,16 +86,31 @@ jobs:
               exit 1
               ;;
           esac
+      - name: Require live healthy Identity containers before Snooker activation
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt="$(python3 scripts/identity_staging_container_health.py run)"
+          case "$receipt" in
+            'IDENTITY_CONTAINER_STATUS identity-mongo=running/healthy identity=running/healthy identity-tunnel=running/none'|'IDENTITY_CONTAINER_STATUS identity-mongo=running/healthy identity=running/healthy identity-tunnel=running/healthy')
+              echo 'SNOOKER_IDENTITY_DOCKER_READY mongo=healthy identity=healthy tunnel=running'
+              echo '- Identity Docker state: healthy, no host changes' >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            *)
+              echo 'SNOOKER_IDENTITY_DOCKER_NOT_READY' >&2
+              exit 1
+              ;;
+          esac
       - name: Refuse superseded main before dispatch
         shell: bash
         run: |
           set -euo pipefail
           current="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
           [[ "$current" == "$GITHUB_SHA" ]]
-      - name: Dispatch previously approved Snooker provision/deploy/Pages sequence
+      - name: Dispatch protected Snooker provision/deploy/Pages after live health
         shell: bash
         run: |
           set -euo pipefail
           gh workflow run snooker-staging-activate.yml --repo "$GITHUB_REPOSITORY" --ref main
-          printf '%s\n' 'Snooker staging activation dispatched only after root-owned Identity host code was verified current.' >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' 'Snooker staging activation dispatched only after reviewed host code and three Identity containers were verified healthy.' >> "$GITHUB_STEP_SUMMARY"
           printf '%s\n' 'Existing child staging approvals, image admission, Pages security and signed-in E2E acceptance remain required.' >> "$GITHUB_STEP_SUMMARY"
