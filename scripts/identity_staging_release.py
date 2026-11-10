@@ -398,6 +398,9 @@ ATLAS_RELEASE_SOURCES = {
     'host/identity-atlas-staging-backup.py': ('/usr/local/sbin/shadowops-identity-atlas-backup', '755'),
     'scripts/identity_staging_atlas_transition.py': ('/usr/local/lib/shadowops/identity_staging_atlas_transition.py', '644'),
     'scripts/identity_staging_atlas_policy.py': ('/usr/local/lib/shadowops/identity_staging_atlas_policy.py', '644'),
+    'scripts/identity_staging_atlas_snooker_config.py': ('/usr/local/lib/shadowops/identity_staging_atlas_snooker_config.py', '644'),
+    'host/identity-atlas-staging-prepare.py': ('/usr/local/sbin/shadowops-identity-atlas-prepare', '755'),
+    'compose.identity.atlas.staging.yaml': ('/etc/shadowops/identity-staging/atlas-compose.yaml', '644'),
     'scripts/shared_a1_host_guard.py': ('/usr/local/lib/shadowops/shared_a1_host_guard.py', '644'),
     **CANARY_SOURCES,
 }

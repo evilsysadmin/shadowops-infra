@@ -16,6 +16,8 @@ import stat
 PROJECT = "shadowops-identity-staging"
 IMAGE = "ghcr.io/evilsysadmin/shadowops-identity@"
 CONFIG = "/etc/shadowops/identity-staging/atlas-service.json"
+SNOOKER_CONFIG = "/etc/shadowops/identity-staging/atlas-snooker-service.json"
+ALLOWED_CONFIGS = frozenset({CONFIG, SNOOKER_CONFIG})
 TARGET = "/run/secrets/identity-staging.json"
 NETWORKS = frozenset({PROJECT + "-origin", PROJECT + "-atlas-egress"})
 DIGEST = re.compile(r"sha256:[a-f0-9]{64}\Z")
@@ -25,12 +27,14 @@ class AtlasTransitionBlocked(ValueError):
     """Always use static error text, never raw Docker/host exception strings."""
 
 
-def image_from_atlas_container(rows):
+def image_from_atlas_container(rows, config_source=CONFIG):
     """Prove a single healthy Atlas-bound Compose Identity and immutable image.
 
     Returns a digest only, not proof of valid signing or a safe rollback.
     Callers must independently admit that digest before using it.
     """
+    if config_source not in ALLOWED_CONFIGS:
+        raise AtlasTransitionBlocked("Untrusted Identity config source")
     if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
         raise AtlasTransitionBlocked("Ambiguous Identity container")
     row = rows[0]
@@ -63,7 +67,7 @@ def image_from_atlas_container(rows):
     candidates = [m for m in mounts if isinstance(m, dict)
                   and m.get("Destination") == TARGET]
     if (len(candidates) != 1 or candidates[0].get("Type") != "bind"
-            or candidates[0].get("Source") != CONFIG
+            or candidates[0].get("Source") != config_source
             or candidates[0].get("RW") is not False):
         raise AtlasTransitionBlocked("Identity does not bind Atlas config read-only")
     return image.removeprefix(IMAGE)

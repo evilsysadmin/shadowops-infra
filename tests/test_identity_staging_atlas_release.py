@@ -34,7 +34,7 @@ def inspected(image, sha):
         "NetworkSettings": {"Networks": {
             release.PROJECT + "-origin": {},
             release.PROJECT + "-atlas-egress": {}}},
-        "Mounts": [{"Source": "/etc/shadowops/identity-staging/atlas-service.json",
+        "Mounts": [{"Source": release.CONFIG if image == OLD else release.SNOOKER_CONFIG,
                     "Destination": "/run/secrets/identity-staging.json",
                     "RW": False, "Type": "bind"}],
     }]
@@ -44,7 +44,8 @@ class Preflight:
     def trusted_paths(self):
         return None
 
-    def execute(self, digest, sha):
+    def execute(self, digest, sha, config_path=None):
+        assert config_path == release.SNOOKER_CONFIG, "Candidate must preflight using isolated config"
         return "IDENTITY_ATLAS_PREFLIGHT_OK source_sha=" + sha + " digest=" + digest
 
 
@@ -59,16 +60,21 @@ class FakeRunner:
         self.fail_candidate = fail_candidate
         self.fail_previous = fail_previous
         self.mutations = []
+        self.config_paths = []
 
-    def __call__(self, args, *, digest=None, timeout=180):
+    def __call__(self, args, *, digest=None, config_source=None, timeout=180):
         if args[:3] == ["docker", "ps", "-aq"]:
             return ID + "\n"
         if args[:2] == ["docker", "inspect"]:
             sha = OLD_SHA if self.active == OLD else NEW_SHA
             return json.dumps(inspected(self.active, sha))
         if args[:2] == ["docker", "compose"] and "config" in args:
+            self.config_paths.append((digest, config_source, "config"))
+            assert config_source == (release.CONFIG if digest == OLD else release.SNOOKER_CONFIG)
             return "{}"
         if args[:2] == ["docker", "compose"] and "up" in args:
+            self.config_paths.append((digest, config_source, "up"))
+            assert config_source == (release.CONFIG if digest == OLD else release.SNOOKER_CONFIG)
             assert args[-1] == "identity"
             assert "--no-deps" in args and "--pull" in args
             self.mutations.append(digest)
@@ -93,7 +99,8 @@ class AtlasReleaseCandidateTests(unittest.TestCase):
             journal = release.TransitionCheckpoint(directory, expected_uid=os.getuid())
             with patch.object(release, "root_file"), patch.object(
                 release, "require_atlas_restore_evidence"
-            ), patch.object(release, "validate_atlas_compose"):
+            ), patch.object(release, "validate_atlas_compose"), patch.object(
+                release, "require_isolated_config"):
                 try:
                     result = release.update(candidate, source, runner=fake,
                                             preflight=Preflight(), backup_operator=Backup(),
@@ -107,6 +114,8 @@ class AtlasReleaseCandidateTests(unittest.TestCase):
         receipt, pending = self.execute(fake)
         self.assertEqual(receipt, "IDENTITY_ATLAS_DEPLOY_OK source_sha=" + NEW_SHA + " digest=" + NEW)
         self.assertEqual(fake.mutations, [NEW])
+        self.assertIn((NEW, release.SNOOKER_CONFIG, "up"), fake.config_paths)
+        self.assertIn((OLD, release.CONFIG, "config"), fake.config_paths)
         self.assertFalse(pending)
 
     def test_failed_candidate_rolls_back_before_success_receipt(self):
@@ -114,6 +123,8 @@ class AtlasReleaseCandidateTests(unittest.TestCase):
         with self.assertRaisesRegex(release.AtlasTransitionBlocked, "previous release verified"):
             self.execute(fake)
         self.assertEqual(fake.mutations, [NEW, OLD])
+        self.assertIn((NEW, release.SNOOKER_CONFIG, "up"), fake.config_paths)
+        self.assertIn((OLD, release.CONFIG, "up"), fake.config_paths)
         self.assertEqual(fake.active, OLD)
 
     def test_unverified_rollback_keeps_durable_checkpoint(self):
@@ -122,7 +133,8 @@ class AtlasReleaseCandidateTests(unittest.TestCase):
             journal = release.TransitionCheckpoint(directory, expected_uid=os.getuid())
             with patch.object(release, "root_file"), patch.object(
                 release, "require_atlas_restore_evidence"
-            ), patch.object(release, "validate_atlas_compose"):
+            ), patch.object(release, "validate_atlas_compose"), patch.object(
+                release, "require_isolated_config"):
                 with self.assertRaisesRegex(release.AtlasTransitionBlocked, "checkpoint retained"):
                     release.update(NEW, NEW_SHA, runner=fake, preflight=Preflight(),
                                    backup_operator=Backup(), check_shared=lambda: None,
@@ -152,11 +164,11 @@ class AtlasReleaseCandidateTests(unittest.TestCase):
         fake = FakeRunner()
         original = fake.__call__
         class Mismatch:
-            def __call__(self, args, *, digest=None, timeout=180):
+            def __call__(self, args, *, digest=None, config_source=None, timeout=180):
                 if args[0] == "curl" and args[-1].endswith("/api/identity/release"):
                     return json.dumps({"service": "shadowops-identity",
                                        "environment": "staging", "source_sha": NEW_SHA})
-                return original(args, digest=digest, timeout=timeout)
+                return original(args, digest=digest, config_source=config_source, timeout=timeout)
         with self.assertRaisesRegex(release.AtlasReleaseBlocked, "differs"):
             self.execute(Mismatch())
         self.assertEqual(fake.mutations, [])

@@ -16,6 +16,7 @@ from identity_staging_atlas_lock import exclusive as atlas_lock
 ROOT=Path('/etc/shadowops/identity-staging')
 STATE=Path('/var/lib/shadowops/identity-staging')
 CONFIG=ROOT/'atlas-service.json'
+SNOOKER_CONFIG=ROOT/'atlas-snooker-service.json'
 IMAGE='ghcr.io/evilsysadmin/shadowops-identity@'
 DIGEST=re.compile(r'sha256:[a-f0-9]{64}')
 SHA=re.compile(r'[a-f0-9]{40}')
@@ -43,9 +44,24 @@ def trusted_paths():
         raise PreflightError('Invalid Atlas staging configuration')
 
 
-def execute(digest,sha,runner=run,nonce=None):
+def execute(digest,sha,runner=run,nonce=None,config_path=CONFIG):
     if not isinstance(digest,str) or not DIGEST.fullmatch(digest) or not isinstance(sha,str) or not SHA.fullmatch(sha):
         raise PreflightError('Invalid immutable preflight request')
+    # The isolated path is selected only by the reviewed Atlas release operator;
+    # the existing standalone preflight continues to use the legacy config.
+    if not isinstance(config_path, (str, Path)) or str(config_path) not in (
+            str(CONFIG), str(SNOOKER_CONFIG)):
+        raise PreflightError('Untrusted Atlas preflight config')
+    config_path = Path(config_path)
+    if config_path == SNOOKER_CONFIG:
+        # Standalone legacy preflight already validates its existing file in
+        # trusted_paths(). The opt-in Snooker candidate must be a trusted,
+        # read-only, distinct private file before pulling any image.
+        meta = config_path.lstat()
+        if (stat.S_ISLNK(meta.st_mode) or not stat.S_ISREG(meta.st_mode)
+                or meta.st_uid != 65532 or stat.S_IMODE(meta.st_mode) != 0o400
+                or meta.st_size > 131072):
+            raise PreflightError('Invalid isolated Snooker preflight configuration')
     image=IMAGE+digest
     runner(['docker','pull',image])
     labels=json.loads(runner(['docker','image','inspect',image,'--format','{{json .Config.Labels}}']))
@@ -63,7 +79,7 @@ def execute(digest,sha,runner=run,nonce=None):
         # environment, OCI command output or Docker labels.
         runner(['docker','run','--rm','--network',network,'--read-only','--cap-drop','ALL',
                 '--security-opt','no-new-privileges:true','--pids-limit','128','--memory','256m',
-                '--user','65532:65532','--mount','type=bind,src='+str(CONFIG)+',dst=/run/secrets/identity-staging.json,readonly',
+                '--user','65532:65532','--mount','type=bind,src='+str(config_path)+',dst=/run/secrets/identity-staging.json,readonly',
                 image,'preflight'],timeout=60)
     finally:
         if created:
