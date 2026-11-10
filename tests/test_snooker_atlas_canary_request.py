@@ -22,8 +22,8 @@ class AtlasCanaryRequestTests(unittest.TestCase):
         req.verify(json.dumps(req.INTENT, indent=2) + "\n",
                    {req.REQUEST: "A",
                     ".github/workflows/" + req.WORKFLOW: "A",
-                    "scripts/snooker_atlas_preflight_request.py": "A",
-                    "tests/test_snooker_atlas_preflight_request.py": "A"},
+                    "scripts/snooker_atlas_canary_request.py": "A",
+                    "tests/test_snooker_atlas_canary_request.py": "A"},
                    [req.BASE], HEAD, ENV)
 
     def test_exact_first_addition_and_squash_are_accepted(self):
