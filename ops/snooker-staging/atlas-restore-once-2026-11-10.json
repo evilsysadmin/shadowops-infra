@@ -2,7 +2,7 @@
   "schema": 1,
   "application": "snooker",
   "environment": "staging",
-  "action": "atlas-restore",
+  "action": "atlas-restore-rehearsal",
   "issue": 527,
   "source_sha": "4a48dff49c4a77703c6f4b164120d3cef8e77e76",
   "published_image_run": 42611388936,
