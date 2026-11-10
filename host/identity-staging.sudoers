@@ -27,3 +27,8 @@ ocarun ALL=(root) NOPASSWD: SHADOWOPS_IDENTITY_ATLAS_CANARY
 # No arbitrary shell, Docker, marker removal, local Mongo release or secret access.
 Cmnd_Alias SHADOWOPS_IDENTITY_ATLAS_RELEASE = /usr/local/sbin/shadowops-identity-atlas-deploy deploy *
 ocarun ALL=(root) NOPASSWD: SHADOWOPS_IDENTITY_ATLAS_RELEASE
+
+# Explicit, exact status and legacy lock repair only. No shell, no path or mode args.
+# The fixed root operator rejects any file except the root-owned empty 0644 lock.
+Cmnd_Alias SHADOWOPS_IDENTITY_ATLAS_LOCK = /usr/local/sbin/shadowops-identity-atlas-lock status, /usr/local/sbin/shadowops-identity-atlas-lock repair
+ubuntu ALL=(root) NOPASSWD: SHADOWOPS_IDENTITY_ATLAS_LOCK
