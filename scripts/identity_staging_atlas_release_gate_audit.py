@@ -19,6 +19,9 @@ import re
 import stat
 import sys
 
+# This audit never writes Python bytecode alongside privileged installed files.
+sys.dont_write_bytecode = True
+
 OPERATOR = Path("/usr/local/sbin/shadowops-identity-atlas-deploy")
 SOURCE = Path("/opt/shadowops-infra/host/identity-atlas-staging-deploy.py")
 PREFLIGHT = Path("/usr/local/sbin/shadowops-identity-atlas-preflight")
