@@ -1,0 +1,71 @@
+name: Snooker · bootstrap dedicated private Pages once
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/snooker-private-pages-bootstrap-once.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/snooker-private-pages-bootstrap-once.yml'
+permissions:
+  contents: read
+jobs:
+  contracts:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p test_snooker_pages_provision.py -v
+      - run: python3 -m unittest discover -s tests -p test_snooker_pages_readiness.py -v
+  dispatch:
+    if: >-
+      github.event_name == 'push' &&
+      github.run_attempt == 1 &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    environment:
+      name: staging
+    concurrency:
+      group: shadowops-snooker-private-pages-bootstrap-once
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Require one-file first addition to the exact protected main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git show -s --format=%P "$GITHUB_SHA")" = '22d022d28a7f739d3bb52cbeb08ae61e79f73ad4'
+          test "$(git diff --name-status '22d022d28a7f739d3bb52cbeb08ae61e79f73ad4' "$GITHUB_SHA")" = $'A\t.github/workflows/snooker-private-pages-bootstrap-once.yml'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" = "$GITHUB_SHA"
+      - name: Verify prior read-only Cloudflare inventory and private project contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          previous="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/42825816580" --jq '.head_sha + ":" + .conclusion + ":" + .event')"
+          test "$previous" = '22d022d28a7f739d3bb52cbeb08ae61e79f73ad4:success:push'
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/42825816580/jobs?per_page=100" \
+            | python3 -c 'import json,sys;j=json.load(sys.stdin)["jobs"];good={x["name"] for x in j if x["conclusion"]=="success"};assert {"Offline identity and foreign-resource rejection","Read existing Cloudflare Pages and DNS, no writes"}<=good'
+          python3 -m unittest discover -s tests -p test_snooker_pages_provision.py -v
+      - name: Dispatch existing staging-protected fail-closed Pages provisioner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" = "$GITHUB_SHA"
+          gh workflow run snooker-pages-provision.yml --repo "$GITHUB_REPOSITORY" --ref main
+          echo 'Only dedicated empty Pages project provisioning dispatched.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Verify child provision job and project fail_open=false for production/preview before any content release.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'This request never publishes assets, binds Identity, creates DNS or activates the custom domain.' >> "$GITHUB_STEP_SUMMARY"
