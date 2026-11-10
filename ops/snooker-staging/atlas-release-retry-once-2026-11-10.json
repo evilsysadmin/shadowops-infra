@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "application": "snooker",
+  "environment": "staging",
+  "action": "atlas-release",
+  "issue": 527,
+  "source_sha": "4a48dff49c4a77703c6f4b164120d3cef8e77e76",
+  "published_image_run": 42611388936,
+  "successful_admin_run": 42807029176,
+  "successful_restore_run": 42810596084,
+  "successful_audit_run": 42821843479,
+  "attempt": 2,
+  "validated_digest": "sha256:6534fb861d3201ab9697b6b84d58a157af748b36c8e96482afd7ea8ca5cddb91",
+  "base_main_sha": "b65ea5f0ecf9c67db0aa0b819ab1be5dba628f49",
+  "single_use": true
+}
