@@ -22,7 +22,7 @@ LOCAL_CONFIG = "/etc/shadowops/identity-staging/service.json"
 ATLAS_CONFIG = "/etc/shadowops/identity-staging/atlas-service.json"
 STATES = frozenset({"running", "exited", "created", "restarting", "paused", "dead"})
 ERROR = "IDENTITY_ATLAS_MODE_BLOCKED"
-IDENTITY = re.compile(r"[a-f0-9]{12,64}\\Z")
+IDENTITY = re.compile(r"[a-f0-9]{12,64}\Z")
 
 
 class ModeError(ValueError):
