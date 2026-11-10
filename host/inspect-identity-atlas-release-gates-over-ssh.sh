@@ -39,7 +39,7 @@ probe="$repo/scripts/identity_staging_atlas_release_gate_audit.py"
 # 'config' only. No backup operation, image pull, preflight container or cutover.
 if ! result="$(ssh -o 'ProxyCommand=cloudflared access ssh --hostname %h' \
   -o ConnectTimeout=20 ubuntu@ssh-chess-studio-staging.shadowops.dpdns.org \
-  'sudo --non-interactive /opt/shadowops/oci-venv/bin/python -I -' < "$probe" 2>/dev/null)"; then
+  'sudo --non-interactive /opt/shadowops/oci-venv/bin/python -I -B -' < "$probe" 2>/dev/null)"; then
   echo 'IDENTITY_ATLAS_RELEASE_GATE_BLOCKED stage=ssh-or-venv'
   exit 1
 fi
