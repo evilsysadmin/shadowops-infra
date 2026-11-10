@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fixed, read-only OCI probe of Identity staging Docker container health.
 
-No sudo, arbitrary commands/paths, logs, env, mounts, secrets or host writes.
+No unrestricted sudo, arbitrary commands/paths, logs, env, mounts, secrets or host writes.
 Docker output is normalized to a finite whitelist before appearing in CI.
 """
 from __future__ import annotations
@@ -32,6 +32,20 @@ ENTRY = re.compile(
     r"health=(healthy|starting|unhealthy|none)\Z"
 )
 TERMINAL = {"SUCCEEDED", "FAILED", "TIMED_OUT", "CANCELED"}
+# OCI Run Command control-plane delivery has already exceeded four minutes
+# in the protected staging probe. Bound the wait without retrying mutations.
+OBSERVATION_DEADLINE_SECONDS = 480
+PROBE_FAILURES = frozenset({"command-id", "remote-command", "receipt", "timeout"})
+
+
+class ProbeBlocked(InventoryError):
+    """Fixed, nonsecret OCI failure category; remote output never escapes."""
+
+    def __init__(self, reason):
+        if reason not in PROBE_FAILURES:
+            raise InventoryError("Invalid fixed OCI failure category")
+        self.reason = reason
+        super().__init__("OCI Identity probe could not verify container health")
 
 
 def normalize(output):
@@ -76,8 +90,8 @@ def observe(sdk, config, *, pause=time.sleep, clock=time.monotonic):
     ).data
     command_id = getattr(submitted, "id", None)
     if not command_id:
-        raise InventoryError("Missing OCI probe receipt")
-    deadline = clock() + 240
+        raise ProbeBlocked("command-id")
+    deadline = clock() + OBSERVATION_DEADLINE_SECONDS
     while clock() < deadline:
         result = agent.get_instance_agent_command_execution(
             instance_agent_command_id=command_id, instance_id=instance,
@@ -86,10 +100,13 @@ def observe(sdk, config, *, pause=time.sleep, clock=time.monotonic):
         if state in TERMINAL:
             response = getattr(result, "content", None)
             if state != "SUCCEEDED" or type(getattr(response, "exit_code", None)) is not int or response.exit_code != 0:
-                raise InventoryError("OCI Identity container probe failed")
-            return normalize(str(getattr(response, "text", "") or ""))
+                raise ProbeBlocked("remote-command")
+            try:
+                return normalize(str(getattr(response, "text", "") or ""))
+            except InventoryError:
+                raise ProbeBlocked("receipt") from None
         pause(2)
-    raise InventoryError("OCI Identity container probe timed out")
+    raise ProbeBlocked("timeout")
 
 
 def main():
@@ -109,7 +126,10 @@ def main():
         print(observe(oci, config_from_env(oci, os.environ)))
         return 0
     except Exception as exc:
-        print("IDENTITY_CONTAINER_PROBE_BLOCKED type=" + type(exc).__name__, file=sys.stderr)
+        # Only the finite reason is exported; never surface OCI/host exceptions.
+        reason = " reason=" + exc.reason if isinstance(exc, ProbeBlocked) else ""
+        kind = "InventoryError" if isinstance(exc, ProbeBlocked) else type(exc).__name__
+        print("IDENTITY_CONTAINER_PROBE_BLOCKED type=" + kind + reason, file=sys.stderr)
         return 1
 
 
