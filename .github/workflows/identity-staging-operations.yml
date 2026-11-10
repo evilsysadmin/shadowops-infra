@@ -78,7 +78,7 @@ on:
       expected_atlas_digest:
         type: string
         required: false
-        description: Optional Atlas canary-only equality check against the exact previously preflighted immutable digest
+        description: Optional Atlas canary/journey equality check against the exact previously preflighted immutable digest
 permissions:
   contents: read
 jobs:
@@ -354,10 +354,10 @@ jobs:
           manifest="$(docker buildx imagetools inspect "${IMAGE}:staging-${sha}" --format '{{json .Manifest}}')"
           digest="$(printf '%s' "$manifest" | python3 -c 'import json,sys;print(json.load(sys.stdin)["digest"])')"
           [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 66
-          # Optional canary-only binding to an exactly preflighted image.
+          # Optional canary/journey binding to an exactly preflighted image.
           # Other actions cannot carry this extra expected digest.
           if [[ -n "$EXPECTED_ATLAS_DIGEST" ]]; then
-            [[ "$REQUESTED_ACTION" == atlas-canary && "$digest" == "$EXPECTED_ATLAS_DIGEST" ]] || {
+            [[ ( "$REQUESTED_ACTION" == atlas-canary || "$REQUESTED_ACTION" == atlas-journey ) && "$digest" == "$EXPECTED_ATLAS_DIGEST" ]] || {
               echo 'IDENTITY_ATLAS_DIGEST_MISMATCH'
               exit 67
             }
