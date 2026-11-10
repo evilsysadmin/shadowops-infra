@@ -32,6 +32,15 @@ class RejectActivation(base.FakeRunner):
         return super().__call__(args, digest=digest, timeout=timeout)
 
 
+class RejectRollback(base.FakeRunner):
+    def __call__(self, args, *, digest=None, timeout=180):
+        if (args[:2] == ["docker", "compose"] and "up" in args
+                and digest == base.OLD and self.mutations):
+            self.mutations.append(digest)
+            raise RuntimeError("PRIVATE_ROLLBACK_SECRET")
+        return super().__call__(args, digest=digest, timeout=timeout)
+
+
 class RejectAudience(base.FakeRunner):
     def __call__(self, args, *, digest=None, timeout=180):
         if args[0] == "curl" and args[-1].endswith("/login?app=snooker"):
@@ -92,6 +101,15 @@ class TransitionStageTests(unittest.TestCase):
         self.assertEqual(progress["rollback"], "unverified")
         self.assertEqual(changes, [base.NEW, base.OLD])
         self.assertTrue(pending)
+
+    def test_failed_rollback_activation_retains_journal_and_never_exposes_secret(self):
+        exc, progress, changes, pending = self.run_case(
+            RejectRollback(fail_candidate=True))
+        self.assertEqual(progress["failure"], "candidate-public")
+        self.assertEqual(progress["rollback"], "unverified")
+        self.assertEqual(changes, [base.NEW, base.OLD])
+        self.assertTrue(pending)
+        self.assertNotIn("PRIVATE_", str(exc))
 
     def test_failed_candidate_preflight_does_not_attempt_activation(self):
         _, progress, changes, pending = self.run_case(
