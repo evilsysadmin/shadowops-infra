@@ -1,4 +1,4 @@
-name: Snooker · one-use isolated Atlas Identity admin restore
+name: Snooker · one-use Atlas quarantine restore rehearsal
 on:
   pull_request:
     paths:
