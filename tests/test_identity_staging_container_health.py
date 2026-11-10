@@ -146,12 +146,13 @@ class StagingIdentityContainerHealthTests(unittest.TestCase):
             with self.subTest(category=category):
                 secret = "HOST_SECRET_123"
                 stderr = io.StringIO()
-                with patch.object(sys, "argv", ["probe", "run"]), \\
-                     patch.dict(sys.modules, {"oci": SimpleNamespace()}), \\
-                     patch.object(probe, "config_from_env", return_value={}), \\
-                     patch.object(probe, "observe",
-                                  side_effect=probe.ProbeBlocked(category)), \\
-                     redirect_stderr(stderr):
+                with (
+                    patch.object(sys, "argv", ["probe", "run"]),
+                    patch.dict(sys.modules, {"oci": SimpleNamespace()}),
+                    patch.object(probe, "config_from_env", return_value={}),
+                    patch.object(probe, "observe", side_effect=probe.ProbeBlocked(category)),
+                    redirect_stderr(stderr),
+                ):
                     self.assertEqual(probe.main(), 1)
                 self.assertEqual(
                     stderr.getvalue().strip(),
