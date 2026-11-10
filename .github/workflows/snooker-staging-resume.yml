@@ -6,11 +6,13 @@ on:
       - 'ops/snooker-staging/resume-after-identity-ssh-2026-11-09.json'
       - 'ops/snooker-staging/resume-after-verified-identity-2026-11-10.json'
       - 'ops/snooker-staging/resume-after-custody-reinstall-2026-11-10.json'
+      - 'ops/snooker-staging/resume-after-bounded-oci-probe-2026-11-10.json'
   pull_request:
     paths:
       - 'ops/snooker-staging/resume-after-identity-ssh-2026-11-09.json'
       - 'ops/snooker-staging/resume-after-verified-identity-2026-11-10.json'
       - 'ops/snooker-staging/resume-after-custody-reinstall-2026-11-10.json'
+      - 'ops/snooker-staging/resume-after-bounded-oci-probe-2026-11-10.json'
       - '.github/workflows/snooker-staging-resume.yml'
       - 'scripts/snooker_staging_resume_request.py'
       - 'tests/test_snooker_staging_resume_request.py'
