@@ -352,11 +352,67 @@ def execute_atlas_restore_rehearsal(sdk,config,pause=time.sleep,clock=time.monot
     raise ReleaseError('Atlas restore rehearsal timed out')
 
 
+# Deployment code is installed by an independent trusted root SSH bootstrap,
+# never by this OCI job or a GitHub merge. Admit only matching installed hashes.
+ATLAS_RELEASE_SOURCES = {
+    'host/identity-atlas-staging-deploy.py': ('/usr/local/sbin/shadowops-identity-atlas-deploy', '755'),
+    'host/identity-atlas-staging-backup.py': ('/usr/local/sbin/shadowops-identity-atlas-backup', '755'),
+    'scripts/identity_staging_atlas_transition.py': ('/usr/local/lib/shadowops/identity_staging_atlas_transition.py', '644'),
+    'scripts/identity_staging_atlas_policy.py': ('/usr/local/lib/shadowops/identity_staging_atlas_policy.py', '644'),
+    'scripts/shared_a1_host_guard.py': ('/usr/local/lib/shadowops/shared_a1_host_guard.py', '644'),
+    **CANARY_SOURCES,
+}
+
+
+def atlas_release_host_command(digest, sha, hashes):
+    if not isinstance(digest, str) or not DIGEST.fullmatch(digest) or not isinstance(sha, str) or not SHA.fullmatch(sha):
+        raise ReleaseError('Invalid Atlas release identity')
+    command = installed_source_guard(ATLAS_RELEASE_SOURCES, hashes)
+    command += 'sudo --non-interactive /usr/local/sbin/shadowops-identity-atlas-deploy deploy ' + digest + ' ' + sha + '\n'
+    return command
+
+
+def execute_atlas_release(sdk, config, digest, sha, pause=time.sleep, clock=time.monotonic):
+    command = atlas_release_host_command(digest, sha,
+                canary_source_digests(sources=ATLAS_RELEASE_SOURCES))
+    inspect(sdk, config)
+    compartment, instance = resolve_existing_host(sdk, config)
+    models = sdk.compute_instance_agent.models
+    details = models.CreateInstanceAgentCommandDetails(
+        compartment_id=compartment, execution_time_out_in_seconds=1000,
+        target=models.InstanceAgentCommandTarget(instance_id=instance),
+        content=models.InstanceAgentCommandContent(
+            source=models.InstanceAgentCommandSourceViaTextDetails(text=command),
+            output=models.InstanceAgentCommandOutputViaTextDetails(output_type='TEXT')),
+        display_name='identity-staging-atlas-release')
+    client = sdk.compute_instance_agent.ComputeInstanceAgentClient(config)
+    created = client.create_instance_agent_command(
+        create_instance_agent_command_details=details).data
+    if not getattr(created, 'id', None):
+        raise ReleaseError('Missing Atlas release command reference')
+    deadline = clock() + 1140
+    while clock() < deadline:
+        execution = client.get_instance_agent_command_execution(
+            instance_agent_command_id=created.id, instance_id=instance).data
+        state = str(getattr(execution, 'lifecycle_state', '')).upper()
+        if state in {'SUCCEEDED', 'FAILED', 'TIMED_OUT', 'CANCELED'}:
+            content = getattr(execution, 'content', None)
+            expected = 'IDENTITY_ATLAS_DEPLOY_OK source_sha=' + sha + ' digest=' + digest
+            if (state != 'SUCCEEDED' or getattr(content, 'exit_code', None) != 0
+                    or str(getattr(content, 'text', '') or '').strip() != expected):
+                raise ReleaseError('Atlas release missing exact runtime receipt; inspect private rollback checkpoint')
+            return expected
+        pause(3)
+    raise ReleaseError('Atlas release timed out; check private rollback checkpoint')
+
+
 def main():
     try:
         import oci
         config=config_from_env(oci,os.environ)
-        if sys.argv[1:]==['atlas-restore-rehearsal']:
+        if sys.argv[1:]==['atlas-release']:
+            print(execute_atlas_release(oci,config,os.environ.get('ADMITTED_DIGEST',''),os.environ.get('ADMITTED_SHA','')))
+        elif sys.argv[1:]==['atlas-restore-rehearsal']:
             print(execute_atlas_restore_rehearsal(oci,config))
         elif sys.argv[1:]==['atlas-backup']:
             print(execute_atlas_backup(oci,config))

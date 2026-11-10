@@ -12,6 +12,7 @@ on:
       - 'host/identity-atlas-staging-prepare.py'
       - 'host/identity-atlas-staging-preflight.py'
       - 'host/identity-atlas-staging-canary.py'
+      - 'host/identity-atlas-staging-deploy.py'
       - 'scripts/identity_staging_*.py'
       - 'tests/test_identity_staging_*.py'
       - 'tests/test_identity_pawn_action.py'
@@ -32,6 +33,7 @@ on:
       - 'host/identity-atlas-staging-prepare.py'
       - 'host/identity-atlas-staging-preflight.py'
       - 'host/identity-atlas-staging-canary.py'
+      - 'host/identity-atlas-staging-deploy.py'
       - 'scripts/identity_staging_*.py'
       - 'tests/test_identity_staging_*.py'
       - 'tests/test_identity_pawn_action.py'
@@ -43,7 +45,7 @@ on:
     inputs:
       action:
         type: choice
-        options: [provision, deploy, inspect, backup, atlas-custody, atlas-prepare, atlas-prepare-database-scoped, atlas-preflight, atlas-canary, atlas-journey, atlas-restore-rehearsal, atlas-backup, atlas-roles-plan, atlas-roles-apply, atlas-roles-check, atlas-rotate-inventory, atlas-refresh-inventory]
+        options: [provision, deploy, inspect, backup, atlas-custody, atlas-prepare, atlas-prepare-database-scoped, atlas-preflight, atlas-canary, atlas-journey, atlas-restore-rehearsal, atlas-release, atlas-backup, atlas-roles-plan, atlas-roles-apply, atlas-roles-check, atlas-rotate-inventory, atlas-refresh-inventory]
         required: true
         description: Provision local custody, deploy, inspect, backup, or create separate Atlas custody
       cka_consumer:
@@ -78,7 +80,7 @@ on:
       expected_atlas_digest:
         type: string
         required: false
-        description: Optional Atlas canary/journey equality check against the exact previously preflighted immutable digest
+        description: Required for atlas-release; optional for canary/journey. Bind to exact previously preflighted digest
 permissions:
   contents: read
 jobs:
@@ -320,7 +322,7 @@ jobs:
           esac
   admit:
     needs: contracts
-    if: github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy' || inputs.action == 'atlas-preflight' || inputs.action == 'atlas-canary' || inputs.action == 'atlas-journey') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy' || inputs.action == 'atlas-preflight' || inputs.action == 'atlas-canary' || inputs.action == 'atlas-journey' || inputs.action == 'atlas-release') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -354,10 +356,14 @@ jobs:
           manifest="$(docker buildx imagetools inspect "${IMAGE}:staging-${sha}" --format '{{json .Manifest}}')"
           digest="$(printf '%s' "$manifest" | python3 -c 'import json,sys;print(json.load(sys.stdin)["digest"])')"
           [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 66
-          # Optional canary/journey binding to an exactly preflighted image.
-          # Other actions cannot carry this extra expected digest.
+          # A release MUST use the exact previously validated immutable image.
+          # Other actions cannot invent or override this digest binding.
+          if [[ "$REQUESTED_ACTION" == atlas-release && -z "$EXPECTED_ATLAS_DIGEST" ]]; then
+            echo 'IDENTITY_ATLAS_RELEASE_DIGEST_REQUIRED'
+            exit 67
+          fi
           if [[ -n "$EXPECTED_ATLAS_DIGEST" ]]; then
-            [[ ( "$REQUESTED_ACTION" == atlas-canary || "$REQUESTED_ACTION" == atlas-journey ) && "$digest" == "$EXPECTED_ATLAS_DIGEST" ]] || {
+            [[ ( "$REQUESTED_ACTION" == atlas-canary || "$REQUESTED_ACTION" == atlas-journey || "$REQUESTED_ACTION" == atlas-release ) && "$digest" == "$EXPECTED_ATLAS_DIGEST" ]] || {
               echo 'IDENTITY_ATLAS_DIGEST_MISMATCH'
               exit 67
             }
@@ -424,6 +430,50 @@ jobs:
       - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
       - name: Run the isolated Atlas canary and require its exact receipt
         run: python scripts/identity_staging_release.py "$ATLAS_CANARY_ACTION"
+  atlas-release:
+    needs: admit
+    # Never run from a push or merge. Requires deliberate staging-approved dispatch.
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'atlas-release' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    environment: staging
+    concurrency:
+      group: shadowops-oci-host-operations
+      cancel-in-progress: false
+    env:
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+      ADMITTED_DIGEST: ${{ needs.admit.outputs.digest }}
+      ADMITTED_SHA: ${{ needs.admit.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Execute only the installed pinned Atlas release and verify rollback receipt
+        run: python scripts/identity_staging_release.py atlas-release
+      - name: Reconfirm public staging Identity source SHA and Snooker login target
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ needs.admit.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import sys
+          sys.path.insert(0, "scripts")
+          from snooker_staging_publish import issuer_ready
+          from snooker_staging_operator import deployed_identity_sha
+          assert deployed_identity_sha() == os.environ["EXPECTED_SOURCE_SHA"]
+          issuer_ready()
+          print("IDENTITY_ATLAS_PUBLIC_SNOOKER_READY")
+          PY
   deploy:
     needs: admit
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
