@@ -13,10 +13,15 @@ for executable in ssh cloudflared git; do
 done
 repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 origin='https://github.com/evilsysadmin/shadowops-infra.git'
-[[ "$(git -C "$repo" remote get-url origin)" == "$origin" ]] || {
-  echo 'IDENTITY_ATLAS_MODE_BLOCKED reason=unexpected-repo'
-  exit 65
-}
+configured_origin="$(git -C "$repo" remote get-url origin)"
+case "$configured_origin" in
+  "$origin"|'git@github.com:evilsysadmin/shadowops-infra.git'|'ssh://git@github.com/evilsysadmin/shadowops-infra.git')
+    ;;
+  *)
+    echo 'IDENTITY_ATLAS_MODE_BLOCKED reason=unexpected-repo'
+    exit 65
+    ;;
+esac
 local_sha="$(git -C "$repo" rev-parse HEAD)"
 remote_line="$(GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code "$origin" refs/heads/main)"
 remote_sha="${remote_line%%$'\t'*}"
