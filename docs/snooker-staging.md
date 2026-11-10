@@ -453,3 +453,57 @@ pass a release.
 
 The Snooker Pages/DNS and authenticated browser/security acceptance steps
 remain blocked until Identity's actual release is verified ready.
+
+## Diagnose Atlas takeover marker without changing the host (2026-11-10)
+
+The [second protected Identity deploy 42787035056](https://github.com/evilsysadmin/shadowops-infra/actions/runs/42787035056)
+passed TLS/Mongo contracts and the signed ARM64 image admission but
+**failed closed** with `phase=custody-atlas`. The exact fixed guard
+in `host/identity-staging-deploy.py` refuses local deployment whenever
+`/var/lib/shadowops/identity-staging/atlas-active` exists or is a symlink.
+The source repository contains **no** authorized automatic creation/removal of
+this marker, and the Atlas Compose file is still described as a candidate.
+Neither proves whether the live Identity container uses local Mongo or Atlas.
+
+The next step is an **operator-only, read-only** check through the *existing*
+human Cloudflare Access SSH/sudo route. Use the latest protected Infra main
+checkout on the authorized workstation:
+
+```sh
+git pull --ff-only
+bash host/inspect-identity-atlas-mode-over-ssh.sh
+```
+
+This wrapper refuses any input arguments or an outdated/non-Infra checkout.
+It sends one fixed, reviewed stdlib-only Python script on stdin to the pinned
+OCI host via `sudo --non-interactive python3 -I -`. It does not install,
+delete, restart, rotate, mutate Docker, or read configuration contents.
+It checks only the marker's existence/ownership/mode, exact Compose identity
+container labels, **the source of its already-mounted config file**,
+exact network names and the container state. No Docker Env, Vault material,
+URI, tokens, raw host mounts or private paths are printed.
+
+The entire expected receipt has this nonsecret shape:
+`IDENTITY_ATLAS_MODE marker=present|absent config=local|atlas container=running|exited|created|restarting|paused|dead`.
+Unrecognized configurations and unsafe marker states fail closed with a
+finite `IDENTITY_ATLAS_MODE_BLOCKED reason=<code>` response.
+
+Interpretation:
+- `marker=present config=local`: marker and mounted local config appear
+  inconsistent. **Do not remove the marker automatically.** The host operator
+  must establish why it was placed and whether Atlas cutover/rollback is in
+  progress before authorizing any narrowly scoped change.
+- `marker=present config=atlas`: the Atlas-specific config is mounted.
+  Do **not** run the local Mongo deployment path or edit the marker.
+  Verify actual backend custody, backup/restore, egress and approved Atlas
+  cutover before considering an Atlas-specific release.
+- `marker=absent config=local`: the original guard should no longer be the
+  blocker; investigate concurrent operator changes and revalidate current
+  protected source and health before any deployment.
+- Any other receipt: stop, keep the private service untouched, and investigate
+  through the authorized operator.
+
+The config mount alone cannot prove which database URI the service is using
+or whether a cutover is safe. The current Snooker activator intentionally
+uses the protected local Identity release and **cannot** bypass this guard.
+Snooker Pages/DNS and signed-in WebGL acceptance remain pending.
