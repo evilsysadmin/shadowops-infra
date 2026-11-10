@@ -25,7 +25,7 @@ VAULT = 'ocid1.vault.oc1.eu.exampleidentifier'
 class IdentityDeployPhaseTests(unittest.TestCase):
     def test_host_and_oci_have_the_same_finite_phase_contract(self):
         self.assertEqual(host.DEPLOY_PHASES, release.DEPLOY_PHASES)
-        self.assertEqual(len(host.DEPLOY_PHASES), 7)
+        self.assertEqual(len(host.DEPLOY_PHASES), 13)
         self.assertNotIn('password', repr(host.DEPLOY_PHASES))
         for phase in host.DEPLOY_PHASES:
             with self.subTest(phase=phase):
@@ -35,6 +35,26 @@ class IdentityDeployPhaseTests(unittest.TestCase):
                 self.assertEqual(result.exception.phase, phase)
                 self.assertNotIn('sensitive-host-exception', str(result.exception))
                 self.assertNotIn('password', str(result.exception))
+
+    def test_nested_custody_stage_is_not_masked_by_outer_custody(self):
+        details = (
+            'custody-atlas', 'custody-host', 'custody-identity',
+            'custody-vault', 'custody-backup', 'custody-config',
+        )
+        for phase in details:
+            with self.subTest(phase=phase):
+                with self.assertRaises(host.DeployPhaseError) as result:
+                    with host.deployment_phase('custody'):
+                        with host.deployment_phase(phase):
+                            raise ValueError('SECRET mongo-password-private')
+                self.assertEqual(result.exception.phase, phase)
+                self.assertNotIn('SECRET', str(result.exception))
+                self.assertNotIn('mongo-password', str(result.exception))
+                self.assertEqual(
+                    release.failure_reason('private-host-error\\n'
+                        + 'IDENTITY_STAGING_DEPLOY_BLOCKED type=DeployError phase=' + phase),
+                    'IDENTITY_STAGING_DEPLOY_BLOCKED type=DeployError phase=' + phase,
+                )
 
     def test_untrusted_stage_names_do_not_get_into_host_receipts(self):
         for invalid in ('../etc/shadowops', 'password', '', 'database-start\nSECRET', 'images&env'):
