@@ -1,0 +1,90 @@
+name: Snooker · staging read-only release prerequisites
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/snooker-staging-readiness-audit.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/snooker-staging-readiness-audit.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p test_snooker_pages_provision.py -v
+      - run: python3 -m unittest discover -s tests -p test_snooker_source_admission.py -v
+      - run: python3 -m unittest discover -s tests -p test_snooker_staging_publish.py -v
+      - run: python3 -m unittest discover -s tests -p test_snooker_identity_public_probe.py -v
+  audit:
+    needs: contracts
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: staging
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Inventory Cloudflare project and private fail-closed Pages policy
+        run: |
+          set -euo pipefail
+          python3 scripts/snooker_pages_readiness.py inspect
+          python3 - <<'PY'
+          import os,sys
+          sys.path.insert(0, 'scripts')
+          from snooker_pages_provision import Client
+          from snooker_staging_publish import require_private
+          project=require_private(Client(os.environ))
+          assert project['name']=='snooker-staging'
+          print('SNOOKER_PAGES_POLICY_READY project=snooker-staging production_fail_open=false preview_fail_open=false')
+          PY
+      - name: Confirm only whether independent Snooker Vault service proof exists
+        run: |
+          python3 - <<'PY'
+          import sys
+          sys.path.insert(0, 'scripts')
+          from snooker_staging_publish import current_proof
+          try:
+              # Never print the returned proof, provider URL or credentials.
+              proof=current_proof()
+              if not proof:
+                  raise ValueError('unavailable')
+              print('SNOOKER_VAULT_PROOF_STATUS status=present')
+          except Exception as exc:
+              # Only a bounded class label; never print OCI/Vault exception text.
+              kind=type(exc).__name__
+              if not kind.isascii() or not kind.isidentifier() or len(kind)>48:
+                  kind='Unavailable'
+              print('SNOOKER_VAULT_PROOF_STATUS status=unavailable type='+kind)
+          PY
+      - name: Check public Identity Snooker callback and exact release source (read only)
+        run: python3 scripts/snooker_identity_public_probe.py
+      - name: Admit exact current game source and CI artifact without download
+        run: python3 scripts/snooker_source_admission.py check-current
