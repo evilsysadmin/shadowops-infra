@@ -539,3 +539,55 @@ nor a currently healthy container proves that the required audience exists.
 must relay the one-line `IDENTITY_ATLAS_MODE ...` receipt from
 `bash host/inspect-identity-atlas-mode-over-ssh.sh`; the public probe cannot
 see the private takeover marker or determine whether Atlas cutover is active.
+
+
+## Operator-approved SSH fallback after OCI Run Command ServiceError (2026-11-10)
+
+The signed Atlas Identity source `4a48dff49c4a77703c6f4b164120d3cef8e77e76`
+and immutable digest `sha256:6534fb861d3201ab9697b6b84d58a157af748b36c8e96482afd7ea8ca5cddb91`
+passed protected image admission in both [42819583082](https://github.com/evilsysadmin/shadowops-infra/actions/runs/42819583082)
+and [42823811617](https://github.com/evilsysadmin/shadowops-infra/actions/runs/42823811617).
+Each actual Atlas release step failed in OCI with `ServiceError` before the
+root operator receipt. The independent read-only OCI creation audit in
+[42821843479](https://github.com/evilsysadmin/shadowops-infra/actions/runs/42821843479),
+re-run after the second failure, reported
+`IDENTITY_ATLAS_COMMAND_AUDIT created=not-observed-since-attempt`.
+The public read-only probe likewise still reported the previous release
+`34d5aa2f4db3f522336a150266ac21f94d3ce95f` and no Snooker callback.
+**No new root release command was created by the failed API attempts.**
+
+The authorized operator previously installed the reviewed Atlas-only root
+release wrapper through `host/bootstrap-identity-staging-over-ssh.sh`, receiving
+both `IDENTITY_STAGING_OPERATOR_WRAPPER_INSTALLED` and
+`SHADOWOPS_SHARED_IDENTITY_STAGING_WRAPPERS_INSTALLED`. After reviewing the
+latest protected main and only when deliberately approving this staging-only
+release, the same trusted human SSH route is available without relying on
+the failing OCI Run Command service:
+
+```sh
+git pull --ff-only
+bash host/identity-staging-atlas-release-over-ssh.sh
+```
+
+This script refuses parameters, unknown Git origins, dirty/outdated checkouts,
+and all mutable image references. It sends only the previously admitted
+digest/source SHA to the root-owned
+`shadowops-identity-atlas-deploy` through the fixed Cloudflare Access SSH
+host. The host still enforces existing Atlas-only custody, current public SHA,
+same-cluster recent authenticated backup and verified quarantine restore,
+preflight, exact new runtime/public SHA and Snooker callback, and the
+journalled previous-image rollback. It never deletes `atlas-active`, changes
+the database, touches the tunnel, deploys another product or publishes Pages.
+
+Only the exact `IDENTITY_ATLAS_DEPLOY_OK source_sha=... digest=...` and
+`IDENTITY_ATLAS_SSH_PUBLIC_SNOOKER_READY` markers confirm this
+manual Identity release. A failure or unexpected receipt is **not**
+authorization to repeat it: establish host/container and private
+`atlas-deploy-pending.json` status before trying again. The script deliberately
+does not log SSH stderr, secrets or private host output.
+
+Even after Identity succeeds, the separate
+`snooker-pages-release.yml` protected staging workflow must provision/bind
+private Pages, publish the current signed Snooker CI ZIP, activate DNS only
+after anonymous alias denial and verify guest, authenticated and revoked
+session behavior. Identity SSH release alone is **not** a live Snooker deployment.
