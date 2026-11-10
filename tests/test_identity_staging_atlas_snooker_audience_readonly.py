@@ -36,6 +36,10 @@ class AuditFixture(unittest.TestCase):
         self.write(self.atlas, {"chronicles": CH})
 
     def write(self, path, consumers):
+        # CI runs as an unprivileged user; restore fixture write permission
+        # before replacing the bytes, then enforce real 0400 reader mode.
+        if path.exists():
+            path.chmod(0o600)
         path.write_text(json.dumps({"environment": "staging", "consumers": consumers,
                                     "signing_seed": "PRIVATE_MUST_NEVER_APPEAR"}))
         path.chmod(0o400)
@@ -77,6 +81,7 @@ class AuditFixture(unittest.TestCase):
 
     def test_duplicate_keys_bad_proof_symlink_or_unsafe_mode_are_blocked(self):
         self.fixture()
+        self.source.chmod(0o600)
         self.source.write_text('{"environment":"staging","consumers":{"snooker":"' + SN +
                                '","snooker":"' + CH + '"}}')
         self.source.chmod(0o400)
