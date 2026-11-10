@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Exact, single-use protected-main request for Atlas-only Snooker preflight.
+"""Exact, single-use protected-main request for Atlas-only Snooker canary.
 
 Admission never performs remote work. The paired protected staging workflow
-dispatches the existing isolated Atlas preflight, not a live Identity deploy.
+dispatches the existing isolated Atlas canary after preflight, not a live Identity deploy.
 """
 from __future__ import annotations
 
@@ -29,6 +29,7 @@ INTENT = {
 FILES = frozenset({
     REQUEST,
     ".github/workflows/" + WORKFLOW,
+    ".github/workflows/identity-staging-operations.yml",
     "scripts/snooker_atlas_canary_request.py",
     "tests/test_snooker_atlas_canary_request.py",
 })
