@@ -189,3 +189,57 @@ into Atlas, activate quarantined accounts or prove application login after
 recovery. Atlas restore authority, account reactivation, off-host disaster
 recovery and controlled consumer/database cutover remain separate operations.
 The existing public service, Mongo volume, tunnel and production stay in place.
+
+
+## Protected Atlas-only staging release (separate operator installation)
+
+This release path is **not** the older local-Mongo `action=deploy`. When the
+operator's read-only receipt reports `marker=present config=atlas`, the local
+deploy's `custody-atlas` rejection is correct; do not delete the marker.
+The Atlas-only candidate is separately reviewed, signed and source-pinned.
+The release updates **only** the Identity service, never the tunnel or database.
+
+Before an Atlas deployment, independently establish all of the following:
+
+- A published, attested arm64 Identity source SHA, accepted by the protected
+  `admit` job with its **required matching** `expected_atlas_digest`.
+- A successful real Atlas preflight and synthetic admin/ordinary-user journey
+  for that exact digest, with any synthetic account cleanup confirmed.
+- An authenticated schema 2 backup less than 24 hours old **and** a matching
+  networkless quarantine restore rehearsal receipt for that same backup.
+- A healthy, exactly one, Atlas-bound current Identity container and its exact
+  live public release SHA; the previous image must remain locally available
+  for rollback.
+
+**Operator-only installation is deliberately separate from a merge.** On the
+authorized workstation with the established Cloudflare Access SSH route, after
+review and protected-main CI:
+
+```sh
+git pull --ff-only
+bash host/bootstrap-identity-staging-over-ssh.sh
+```
+
+The root bootstrap checks the protected main SHA and installs the fixed
+`shadowops-identity-atlas-deploy` code, its transition checkpoint module and
+exact restricted sudo alias. It does **not** run the release. The OCI workflow
+also checks file ownership, modes and SHA256 against the current protected
+checkout before invoking the fixed root wrapper; an out-of-date installation
+fails closed.
+
+Only a separately authorized `identity-staging-operations.yml` manual
+`action=atlas-release` on protected `main` may request the release, with
+`source_sha` and `expected_atlas_digest` set to the already proven immutable
+candidate. Its `staging` environment approval, arm64 attestation,
+host-operations queue, private backup/restore guard, and runtime rollback
+checkpoint remain mandatory. The host requires public exact release-SHA and
+Snooker callback before clearing a successful transition checkpoint.
+If the candidate fails, it attempts the exact previous Atlas image and
+confirms the previous public SHA; an unverified rollback leaves the private
+checkpoint for operator investigation and prohibits blind retries.
+
+Even a positive Atlas release is not a Snooker Pages deployment. Use the
+independent protected Snooker Pages publisher, verify guest and all
+`*.pages.dev` aliases deny access, then test real authenticated desktop/mobile
+WebGL, logout and session revocation. Never bypass the edge worker to hurry
+staging.
