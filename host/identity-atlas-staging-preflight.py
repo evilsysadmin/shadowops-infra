@@ -49,12 +49,19 @@ def execute(digest,sha,runner=run,nonce=None,config_path=CONFIG):
         raise PreflightError('Invalid immutable preflight request')
     # The isolated path is selected only by the reviewed Atlas release operator;
     # the existing standalone preflight continues to use the legacy config.
-    if config_path not in (CONFIG, SNOOKER_CONFIG):
+    if not isinstance(config_path, (str, Path)) or str(config_path) not in (
+            str(CONFIG), str(SNOOKER_CONFIG)):
         raise PreflightError('Untrusted Atlas preflight config')
-    meta=config_path.lstat()
-    if (stat.S_ISLNK(meta.st_mode) or not stat.S_ISREG(meta.st_mode)
-            or meta.st_uid != 65532 or meta.st_mode & 0o077 or meta.st_size > 131072):
-        raise PreflightError('Invalid Atlas preflight configuration')
+    config_path = Path(config_path)
+    if config_path == SNOOKER_CONFIG:
+        # Standalone legacy preflight already validates its existing file in
+        # trusted_paths(). The opt-in Snooker candidate must be a trusted,
+        # read-only, distinct private file before pulling any image.
+        meta = config_path.lstat()
+        if (stat.S_ISLNK(meta.st_mode) or not stat.S_ISREG(meta.st_mode)
+                or meta.st_uid != 65532 or stat.S_IMODE(meta.st_mode) != 0o400
+                or meta.st_size > 131072):
+            raise PreflightError('Invalid isolated Snooker preflight configuration')
     image=IMAGE+digest
     runner(['docker','pull',image])
     labels=json.loads(runner(['docker','image','inspect',image,'--format','{{json .Config.Labels}}']))
