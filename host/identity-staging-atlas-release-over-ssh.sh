@@ -53,8 +53,15 @@ remote="$(GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code "$repo" refs/heads/mai
 # Do NOT blindly repeat this operation if the wrapper reports a failure.
 if ! receipt="$(ssh -o 'ProxyCommand=cloudflared access ssh --hostname %h' \
     -o ConnectTimeout=20 "ubuntu@$ssh_host" \
-    "sudo --non-interactive $wrapper deploy $digest $source_sha" 2>/dev/null)"; then
-  echo 'IDENTITY_ATLAS_SSH_RELEASE_BLOCKED reason=host-or-operator' >&2
+    "sudo --non-interactive $wrapper deploy $digest $source_sha" 2>&1)"; then
+  # Only the exact, fixed, nonsecret root operator error shape may cross SSH.
+  # SSH banners, sudo failures and raw Docker output must never be echoed.
+  safe='^IDENTITY_ATLAS_DEPLOY_BLOCKED type=[A-Za-z][A-Za-z0-9]{0,48} stage=(request|lock|candidate-identity|trusted-paths|atlas-marker|backup-restore|shared-host|live-container|public-source|candidate-preflight|compose-previous|compose-candidate|transition-start|candidate-activation|candidate-inspect|candidate-public|candidate-audience|rollback-activation|rollback-inspect|rollback-public|complete) rollback=(not-started|attempted|verified|unverified)$'
+  if [[ "$receipt" =~ $safe ]]; then
+    printf '%s\n' "$receipt" >&2
+  else
+    echo 'IDENTITY_ATLAS_SSH_RELEASE_BLOCKED reason=host-or-operator' >&2
+  fi
   exit 1
 fi
 [[ "$receipt" == "$expected" ]] || {
