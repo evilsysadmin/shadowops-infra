@@ -54,12 +54,12 @@ def fake_docker(*, source=mode.LOCAL_CONFIG, networks=None, state="running",
             value = "\n".join(ids)
         elif args[1] == "inspect":
             assert args[2:5] == ["--type", "container", "--format"]
-            assert args[5] == "a" * 12
+            assert args[6] == "a" * 12
             value = {
                 "{{json .Mounts}}": json.dumps(mounts),
                 "{{json .NetworkSettings.Networks}}": json.dumps(networks),
                 "{{.State.Status}}": state,
-            }[args[4]]
+            }[args[5]]
         else:
             raise AssertionError("Unexpected Docker authority")
         return SimpleNamespace(returncode=0, stdout=value)
