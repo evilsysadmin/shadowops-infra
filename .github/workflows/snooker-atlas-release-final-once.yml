@@ -1,0 +1,103 @@
+name: Snooker · one-use Atlas release after exact OCI creation audit
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/snooker-atlas-release-final-once.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/snooker-atlas-release-final-once.yml'
+permissions:
+  contents: read
+jobs:
+  contracts:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p test_snooker_atlas_release_retry_request.py -v
+      - run: python3 -m unittest discover -s tests -p test_identity_staging_atlas_release_handoff.py -v
+  dispatch:
+    if: >-
+      github.event_name == 'push' &&
+      github.run_attempt == 1 &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    environment:
+      name: staging
+    concurrency:
+      group: shadowops-snooker-atlas-final-admitted-once
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Require first addition on exact protected predecessor
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git show -s --format=%P "$GITHUB_SHA")" = '5e2f9cc9331d3a977e61068a8bfabcc85bf2ea85'
+          test "$(git diff --name-status '5e2f9cc9331d3a977e61068a8bfabcc85bf2ea85' "$GITHUB_SHA")" = $'A\t.github/workflows/snooker-atlas-release-final-once.yml'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" = "$GITHUB_SHA"
+      - name: Recheck previously signed image and successful real Atlas evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          original="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/42611388936" --jq '.head_sha + ":" + .conclusion + ":" + .event')"
+          test "$original" = '4a48dff49c4a77703c6f4b164120d3cef8e77e76:success:push'
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/42611388936/jobs?per_page=100" \
+            | python3 -c 'import json,sys;j=json.load(sys.stdin)["jobs"];x=[r for r in j if r["name"]=="Publish SHA-pinned Identity staging image"];assert len(x)==1 and x[0]["conclusion"]=="success";required={"Run docker/build-push-action@v7","Run actions/attest-build-provenance@v4","Record admitted image digest"};assert required<={s["name"] for s in x[0]["steps"] if s["conclusion"]=="success"}'
+          admin="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/42807029176" --jq '.head_sha + ":" + .conclusion + ":" + .event')"
+          test "$admin" = '324c7fd1630fc44dff53a1263b4d816e8f4190a5:success:workflow_dispatch'
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/42807029176/jobs?per_page=100" \
+            | python3 -c 'import json,sys;j=json.load(sys.stdin)["jobs"];good={r["name"] for r in j if r["conclusion"]=="success"};assert {"contracts","admit","atlas-canary"}<=good'
+          restored="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/42810596084" --jq '.head_sha + ":" + .conclusion + ":" + .event')"
+          test "$restored" = '326a24252bdd9c07a5cd66db9bdc934048a39c37:success:workflow_dispatch'
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/42810596084/jobs?per_page=100" \
+            | python3 -c 'import json,sys;j=json.load(sys.stdin)["jobs"];good={r["name"] for r in j if r["conclusion"]=="success"};assert {"contracts","atlas-restore-rehearsal"}<=good'
+      - name: Require exact OCI command-creation and public receipts
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          audit="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/42821843479" --jq '.head_sha + ":" + .conclusion + ":" + .event')"
+          test "$audit" = 'b65ea5f0ecf9c67db0aa0b819ab1be5dba628f49:success:push'
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/42821843479/jobs?per_page=100" \
+            | python3 -c 'import json,sys;j=json.load(sys.stdin)["jobs"];good={r["name"] for r in j if r["conclusion"]=="success"};assert {"contracts","oci","public"}<=good'
+          # gh >=2.97 rejects ANSI-containing raw logs unless explicitly allowed.
+          # Never print, upload or execute their contents; only match finite markers.
+          gh api --allow-escape-sequences "repos/$GITHUB_REPOSITORY/actions/jobs/129849120167/logs" > "$RUNNER_TEMP/snooker-oci-audit.txt"
+          grep -Fq 'IDENTITY_ATLAS_COMMAND_AUDIT created=not-observed-since-attempt' "$RUNNER_TEMP/snooker-oci-audit.txt"
+          gh api --allow-escape-sequences "repos/$GITHUB_REPOSITORY/actions/jobs/129849120413/logs" > "$RUNNER_TEMP/snooker-public-audit.txt"
+          grep -Fq 'SNOOKER_IDENTITY_PUBLIC_CHECK login=unavailable-or-unrecognized release_sha=34d5aa2f4db3f522336a150266ac21f94d3ce95f' "$RUNNER_TEMP/snooker-public-audit.txt"
+          rm -f "$RUNNER_TEMP/snooker-oci-audit.txt" "$RUNNER_TEMP/snooker-public-audit.txt"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" = "$GITHUB_SHA"
+      - name: Independently require public Identity still on previous source
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$(python3 scripts/snooker_identity_public_probe.py)"
+          test "$output" = 'SNOOKER_IDENTITY_PUBLIC_CHECK login=unavailable-or-unrecognized release_sha=34d5aa2f4db3f522336a150266ac21f94d3ce95f'
+      - name: Dispatch separately staging-protected signed Atlas release
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" = "$GITHUB_SHA"
+          gh workflow run identity-staging-operations.yml --repo "$GITHUB_REPOSITORY" --ref main \
+            --field action=atlas-release \
+            --field source_sha=4a48dff49c4a77703c6f4b164120d3cef8e77e76 \
+            --field expected_atlas_digest=sha256:6534fb861d3201ab9697b6b84d58a157af748b36c8e96482afd7ea8ca5cddb91
+          echo 'Exact-evidence Atlas release dispatched. Child signed admission, root rollback and public Snooker audience must be independently verified.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No Cloudflare Pages or DNS publication authorized by this trigger.' >> "$GITHUB_STEP_SUMMARY"
