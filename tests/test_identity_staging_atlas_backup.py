@@ -56,7 +56,7 @@ class AtlasNetworkOwnershipTests(unittest.TestCase):
   encrypted=encrypt_snapshot(value,cfg['backup_key'])
   with tempfile.TemporaryDirectory() as temp:
    state=Path(temp);directory=state/'atlas-backups'
-   with patch.object(module,'STATE',state),patch.object(module,'DIRECTORY',directory),patch.object(module,'trusted'),patch.object(module,'private_config',return_value=cfg),patch.object(module,'capture_snapshot',return_value=encrypted),patch.object(module.os,'geteuid',return_value=0),patch.object(sys,'argv',['runner','backup']):
+   with patch.object(module,'STATE',state),patch.object(module,'DIRECTORY',directory),patch.object(module,'trusted'),patch.object(module,'private_config',return_value=cfg),patch.object(module,'capture_snapshot',return_value=encrypted),patch.object(module.os,'geteuid',return_value=0),patch.object(sys,'argv',['runner','backup']),patch.object(module,'atlas_lock',return_value=__import__('contextlib').nullcontext()):
     self.assertEqual(module.main(),0)
    files=list(directory.glob('*.fernet'));self.assertEqual(len(files),1)
    self.assertEqual(decrypt_snapshot(files[0].read_bytes(),cfg['backup_key']),value)
