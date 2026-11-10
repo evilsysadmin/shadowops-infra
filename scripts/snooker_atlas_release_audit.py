@@ -15,7 +15,7 @@ NAME = "identity-staging-atlas-release"
 SHA = "4a48dff49c4a77703c6f4b164120d3cef8e77e76"
 DIGEST = "sha256:6534fb861d3201ab9697b6b84d58a157af748b36c8e96482afd7ea8ca5cddb91"
 SUCCEEDED = "IDENTITY_ATLAS_DEPLOY_OK source_sha=" + SHA + " digest=" + DIGEST
-BLOCKED = re.compile(r"IDENTITY_ATLAS_DEPLOY_BLOCKED type=[A-Za-z]{1,40}\\Z")
+BLOCKED = re.compile(r"IDENTITY_ATLAS_DEPLOY_BLOCKED type=[A-Za-z]{1,40}\Z")
 STATES = frozenset({"SUCCEEDED", "FAILED", "TIMED_OUT", "CANCELED", "ACCEPTED", "IN_PROGRESS"})
 
 
