@@ -25,31 +25,31 @@ SCRIPT = ROOT / "host/identity-staging-atlas-release-over-ssh.sh"
 
 
 class RejectActivation(base.FakeRunner):
-    def __call__(self, args, *, digest=None, timeout=180):
+    def __call__(self, args, *, digest=None, config_source=None, timeout=180):
         if args[:2] == ["docker", "compose"] and "up" in args and digest == base.NEW:
             self.mutations.append(digest)
             raise RuntimeError("PRIVATE_ATLAS_SECRET_NOT_FOR_LOGS")
-        return super().__call__(args, digest=digest, timeout=timeout)
+        return super().__call__(args, digest=digest, config_source=config_source, timeout=timeout)
 
 
 class RejectRollback(base.FakeRunner):
-    def __call__(self, args, *, digest=None, timeout=180):
+    def __call__(self, args, *, digest=None, config_source=None, timeout=180):
         if (args[:2] == ["docker", "compose"] and "up" in args
                 and digest == base.OLD and self.mutations):
             self.mutations.append(digest)
             raise RuntimeError("PRIVATE_ROLLBACK_SECRET")
-        return super().__call__(args, digest=digest, timeout=timeout)
+        return super().__call__(args, digest=digest, config_source=config_source, timeout=timeout)
 
 
 class RejectAudience(base.FakeRunner):
-    def __call__(self, args, *, digest=None, timeout=180):
+    def __call__(self, args, *, digest=None, config_source=None, timeout=180):
         if args[0] == "curl" and args[-1].endswith("/login?app=snooker"):
             return "other audience"
-        return super().__call__(args, digest=digest, timeout=timeout)
+        return super().__call__(args, digest=digest, config_source=config_source, timeout=timeout)
 
 
 class BrokenPreflight(base.Preflight):
-    def execute(self, digest, sha):
+    def execute(self, digest, sha, config_path=None):
         raise ValueError("PRIVATE_MONGO_CREDENTIAL")
 
 
@@ -60,7 +60,8 @@ class TransitionStageTests(unittest.TestCase):
             journal = release.TransitionCheckpoint(root, expected_uid=os.getuid())
             with patch.object(release, "root_file"), patch.object(
                 release, "require_atlas_restore_evidence"
-            ), patch.object(release, "validate_atlas_compose"):
+            ), patch.object(release, "validate_atlas_compose"), patch.object(
+                release, "require_isolated_config"):
                 with self.assertRaises(Exception) as caught:
                     release.update(base.NEW, base.NEW_SHA, runner=fake,
                                    preflight=preflight or base.Preflight(),
