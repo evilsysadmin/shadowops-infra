@@ -38,7 +38,7 @@ jobs:
       github.ref == 'refs/heads/main' &&
       github.repository == 'evilsysadmin/shadowops-infra'
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 18
     concurrency:
       group: shadowops-oci-host-operations
       cancel-in-progress: false
