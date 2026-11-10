@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "application": "snooker",
+  "environment": "staging",
+  "action": "atlas-canary",
+  "issue": 527,
+  "source_sha": "4a48dff49c4a77703c6f4b164120d3cef8e77e76",
+  "published_image_run": 42611388936,
+  "successful_preflight_run": 42796523421,
+  "preflight_digest": "sha256:6534fb861d3201ab9697b6b84d58a157af748b36c8e96482afd7ea8ca5cddb91",
+  "base_main_sha": "73bd7b89b0274d19b87aa6e23abd4464e79ea36e",
+  "single_use": true
+}
