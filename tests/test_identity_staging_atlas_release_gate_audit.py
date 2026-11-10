@@ -170,7 +170,7 @@ class GateAuditTests(unittest.TestCase):
         path = ROOT / "host/inspect-identity-atlas-release-gates-over-ssh.sh"
         subprocess.run(["bash", "-n", str(path)], timeout=10, check=True)
         content = path.read_text()
-        self.assertIn("sudo --non-interactive /opt/shadowops/oci-venv/bin/python -I -", content)
+        self.assertIn("sudo --non-interactive /opt/shadowops/oci-venv/bin/python -I -B -", content)
         self.assertIn("ProxyCommand=cloudflared access ssh --hostname %h", content)
         self.assertIn("stale-main", content)
         self.assertIn("candidate_preflight=not-run transition=not-attempted", content)
