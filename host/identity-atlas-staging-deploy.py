@@ -109,60 +109,126 @@ def snooker_login_ready(runner):
     return SNOOKER_CALLBACK in html
 
 
+# Only these fixed labels may appear in operator output. Never expose exception
+# text, Docker command output, private credentials, URLs, or container metadata.
+STAGES = frozenset({
+    "request", "lock", "candidate-identity", "trusted-paths", "atlas-marker",
+    "backup-restore", "shared-host", "live-container", "public-source",
+    "candidate-preflight", "compose-previous", "compose-candidate",
+    "transition-start", "candidate-activation", "candidate-inspect",
+    "candidate-public", "candidate-audience", "rollback-activation",
+    "rollback-inspect", "rollback-public", "complete",
+})
+ROLLBACK_STATES = frozenset({"not-started", "attempted", "verified", "unverified"})
+
+
 def update(digest, source_sha, *, runner=run, preflight=None, backup_operator=None,
-           journal=None, check_shared=verify_shared_a1_containers):
+           journal=None, check_shared=verify_shared_a1_containers, progress=None):
+    # The optional mutable tracker is output-only, never an instruction. It
+    # records the FIRST failed candidate stage across verified rollback, rather
+    # than exposing arbitrary errors or overwriting that stage with rollback.
+    def mark(stage):
+        if progress is not None:
+            progress["stage"] = stage
+
+    def fail():
+        if progress is not None:
+            progress.setdefault("failure", progress["stage"])
+
+    mark("candidate-identity")
     if (not isinstance(digest, str) or not DIGEST.fullmatch(digest)
             or not isinstance(source_sha, str) or not SHA.fullmatch(source_sha)):
         raise AtlasReleaseBlocked("Invalid immutable release identity")
+    mark("trusted-paths")
     preflight = preflight or load_operator(
         "atlas_release_preflight", "/usr/local/sbin/shadowops-identity-atlas-preflight")
     backup_operator = backup_operator or load_operator(
         "atlas_release_backup", "/usr/local/sbin/shadowops-identity-atlas-backup")
     preflight.trusted_paths()
+    mark("atlas-marker")
     root_file(STATE / "atlas-active", private=True)
     root_file(ROOT / "atlas-compose.yaml")
+    mark("backup-restore")
     require_atlas_restore_evidence(backup_operator.private_config(), STATE)
+    mark("shared-host")
     check_shared()
+    mark("live-container")
     previous, previous_sha = live_image(runner)
     if previous == digest:
         raise AtlasReleaseBlocked("No Atlas image change")
+    mark("public-source")
     if public_release_sha(runner) != previous_sha:
         raise AtlasReleaseBlocked("Live public release differs from Atlas container")
+    mark("candidate-preflight")
     if preflight.execute(digest, source_sha) != (
             "IDENTITY_ATLAS_PREFLIGHT_OK source_sha=" + source_sha + " digest=" + digest):
         raise AtlasReleaseBlocked("Candidate Atlas preflight not proven")
     compose = ["docker", "compose", "--project-directory", str(ROOT),
                "-f", str(ROOT / "atlas-compose.yaml")]
-    for selected in (previous, digest):
+    for selected, phase in ((previous, "compose-previous"), (digest, "compose-candidate")):
+        mark(phase)
         normalized = json.loads(runner(compose + ["config", "--format", "json"], digest=selected))
         validate_atlas_compose(normalized, selected)
 
     def activate(image):
-        runner(compose + ["up", "--detach", "--no-deps", "--wait",
-                          "--wait-timeout", "150", "--no-build", "--pull", "never",
-                          "--force-recreate", "identity"], digest=image, timeout=195)
+        rollback = image == previous
+        mark("rollback-activation" if rollback else "candidate-activation")
+        if rollback and progress is not None:
+            progress["rollback"] = "attempted"
+        try:
+            runner(compose + ["up", "--detach", "--no-deps", "--wait",
+                              "--wait-timeout", "150", "--no-build", "--pull", "never",
+                              "--force-recreate", "identity"], digest=image, timeout=195)
+        except Exception:
+            fail()
+            if rollback and progress is not None:
+                progress["rollback"] = "unverified"
+            raise
 
     def verify(image):
+        rollback = image == previous
+        prefix = "rollback" if rollback else "candidate"
         try:
+            mark(prefix + "-inspect")
             actual_digest, actual_sha = live_image(runner)
-            expected_sha = source_sha if image == digest else previous_sha
-            return (actual_digest == image and actual_sha == expected_sha
-                    and public_release_sha(runner) == expected_sha
-                    and (image != digest or snooker_login_ready(runner)))
+            expected_sha = previous_sha if rollback else source_sha
+            if actual_digest != image or actual_sha != expected_sha:
+                fail()
+                return False
+            mark(prefix + "-public")
+            if public_release_sha(runner) != expected_sha:
+                fail()
+                return False
+            if not rollback:
+                mark("candidate-audience")
+                if not snooker_login_ready(runner):
+                    fail()
+                    return False
+            if rollback and progress is not None:
+                progress["rollback"] = "verified"
+            return True
         except (AtlasReleaseBlocked, AtlasTransitionBlocked, OSError,
                 ValueError, TypeError, KeyError, IndexError):
+            fail()
             return False
+        finally:
+            if rollback and progress is not None and progress.get("rollback") != "verified":
+                progress["rollback"] = "unverified"
 
+    mark("transition-start")
     guarded_transition(previous, digest,
                        journal=journal or TransitionCheckpoint(STATE),
                        activate=activate, verify=verify)
+    mark("complete")
     return "IDENTITY_ATLAS_DEPLOY_OK source_sha=" + source_sha + " digest=" + digest
 
 
 def main():
+    progress = {"stage": "request", "rollback": "not-started"}
     try:
         if (os.geteuid() != 0 or len(sys.argv) != 4 or sys.argv[1] != "deploy"):
             raise AtlasReleaseBlocked("Invalid root operator request")
+        progress["stage"] = "lock"
         # O_NOFOLLOW and exclusive flock prevent symlink and concurrent release tricks.
         fd = os.open(STATE / "deploy.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         try:
@@ -170,13 +236,21 @@ def main():
             if (not stat.S_ISREG(meta.st_mode) or meta.st_uid != 0 or meta.st_mode & 0o077):
                 raise AtlasReleaseBlocked("Untrusted release lock")
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            print(update(sys.argv[2], sys.argv[3]))
+            print(update(sys.argv[2], sys.argv[3], progress=progress))
         finally:
             os.close(fd)
         return 0
     except Exception as exc:
-        # Never forward Docker, Atlas, environment, or private traceback material.
-        print("IDENTITY_ATLAS_DEPLOY_BLOCKED type=" + type(exc).__name__, file=sys.stderr)
+        # Stage is a bounded enum; no Docker output, exception messages, secrets
+        # or private journal contents are ever rendered to the caller.
+        stage = progress.get("failure", progress.get("stage", "request"))
+        stage = stage if stage in STAGES else "request"
+        rollback = progress.get("rollback", "not-started")
+        rollback = rollback if rollback in ROLLBACK_STATES else "not-started"
+        kind = type(exc).__name__
+        kind = kind if re.fullmatch(r"[A-Za-z][A-Za-z0-9]{0,48}", kind) else "Error"
+        print("IDENTITY_ATLAS_DEPLOY_BLOCKED type=" + kind
+              + " stage=" + stage + " rollback=" + rollback, file=sys.stderr)
         return 1
 
 
