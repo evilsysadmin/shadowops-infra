@@ -20,6 +20,7 @@ from importlib.machinery import SourceFileLoader
 
 sys.path.insert(0, '/usr/local/lib/shadowops')
 from identity_staging_atlas_admission import require_recent_atlas_backup
+from identity_staging_atlas_lock import exclusive as atlas_lock
 
 ROOT=Path('/etc/shadowops/identity-staging')
 STATE=Path('/var/lib/shadowops/identity-staging')
@@ -158,8 +159,7 @@ def main():
         ca=CA.lstat()
         if stat.S_ISLNK(ca.st_mode) or not stat.S_ISREG(ca.st_mode) or ca.st_uid!=65532 or ca.st_mode&0o077:
             raise CanaryError('Invalid canary CA')
-        with (STATE/'deploy.lock').open('a') as lock:
-            fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        with atlas_lock(STATE):
             if sys.argv[1]=='recover':
                 print(recover())
                 return 0

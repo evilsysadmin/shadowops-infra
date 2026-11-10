@@ -10,6 +10,9 @@ import stat
 import subprocess
 import sys
 
+sys.path.insert(0, '/usr/local/lib/shadowops')
+from identity_staging_atlas_lock import exclusive as atlas_lock
+
 ROOT=Path('/etc/shadowops/identity-staging')
 STATE=Path('/var/lib/shadowops/identity-staging')
 CONFIG=ROOT/'atlas-service.json'
@@ -73,8 +76,7 @@ def main():
         if os.geteuid()!=0 or len(sys.argv)!=4 or sys.argv[1]!='preflight':
             raise PreflightError('Invalid Atlas preflight request')
         trusted_paths()
-        with (STATE/'deploy.lock').open('a') as lock:
-            fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        with atlas_lock(STATE):
             print(execute(sys.argv[2],sys.argv[3]))
         return 0
     except Exception as exc:

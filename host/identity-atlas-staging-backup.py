@@ -16,6 +16,7 @@ import tempfile
 sys.path.insert(0, '/usr/local/lib/shadowops')
 from identity_staging_atlas_backup import snapshot, validate_backup_config
 from identity_staging_backup import BackupError, decrypt_snapshot
+from identity_staging_atlas_lock import exclusive as atlas_lock
 
 STATE = Path('/var/lib/shadowops/identity-staging')
 DIRECTORY = STATE / 'atlas-backups'
@@ -94,8 +95,7 @@ def main():
         trusted(STATE, directory=True)
         DIRECTORY.mkdir(mode=0o700, exist_ok=True)
         trusted(DIRECTORY, directory=True)
-        with (STATE / 'deploy.lock').open('a') as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with atlas_lock(STATE):
             config = private_config()
             if sys.argv[1]=='rehearse':
                 from identity_staging_atlas_admission import require_recent_atlas_backup
