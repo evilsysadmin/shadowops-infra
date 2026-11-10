@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Exact, single-use protected-main request for Atlas-only Snooker restore.
+"""Exact, single-use protected-main request for Atlas-only Snooker quarantine restore rehearsal.
 
 Admission never performs remote work. The paired protected staging workflow
-dispatches the existing isolated Atlas restore after a verified synthetic admin journey, not a live Identity deploy.
+dispatches the existing quarantined Atlas backup restore rehearsal after the verified synthetic admin journey; never a live Identity deploy.
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ BASE = "324c7fd1630fc44dff53a1263b4d816e8f4190a5"
 IMAGE_SHA = "4a48dff49c4a77703c6f4b164120d3cef8e77e76"
 INTENT = {
     "schema": 1, "application": "snooker", "environment": "staging",
-    "action": "atlas-restore", "issue": 527,
+    "action": "atlas-restore-rehearsal", "issue": 527,
     "source_sha": IMAGE_SHA, "published_image_run": 42611388936,
     "successful_admin_run": 42807029176,
     "validated_digest": "sha256:6534fb861d3201ab9697b6b84d58a157af748b36c8e96482afd7ea8ca5cddb91",
