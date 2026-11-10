@@ -25,6 +25,38 @@ class LiveJourneySafety(unittest.TestCase):
         self.assertIn("rev-parse HEAD", assertion["run"])
         self.assertNotIn("ref: main", FILE.read_text())
 
+    def test_seeded_playtest_is_scoped_to_published_staging_and_daily_manual_only(self):
+        spec = yaml.load(FILE.read_text(), Loader=yaml.BaseLoader)
+        self.assertEqual(spec["on"]["schedule"], [{"cron": "18 5 * * *"}])
+        self.assertIn("workflow_dispatch", spec["on"])
+        steps = spec["jobs"]["live"]["steps"]
+        by_name = {step.get("name", ""): step for step in steps}
+        playtest = by_name["Bounded autonomous playtest against published Chronicles"]
+        browser = by_name["Real desktop/mobile creation and cross-device persistence"]
+        self.assertGreater(steps.index(playtest), steps.index(browser))
+        self.assertEqual(playtest["working-directory"], "chronicles-source/frontend")
+        self.assertEqual(playtest["env"]["CHRONICLES_SOURCE_SHA"],
+                         "${{ steps.release.outputs.sha }}")
+        self.assertEqual(playtest["env"]["CHRONICLES_STAGING_INVITE_CODE"],
+                         "${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}")
+        self.assertIn("node --check smoke/public-staging-playtest.mjs", playtest["run"])
+        self.assertIn("node smoke/public-staging-playtest.mjs", playtest["run"])
+        summary = by_name["Summarize player-bot health and balance observations"]
+        self.assertEqual(summary["if"], "always()")
+        self.assertIn("GITHUB_STEP_SUMMARY", summary["run"])
+        self.assertIn("averageHpLost", summary["run"])
+        captures = by_name["Keep browser captures for failures or inspection"]
+        self.assertEqual(captures["if"], "always()")
+        for path in ("chronicles-playtest-*.png", "chronicles-playtest-report.json"):
+            self.assertIn(path, captures["with"]["path"])
+        self.assertEqual(spec["jobs"]["live"]["environment"]["name"], "staging")
+        self.assertEqual(spec["permissions"]["contents"], "read")
+        self.assertIn("github.event_name != 'pull_request'", spec["jobs"]["live"]["if"])
+        code = FILE.read_text()
+        for denied in ("wrangler pages deploy", "oci_chronicles_api_release.py",
+                       "CLOUDFLARE_API_TOKEN", "OCI_PRIVATE_KEY", "GH_TOKEN"):
+            self.assertNotIn(denied, code)
+
     def test_read_only_scope(self):
         spec = yaml.load(FILE.read_text(), Loader=yaml.BaseLoader)
         self.assertEqual(spec["permissions"]["contents"], "read")

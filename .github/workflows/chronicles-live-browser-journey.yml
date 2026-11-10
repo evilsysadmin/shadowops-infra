@@ -1,6 +1,10 @@
 name: Chronicles live staging browser journey
 on:
   workflow_dispatch:
+  schedule:
+    # Play two bounded, seeded real campaigns daily; independent from the
+    # hourly staging reconciler and 06:32 public-browser smoke.
+    - cron: '18 5 * * *'
   pull_request:
     paths:
       - '.github/workflows/chronicles-live-browser-journey.yml'
@@ -37,7 +41,7 @@ jobs:
       github.repository == 'evilsysadmin/shadowops-infra' &&
       github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
-    timeout-minutes: 18
+    timeout-minutes: 25
     environment:
       name: staging
       url: https://staging.chronicles.shadowops.dpdns.org
@@ -88,6 +92,49 @@ jobs:
           # S volley, A melee, mobile tap, genuine enemy HP / initiative.
           node --check smoke/public-staging-combat.mjs
           node smoke/public-staging-combat.mjs
+      - name: Bounded autonomous playtest against published Chronicles
+        working-directory: chronicles-source/frontend
+        env:
+          CHRONICLES_SOURCE_SHA: ${{ steps.release.outputs.sha }}
+          CHRONICLES_STAGING_INVITE_CODE: ${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The source checkout is exactly the SHA served by staging.
+          # This is not a deployment or a required production promotion gate.
+          node --check smoke/public-staging-playtest.mjs
+          node smoke/public-staging-playtest.mjs
+      - name: Summarize player-bot health and balance observations
+        if: always()
+        working-directory: chronicles-source/frontend
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { existsSync, readFileSync, appendFileSync } from 'node:fs';
+          const file = 'chronicles-playtest-report.json';
+          if (!existsSync(file)) {
+            appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+              '## Chronicles player-bot\n\nNo report generated. Inspect the failed browser step.\n');
+          } else {
+            const r = JSON.parse(readFileSync(file, 'utf8'));
+            const rows = [
+              '## Chronicles player-bot · staging',
+              '',
+              'SHA: `' + r.sourceSha + '` · ' + r.summary.episodes + ' bounded episodes',
+              '',
+              '| Strategy | Outcome | Actions | HP lost | Warnings |',
+              '|---|---|---:|---:|---|',
+              ...r.episodes.map(e => '| ' + e.profile + ' | ' + e.outcome + ' | '
+                + e.actions + ' | ' + e.hpLost + ' | ' + (e.warnings || []).join(', ') + ' |'),
+              '',
+              '**Wins:** ' + r.summary.wins + '/' + r.summary.episodes
+                + ' · **Average damage:** ' + r.summary.averageHpLost,
+              '',
+              'A defeat or costly win is a balance observation, not an automatic CI failure.',
+            ];
+            appendFileSync(process.env.GITHUB_STEP_SUMMARY, rows.join('\n') + '\n');
+          }
+          NODE
       - name: Keep browser captures for failures or inspection
         if: always()
         uses: actions/upload-artifact@v4
@@ -96,5 +143,7 @@ jobs:
           path: |
             chronicles-source/frontend/chronicles-journey-*.png
             chronicles-source/frontend/chronicles-combat-*.png
+            chronicles-source/frontend/chronicles-playtest-*.png
+            chronicles-source/frontend/chronicles-playtest-report.json
           retention-days: 7
           if-no-files-found: ignore
