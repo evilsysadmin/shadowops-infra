@@ -51,7 +51,7 @@ class IdentityDeployPhaseTests(unittest.TestCase):
                 self.assertNotIn('SECRET', str(result.exception))
                 self.assertNotIn('mongo-password', str(result.exception))
                 self.assertEqual(
-                    release.failure_reason('private-host-error\\n'
+                    release.failure_reason('private-host-error\n'
                         + 'IDENTITY_STAGING_DEPLOY_BLOCKED type=DeployError phase=' + phase),
                     'IDENTITY_STAGING_DEPLOY_BLOCKED type=DeployError phase=' + phase,
                 )
