@@ -22,3 +22,8 @@ ocarun ALL=(root) NOPASSWD: SHADOWOPS_IDENTITY_ATLAS_PREFLIGHT
 # Explicit loopback probes only; the wrapper validates operation, digest and SHA.
 Cmnd_Alias SHADOWOPS_IDENTITY_ATLAS_CANARY = /usr/local/sbin/shadowops-identity-atlas-canary canary *, /usr/local/sbin/shadowops-identity-atlas-canary journey *
 ocarun ALL=(root) NOPASSWD: SHADOWOPS_IDENTITY_ATLAS_CANARY
+
+# Atlas-only root release; wrapper independently enforces digest/SHA and rollback guards.
+# No arbitrary shell, Docker, marker removal, local Mongo release or secret access.
+Cmnd_Alias SHADOWOPS_IDENTITY_ATLAS_RELEASE = /usr/local/sbin/shadowops-identity-atlas-deploy deploy *
+ocarun ALL=(root) NOPASSWD: SHADOWOPS_IDENTITY_ATLAS_RELEASE
