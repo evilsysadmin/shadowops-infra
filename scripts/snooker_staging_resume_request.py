@@ -16,13 +16,13 @@ import sys
 
 REPO = "evilsysadmin/shadowops-infra"
 WORKFLOW = "snooker-staging-resume.yml"
-REQUEST = "ops/snooker-staging/resume-after-verified-identity-2026-11-10.json"
-BASE = "5add17a61c7471f25b05267e1d601458b313a863"
+REQUEST = "ops/snooker-staging/resume-after-custody-reinstall-2026-11-10.json"
+BASE = "54419e13a0ad882f21aca75721bf5c176f1ee7a2"
 INTENT = {
     "schema": 1,
     "application": "snooker",
     "environment": "staging",
-    "request": "resume-after-verified-identity-health",
+    "request": "retry-after-root-custody-diagnostics",
     "issue": 527,
     "base_main_sha": BASE,
     "single_use": True,

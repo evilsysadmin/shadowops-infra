@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "application": "snooker",
+  "environment": "staging",
+  "request": "retry-after-root-custody-diagnostics",
+  "issue": 527,
+  "base_main_sha": "54419e13a0ad882f21aca75721bf5c176f1ee7a2",
+  "single_use": true,
+  "requires": "IDENTITY_WRAPPER_FINGERPRINT_CURRENT",
+  "health": "identity-mongo=running/healthy identity=running/healthy identity-tunnel=running"
+}
