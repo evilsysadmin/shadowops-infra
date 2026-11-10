@@ -1,0 +1,79 @@
+name: Snooker · one-use Atlas quarantine restore rehearsal
+on:
+  pull_request:
+    paths:
+      - 'ops/snooker-staging/atlas-restore-once-2026-11-10.json'
+      - '.github/workflows/snooker-atlas-restore-once.yml'
+      - 'scripts/snooker_atlas_restore_request.py'
+      - 'tests/test_snooker_atlas_restore_request.py'
+  push:
+    branches: [main]
+    paths:
+      - 'ops/snooker-staging/atlas-restore-once-2026-11-10.json'
+permissions:
+  contents: read
+jobs:
+  contracts:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Reject replayed or modified single-use restore request
+        run: python3 -m unittest discover -s tests -p test_snooker_atlas_restore_request.py -v
+  dispatch:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    environment:
+      name: staging
+    concurrency:
+      group: shadowops-snooker-atlas-restore-once
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Accept only this first-addition request on the pinned protected main
+        run: python3 scripts/snooker_atlas_restore_request.py
+      - name: Confirm unchanged main and the exact signed image publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" = "$GITHUB_SHA"
+          published="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/42611388936" --jq '.head_sha + ":" + .conclusion + ":" + .event')"
+          test "$published" = '4a48dff49c4a77703c6f4b164120d3cef8e77e76:success:push'
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/42611388936/jobs?per_page=100" \
+            | python3 -c 'import json,sys;r=json.load(sys.stdin)["jobs"];j=[x for x in r if x["name"]=="Publish SHA-pinned Identity staging image"];assert len(j)==1 and j[0]["conclusion"]=="success";needed={"Run docker/build-push-action@v7","Run actions/attest-build-provenance@v4","Record admitted image digest"};assert needed<={s["name"] for s in j[0]["steps"] if s["status"]=="completed" and s["conclusion"]=="success"}'
+      - name: Require successful isolated Atlas admin journey and image admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" = "$GITHUB_SHA"
+          previous="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/42807029176" --jq '.head_sha + ":" + .conclusion + ":" + .event')"
+          test "$previous" = '324c7fd1630fc44dff53a1263b4d816e8f4190a5:success:workflow_dispatch'
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/42807029176/jobs?per_page=100" \
+            | python3 -c 'import json,sys;j=json.load(sys.stdin)["jobs"];good={x["name"] for x in j if x["conclusion"]=="success"};assert {"contracts","admit","atlas-canary"}<=good;assert not any(x["name"]=="deploy" and x["conclusion"]=="success" for x in j)'
+      - name: Dispatch staging-protected quarantine restore rehearsal
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" = "$GITHUB_SHA"
+          gh workflow run identity-staging-operations.yml --repo "$GITHUB_REPOSITORY" --ref main \
+            --field action=atlas-restore-rehearsal
+          echo 'Atlas quarantine restore rehearsal dispatched; inspect child atlas-restore-rehearsal job and exact IDENTITY_ATLAS_QUARANTINE_RESTORE_OK receipt.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No public Identity release, Atlas marker change, Pages or DNS operation authorized.' >> "$GITHUB_STEP_SUMMARY"

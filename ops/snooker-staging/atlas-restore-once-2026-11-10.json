@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "application": "snooker",
+  "environment": "staging",
+  "action": "atlas-restore-rehearsal",
+  "issue": 527,
+  "source_sha": "4a48dff49c4a77703c6f4b164120d3cef8e77e76",
+  "published_image_run": 42611388936,
+  "successful_admin_run": 42807029176,
+  "validated_digest": "sha256:6534fb861d3201ab9697b6b84d58a157af748b36c8e96482afd7ea8ca5cddb91",
+  "base_main_sha": "324c7fd1630fc44dff53a1263b4d816e8f4190a5",
+  "single_use": true
+}
