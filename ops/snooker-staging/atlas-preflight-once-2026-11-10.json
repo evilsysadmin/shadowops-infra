@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "application": "snooker",
+  "environment": "staging",
+  "action": "atlas-preflight",
+  "issue": 527,
+  "source_sha": "4a48dff49c4a77703c6f4b164120d3cef8e77e76",
+  "published_image_run": 42611388936,
+  "base_main_sha": "6b24d8d5417f32508d6f2688c39ea629facac13c",
+  "single_use": true
+}
