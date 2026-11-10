@@ -9,15 +9,19 @@ import re
 IMAGE = 'ghcr.io/evilsysadmin/shadowops-identity@'
 TUNNEL = 'cloudflare/cloudflared@sha256:b269e8abd07a5bf6f3f4be65d5050b2174eca89c56a0241a8ff32a16aec454e4'
 PROJECT = 'shadowops-identity-staging'
+LEGACY_CONFIG = '/etc/shadowops/identity-staging/atlas-service.json'
+SNOOKER_CONFIG = '/etc/shadowops/identity-staging/atlas-snooker-service.json'
+ALLOWED_CONFIGS = frozenset({LEGACY_CONFIG, SNOOKER_CONFIG})
 
 class AtlasPolicyError(ValueError):
     pass
 
 
-def validate_atlas_compose(config, digest):
+def validate_atlas_compose(config, digest, config_source=LEGACY_CONFIG):
     def fail():
         raise AtlasPolicyError('Unsafe Atlas staging policy')
-    if not isinstance(digest, str) or not re.fullmatch(r'sha256:[a-f0-9]{64}', digest):
+    if (not isinstance(digest, str) or not re.fullmatch(r'sha256:[a-f0-9]{64}', digest)
+            or config_source not in ALLOWED_CONFIGS):
         fail()
     if not isinstance(config, dict) or config.get('name') != PROJECT or set(config.get('services', {})) != {'identity', 'identity-tunnel'}:
         fail()
@@ -57,7 +61,7 @@ def validate_atlas_compose(config, digest):
                 fail()
         elif any(item not in ({}, None) for item in svc['networks'].values()):
             fail()
-        expected_mount = ('/etc/shadowops/identity-staging/atlas-service.json','/run/secrets/identity-staging.json') if name == 'identity' else ('/etc/shadowops/identity-staging/ca.pem','/run/identity/ca.pem')
+        expected_mount = (config_source,'/run/secrets/identity-staging.json') if name == 'identity' else ('/etc/shadowops/identity-staging/ca.pem','/run/identity/ca.pem')
         mounts = svc.get('volumes')
         if (not isinstance(mounts, list) or len(mounts) != 1 or mounts[0].get('type') != 'bind'
                 or mounts[0].get('source') != expected_mount[0] or mounts[0].get('target') != expected_mount[1]
