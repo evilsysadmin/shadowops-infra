@@ -53,6 +53,7 @@ class OneUseResumeTests(unittest.TestCase):
             ("requires", "no-host-verification"),
             ("health", "identity=unhealthy"),
             ("request", "resume-after-verified-identity-health"),
+            ("request", "retry-after-root-custody-diagnostics"),
             ("issue", 999),
         ]:
             with self.subTest(name=name), self.assertRaises(ticket.RequestBlocked):

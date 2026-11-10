@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "application": "snooker",
+  "environment": "staging",
+  "request": "resume-after-bounded-oci-health-probe",
+  "issue": 527,
+  "base_main_sha": "c16ad526bf2c00fe00a8e8054acf8313e359c46a",
+  "single_use": true,
+  "requires": "IDENTITY_WRAPPER_FINGERPRINT_CURRENT",
+  "health": "identity-mongo=running/healthy identity=running/healthy identity-tunnel=running"
+}
