@@ -591,3 +591,34 @@ Even after Identity succeeds, the separate
 private Pages, publish the current signed Snooker CI ZIP, activate DNS only
 after anonymous alias denial and verify guest, authenticated and revoked
 session behavior. Identity SSH release alone is **not** a live Snooker deployment.
+
+## Atlas Snooker audience: isolated candidate config (rollback-safe)
+
+If the protected host inspection reports `source=absent atlas=absent` after
+`candidate-audience rollback=verified`, do **not** overwrite either existing
+`service.json` or `atlas-service.json`: the previous healthy Identity image
+does not recognize Snooker and must keep its exact old configuration.
+
+The existing protected staging Identity workflow has an explicitly authorized
+`action=provision, snooker_consumer=enable` to add **only** the independent
+Snooker consumer to the existing Vault bundle, preserving other consumers and
+signing material. Provisioning alone does **not** update either host config.
+
+After that action has genuinely succeeded, the distinct protected
+`action=atlas-snooker-config` runs the fixed root operator against the current
+Vault bundle. It requires the exact old healthy public Identity SHA, trusted
+Atlas paths and lock, absent transition checkpoint, preserved original local
+and Atlas config fields, and **only** a new Snooker consumer in Vault. It
+creates or verifies `atlas-snooker-service.json` as a separate private
+`0400` file owned by uid 65532; it never overwrites the legacy two files,
+restarts a container, contacts Mongo, or changes Cloudflare. Unknown changes
+abort without writing. A failure receipt does **not** certify provision or
+release success.
+
+**Important:** the existing Atlas Compose/release policy still mounts the
+legacy `atlas-service.json`, and no candidate deployment is authorized by this
+preparation alone. A separately reviewed image-pinned release policy must
+select the isolated Snooker config **only for the new image** and re-select
+the unchanged legacy config on rollback. That change requires another PR,
+complete CI and independent explicit activation; never work around it by
+editing the mounted legacy config or disabling the audience check.
