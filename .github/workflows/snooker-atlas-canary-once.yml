@@ -1,0 +1,80 @@
+name: Snooker · one-use isolated Atlas Identity canary
+on:
+  pull_request:
+    paths:
+      - 'ops/snooker-staging/atlas-canary-once-2026-11-10.json'
+      - '.github/workflows/snooker-atlas-canary-once.yml'
+      - 'scripts/snooker_atlas_canary_request.py'
+      - 'tests/test_snooker_atlas_canary_request.py'
+  push:
+    branches: [main]
+    paths:
+      - 'ops/snooker-staging/atlas-canary-once-2026-11-10.json'
+permissions:
+  contents: read
+jobs:
+  contracts:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify exact isolated Atlas canary request and replay rejection
+        run: python3 -m unittest discover -s tests -p test_snooker_atlas_canary_request.py -v
+  dispatch:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    environment:
+      name: staging
+    concurrency:
+      group: shadowops-snooker-atlas-canary-once
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify exact one-use canary request on pinned protected main
+        run: python3 scripts/snooker_atlas_canary_request.py
+      - name: Confirm main unchanged and previously published image source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" = "$GITHUB_SHA"
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/42611388936" --jq '.head_sha + ":" + .conclusion + ":" + .event')"
+          test "$run" = '4a48dff49c4a77703c6f4b164120d3cef8e77e76:success:push'
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/42611388936/jobs?per_page=100" \
+            | python3 -c 'import json,sys;r=json.load(sys.stdin)["jobs"];j=[x for x in r if x["name"]=="Publish SHA-pinned Identity staging image"];assert len(j)==1 and j[0]["conclusion"]=="success";needed={"Run docker/build-push-action@v7","Run actions/attest-build-provenance@v4","Record admitted image digest"};assert needed<={s["name"] for s in j[0]["steps"] if s["status"]=="completed" and s["conclusion"]=="success"}'
+      - name: Require actual protected Atlas preflight to have succeeded
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" = "$GITHUB_SHA"
+          previous="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/42796523421" --jq '.head_sha + ":" + .conclusion + ":" + .event')"
+          test "$previous" = '73bd7b89b0274d19b87aa6e23abd4464e79ea36e:success:workflow_dispatch'
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/42796523421/jobs?per_page=100" \
+            | python3 -c 'import json,sys;j=json.load(sys.stdin)["jobs"];good={x["name"] for x in j if x["conclusion"]=="success"};assert {"contracts","admit","atlas-preflight"}<=good;assert not any(x["name"]=="deploy" and x["conclusion"]=="success" for x in j)'
+      - name: Dispatch separately protected isolated Atlas canary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" = "$GITHUB_SHA"
+          gh workflow run identity-staging-operations.yml --repo "$GITHUB_REPOSITORY" --ref main \
+            --field action=atlas-canary \
+            --field source_sha=4a48dff49c4a77703c6f4b164120d3cef8e77e76
+          echo 'Atlas canary dispatched. Child workflow admission, staging approval and actual atlas-canary job success MUST be checked separately.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No Identity deploy, Atlas marker modification, Cloudflare Pages, DNS or rollback operation authorized by this request.' >> "$GITHUB_STEP_SUMMARY"
