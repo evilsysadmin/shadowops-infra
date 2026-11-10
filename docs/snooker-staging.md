@@ -507,3 +507,35 @@ The config mount alone cannot prove which database URI the service is using
 or whether a cutover is safe. The current Snooker activator intentionally
 uses the protected local Identity release and **cannot** bypass this guard.
 Snooker Pages/DNS and signed-in WebGL acceptance remain pending.
+
+## Public Identity audience probe independent of host custody (2026-11-10)
+
+A protected Snooker activation may deploy Identity **only if** the already-live
+`https://id-staging.shadowops.dpdns.org/login?app=snooker` endpoint does not
+advertise the exact Snooker callback. The last actual signed deploy
+[42787035056](https://github.com/evilsysadmin/shadowops-infra/actions/runs/42787035056)
+failed safely at `custody-atlas`; it must not be retried until the Atlas
+takeover marker is understood.
+
+The `snooker-identity-public-probe.yml` workflow performs an independent,
+read-only public HTTPS observation from protected main, using no OCI, Vault,
+Docker, Cloudflare or GitHub write credentials. The result has a fixed shape:
+
+```text
+SNOOKER_IDENTITY_PUBLIC_CHECK login=snooker-target-present|unavailable-or-unrecognized release_sha=<40hex>|unavailable
+```
+
+The exact output is one line (the alternatives above are documentation, not
+an emitted receipt). The login check tests the existing full callback for
+Snooker; the release check validates the public Identity source receipt.
+A successful workflow job only proves **the observation ran**, not that
+the login target was ready. Check the actual finite receipt. A present login
+target is still insufficient without the independent **OCI Vault Snooker
+service proof**, private Cloudflare Pages binding, guest/alias denial,
+authenticated WebGL and session revocation. Neither a reachable `/readyz`
+nor a currently healthy container proves that the required audience exists.
+
+**Atlas host configuration is separate evidence.** The authorized operator
+must relay the one-line `IDENTITY_ATLAS_MODE ...` receipt from
+`bash host/inspect-identity-atlas-mode-over-ssh.sh`; the public probe cannot
+see the private takeover marker or determine whether Atlas cutover is active.

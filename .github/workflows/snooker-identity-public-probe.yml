@@ -1,0 +1,45 @@
+name: Snooker · public Identity login target (read only)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/snooker-identity-public-probe.yml'
+      - 'scripts/snooker_identity_public_probe.py'
+      - 'tests/test_snooker_identity_public_probe.py'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/snooker-identity-public-probe.yml'
+      - 'scripts/snooker_identity_public_probe.py'
+      - 'tests/test_snooker_identity_public_probe.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check exact public-probe contracts (no cloud access)
+        run: python3 -m unittest discover -s tests -p 'test_snooker_identity_public_probe.py' -v
+      - run: python3 -m py_compile scripts/snooker_identity_public_probe.py
+  probe:
+    needs: contracts
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check only the two fixed public HTTPS endpoints
+        run: |
+          set -euo pipefail
+          python3 scripts/snooker_identity_public_probe.py | tee "$RUNNER_TEMP/issuer-receipt"
+          cat "$RUNNER_TEMP/issuer-receipt" >> "$GITHUB_STEP_SUMMARY"
+          echo 'Read-only public observation only; no Vault audience proof or Pages/guest/WebGL verification.' >> "$GITHUB_STEP_SUMMARY"
