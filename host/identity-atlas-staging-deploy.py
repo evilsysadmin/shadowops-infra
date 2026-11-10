@@ -8,6 +8,7 @@ No local Mongo deployment or Atlas takeover-marker mutation is permitted.
 from __future__ import annotations
 
 import fcntl
+from copy import deepcopy
 from importlib.machinery import SourceFileLoader
 import importlib.util
 import json
@@ -23,7 +24,7 @@ from identity_staging_atlas_admission import require_atlas_restore_evidence
 from identity_staging_atlas_policy import validate_atlas_compose
 from identity_staging_atlas_transition import (
     AtlasTransitionBlocked, TransitionCheckpoint, guarded_transition,
-    image_from_atlas_container, IMAGE, PROJECT,
+    image_from_atlas_container, IMAGE, PROJECT, CONFIG, SNOOKER_CONFIG,
 )
 from shared_a1_host_guard import verify_shared_a1_containers
 
@@ -40,12 +41,16 @@ class AtlasReleaseBlocked(ValueError):
     pass
 
 
-def run(args, *, digest=None, timeout=180):
+def run(args, *, digest=None, config_source=None, timeout=180):
     env = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "NO_PROXY": "*"}
     if digest is not None:
         if not isinstance(digest, str) or not DIGEST.fullmatch(digest):
             raise AtlasReleaseBlocked("Invalid Compose image digest")
         env["IDENTITY_IMAGE_DIGEST"] = digest
+    if config_source is not None:
+        if config_source not in (CONFIG, SNOOKER_CONFIG):
+            raise AtlasReleaseBlocked("Untrusted Compose config choice")
+        env["IDENTITY_ATLAS_SERVICE_CONFIG"] = config_source
     try:
         result = subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
     except (OSError, subprocess.SubprocessError):
@@ -70,14 +75,14 @@ def root_file(path, *, private=False):
         raise AtlasReleaseBlocked("Untrusted Atlas operator file")
 
 
-def live_image(runner):
+def live_image(runner, config_source=CONFIG):
     ids = runner(["docker", "ps", "-aq", "--filter",
                   "label=com.docker.compose.project=" + PROJECT,
                   "--filter", "label=com.docker.compose.service=identity"]).splitlines()
     if len(ids) != 1 or not CONTAINER_ID.fullmatch(ids[0]):
         raise AtlasReleaseBlocked("Ambiguous Atlas Identity container")
     rows = json.loads(runner(["docker", "inspect", ids[0]]))
-    digest = image_from_atlas_container(rows)
+    digest = image_from_atlas_container(rows, config_source=config_source)
     labels = rows[0]["Config"]["Labels"]
     source_sha = labels.get("org.opencontainers.image.revision")
     if (not isinstance(source_sha, str) or not SHA.fullmatch(source_sha)
@@ -109,12 +114,34 @@ def snooker_login_ready(runner):
     return SNOOKER_CALLBACK in html
 
 
+def require_isolated_config():
+    """Admit staged candidate, never modify the legacy rollback configurations."""
+    prepare = load_operator(
+        "atlas_release_candidate_private", "/usr/local/sbin/shadowops-identity-atlas-prepare")
+    from identity_staging_atlas_snooker_config import candidate_config
+    prepare.trusted_dir(ROOT)
+    candidate_path = ROOT / "atlas-snooker-service.json"
+    metadata = candidate_path.lstat()
+    if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != 65532
+            or stat.S_IMODE(metadata.st_mode) != 0o400 or metadata.st_size > 131072):
+        raise AtlasReleaseBlocked("Untrusted isolated Snooker configuration")
+    local = prepare.load_private(ROOT / "service.json", 65532)
+    legacy = prepare.load_private(ROOT / "atlas-service.json", 65532)
+    candidate = prepare.load_private(candidate_path, 65532)
+    # Check that the new file differs by exactly one Snooker consumer, and
+    # Atlas, TLS, signing, admin and all previous consumer credentials match.
+    vault_shape = deepcopy(local)
+    vault_shape["consumers"] = deepcopy(candidate.get("consumers"))
+    if candidate_config(local, legacy, vault_shape) != candidate:
+        raise AtlasReleaseBlocked("Unexpected Snooker candidate configuration")
+
+
 # Only these fixed labels may appear in operator output. Never expose exception
 # text, Docker command output, private credentials, URLs, or container metadata.
 STAGES = frozenset({
     "request", "lock", "candidate-identity", "trusted-paths", "atlas-marker",
     "backup-restore", "shared-host", "live-container", "public-source",
-    "candidate-preflight", "compose-previous", "compose-candidate",
+    "candidate-config", "candidate-preflight", "compose-previous", "compose-candidate",
     "transition-start", "candidate-activation", "candidate-inspect",
     "candidate-public", "candidate-audience", "rollback-activation",
     "rollback-inspect", "rollback-public", "complete",
@@ -159,16 +186,20 @@ def update(digest, source_sha, *, runner=run, preflight=None, backup_operator=No
     mark("public-source")
     if public_release_sha(runner) != previous_sha:
         raise AtlasReleaseBlocked("Live public release differs from Atlas container")
+    mark("candidate-config")
+    require_isolated_config()
     mark("candidate-preflight")
-    if preflight.execute(digest, source_sha) != (
+    if preflight.execute(digest, source_sha, config_path=SNOOKER_CONFIG) != (
             "IDENTITY_ATLAS_PREFLIGHT_OK source_sha=" + source_sha + " digest=" + digest):
         raise AtlasReleaseBlocked("Candidate Atlas preflight not proven")
     compose = ["docker", "compose", "--project-directory", str(ROOT),
                "-f", str(ROOT / "atlas-compose.yaml")]
     for selected, phase in ((previous, "compose-previous"), (digest, "compose-candidate")):
         mark(phase)
-        normalized = json.loads(runner(compose + ["config", "--format", "json"], digest=selected))
-        validate_atlas_compose(normalized, selected)
+        source = CONFIG if selected == previous else SNOOKER_CONFIG
+        normalized = json.loads(runner(compose + ["config", "--format", "json"],
+                                       digest=selected, config_source=source))
+        validate_atlas_compose(normalized, selected, config_source=source)
 
     def activate(image):
         rollback = image == previous
@@ -178,7 +209,8 @@ def update(digest, source_sha, *, runner=run, preflight=None, backup_operator=No
         try:
             runner(compose + ["up", "--detach", "--no-deps", "--wait",
                               "--wait-timeout", "150", "--no-build", "--pull", "never",
-                              "--force-recreate", "identity"], digest=image, timeout=195)
+                              "--force-recreate", "identity"], digest=image,
+                   config_source=CONFIG if rollback else SNOOKER_CONFIG, timeout=195)
         except Exception:
             fail()
             if rollback and progress is not None:
@@ -190,7 +222,8 @@ def update(digest, source_sha, *, runner=run, preflight=None, backup_operator=No
         prefix = "rollback" if rollback else "candidate"
         try:
             mark(prefix + "-inspect")
-            actual_digest, actual_sha = live_image(runner)
+            actual_digest, actual_sha = live_image(
+                runner, config_source=CONFIG if rollback else SNOOKER_CONFIG)
             expected_sha = previous_sha if rollback else source_sha
             if actual_digest != image or actual_sha != expected_sha:
                 fail()
