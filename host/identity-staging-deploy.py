@@ -51,6 +51,8 @@ class DeployError(ValueError):
 DEPLOY_PHASES = frozenset((
     'source', 'custody', 'images', 'database-start',
     'database-ready', 'database-bootstrap', 'services-start',
+    'custody-atlas', 'custody-host', 'custody-identity',
+    'custody-vault', 'custody-backup', 'custody-config',
 ))
 
 
@@ -68,6 +70,9 @@ def deployment_phase(phase):
         raise DeployError('Unknown fixed deploy phase')
     try:
         yield
+    except DeployPhaseError:
+        # Preserve the more precise nested custody stage.
+        raise
     except Exception:
         raise DeployPhaseError(phase) from None
 
@@ -323,12 +328,18 @@ def deploy(digest, sha, vault):
     with (STATE / 'deploy.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         with deployment_phase('custody'):
-            reject_atlas_active(STATE)
-            verify_shared_a1_containers()
-            identity_ownership_guard()
-            bundle = read_bundle(vault)
-            require_admin_backup(bundle)
-            prepare(bundle)
+            with deployment_phase('custody-atlas'):
+                reject_atlas_active(STATE)
+            with deployment_phase('custody-host'):
+                verify_shared_a1_containers()
+            with deployment_phase('custody-identity'):
+                identity_ownership_guard()
+            with deployment_phase('custody-vault'):
+                bundle = read_bundle(vault)
+            with deployment_phase('custody-backup'):
+                require_admin_backup(bundle)
+            with deployment_phase('custody-config'):
+                prepare(bundle)
         with deployment_phase('images'):
             env = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'IDENTITY_IMAGE_DIGEST': digest}
             compose = ['docker', 'compose', '--project-directory', str(ROOT), '-f', str(POLICY)]

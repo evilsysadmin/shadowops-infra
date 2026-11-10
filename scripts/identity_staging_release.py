@@ -31,6 +31,8 @@ def command_for(digest,sha,vault):
 DEPLOY_PHASES = frozenset((
     'source', 'custody', 'images', 'database-start',
     'database-ready', 'database-bootstrap', 'services-start',
+    'custody-atlas', 'custody-host', 'custody-identity',
+    'custody-vault', 'custody-backup', 'custody-config',
 ))
 DEPLOY_BLOCKED = re.compile(
     r'IDENTITY_STAGING_DEPLOY_BLOCKED type=[A-Za-z]{1,40}(?: phase=([a-z-]{1,32}))?\Z'

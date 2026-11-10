@@ -418,3 +418,38 @@ rather than restarting services or weakening the edge. **Do not rerun the
 original stale release run**; re-admit the current signed image and current
 Snooker `main` through the canonical workflow. Custom DNS and signed-in
 desktop/mobile WebGL acceptance must remain last and separately verified.
+
+## Root deploy custody failure: precise bounded follow-up (2026-11-10)
+
+The protected [Identity deploy 42729097483](https://github.com/evilsysadmin/shadowops-infra/actions/runs/42729097483)
+passed signed ARM64 image admission but failed on the real OCI host with
+`IDENTITY_STAGING_DEPLOY_BLOCKED type=DeployError phase=custody`.
+The earlier [read-only host check 42726012827](https://github.com/evilsysadmin/shadowops-infra/actions/runs/42726012827)
+confirmed all three existing Identity containers are running, with Mongo and
+Identity healthy. **Do not infer that a new Identity release or Snooker Pages
+is live from the existing healthy containers.** The one-use activation
+[42728704144](https://github.com/evilsysadmin/shadowops-infra/actions/runs/42728704144)
+stopped before Pages publication, as intended.
+
+The root wrapper's unchanged custody operations now emit a more precise,
+fixed, nonsecret phase on error: `custody-atlas` (Atlas takeover marker),
+`custody-host` (shared A1 isolation), `custody-identity` (Docker labels,
+volume/network ownership), `custody-vault` (validated Vault bundle),
+`custody-backup` (recent authenticated local backup), or `custody-config`
+(local sealed configuration preparation). No underlying host exception,
+container logs, private paths, secrets or environment values are exposed.
+OCI accepts only this finite list and retains legacy `custody` compatibility.
+
+**Next required host step:** an authorized SSH/Cloudflare Access operator must
+refresh the reviewed installed root wrapper from **current protected main**
+via the existing `bash host/bootstrap-identity-staging-over-ssh.sh` procedure.
+A GitHub merge alone does not update the root-owned OCI installation.
+Then use a **freshly admitted, protected** Identity deployment through the
+existing staging workflow, not a rerun of the old pinned run. Investigate the
+resulting custody subtype before any further change. In particular, only a
+verified `custody-backup` result warrants investigating the existing
+encrypted-backup policy; never disable backup, Atlas or ownership guards to
+pass a release.
+
+The Snooker Pages/DNS and authenticated browser/security acceptance steps
+remain blocked until Identity's actual release is verified ready.
