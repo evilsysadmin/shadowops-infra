@@ -1,0 +1,60 @@
+name: Snooker · read-only Atlas release OCI audit
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/snooker-atlas-release-audit.yml'
+      - 'scripts/snooker_atlas_release_audit.py'
+      - 'tests/test_snooker_atlas_release_audit.py'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/snooker_atlas_release_audit.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Ensure read-only inventory and sanitize all output
+        run: python3 -m unittest discover -s tests -p test_snooker_atlas_release_audit.py -v
+  public:
+    needs: contracts
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Observe public Identity release and Snooker audience without credentials
+        run: python3 scripts/snooker_identity_public_probe.py
+  oci:
+    needs: contracts
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    environment:
+      name: staging
+    permissions:
+      contents: read
+    env:
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python3 -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Inspect only latest OCI command execution (no host writes)
+        run: python3 scripts/snooker_atlas_release_audit.py
