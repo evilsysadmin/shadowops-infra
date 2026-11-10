@@ -54,29 +54,9 @@ remote="$(GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code "$repo" refs/heads/mai
 if ! receipt="$(ssh -o 'ProxyCommand=cloudflared access ssh --hostname %h' \
     -o ConnectTimeout=20 "ubuntu@$ssh_host" \
     "sudo --non-interactive $wrapper deploy $digest $source_sha" 2>&1)"; then
-  # A failed authorized operator can emit ONE fixed, sanitized stage/rollback
-  # marker. Only that exact shape is allowed through this SSH boundary.
-  # Cloudflare Access banners, sudo messages, Docker output and credentials
-  # are all discarded; no generic verbose SSH mode or raw stderr forwarding.
-  safe='^IDENTITY_ATLAS_DEPLOY_BLOCKED type=[A-Za-z][A-Za-z0-9]{0,48} stage=(request|lock|candidate-identity|trusted-paths|atlas-marker|backup-restore|shared-host|live-container|public-source|candidate-preflight|compose-previous|compose-candidate|transition-start|candidate-activation|candidate-inspect|candidate-public|candidate-audience|rollback-activation|rollback-inspect|rollback-public|complete) rollback=(not-started|attempted|verified|unverified)
-[[ "$receipt" == "$expected" ]] || {
-  echo 'IDENTITY_ATLAS_SSH_RELEASE_BLOCKED reason=unexpected-host-receipt' >&2
-  exit 1
-}
-printf '%s\n' "$expected"
-
-# A success from root is not final browser acceptance. Check the same external
-# HTTPS issuer endpoint that the Pages publisher will rely on.
-public="$(python3 scripts/snooker_identity_public_probe.py 2>/dev/null)" || {
-  echo 'IDENTITY_ATLAS_SSH_RELEASE_BLOCKED reason=public-probe' >&2
-  exit 1
-}
-[[ "$public" == "$expected_public" ]] || {
-  echo 'IDENTITY_ATLAS_SSH_RELEASE_BLOCKED reason=public-not-accepted' >&2
-  exit 1
-}
-printf '%s\n' 'IDENTITY_ATLAS_SSH_PUBLIC_SNOOKER_READY'
-
+  # Only the exact, fixed, nonsecret root operator error shape may cross SSH.
+  # SSH banners, sudo failures and raw Docker output must never be echoed.
+  safe='^IDENTITY_ATLAS_DEPLOY_BLOCKED type=[A-Za-z][A-Za-z0-9]{0,48} stage=(request|lock|candidate-identity|trusted-paths|atlas-marker|backup-restore|shared-host|live-container|public-source|candidate-preflight|compose-previous|compose-candidate|transition-start|candidate-activation|candidate-inspect|candidate-public|candidate-audience|rollback-activation|rollback-inspect|rollback-public|complete) rollback=(not-started|attempted|verified|unverified)$'
   if [[ "$receipt" =~ $safe ]]; then
     printf '%s\n' "$receipt" >&2
   else
