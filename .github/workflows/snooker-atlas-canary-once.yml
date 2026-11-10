@@ -75,6 +75,7 @@ jobs:
           test "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" = "$GITHUB_SHA"
           gh workflow run identity-staging-operations.yml --repo "$GITHUB_REPOSITORY" --ref main \
             --field action=atlas-canary \
-            --field source_sha=4a48dff49c4a77703c6f4b164120d3cef8e77e76
+            --field source_sha=4a48dff49c4a77703c6f4b164120d3cef8e77e76 \
+            --field expected_atlas_digest=sha256:6534fb861d3201ab9697b6b84d58a157af748b36c8e96482afd7ea8ca5cddb91
           echo 'Atlas canary dispatched. Child workflow admission, staging approval and actual atlas-canary job success MUST be checked separately.' >> "$GITHUB_STEP_SUMMARY"
           echo 'No Identity deploy, Atlas marker modification, Cloudflare Pages, DNS or rollback operation authorized by this request.' >> "$GITHUB_STEP_SUMMARY"
