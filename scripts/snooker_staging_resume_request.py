@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""One-use Snooker staging resume request after operator-only Identity host install.
+"""One-use Snooker staging resume after live read-only Identity container health.
 
 This file never deploys anything. The staging-protected workflow must confirm
-the actual host-installed root-owned Identity code BEFORE dispatching the
+the host-installed root-owned Identity code and live container health BEFORE dispatching the
 already existing independently-protected Snooker activation workflow.
 """
 from __future__ import annotations
@@ -16,17 +16,18 @@ import sys
 
 REPO = "evilsysadmin/shadowops-infra"
 WORKFLOW = "snooker-staging-resume.yml"
-REQUEST = "ops/snooker-staging/resume-after-identity-ssh-2026-11-09.json"
-BASE = "f57d3190273dd3c07e387ee2e7e4425935e765a8"
+REQUEST = "ops/snooker-staging/resume-after-verified-identity-2026-11-10.json"
+BASE = "5add17a61c7471f25b05267e1d601458b313a863"
 INTENT = {
     "schema": 1,
     "application": "snooker",
     "environment": "staging",
-    "request": "resume-after-identity-ssh-install",
+    "request": "resume-after-verified-identity-health",
     "issue": 527,
     "base_main_sha": BASE,
     "single_use": True,
     "requires": "IDENTITY_WRAPPER_FINGERPRINT_CURRENT",
+    "health": "identity-mongo=running/healthy identity=running/healthy identity-tunnel=running",
 }
 ALLOWED_FILES = frozenset({
     REQUEST,
