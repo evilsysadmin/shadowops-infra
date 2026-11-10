@@ -78,5 +78,60 @@ class AuditTests(unittest.TestCase):
             audit.resolve_existing_host=old
 
 
+    def test_creation_inventory_covers_attempt_window_and_finds_command(self):
+        from datetime import datetime, timezone, timedelta
+        from types import SimpleNamespace
+        newer = audit.ATTEMPT + timedelta(minutes=5)
+        older = audit.ATTEMPT - timedelta(minutes=5)
+        data = [
+            SimpleNamespace(time_created=newer, display_name="unrelated"),
+            SimpleNamespace(time_created=older, display_name="unrelated"),
+        ]
+        pages = []
+        def listing(**kw):
+            pages.append(kw)
+            return SimpleNamespace(data=data, headers={})
+        client = SimpleNamespace(list_instance_agent_commands=listing)
+        sdk = SimpleNamespace(compute_instance_agent=SimpleNamespace(
+              ComputeInstanceAgentClient=lambda config: client))
+        old = audit.resolve_existing_host
+        try:
+            audit.resolve_existing_host=lambda *args:("compartment","host")
+            self.assertEqual(audit.inspect_created(sdk,{}),
+                "IDENTITY_ATLAS_COMMAND_AUDIT created=not-observed-since-attempt")
+            self.assertEqual(pages[0]["limit"], 100)
+            data[0].display_name = audit.NAME
+            self.assertEqual(audit.inspect_created(sdk,{}),
+                "IDENTITY_ATLAS_COMMAND_AUDIT created=observed-since-attempt")
+            data[0].time_created = None
+            self.assertEqual(audit.inspect_created(sdk,{}),
+                "IDENTITY_ATLAS_COMMAND_AUDIT created=window-unverifiable")
+        finally:
+            audit.resolve_existing_host=old
+
+    def test_creation_inventory_paginates_and_fails_closed_on_incomplete_window(self):
+        from datetime import timedelta
+        from types import SimpleNamespace
+        current = audit.ATTEMPT + timedelta(minutes=5)
+        pages=[]
+        def listing(**kw):
+            pages.append(kw)
+            return SimpleNamespace(
+                data=[SimpleNamespace(time_created=current, display_name="unrelated")],
+                headers={"opc-next-page": "next"})
+        client=SimpleNamespace(list_instance_agent_commands=listing)
+        sdk=SimpleNamespace(compute_instance_agent=SimpleNamespace(
+              ComputeInstanceAgentClient=lambda config:client))
+        old=audit.resolve_existing_host
+        try:
+            audit.resolve_existing_host=lambda *args:("compartment","host")
+            self.assertEqual(audit.inspect_created(sdk,{},max_pages=2),
+                "IDENTITY_ATLAS_COMMAND_AUDIT created=window-incomplete")
+            self.assertEqual(len(pages),2)
+            self.assertEqual(pages[1]["page"],"next")
+        finally:
+            audit.resolve_existing_host=old
+
+
 if __name__ == "__main__":
     unittest.main()
