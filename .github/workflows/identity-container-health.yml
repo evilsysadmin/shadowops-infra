@@ -26,6 +26,10 @@ jobs:
         run: python3 -m unittest discover -s tests -p test_identity_staging_container_health.py -v
       - name: Offline source receipt self-test
         run: python3 scripts/identity_staging_container_health.py self-test
+      - name: Offline installed-wrapper fingerprint contract
+        run: |
+          python3 -m unittest discover -s tests -p test_identity_staging_wrapper_fingerprint.py -v
+          python3 scripts/identity_staging_wrapper_fingerprint.py self-test
   probe:
     name: Inspect only Identity staging container status (no host mutation)
     needs: contracts
@@ -59,6 +63,26 @@ jobs:
           [[ "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" == "$GITHUB_SHA" ]]
       - name: Install pinned OCI SDK
         run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Verify reviewed root wrapper is installed (read-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          fingerprint="$(python3 scripts/identity_staging_wrapper_fingerprint.py run)"
+          case "$fingerprint" in
+            IDENTITY_WRAPPER_FINGERPRINT_CURRENT)
+              echo 'IDENTITY_CONTAINER_PROBE_WRAPPER_CURRENT'
+              echo '- Root wrapper: reviewed version installed' >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            IDENTITY_WRAPPER_FINGERPRINT_MISSING|IDENTITY_WRAPPER_FINGERPRINT_UNSAFE|IDENTITY_WRAPPER_FINGERPRINT_OUTDATED_WRAPPER|IDENTITY_WRAPPER_FINGERPRINT_OUTDATED_BUNDLE|IDENTITY_WRAPPER_FINGERPRINT_OUTDATED_BOTH)
+              printf '%s\n' "$fingerprint" >&2
+              echo '- Root wrapper: not current, refuse Docker-state probe' >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+              ;;
+            *)
+              echo 'IDENTITY_CONTAINER_PROBE_WRAPPER_UNKNOWN' >&2
+              exit 1
+              ;;
+          esac
       - name: Observe Identity's three fixed container statuses
         shell: bash
         run: |
