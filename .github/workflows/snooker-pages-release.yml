@@ -4,6 +4,8 @@ on:
     paths:
       - '.github/workflows/snooker-pages-release.yml'
       - 'scripts/snooker_staging_publish.py'
+      - 'scripts/snooker_release_package.py'
+      - 'tests/test_snooker_release_package.py'
       - 'scripts/snooker_staging_operator.py'
       - 'tests/test_snooker_staging_publish.py'
       - 'tests/test_snooker_staging_operator.py'
@@ -13,6 +15,8 @@ on:
     paths:
       - '.github/workflows/snooker-pages-release.yml'
       - 'scripts/snooker_staging_publish.py'
+      - 'scripts/snooker_release_package.py'
+      - 'tests/test_snooker_release_package.py'
       - 'scripts/snooker_staging_operator.py'
       - 'tests/test_snooker_staging_publish.py'
       - 'tests/test_snooker_staging_operator.py'
