@@ -499,6 +499,36 @@ class PublishTests(unittest.TestCase):
                     ProvisionError("Identity unavailable")))
         self.assertEqual(cloud.writes, [])
 
+
+    def test_expired_artifact_cannot_break_healthy_automatic_noop(self):
+        # Source artifacts last seven days. The periodic reconciler must
+        # check the live private deployment BEFORE asking for an old ZIP.
+        flow = (Path(__file__).resolve().parents[1]
+                / ".github/workflows/snooker-pages-release.yml").read_text()
+        self.assertLess(flow.index("- id: source"), flow.index("- id: decide"))
+        self.assertLess(flow.index("- id: decide"), flow.index("- id: admit"))
+        self.assertIn("if: steps.decide.outputs.publish == 'true'\n"
+                      "        env:\n"
+                      "          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}", flow)
+        self.assertIn("proof=src.admit(reader,os.environ['SOURCE_SHA'])", flow)
+        self.assertIn("steps.admit.outputs.artifact_id", flow)
+        self.assertIn("steps.admit.outputs.artifact_digest", flow)
+        self.assertIn("source_sha='+sha", flow)
+        # No-op still requires private Pages, issuer readiness, denied guests
+        # and matching canonical SHA via auto-plan. Never release on PR.
+        self.assertIn("snooker_staging_publish.py auto-plan", flow)
+        self.assertIn("github.ref == 'refs/heads/main'", flow)
+
+    def test_daily_readiness_does_not_fail_on_expired_source_zip(self):
+        flow = (Path(__file__).resolve().parents[1]
+                / ".github/workflows/snooker-staging-readiness-audit.yml").read_text()
+        self.assertIn("sha=src.current_sha(src.GithubReader(os.environ['GH_TOKEN']))", flow)
+        self.assertNotIn("snooker_source_admission.py check-current", flow)
+        self.assertIn("snooker_staging_publish.py smoke-audit", flow)
+        self.assertIn("snooker_staging_publish.py release-audit", flow)
+        self.assertIn("CI proof required only to publish", flow)
+        self.assertNotIn("wrangler pages deploy", flow)
+
     def test_auto_delivery_workflow_requires_protected_schedule_and_no_pr_deploy(self):
         workflow = (Path(__file__).resolve().parents[1]
                     / ".github/workflows/snooker-pages-release.yml").read_text()
