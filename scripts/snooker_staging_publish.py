@@ -41,6 +41,20 @@ class BindingBlocked(ProvisionError):
         self.provider_code = provider_code
 
 
+class GuestDenialBlocked(ProvisionError):
+    """Only public HTTP status and a fixed path category may leave CI."""
+    STAGES = frozenset({
+        "alias-root", "alias-release", "custom-root", "custom-asset", "custom-release"
+    })
+
+    def __init__(self, stage, observed):
+        if stage not in self.STAGES or not re.fullmatch(r"[1-5][0-9]{2}|unavailable|invalid", observed):
+            raise ValueError("Invalid guest-denial diagnostic")
+        super().__init__("Guest-denial check blocked")
+        self.stage = stage
+        self.observed = observed
+
+
 def project_path(client):
     return f"/accounts/{client.account}/pages/projects/{readiness.PROJECT}"
 
@@ -221,16 +235,21 @@ def attach_domain(client, read_status=probe):
 def smoke_guest(read_status=probe, aliases=None):
     if not aliases:
         raise ProvisionError("Explicit real Pages alias inventory required")
-    checks = [(f"https://{alias}/", 404) for alias in aliases]
-    checks += [(f"https://{alias}/release.json", 404) for alias in aliases]
+    checks = [(f"https://{alias}/", 404, "alias-root") for alias in aliases]
+    checks += [(f"https://{alias}/release.json", 404, "alias-release") for alias in aliases]
     checks += [
-        ("https://" + HOST + "/", 401),
-        ("https://" + HOST + "/assets/guest.js", 401),
-        ("https://" + HOST + "/release.json", 401),
+        ("https://" + HOST + "/", 401, "custom-root"),
+        ("https://" + HOST + "/assets/guest.js", 401, "custom-asset"),
+        ("https://" + HOST + "/release.json", 401, "custom-release"),
     ]
-    for address, expected in checks:
-        if read_status(address) != expected:
-            raise ProvisionError("Staging anonymous/alias protection smoke failed")
+    for address, expected, stage in checks:
+        try:
+            observed = read_status(address)
+        except (ProvisionError, readiness.InventoryError, OSError):
+            raise GuestDenialBlocked(stage, "unavailable") from None
+        if observed != expected:
+            code = str(observed) if type(observed) is int and 100 <= observed <= 599 else "invalid"
+            raise GuestDenialBlocked(stage, code)
     return {"guest": "denied", "pages_alias": "denied", "identity_login": "required"}
 
 def main():
@@ -246,13 +265,28 @@ def main():
         elif sys.argv[1:] == ["domain"]:
             attach_domain(Client(os.environ))
             print("SNOOKER_PAGES_DOMAIN_BOUND alias_guest=denied")
-        elif sys.argv[1:] == ["smoke-guest"]:
-            project = require_private(Client(os.environ))
+        elif sys.argv[1:] in (["smoke-guest"], ["smoke-audit"]):
+            client = Client(os.environ)
+            if sys.argv[1:] == ["smoke-audit"]:
+                # Unlike publication, this is read-only. No published domain
+                # yet is a clean pre-release state; partial routing must fail.
+                inventory = readiness.inspect(client)
+                if inventory["domain"] == "absent" and inventory["dns"] == "absent":
+                    require_private(client)
+                    print("SNOOKER_STAGING_GUEST_AUDIT status=not-cut-over")
+                    return 0
+                if inventory["domain"] != "present" or inventory["dns"] != "present":
+                    raise ProvisionError("Incomplete Snooker domain routing")
+            project = require_private(client)
             smoke_guest(aliases=actual_alias_hosts(project))
             print("SNOOKER_STAGING_GUEST_DENIAL_VERIFIED")
         else:
-            raise ProvisionError("Usage: identity-ready | bind | domain | smoke-guest")
+            raise ProvisionError("Usage: identity-ready | bind | domain | smoke-guest | smoke-audit")
         return 0
+    except GuestDenialBlocked as exc:
+        print("SNOOKER_STAGING_BLOCKED type=ProvisionError stage=guest-" + exc.stage
+              + " observed=" + exc.observed, file=sys.stderr)
+        return 1
     except BindingBlocked as exc:
         # Only a finite categorical stage may leave the protected runner.
         marker = "SNOOKER_STAGING_BLOCKED type=ProvisionError stage=" + exc.stage
