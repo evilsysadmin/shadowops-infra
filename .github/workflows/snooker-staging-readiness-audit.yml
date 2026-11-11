@@ -12,8 +12,16 @@ on:
       - 'scripts/snooker_staging_publish.py'
       - 'tests/test_snooker_staging_publish.py'
   workflow_dispatch:
+  # Daily read-only health check. 07:17 UTC = 08:17/09:17 Madrid
+  # depending on DST; never dispatch the manual Pages publisher.
+  schedule:
+    - cron: '17 7 * * *'
 permissions:
   contents: read
+
+concurrency:
+  group: shadowops-snooker-staging-readiness
+  cancel-in-progress: false
 jobs:
   contracts:
     runs-on: ubuntu-24.04
@@ -57,6 +65,7 @@ jobs:
           python-version: '3.13'
       - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
       - name: Inventory Cloudflare project and private fail-closed Pages policy
+        id: policy
         run: |
           set -euo pipefail
           python3 scripts/snooker_pages_readiness.py inspect
@@ -70,6 +79,7 @@ jobs:
           print('SNOOKER_PAGES_POLICY_READY project=snooker-staging production_fail_open=false preview_fail_open=false')
           PY
       - name: Confirm only whether independent Snooker Vault service proof exists
+        id: vault
         run: |
           python3 - <<'PY'
           import sys
@@ -87,18 +97,54 @@ jobs:
               if not kind.isascii() or not kind.isidentifier() or len(kind)>48:
                   kind='Unavailable'
               print('SNOOKER_VAULT_PROOF_STATUS status=unavailable type='+kind)
+              # A missing/denied proof is not a green readiness result.
+              sys.exit(1)
           PY
       - name: Check public Identity Snooker callback and exact release source (read only)
+        id: identity
         run: python3 scripts/snooker_identity_public_probe.py
       - name: Admit exact current game source and CI artifact without download
+        id: source
         run: python3 scripts/snooker_source_admission.py check-current
       - name: Audit deployed Pages guest denial without writes
+        id: guest
         # Keep the independent guest-denial result observable even when a
         # preceding source/Identity check failed. Never bypass its 401/404 gate.
         if: ${{ !cancelled() }}
         run: python3 scripts/snooker_staging_publish.py smoke-audit
       - name: Compare canonical Pages production SHA with current game main
+        id: deployed
         # This independent read-only audit runs even if the preceding guest
         # check failed, so both security and release freshness are observable.
         if: ${{ !cancelled() }}
         run: python3 scripts/snooker_staging_publish.py release-audit
+      - name: Summarize staging state for the operator
+        if: ${{ always() }}
+        env:
+          POLICY_OUTCOME: ${{ steps.policy.outcome }}
+          VAULT_OUTCOME: ${{ steps.vault.outcome }}
+          IDENTITY_OUTCOME: ${{ steps.identity.outcome }}
+          SOURCE_OUTCOME: ${{ steps.source.outcome }}
+          GUEST_OUTCOME: ${{ steps.guest.outcome }}
+          DEPLOYED_OUTCOME: ${{ steps.deployed.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Outcome values are GitHub's fixed step enums, not external HTTP
+          # response bodies or provider errors. No credential or URL leakage.
+          {
+            echo '### Snooker staging · read-only release audit'
+            echo
+            echo '| Gate | Result |'
+            echo '| --- | --- |'
+            echo "| Private Pages policy | $POLICY_OUTCOME |"
+            echo "| Snooker Vault credential present | $VAULT_OUTCOME |"
+            echo "| Public Identity callback | $IDENTITY_OUTCOME |"
+            echo "| Current green game CI source | $SOURCE_OUTCOME |"
+            echo "| Guest denied on Pages aliases and custom domain | $GUEST_OUTCOME |"
+            echo "| Canonical production SHA matches game main | $DEPLOYED_OUTCOME |"
+            echo
+            echo 'All six gates must succeed. A skipped or failed gate is not deployment acceptance.'
+            echo 'This workflow only reads Cloudflare/GitHub/Identity/Vault; it never publishes.'
+            echo 'Authenticated browser/WebGL and revocation checks still require separate acceptance.'
+          } >> "$GITHUB_STEP_SUMMARY"

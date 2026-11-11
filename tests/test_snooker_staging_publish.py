@@ -389,6 +389,24 @@ class PublishTests(unittest.TestCase):
             self.assertEqual(audit.call_count, 0)
         self.assertEqual(cloud.writes, [])
 
+    def test_daily_readiness_workflow_never_publishes_and_reports_fail_closed_gates(self):
+        # The scheduled audit must remain a read-only staging check, not a
+        # hidden automatic deploy or a green job with missing Vault proof.
+        workflow = (Path(__file__).resolve().parents[1]
+                    / ".github/workflows/snooker-staging-readiness-audit.yml").read_text()
+        self.assertIn("cron: '17 7 * * *'", workflow)
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertIn("name: staging", workflow)
+        self.assertIn("SNOOKER_VAULT_PROOF_STATUS status=unavailable", workflow)
+        self.assertIn("sys.exit(1)", workflow)
+        self.assertIn("id: guest", workflow)
+        self.assertIn("id: deployed", workflow)
+        self.assertEqual(workflow.count("if: ${{ !cancelled() }}"), 2)
+        self.assertIn("if: ${{ always() }}", workflow)
+        self.assertIn("$GITHUB_STEP_SUMMARY", workflow)
+        self.assertNotIn("wrangler pages deploy", workflow)
+        self.assertNotIn("snooker_pages_provision.py project", workflow)
+
     def test_foreign_or_missing_deployment_alias_blocks_domain_writes(self):
         for candidate in ("https://foreign.pages.dev", "http://release.snooker-staging.pages.dev",
                           "https://release.snooker-staging.pages.dev.evil.test", None):
