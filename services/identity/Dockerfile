@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine AS build
 ARG TARGETOS
 ARG TARGETARCH
 ARG IDENTITY_SOURCE_SHA=development
@@ -7,7 +7,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN test "$(go env GOVERSION)" = go1.27.3 && \
+RUN test "$(go env GOVERSION)" = go1.27.4 && \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
     -ldflags="-s -w -X github.com/evilsysadmin/shadowops-infra/services/identity/runtime.BuildSHA=$IDENTITY_SOURCE_SHA" \
     -o /out/identity ./cmd/service-staging
