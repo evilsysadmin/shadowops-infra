@@ -23,7 +23,7 @@ def make_zip(files):
 class PackagerTests(unittest.TestCase):
     def test_exact_source_zip_gets_audited_worker_and_immutable_receipt(self):
         original = {"index.html": b"<html>game</html>",
-                    "assets/bundle.js": b"console.log('works')",
+                    "assets/bundle.js": b"const buildSha='" + SHA.encode() + b"';console.log('works')",
                     "assets/style.css": b"body{}"}
         binary = make_zip(original)
         receipt = "sha256:" + hashlib.sha256(binary).hexdigest()
@@ -63,8 +63,22 @@ class PackagerTests(unittest.TestCase):
             with self.assertRaises(package.PackageError):
                 package.prepare(archive, "sha256:" + "0" * 64, SHA, Path(tmp) / "out")
 
+    def test_wrong_runtime_sha_is_rejected_before_writing_release(self):
+        for runtime in (b"console.log('old build')", b"const sha='" + b"b" * 40 + b"'"):
+            data = make_zip({"index.html": b"a", "assets/app.js": runtime})
+            receipt = "sha256:" + hashlib.sha256(data).hexdigest()
+            with tempfile.TemporaryDirectory() as tmp:
+                archive = Path(tmp) / "source.zip"
+                archive.write_bytes(data)
+                target = Path(tmp) / "release"
+                with self.subTest(runtime=runtime), self.assertRaisesRegex(
+                    package.PackageError, "does not embed"):
+                    package.prepare(archive, receipt, SHA, target)
+                self.assertFalse(target.exists(), "a wrong bundle must not leave a release candidate")
+
     def test_any_runtime_or_worker_tampering_is_detected(self):
-        data = make_zip({"index.html": b"a", "assets/app.js": b"b"})
+        original_js = b"const sourceSha='" + SHA.encode() + b"'"
+        data = make_zip({"index.html": b"a", "assets/app.js": original_js})
         receipt = "sha256:" + hashlib.sha256(data).hexdigest()
         with tempfile.TemporaryDirectory() as tmp:
             archive = Path(tmp) / "source.zip"
@@ -74,7 +88,7 @@ class PackagerTests(unittest.TestCase):
             (target / "assets/app.js").write_bytes(b"poison")
             with self.assertRaises(package.PackageError):
                 package.verify(target, SHA, receipt)
-            (target / "assets/app.js").write_bytes(b"b")
+            (target / "assets/app.js").write_bytes(original_js)
             (target / "_worker.js").write_bytes(b"no auth")
             with self.assertRaises(package.PackageError):
                 package.verify(target, SHA, receipt)

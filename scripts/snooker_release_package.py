@@ -33,6 +33,14 @@ def prepare(zip_path: Path, zip_digest: str, sha: str, dest: Path) -> dict:
         source.verify_archive(zip_path, zip_digest)
     except source.AdmissionError as exc:
         raise PackageError("Unverified source artifact: " + str(exc)) from None
+    # The source build identifies its immutable *running* SHA so clients can
+    # compare it to protected /release.json and notify about new versions.
+    # Reject mismatched/legacy bundles *before* creating any output directory.
+    with zipfile.ZipFile(zip_path) as candidate:
+        scripts = [item for item in candidate.infolist()
+                   if item.filename.startswith("assets/") and item.filename.endswith(".js")]
+        if not scripts or not any(sha.encode("ascii") in candidate.read(item) for item in scripts):
+            raise PackageError("Published JS bundle does not embed the admitted source SHA")
     if dest.exists() or dest.is_symlink():
         raise PackageError("Output directory already exists; cannot reuse stale release")
     edge = EDGE.read_bytes()
@@ -106,6 +114,12 @@ def verify(root: Path, sha: str, zip_digest: str) -> dict:
             raise PackageError("Release bytes differ from manifest")
     if total > MAX_BYTES:
         raise PackageError("Release total exceeds budget")
+    # A correct manifest is not enough when the *runtime JavaScript* was built
+    # for another source revision. Prove alignment again before Wrangler upload.
+    scripts = [root / name for name in expected
+               if name.startswith("assets/") and name.endswith(".js")]
+    if not scripts or not any(sha.encode("ascii") in script.read_bytes() for script in scripts):
+        raise PackageError("Release runtime SHA differs from signed release metadata")
     if expected["_worker.js"]["sha256"] != digest(EDGE.read_bytes()):
         raise PackageError("Worker differs from reviewed Infra source")
     return value
