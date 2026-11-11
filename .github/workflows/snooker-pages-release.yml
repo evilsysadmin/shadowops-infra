@@ -135,6 +135,12 @@ jobs:
         run: python3 scripts/snooker_staging_publish.py domain
       - name: Probe guest denial on custom host and Pages alias
         run: python3 scripts/snooker_staging_publish.py smoke-guest
+      - name: Verify live canonical Pages production SHA after upload
+        # Cloudflare's upload acknowledgment is not a deployed-release proof.
+        # Retry only bounded read-only convergence, then fail closed.
+        env:
+          SOURCE_SHA: ${{ steps.admit.outputs.source_sha }}
+        run: python3 scripts/snooker_staging_publish.py release-verify "$SOURCE_SHA"
       - name: Record source provenance, never service secrets
         env:
           SOURCE_SHA: ${{ steps.admit.outputs.source_sha }}
