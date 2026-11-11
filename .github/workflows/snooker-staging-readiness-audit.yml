@@ -103,9 +103,17 @@ jobs:
       - name: Check public Identity Snooker callback and exact release source (read only)
         id: identity
         run: python3 scripts/snooker_identity_public_probe.py
-      - name: Admit exact current game source and CI artifact without download
+      - name: Identify exact current game main (without requiring expiring CI artifacts)
         id: source
-        run: python3 scripts/snooker_source_admission.py check-current
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os,sys
+          sys.path.insert(0,'scripts')
+          import snooker_source_admission as src
+          sha=src.current_sha(src.GithubReader(os.environ['GH_TOKEN']))
+          print('SNOOKER_SOURCE_MAIN sha='+sha)
+          PY
       - name: Audit deployed Pages guest denial without writes
         id: guest
         # Keep the independent guest-denial result observable even when a
@@ -140,7 +148,7 @@ jobs:
             echo "| Private Pages policy | $POLICY_OUTCOME |"
             echo "| Snooker Vault credential present | $VAULT_OUTCOME |"
             echo "| Public Identity callback | $IDENTITY_OUTCOME |"
-            echo "| Current green game CI source | $SOURCE_OUTCOME |"
+            echo "| Current game main SHA resolved (CI proof required only to publish) | $SOURCE_OUTCOME |"
             echo "| Guest denied on Pages aliases and custom domain | $GUEST_OUTCOME |"
             echo "| Canonical production SHA matches game main | $DEPLOYED_OUTCOME |"
             echo
