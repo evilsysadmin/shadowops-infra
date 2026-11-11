@@ -47,6 +47,36 @@ class PublicReadinessTests(unittest.TestCase):
             "SNOOKER_IDENTITY_PUBLIC_CHECK login=snooker-target-present release_sha=unavailable",
         )
 
+
+    def test_cli_public_identity_is_fail_closed_on_missing_login_or_release(self):
+        for status in (
+            "SNOOKER_IDENTITY_PUBLIC_CHECK login=unavailable-or-unrecognized release_sha=" + SHA,
+            "SNOOKER_IDENTITY_PUBLIC_CHECK login=snooker-target-present release_sha=unavailable",
+            "SNOOKER_IDENTITY_PUBLIC_CHECK login=unavailable-or-unrecognized release_sha=unavailable",
+            "SNOOKER_IDENTITY_PUBLIC_CHECK login=snooker-target-present release_sha=PRIVATE",
+            "",
+            None,
+        ):
+            out, err = io.StringIO(), io.StringIO()
+            with self.subTest(status=status), patch.object(sys, "argv", ["probe"]), \
+                    patch.object(probe, "inspect", return_value=status), \
+                    contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                self.assertEqual(probe.main(), 1)
+            self.assertEqual(out.getvalue(), "")
+            self.assertEqual(err.getvalue().strip(),
+                             "SNOOKER_IDENTITY_PUBLIC_PROBE_BLOCKED reason=not-ready")
+            self.assertNotIn("PRIVATE", err.getvalue())
+
+    def test_cli_reports_ready_only_if_both_public_identity_proofs_valid(self):
+        out, err = io.StringIO(), io.StringIO()
+        receipt = "SNOOKER_IDENTITY_PUBLIC_CHECK login=snooker-target-present release_sha=" + SHA
+        with patch.object(sys, "argv", ["probe"]), \
+                patch.object(probe, "inspect", return_value=receipt), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            self.assertEqual(probe.main(), 0)
+        self.assertEqual(out.getvalue().strip(), receipt)
+        self.assertEqual(err.getvalue(), "")
+
     def test_cli_rejects_arguments_and_does_not_print_private_exceptions(self):
         out = io.StringIO()
         err = io.StringIO()

@@ -40,12 +40,24 @@ def inspect(*, login_probe=None, release_probe=None):
     return "SNOOKER_IDENTITY_PUBLIC_CHECK login=" + login + " release_sha=" + release
 
 
+def is_ready(receipt):
+    """Only both live public Identity proofs can make the CI step green."""
+    return isinstance(receipt, str) and bool(re.fullmatch(
+        r"SNOOKER_IDENTITY_PUBLIC_CHECK login=snooker-target-present "
+        r"release_sha=[a-f0-9]{40}", receipt))
+
+
 def main():
     if sys.argv[1:]:
         print("SNOOKER_IDENTITY_PUBLIC_PROBE_BLOCKED reason=arguments", file=sys.stderr)
         return 1
     try:
-        print(inspect())
+        receipt = inspect()
+        # Never classify "unavailable" as green, nor print untrusted values.
+        if not is_ready(receipt):
+            print("SNOOKER_IDENTITY_PUBLIC_PROBE_BLOCKED reason=not-ready", file=sys.stderr)
+            return 1
+        print(receipt)
         return 0
     except Exception:
         # Never forward a remote response or exception text into CI.
