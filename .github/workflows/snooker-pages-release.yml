@@ -1,4 +1,4 @@
-name: Snooker · publish authenticated staging Pages (manual)
+name: Snooker · publish authenticated staging Pages (automatic + manual)
 on:
   pull_request:
     paths:
@@ -21,6 +21,11 @@ on:
       - 'tests/test_snooker_staging_publish.py'
       - 'tests/test_snooker_staging_operator.py'
       - 'docs/snooker-staging.md'
+  # Poll independently of the game repository, just like Football staging.
+  # Each run admits only the exact green game-main SHA and is a no-op when
+  # Cloudflare already serves that SHA through the protected domain.
+  schedule:
+    - cron: '11,41 * * * *'
   workflow_dispatch:
 permissions:
   contents: read
@@ -48,7 +53,9 @@ jobs:
   publish:
     needs: contracts
     if: >-
-      github.event_name == 'workflow_dispatch' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'schedule' ||
+       github.event_name == 'push') &&
       github.ref == 'refs/heads/main' &&
       github.repository == 'evilsysadmin/shadowops-infra'
     runs-on: ubuntu-24.04
@@ -90,11 +97,34 @@ jobs:
               for key,value in proof.items():out.write(f'{key}={value}\n')
           print('SNOOKER_SOURCE_ACCEPTED sha='+proof['source_sha'])
           PY
+      - id: decide
+        name: Reconcile only existing protected Pages deployment
+        env:
+          SOURCE_SHA: ${{ steps.admit.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            # Explicit operator invocation retains its original protected
+            # force-publish behavior, subject to ALL downstream gates.
+            echo 'publish=true' >> "$GITHUB_OUTPUT"
+            echo 'SNOOKER_STAGING_AUTO_PLAN status=operator-request publish=true'
+          else
+            python3 scripts/snooker_staging_publish.py auto-plan "$SOURCE_SHA"
+          fi
+      - name: No changes needed: staging already serves exact green game main
+        if: steps.decide.outputs.publish == 'false'
+        run: |
+          echo 'SNOOKER_STAGING_ALREADY_CURRENT guest=denied source=exact'
+          echo 'No Pages/DNS/Identity writes; canonical source is already current.' >> "$GITHUB_STEP_SUMMARY"
       - name: Install pinned OCI SDK
+        if: steps.decide.outputs.publish == 'true'
         run: python3 -m pip install --disable-pip-version-check 'oci==2.185.2'
       - name: Verify active Identity audience and independent Vault custody before cloud writes
+        if: steps.decide.outputs.publish == 'true'
         run: python3 scripts/snooker_staging_publish.py identity-ready
       - name: Download exact CI ZIP and make audited private Pages release
+        if: steps.decide.outputs.publish == 'true'
         shell: bash
         env:
           SOURCE_SHA: ${{ steps.admit.outputs.source_sha }}
@@ -107,6 +137,7 @@ jobs:
           echo "${DIGEST#sha256:}  $RUNNER_TEMP/snooker-src.zip" | sha256sum --check
           python3 scripts/snooker_release_package.py prepare "$RUNNER_TEMP/snooker-src.zip" "$DIGEST" "$SOURCE_SHA" "$RUNNER_TEMP/snooker-pages"
       - name: Recheck both main SHAs before touching Cloudflare
+        if: steps.decide.outputs.publish == 'true'
         shell: bash
         env:
           SOURCE_SHA: ${{ steps.admit.outputs.source_sha }}
@@ -115,10 +146,13 @@ jobs:
           test "$(gh api repos/evilsysadmin/snooker-of-matthias/commits/main --jq .sha)" = "$SOURCE_SHA"
           test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
       - name: Create or verify private Pages project and fail-closed modes
+        if: steps.decide.outputs.publish == 'true'
         run: python3 scripts/snooker_pages_provision.py project
       - name: Bind only isolated Snooker Identity service proof in Pages
+        if: steps.decide.outputs.publish == 'true'
         run: python3 scripts/snooker_staging_publish.py bind
       - name: Verify immutable release candidate and source again
+        if: steps.decide.outputs.publish == 'true'
         env:
           SOURCE_SHA: ${{ steps.admit.outputs.source_sha }}
           DIGEST: ${{ steps.admit.outputs.artifact_digest }}
@@ -128,20 +162,25 @@ jobs:
           test "$(gh api repos/evilsysadmin/snooker-of-matthias/commits/main --jq .sha)" = "$SOURCE_SHA"
           test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
       - name: Publish only the verified Snooker release via pinned Wrangler
+        if: steps.decide.outputs.publish == 'true'
         env:
           SOURCE_SHA: ${{ steps.admit.outputs.source_sha }}
         run: npx --yes wrangler@4.127.1 pages deploy "$RUNNER_TEMP/snooker-pages" --project-name snooker-staging --branch main --commit-hash "$SOURCE_SHA" --commit-dirty=false
       - name: Refuse custom-domain activation unless Pages alias denies anonymous access
+        if: steps.decide.outputs.publish == 'true'
         run: python3 scripts/snooker_staging_publish.py domain
       - name: Probe guest denial on custom host and Pages alias
+        if: steps.decide.outputs.publish == 'true'
         run: python3 scripts/snooker_staging_publish.py smoke-guest
       - name: Verify live canonical Pages production SHA after upload
+        if: steps.decide.outputs.publish == 'true'
         # Cloudflare's upload acknowledgment is not a deployed-release proof.
         # Retry only bounded read-only convergence, then fail closed.
         env:
           SOURCE_SHA: ${{ steps.admit.outputs.source_sha }}
         run: python3 scripts/snooker_staging_publish.py release-verify "$SOURCE_SHA"
       - name: Record source provenance, never service secrets
+        if: steps.decide.outputs.publish == 'true'
         env:
           SOURCE_SHA: ${{ steps.admit.outputs.source_sha }}
           DIGEST: ${{ steps.admit.outputs.artifact_digest }}
