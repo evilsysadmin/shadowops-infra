@@ -6,6 +6,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -294,6 +295,26 @@ def audit_canonical_release(client, expected_sha):
     return deployed
 
 
+def verify_published_canonical(client, expected_sha, *, attempts=6, sleep=time.sleep):
+    """Read-after-write Pages convergence gate for a manually approved release.
+
+    A production upload may take a few seconds to appear as canonical.
+    Retry only bounded metadata mismatches; foreign ownership, failed private
+    policy or Cloudflare API faults fail immediately. Never make cloud writes.
+    """
+    if not isinstance(expected_sha, str) or not admission.SHA.fullmatch(expected_sha):
+        raise ReleaseAlignmentBlocked("canonical-invalid")
+    if type(attempts) is not int or not 1 <= attempts <= 6:
+        raise ValueError("Invalid bounded release verification attempts")
+    for index in range(attempts):
+        try:
+            return audit_canonical_release(client, expected_sha)
+        except ReleaseAlignmentBlocked:
+            if index == attempts - 1:
+                raise
+            sleep(3)
+
+
 def smoke_guest(read_status=probe, aliases=None):
     if not aliases:
         raise ProvisionError("Explicit real Pages alias inventory required")
@@ -327,6 +348,14 @@ def main():
         elif sys.argv[1:] == ["domain"]:
             attach_domain(Client(os.environ))
             print("SNOOKER_PAGES_DOMAIN_BOUND alias_guest=denied")
+        elif len(sys.argv) == 3 and sys.argv[1] == "release-verify":
+            # Last release gate after Wrangler and guest-denial checks. Never
+            # trust a successful upload without exact canonical SHA parity.
+            source_sha = sys.argv[2]
+            deployed = verify_published_canonical(Client(os.environ), source_sha)
+            print("SNOOKER_STAGING_PUBLISHED_SHA_VERIFIED source="
+                  + source_sha[:12] + " deployed=" + deployed[:12]
+                  + " guest_auth=separately-gated")
         elif sys.argv[1:] == ["release-audit"]:
             # Read-only source GET and Cloudflare project GET. The bounded SHA
             # receipt must NEVER be mistaken for guest or signed-in acceptance.
@@ -352,7 +381,7 @@ def main():
             smoke_guest(aliases=actual_alias_hosts(project))
             print("SNOOKER_STAGING_GUEST_DENIAL_VERIFIED")
         else:
-            raise ProvisionError("Usage: identity-ready | bind | domain | smoke-guest | smoke-audit | release-audit")
+            raise ProvisionError("Usage: identity-ready | bind | domain | smoke-guest | smoke-audit | release-audit | release-verify SHA")
         return 0
     except ReleaseAlignmentBlocked as exc:
         marker = ("SNOOKER_STAGING_RELEASE_ALIGNMENT status=blocked"
