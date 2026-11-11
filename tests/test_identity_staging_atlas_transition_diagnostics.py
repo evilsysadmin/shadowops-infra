@@ -181,6 +181,15 @@ sys.exit(1)
         self.assertNotEqual(status, 0)
         self.assertEqual(result.strip(), line)
 
+    def test_isolated_candidate_config_blocked_stage_is_relayed_exactly(self):
+        # The root release gained candidate-config in #582. SSH must retain
+        # its bounded, secret-free failure reason rather than hiding it.
+        line = ("IDENTITY_ATLAS_DEPLOY_BLOCKED type=AtlasReleaseBlocked "
+                "stage=candidate-config rollback=not-started")
+        status, result = self.run_ssh(line)
+        self.assertNotEqual(status, 0)
+        self.assertEqual(result.strip(), line)
+
     def test_arbitrary_ssh_error_and_secret_discarded(self):
         status, result = self.run_ssh("Docker secret leaked: PASSWORD=PRIVATE_ATLAS_PASSWORD")
         self.assertNotEqual(status, 0)
