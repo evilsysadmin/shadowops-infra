@@ -325,6 +325,70 @@ class PublishTests(unittest.TestCase):
         with self.assertRaises(ProvisionError):
             pub.audit_canonical_release(Fake(private=False), "a" * 40)
 
+    def test_post_publish_gate_accepts_only_verified_canonical_source(self):
+        source_sha = "a" * 40
+        cloud = Fake()
+        current = cloud.project["canonical_deployment"]
+        current.update({
+            "environment": "production", "is_skipped": False,
+            "latest_stage": {"status": "success"},
+            "deployment_trigger": {"type": "ad_hoc", "metadata": {
+                "branch": "main", "commit_dirty": False, "commit_hash": source_sha,
+            }},
+        })
+        slept = []
+        self.assertEqual(pub.verify_published_canonical(
+            cloud, source_sha, sleep=slept.append), source_sha)
+        self.assertEqual(slept, [])
+        self.assertEqual(cloud.writes, [])
+
+    def test_post_publish_gate_allows_bounded_pages_propagation_only(self):
+        from unittest.mock import patch
+        cloud = Fake()
+        calls = []
+        def delayed(_client, expected):
+            calls.append(expected)
+            if len(calls) < 3:
+                raise pub.ReleaseAlignmentBlocked("source-mismatch", "b" * 40)
+            return expected
+        slept = []
+        with patch.object(pub, "audit_canonical_release", side_effect=delayed):
+            result = pub.verify_published_canonical(
+                cloud, "a" * 40, attempts=3, sleep=slept.append)
+        self.assertEqual(result, "a" * 40)
+        self.assertEqual(calls, ["a" * 40] * 3)
+        self.assertEqual(slept, [3, 3])
+        self.assertEqual(cloud.writes, [])
+
+    def test_post_publish_gate_stops_after_retry_budget_without_claiming_success(self):
+        from unittest.mock import patch
+        cloud = Fake()
+        slept = []
+        with patch.object(pub, "audit_canonical_release",
+                          side_effect=pub.ReleaseAlignmentBlocked("source-mismatch", "b" * 40)) as probe:
+            with self.assertRaises(pub.ReleaseAlignmentBlocked) as blocked:
+                pub.verify_published_canonical(
+                    cloud, "a" * 40, attempts=4, sleep=slept.append)
+        self.assertEqual(blocked.exception.stage, "source-mismatch")
+        self.assertEqual(probe.call_count, 4)
+        self.assertEqual(slept, [3] * 3)
+        self.assertEqual(cloud.writes, [])
+
+    def test_post_publish_gate_fails_immediately_for_unsafe_policy_or_bad_input(self):
+        from unittest.mock import patch
+        cloud = Fake(private=False)
+        slept = []
+        with self.assertRaises(ProvisionError):
+            pub.verify_published_canonical(
+                cloud, "a" * 40, sleep=slept.append)
+        self.assertEqual(slept, [])
+        with patch.object(pub, "audit_canonical_release") as audit:
+            for value in ("wrong", "B" * 40, "", None):
+                with self.subTest(value=value), self.assertRaises(pub.ReleaseAlignmentBlocked):
+                    pub.verify_published_canonical(Fake(), value, sleep=slept.append)
+            self.assertEqual(audit.call_count, 0)
+        self.assertEqual(cloud.writes, [])
+
     def test_foreign_or_missing_deployment_alias_blocks_domain_writes(self):
         for candidate in ("https://foreign.pages.dev", "http://release.snooker-staging.pages.dev",
                           "https://release.snooker-staging.pages.dev.evil.test", None):
