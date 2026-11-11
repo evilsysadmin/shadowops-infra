@@ -70,6 +70,51 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(cfg["preview"]["env_vars"], {})
         self.assertIs(cfg["production"]["fail_open"], False)
 
+    def test_binding_block_preflight_reports_only_fixed_stage(self):
+        for cloud, stage in (
+            (Fake(private=False), "preflight-project"),
+            (Fake(unknown_binding=True), "preflight-production-vars"),
+        ):
+            with self.subTest(stage=stage), self.assertRaises(pub.BindingBlocked) as ctx:
+                pub.bind(cloud, PROOF)
+            self.assertEqual(ctx.exception.stage, stage)
+            self.assertEqual(cloud.writes, [])
+            self.assertNotIn(PROOF, str(ctx.exception))
+
+    def test_binding_cloudflare_http_error_reports_safe_status_not_response(self):
+        class Rejected(Fake):
+            def write(self, method, path, value):
+                self.writes.append((method, path))
+                raise ProvisionError("Cloudflare write rejected (HTTP 400)")
+        cloud = Rejected()
+        with self.assertRaises(pub.BindingBlocked) as ctx:
+            pub.bind(cloud, PROOF)
+        self.assertEqual(ctx.exception.stage, "patch-http-400")
+        self.assertEqual(cloud.writes, [("PATCH", P)])
+        self.assertNotIn(PROOF, str(ctx.exception))
+
+    def test_binding_unknown_provider_error_is_redacted(self):
+        class Rejected(Fake):
+            def write(self, method, path, value):
+                raise ProvisionError("password=VERY_SECRET")
+        with self.assertRaises(pub.BindingBlocked) as ctx:
+            pub.bind(Rejected(), PROOF)
+        self.assertEqual(ctx.exception.stage, "patch-rejected")
+        self.assertNotIn("VERY_SECRET", str(ctx.exception))
+
+    def test_binding_postpatch_inventory_is_verified(self):
+        class BadConvergence(Fake):
+            def write(self, method, path, value):
+                self.writes.append((method, path))
+                # Simulate a provider claiming success without persisting
+                # the isolated secret; no deployment may follow.
+                return self.project
+        cloud = BadConvergence()
+        with self.assertRaises(pub.BindingBlocked) as ctx:
+            pub.bind(cloud, PROOF)
+        self.assertEqual(ctx.exception.stage, "postpatch-binding")
+        self.assertEqual(cloud.writes, [("PATCH", P)])
+
     def test_unknown_binding_or_fail_open_denies_without_writes(self):
         for cloud in (Fake(private=False), Fake(unknown_binding=True)):
             with self.subTest(cloud=cloud.__dict__), self.assertRaises(ProvisionError):
