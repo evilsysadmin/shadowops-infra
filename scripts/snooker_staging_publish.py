@@ -11,6 +11,7 @@ import urllib.parse
 import urllib.request
 
 import snooker_pages_readiness as readiness
+import snooker_source_admission as admission
 from snooker_pages_provision import Client, ProvisionError
 
 ISSUER = "https://id-staging.shadowops.dpdns.org"
@@ -39,6 +40,19 @@ class BindingBlocked(ProvisionError):
         super().__init__("Snooker Pages secret binding blocked")
         self.stage = stage
         self.provider_code = provider_code
+
+
+class ReleaseAlignmentBlocked(ProvisionError):
+    """Bounded, nonsecret canonical Pages production mismatch."""
+    STAGES = frozenset({"canonical-missing", "canonical-invalid", "source-mismatch"})
+
+    def __init__(self, stage, deployed_sha=None):
+        if stage not in self.STAGES or (deployed_sha is not None and
+                not re.fullmatch(r"[a-f0-9]{40}", deployed_sha)):
+            raise ValueError("Invalid canonical deployment diagnostic")
+        super().__init__("Canonical Pages release does not match admitted source")
+        self.stage = stage
+        self.deployed_sha = deployed_sha
 
 
 class GuestDenialBlocked(ProvisionError):
@@ -232,6 +246,40 @@ def attach_domain(client, read_status=probe):
         raise ProvisionError("Snooker custom domain and DNS not converged")
     return {"domain": "owned", "dns": "owned", "alias_guest": "denied"}
 
+def audit_canonical_release(client, expected_sha):
+    """Check real Pages production deployment SHA, never latest preview.
+
+    Cloudflare's canonical_deployment is documented as the most recent
+    production deployment. Unlike latest_deployment, it cannot point to a
+    preview build that happens to have been uploaded more recently.
+    """
+    if not isinstance(expected_sha, str) or not admission.SHA.fullmatch(expected_sha):
+        raise ReleaseAlignmentBlocked("canonical-invalid")
+    project = require_private(client)
+    deployment = project.get("canonical_deployment")
+    if deployment is None:
+        raise ReleaseAlignmentBlocked("canonical-missing")
+    if not isinstance(deployment, dict):
+        raise ReleaseAlignmentBlocked("canonical-invalid")
+    trigger = deployment.get("deployment_trigger")
+    metadata = trigger.get("metadata") if isinstance(trigger, dict) else None
+    latest = deployment.get("latest_stage")
+    if (deployment.get("environment") != "production"
+            or deployment.get("is_skipped") is not False
+            or not isinstance(latest, dict) or latest.get("status") != "success"
+            or not isinstance(trigger, dict) or trigger.get("type") != "ad_hoc"
+            or not isinstance(metadata, dict)
+            or metadata.get("branch") != "main"
+            or metadata.get("commit_dirty") is not False):
+        raise ReleaseAlignmentBlocked("canonical-invalid")
+    deployed = metadata.get("commit_hash")
+    if not isinstance(deployed, str) or not admission.SHA.fullmatch(deployed):
+        raise ReleaseAlignmentBlocked("canonical-invalid")
+    if deployed != expected_sha:
+        raise ReleaseAlignmentBlocked("source-mismatch", deployed)
+    return deployed
+
+
 def smoke_guest(read_status=probe, aliases=None):
     if not aliases:
         raise ProvisionError("Explicit real Pages alias inventory required")
@@ -265,6 +313,15 @@ def main():
         elif sys.argv[1:] == ["domain"]:
             attach_domain(Client(os.environ))
             print("SNOOKER_PAGES_DOMAIN_BOUND alias_guest=denied")
+        elif sys.argv[1:] == ["release-audit"]:
+            # Read-only source GET and Cloudflare project GET. The bounded SHA
+            # receipt must NEVER be mistaken for guest or signed-in acceptance.
+            source_sha = admission.current_sha(
+                admission.GithubReader(os.environ.get("GH_TOKEN", "")))
+            deployed = audit_canonical_release(Client(os.environ), source_sha)
+            print("SNOOKER_STAGING_RELEASE_ALIGNMENT status=current"
+                  " source=" + source_sha[:12] + " deployed=" + deployed[:12]
+                  + " guest_auth=not-verified")
         elif sys.argv[1:] in (["smoke-guest"], ["smoke-audit"]):
             client = Client(os.environ)
             if sys.argv[1:] == ["smoke-audit"]:
@@ -281,8 +338,15 @@ def main():
             smoke_guest(aliases=actual_alias_hosts(project))
             print("SNOOKER_STAGING_GUEST_DENIAL_VERIFIED")
         else:
-            raise ProvisionError("Usage: identity-ready | bind | domain | smoke-guest | smoke-audit")
+            raise ProvisionError("Usage: identity-ready | bind | domain | smoke-guest | smoke-audit | release-audit")
         return 0
+    except ReleaseAlignmentBlocked as exc:
+        marker = ("SNOOKER_STAGING_RELEASE_ALIGNMENT status=blocked"
+                  " stage=" + exc.stage)
+        if exc.deployed_sha:
+            marker += " deployed=" + exc.deployed_sha[:12]
+        print(marker, file=sys.stderr)
+        return 1
     except GuestDenialBlocked as exc:
         print("SNOOKER_STAGING_BLOCKED type=ProvisionError stage=guest-" + exc.stage
               + " observed=" + exc.observed, file=sys.stderr)

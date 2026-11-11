@@ -94,3 +94,8 @@ jobs:
         run: python3 scripts/snooker_source_admission.py check-current
       - name: Audit deployed Pages guest denial without writes
         run: python3 scripts/snooker_staging_publish.py smoke-audit
+      - name: Compare canonical Pages production SHA with current game main
+        # This independent read-only audit runs even if the preceding guest
+        # check failed, so both security and release freshness are observable.
+        if: ${{ !cancelled() }}
+        run: python3 scripts/snooker_staging_publish.py release-audit
