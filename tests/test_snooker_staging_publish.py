@@ -228,6 +228,72 @@ class PublishTests(unittest.TestCase):
                         aliases=pub.actual_alias_hosts(pub.require_private(cloud)))
         self.assertEqual(cloud.writes, [])
 
+
+    def test_canonical_production_release_matches_exact_main_sha_without_writes(self):
+        source_sha = "a" * 40
+        cloud = Fake()
+        production = cloud.project["canonical_deployment"]
+        production.update({
+            "environment": "production", "is_skipped": False,
+            "latest_stage": {"status": "success"},
+            "deployment_trigger": {
+                "type": "ad_hoc",
+                "metadata": {"branch": "main", "commit_dirty": False,
+                             "commit_hash": source_sha},
+            },
+        })
+        # A newer preview must never be mistaken for production.
+        cloud.project["latest_deployment"]["deployment_trigger"] = {
+            "type": "ad_hoc",
+            "metadata": {"branch": "preview", "commit_dirty": False,
+                         "commit_hash": "b" * 40},
+        }
+        self.assertEqual(pub.audit_canonical_release(cloud, source_sha), source_sha)
+        self.assertEqual(cloud.writes, [], "release audit performs no Cloudflare writes")
+
+    def test_canonical_release_audit_identifies_stale_or_ambiguous_production(self):
+        source_sha = "a" * 40
+        for variant, stage in (
+            ("missing", "canonical-missing"),
+            ("preview", "canonical-invalid"),
+            ("dirty", "canonical-invalid"),
+            ("failed", "canonical-invalid"),
+            ("unrecognized", "canonical-invalid"),
+            ("badsha", "canonical-invalid"),
+            ("stale", "source-mismatch"),
+        ):
+            cloud = Fake()
+            candidate = {
+                "environment": "production", "is_skipped": False,
+                "latest_stage": {"status": "success"},
+                "deployment_trigger": {"type": "ad_hoc", "metadata": {
+                    "branch": "main", "commit_dirty": False, "commit_hash": source_sha,
+                }},
+            }
+            if variant == "missing":
+                cloud.project["canonical_deployment"] = None
+            else:
+                if variant == "preview": candidate["environment"] = "preview"
+                if variant == "dirty": candidate["deployment_trigger"]["metadata"]["commit_dirty"] = True
+                if variant == "failed": candidate["latest_stage"]["status"] = "failure"
+                if variant == "unrecognized": candidate["deployment_trigger"]["type"] = "foreign"
+                if variant == "badsha": candidate["deployment_trigger"]["metadata"]["commit_hash"] = "BAD"
+                if variant == "stale": candidate["deployment_trigger"]["metadata"]["commit_hash"] = "b" * 40
+                cloud.project["canonical_deployment"] = candidate
+            with self.subTest(variant=variant), self.assertRaises(pub.ReleaseAlignmentBlocked) as error:
+                pub.audit_canonical_release(cloud, source_sha)
+            self.assertEqual(error.exception.stage, stage)
+            self.assertEqual(error.exception.deployed_sha, "b" * 40 if variant == "stale" else None)
+            self.assertEqual(cloud.writes, [])
+            self.assertNotIn("https://", str(error.exception))
+
+    def test_canonical_audit_rejects_bad_expected_sha_and_open_pages(self):
+        for sha in ("", "main", "f" * 39, "F" * 40):
+            with self.subTest(sha=sha), self.assertRaises(pub.ReleaseAlignmentBlocked):
+                pub.audit_canonical_release(Fake(), sha)
+        with self.assertRaises(ProvisionError):
+            pub.audit_canonical_release(Fake(private=False), "a" * 40)
+
     def test_foreign_or_missing_deployment_alias_blocks_domain_writes(self):
         for candidate in ("https://foreign.pages.dev", "http://release.snooker-staging.pages.dev",
                           "https://release.snooker-staging.pages.dev.evil.test", None):
