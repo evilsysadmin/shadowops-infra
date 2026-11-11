@@ -3,10 +3,14 @@ on:
   pull_request:
     paths:
       - '.github/workflows/snooker-staging-readiness-audit.yml'
+      - 'scripts/snooker_staging_publish.py'
+      - 'tests/test_snooker_staging_publish.py'
   push:
     branches: [main]
     paths:
       - '.github/workflows/snooker-staging-readiness-audit.yml'
+      - 'scripts/snooker_staging_publish.py'
+      - 'tests/test_snooker_staging_publish.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -88,3 +92,5 @@ jobs:
         run: python3 scripts/snooker_identity_public_probe.py
       - name: Admit exact current game source and CI artifact without download
         run: python3 scripts/snooker_source_admission.py check-current
+      - name: Audit deployed Pages guest denial without writes
+        run: python3 scripts/snooker_staging_publish.py smoke-audit

@@ -190,6 +190,44 @@ class PublishTests(unittest.TestCase):
         with self.assertRaises(ProvisionError):
             pub.smoke_guest(lambda u:404)
 
+    def test_guest_failure_reports_exact_route_class_and_only_http_status(self):
+        aliases = pub.actual_alias_hosts(Fake().project)
+        cases = [
+            (lambda u: 200 if "pages.dev" in u and u.endswith("/") else
+                (404 if "pages.dev" in u else 401), "alias-root", "200"),
+            (lambda u: 404 if "pages.dev" in u or u.endswith("/") else 401,
+                "custom-root", "404"),
+            (lambda u: 404 if "pages.dev" in u else
+                (503 if "/assets/" in u else 401), "custom-asset", "503"),
+        ]
+        for probe, stage, observed in cases:
+            with self.subTest(stage=stage), self.assertRaises(pub.GuestDenialBlocked) as ctx:
+                pub.smoke_guest(probe, aliases=aliases)
+            self.assertEqual(ctx.exception.stage, stage)
+            self.assertEqual(ctx.exception.observed, observed)
+            self.assertNotIn("https://", str(ctx.exception))
+
+    def test_guest_transport_failure_is_bounded_and_redacted(self):
+        def unavailable(_):
+            raise pub.ProvisionError("PRIVATE_DNS_OR_CREDENTIAL")
+        with self.assertRaises(pub.GuestDenialBlocked) as ctx:
+            pub.smoke_guest(unavailable, aliases=["snooker-staging.pages.dev"])
+        self.assertEqual(ctx.exception.stage, "alias-root")
+        self.assertEqual(ctx.exception.observed, "unavailable")
+        self.assertNotIn("PRIVATE", str(ctx.exception))
+
+    def test_guest_audit_is_read_only_for_existing_domain(self):
+        cloud = Fake()
+        pub.bind(cloud, PROOF)
+        cloud.writes.clear()
+        cloud.domain = {"name": readiness.HOST, "status": "active"}
+        cloud.dns = [{"name": readiness.HOST, "type": "CNAME", "proxied": True,
+                      "content": "snooker-staging.pages.dev"}]
+        # The publicly observable smoke only invokes read_status.
+        pub.smoke_guest(lambda url: 404 if "pages.dev" in url else 401,
+                        aliases=pub.actual_alias_hosts(pub.require_private(cloud)))
+        self.assertEqual(cloud.writes, [])
+
     def test_foreign_or_missing_deployment_alias_blocks_domain_writes(self):
         for candidate in ("https://foreign.pages.dev", "http://release.snooker-staging.pages.dev",
                           "https://release.snooker-staging.pages.dev.evil.test", None):
