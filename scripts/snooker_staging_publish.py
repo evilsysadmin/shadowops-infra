@@ -29,11 +29,16 @@ class BindingBlocked(ProvisionError):
         "postpatch-policy", "postpatch-binding",
     }
 
-    def __init__(self, stage):
+    def __init__(self, stage, provider_code=None):
         if stage not in self.STAGES:
             raise ValueError("Invalid binding failure stage")
+        if (provider_code is not None and
+                (not isinstance(provider_code, str)
+                 or not re.fullmatch(r"[1-9][0-9]{0,8}", provider_code))):
+            raise ValueError("Invalid bounded provider code")
         super().__init__("Snooker Pages secret binding blocked")
         self.stage = stage
+        self.provider_code = provider_code
 
 
 def project_path(client):
@@ -104,22 +109,26 @@ def bind(client, proof):
         if not isinstance(vars_, dict) or set(vars_) - ({KEY} if mode == "production" else set()):
             raise BindingBlocked("preflight-" + mode + "-vars")
     path = project_path(client)
-    flags = project["deployment_configs"]["production"]["compatibility_flags"]
+    # The project already passed require_private() for production AND preview.
+    # Cloudflare's PATCH supports partial deployment_config changes; do not
+    # re-send unrelated compatibility flags or policy fields with a secret.
+    # The post-patch require_private() below must prove both modes unchanged.
     try:
         client.write("PATCH", path, {"deployment_configs": {"production": {
-            "fail_open": False,
-            "compatibility_flags": flags,
             "env_vars": {KEY: {"type": "secret_text", "value": proof}},
         }}})
     except (readiness.InventoryError, ProvisionError) as exc:
         # Cloudflare's response body may contain private material. Only a
         # known numeric HTTP status from our own fixed Client error may pass.
-        match = re.fullmatch(r"Cloudflare write rejected \(HTTP ([0-9]{3})\)", str(exc))
+        match = re.fullmatch(
+            r"Cloudflare write rejected \(HTTP ([0-9]{3})\)(?: API ([1-9][0-9]{0,8}))?",
+            str(exc))
         status = match.group(1) if match else None
+        code = match.group(2) if match else None
         stage = "patch-http-" + status if status in {
             "400", "401", "403", "404", "409", "422", "429", "500", "502", "503"
         } else "patch-rejected"
-        raise BindingBlocked(stage) from None
+        raise BindingBlocked(stage, code) from None
     try:
         updated = require_private(client)
     except (readiness.InventoryError, ProvisionError):
@@ -246,8 +255,10 @@ def main():
         return 0
     except BindingBlocked as exc:
         # Only a finite categorical stage may leave the protected runner.
-        print("SNOOKER_STAGING_BLOCKED type=ProvisionError stage=" + exc.stage,
-              file=sys.stderr)
+        marker = "SNOOKER_STAGING_BLOCKED type=ProvisionError stage=" + exc.stage
+        if exc.provider_code is not None:
+            marker += " provider_code=" + exc.provider_code
+        print(marker, file=sys.stderr)
         return 1
     except Exception as exc:
         # OCI exceptions can contain secret identifiers; never display their message.

@@ -13,6 +13,23 @@ import snooker_pages_readiness as readiness
 class ProvisionError(ValueError):
     pass
 
+
+def safe_provider_code(raw):
+    """Return only one bounded numeric Cloudflare API code; never the response text."""
+    if not isinstance(raw, bytes) or len(raw) > 8192:
+        return None
+    try:
+        value = json.loads(raw)
+    except (ValueError, UnicodeError):
+        return None
+    if not isinstance(value, dict) or not isinstance(value.get("errors"), list):
+        return None
+    codes = [row.get("code") for row in value["errors"]
+             if isinstance(row, dict) and type(row.get("code")) is int
+             and 0 < row["code"] <= 999999999]
+    return str(codes[0]) if len(codes) == 1 else None
+
+
 class Client(readiness.CloudflareClient):
     def write(self, method, path, value):
         if method not in {"POST", "PATCH"} or not path.startswith("/") or ".." in path:
@@ -32,7 +49,11 @@ class Client(readiness.CloudflareClient):
         except urllib.error.URLError:
             raise ProvisionError("Cloudflare unavailable") from None
         if status not in (200, 201) or len(raw) > 2_000_000:
-            raise ProvisionError("Cloudflare write rejected (HTTP " + str(status) + ")")
+            code = safe_provider_code(raw)
+            # Only the numerical HTTP status and provider code are admissible
+            # outside this module. Never propagate provider message/pointer.
+            raise ProvisionError("Cloudflare write rejected (HTTP " + str(status) + ")"
+                                 + (" API " + code if code is not None else ""))
         try:
             result = json.loads(raw)
         except (ValueError, UnicodeError):
