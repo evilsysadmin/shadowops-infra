@@ -46,8 +46,10 @@ class Fake:
         self.writes.append((method, path))
         if method == "PATCH":
             production = value["deployment_configs"]["production"]
-            if production.get("fail_open") is not False or "global_fetch_strictly_public" not in production.get("compatibility_flags", []):
-                raise AssertionError("Secret binding must retain explicit fail-closed Pages policy")
+            if set(production) != {"env_vars"}:
+                raise AssertionError("Secret binding must PATCH only its single env var")
+            if set(production["env_vars"]) != {pub.KEY}:
+                raise AssertionError("Only the dedicated Snooker credential may be bound")
             self.project["deployment_configs"]["production"]["env_vars"] = production["env_vars"]
             return self.project
         if path == P + "/domains":
@@ -91,6 +93,30 @@ class PublishTests(unittest.TestCase):
             pub.bind(cloud, PROOF)
         self.assertEqual(ctx.exception.stage, "patch-http-400")
         self.assertEqual(cloud.writes, [("PATCH", P)])
+        self.assertNotIn(PROOF, str(ctx.exception))
+
+    def test_provider_numeric_code_is_bounded_and_secret_free(self):
+        from snooker_pages_provision import safe_provider_code
+        self.assertEqual(
+            safe_provider_code(b'{"errors":[{"code":8000013,"message":"secret=VERY_SECRET"}]}'),
+            "8000013",
+        )
+        for raw in (b'{"errors":[{"code":false}]}',
+                    b'{"errors":[{"code":"8000013"}]}',
+                    b'{"errors":[{"code":1},{"code":2}]}',
+                    b'{"errors":[{"code":0}]}',
+                    b'{"errors":[{"code":1000000000}]}',
+                    b'secret=VERY_SECRET'):
+            with self.subTest(raw=raw):
+                self.assertIsNone(safe_provider_code(raw))
+
+        class Rejected(Fake):
+            def write(self, method, path, value):
+                raise ProvisionError("Cloudflare write rejected (HTTP 400) API 8000013")
+        with self.assertRaises(pub.BindingBlocked) as ctx:
+            pub.bind(Rejected(), PROOF)
+        self.assertEqual(ctx.exception.stage, "patch-http-400")
+        self.assertEqual(ctx.exception.provider_code, "8000013")
         self.assertNotIn(PROOF, str(ctx.exception))
 
     def test_binding_unknown_provider_error_is_redacted(self):
