@@ -1,5 +1,6 @@
 import sys
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -189,6 +190,36 @@ class PublishTests(unittest.TestCase):
             pub.smoke_guest(lambda u:200, aliases=aliases)
         with self.assertRaises(ProvisionError):
             pub.smoke_guest(lambda u:404)
+
+    def test_guest_http_probe_preserves_redirect_status_without_following_location(self):
+        class RedirectResponse:
+            def open(self, request, timeout):
+                self.assertion_url = request.full_url
+                self.assertion_timeout = timeout
+                # Cloudflare's actual 302 must be observed as 302; a default
+                # urllib opener would follow Location and often report 200.
+                raise pub.urllib.error.HTTPError(
+                    request.full_url, 302, "Found",
+                    {"Location": "https://unexpected.example/login"}, None)
+
+        opener = RedirectResponse()
+        url = "https://" + readiness.HOST + "/"
+        with patch.object(pub.urllib.request, "build_opener", return_value=opener) as make:
+            self.assertEqual(pub.probe(url), 302)
+        self.assertEqual(opener.assertion_url, url)
+        self.assertEqual(opener.assertion_timeout, 15)
+        handler = make.call_args.args[0]
+        self.assertIsInstance(handler, pub._NoRedirect)
+        self.assertIsNone(handler.redirect_request(None, None, 302, "Found", {},
+                                                   "https://unexpected.example/login"))
+
+    def test_redirected_login_is_a_guest_denial_failure_not_success(self):
+        aliases = pub.actual_alias_hosts(Fake().project)
+        status = lambda url: 404 if "pages.dev" in url else 302
+        with self.assertRaises(pub.GuestDenialBlocked) as captured:
+            pub.smoke_guest(status, aliases=aliases)
+        self.assertEqual(captured.exception.stage, "custom-root")
+        self.assertEqual(captured.exception.observed, "302")
 
     def test_guest_failure_reports_exact_route_class_and_only_http_status(self):
         aliases = pub.actual_alias_hosts(Fake().project)
