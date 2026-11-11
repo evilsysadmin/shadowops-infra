@@ -41,7 +41,11 @@ jobs:
           set -euo pipefail
           [[ "$(go env GOVERSION)" == go1.27.4 ]]
           for arch in amd64 arm64; do
-            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -o "$RUNNER_TEMP/identity-$arch" ./cmd/service-staging
+            bin="$RUNNER_TEMP/identity-$arch"
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -o "$bin" ./cmd/service-staging
+            test "$(go version "$bin")" = "$bin: go1.27.4"
+            go version -m "$bin" | grep -Fqx "$(printf '\tbuild\tGOOS=linux')"
+            go version -m "$bin" | grep -Fqx "$(printf '\tbuild\tGOARCH=%s' "$arch")"
           done
           GOBIN="$RUNNER_TEMP/identity-vuln" go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           "$RUNNER_TEMP/identity-vuln/govulncheck" ./cmd/service-staging
