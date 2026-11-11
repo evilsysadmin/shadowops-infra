@@ -19,6 +19,23 @@ ALIAS = "snooker-staging.pages.dev"
 KEY = "SHADOWOPS_SNOOKER_SERVICE_CREDENTIAL"
 PROOF = re.compile(r"soc1_[A-Za-z0-9_-]{43}\Z")
 
+class BindingBlocked(ProvisionError):
+    """A fixed, secret-free Pages binding failure stage."""
+    STAGES = {
+        "preflight-project", "preflight-production-vars", "preflight-preview-vars",
+        "patch-rejected", "patch-http-400", "patch-http-401", "patch-http-403",
+        "patch-http-404", "patch-http-409", "patch-http-422", "patch-http-429",
+        "patch-http-500", "patch-http-502", "patch-http-503",
+        "postpatch-policy", "postpatch-binding",
+    }
+
+    def __init__(self, stage):
+        if stage not in self.STAGES:
+            raise ValueError("Invalid binding failure stage")
+        super().__init__("Snooker Pages secret binding blocked")
+        self.stage = stage
+
+
 def project_path(client):
     return f"/accounts/{client.account}/pages/projects/{readiness.PROJECT}"
 
@@ -78,22 +95,40 @@ def current_proof():
 def bind(client, proof):
     if not isinstance(proof, str) or not PROOF.fullmatch(proof):
         raise ProvisionError("Invalid independent Snooker service proof")
-    project = require_private(client)
+    try:
+        project = require_private(client)
+    except (readiness.InventoryError, ProvisionError):
+        raise BindingBlocked("preflight-project") from None
     for mode in ("production", "preview"):
         vars_ = (project.get("deployment_configs") or {}).get(mode, {}).get("env_vars") or {}
         if not isinstance(vars_, dict) or set(vars_) - ({KEY} if mode == "production" else set()):
-            raise ProvisionError("Unexpected Pages environment binding")
+            raise BindingBlocked("preflight-" + mode + "-vars")
     path = project_path(client)
     flags = project["deployment_configs"]["production"]["compatibility_flags"]
-    client.write("PATCH", path, {"deployment_configs": {"production": {
-        "fail_open": False,
-        "compatibility_flags": flags,
-        "env_vars": {KEY: {"type": "secret_text", "value": proof}},
-    }}})
-    updated = require_private(client)
+    try:
+        client.write("PATCH", path, {"deployment_configs": {"production": {
+            "fail_open": False,
+            "compatibility_flags": flags,
+            "env_vars": {KEY: {"type": "secret_text", "value": proof}},
+        }}})
+    except (readiness.InventoryError, ProvisionError) as exc:
+        # Cloudflare's response body may contain private material. Only a
+        # known numeric HTTP status from our own fixed Client error may pass.
+        match = re.fullmatch(r"Cloudflare write rejected \(HTTP ([0-9]{3})\)", str(exc))
+        status = match.group(1) if match else None
+        stage = "patch-http-" + status if status in {
+            "400", "401", "403", "404", "409", "422", "429", "500", "502", "503"
+        } else "patch-rejected"
+        raise BindingBlocked(stage) from None
+    try:
+        updated = require_private(client)
+    except (readiness.InventoryError, ProvisionError):
+        raise BindingBlocked("postpatch-policy") from None
     vars_ = (updated.get("deployment_configs") or {}).get("production", {}).get("env_vars") or {}
-    if set(vars_) != {KEY} or vars_[KEY].get("type") != "secret_text":
-        raise ProvisionError("Snooker Pages service binding did not converge")
+    if (not isinstance(vars_, dict) or set(vars_) != {KEY}
+            or not isinstance(vars_[KEY], dict)
+            or vars_[KEY].get("type") != "secret_text"):
+        raise BindingBlocked("postpatch-binding")
     return {"identity": "bound", "value_logged": "false"}
 
 def probe(url):
@@ -209,6 +244,11 @@ def main():
         else:
             raise ProvisionError("Usage: identity-ready | bind | domain | smoke-guest")
         return 0
+    except BindingBlocked as exc:
+        # Only a finite categorical stage may leave the protected runner.
+        print("SNOOKER_STAGING_BLOCKED type=ProvisionError stage=" + exc.stage,
+              file=sys.stderr)
+        return 1
     except Exception as exc:
         # OCI exceptions can contain secret identifiers; never display their message.
         print("SNOOKER_STAGING_BLOCKED type=" + type(exc).__name__, file=sys.stderr)
