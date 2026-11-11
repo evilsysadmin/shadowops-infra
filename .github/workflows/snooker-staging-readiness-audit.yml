@@ -93,6 +93,9 @@ jobs:
       - name: Admit exact current game source and CI artifact without download
         run: python3 scripts/snooker_source_admission.py check-current
       - name: Audit deployed Pages guest denial without writes
+        # Keep the independent guest-denial result observable even when a
+        # preceding source/Identity check failed. Never bypass its 401/404 gate.
+        if: ${{ !cancelled() }}
         run: python3 scripts/snooker_staging_publish.py smoke-audit
       - name: Compare canonical Pages production SHA with current game main
         # This independent read-only audit runs even if the preceding guest
