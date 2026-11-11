@@ -112,7 +112,7 @@ jobs:
           else
             python3 scripts/snooker_staging_publish.py auto-plan "$SOURCE_SHA"
           fi
-      - name: No changes needed: staging already serves exact green game main
+      - name: 'No changes needed: staging already serves exact green game main'
         if: steps.decide.outputs.publish == 'false'
         run: |
           echo 'SNOOKER_STAGING_ALREADY_CURRENT guest=denied source=exact'
