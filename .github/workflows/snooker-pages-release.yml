@@ -83,8 +83,46 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - id: source
+        name: Read exact current game main before deciding whether to publish
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os,sys
+          sys.path.insert(0,'scripts')
+          import snooker_source_admission as src
+          sha=src.current_sha(src.GithubReader(os.environ['GH_TOKEN']))
+          with open(os.environ['GITHUB_OUTPUT'],'a') as out:
+              out.write('source_sha='+sha+'\n')
+          print('SNOOKER_SOURCE_MAIN sha='+sha)
+          PY
+      - id: decide
+        name: Reconcile only existing protected Pages deployment
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            # The explicit protected operator path always admits source CI.
+            echo 'publish=true' >> "$GITHUB_OUTPUT"
+            echo 'SNOOKER_STAGING_AUTO_PLAN status=operator-request publish=true'
+          else
+            # A private, guest-denying, current Pages deployment remains
+            # healthy after its source artifact expires. Never require that
+            # historical CI ZIP just to prove this read-only no-op.
+            python3 scripts/snooker_staging_publish.py auto-plan "$SOURCE_SHA"
+          fi
+      - name: 'No changes needed: staging already serves exact game main'
+        if: steps.decide.outputs.publish == 'false'
+        run: |
+          echo 'SNOOKER_STAGING_ALREADY_CURRENT guest=denied source=exact'
+          echo 'No Pages/DNS/Identity writes or expired CI artifact lookup.' >> "$GITHUB_STEP_SUMMARY"
       - id: admit
-        name: Admit exact green source SHA and immutable artifact
+        name: Admit exact green source SHA and immutable artifact only for publication
+        if: steps.decide.outputs.publish == 'true'
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
         shell: bash
         run: |
           python3 - <<'PY'
@@ -92,31 +130,11 @@ jobs:
           sys.path.insert(0,'scripts')
           import snooker_source_admission as src
           reader=src.GithubReader(os.environ['GH_TOKEN'])
-          proof=src.admit(reader,src.current_sha(reader))
+          proof=src.admit(reader,os.environ['SOURCE_SHA'])
           with open(os.environ['GITHUB_OUTPUT'],'a') as out:
               for key,value in proof.items():out.write(f'{key}={value}\n')
           print('SNOOKER_SOURCE_ACCEPTED sha='+proof['source_sha'])
           PY
-      - id: decide
-        name: Reconcile only existing protected Pages deployment
-        env:
-          SOURCE_SHA: ${{ steps.admit.outputs.source_sha }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-            # Explicit operator invocation retains its original protected
-            # force-publish behavior, subject to ALL downstream gates.
-            echo 'publish=true' >> "$GITHUB_OUTPUT"
-            echo 'SNOOKER_STAGING_AUTO_PLAN status=operator-request publish=true'
-          else
-            python3 scripts/snooker_staging_publish.py auto-plan "$SOURCE_SHA"
-          fi
-      - name: 'No changes needed: staging already serves exact green game main'
-        if: steps.decide.outputs.publish == 'false'
-        run: |
-          echo 'SNOOKER_STAGING_ALREADY_CURRENT guest=denied source=exact'
-          echo 'No Pages/DNS/Identity writes; canonical source is already current.' >> "$GITHUB_STEP_SUMMARY"
       - name: Install pinned OCI SDK
         if: steps.decide.outputs.publish == 'true'
         run: python3 -m pip install --disable-pip-version-check 'oci==2.185.2'
