@@ -168,13 +168,27 @@ def bind(client, proof):
         raise BindingBlocked("postpatch-binding")
     return {"identity": "bound", "value_logged": "false"}
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Observe the *original* guest response, never a destination login page.
+
+    urllib's default opener transparently follows 30x responses. That can
+    disguise a failing 302 guest-denial policy as the 200 returned by Identity
+    after following the redirect. It can also send the read-only audit to an
+    unreviewed redirect origin. Keep every 30x as an observed HTTP status.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def probe(url):
     req = urllib.request.Request(url, headers={"User-Agent": "ShadowOps-Snooker-Smoke/1.0",
                                                "Cache-Control": "no-cache"})
     try:
-        with urllib.request.urlopen(req, timeout=15) as response:
+        with urllib.request.build_opener(_NoRedirect()).open(req, timeout=15) as response:
             return response.status
     except urllib.error.HTTPError as exc:
+        # urllib raises HTTPError for 30x when redirects are disabled.
         return exc.code
     except urllib.error.URLError:
         raise ProvisionError("Snooker staging HTTPS unavailable") from None
