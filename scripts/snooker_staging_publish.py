@@ -295,6 +295,37 @@ def audit_canonical_release(client, expected_sha):
     return deployed
 
 
+def plan_automatic_release(client, source_sha, *, read_status=probe, check_issuer=issuer_ready):
+    """Read-only green-source reconciliation; never bootstrap a new app.
+
+    Automatic operation is allowed only on an already live, fail-closed
+    staging deployment. Manual approval remains the sole first-activation
+    path. A stale *valid* canonical SHA is the only case permitting a write.
+    """
+    if not isinstance(source_sha, str) or not admission.SHA.fullmatch(source_sha):
+        raise ReleaseAlignmentBlocked("canonical-invalid")
+    inventory = readiness.inspect(client)
+    if inventory["domain"] != "present" or inventory["dns"] != "present":
+        raise ProvisionError("Automatic staging requires previously activated private domain")
+    project = require_private(client)
+    vars_ = (project.get("deployment_configs") or {}).get("production", {}).get("env_vars") or {}
+    if (not isinstance(vars_, dict) or set(vars_) != {KEY}
+            or not isinstance(vars_[KEY], dict)
+            or vars_[KEY].get("type") != "secret_text"):
+        raise ProvisionError("Automatic staging requires existing isolated Identity proof")
+    # Check the existing guest denial and Identity callback *before* any cloud
+    # mutation. A broken login or guest policy must not be overwritten blindly.
+    check_issuer()
+    smoke_guest(read_status, aliases=actual_alias_hosts(project))
+    try:
+        audit_canonical_release(client, source_sha)
+    except ReleaseAlignmentBlocked as exc:
+        if exc.stage != "source-mismatch":
+            raise
+        return {"publish": True, "reason": "source-mismatch"}
+    return {"publish": False, "reason": "current"}
+
+
 def verify_published_canonical(client, expected_sha, *, attempts=6, sleep=time.sleep):
     """Read-after-write Pages convergence gate for a manually approved release.
 
@@ -348,6 +379,19 @@ def main():
         elif sys.argv[1:] == ["domain"]:
             attach_domain(Client(os.environ))
             print("SNOOKER_PAGES_DOMAIN_BOUND alias_guest=denied")
+        elif len(sys.argv) == 3 and sys.argv[1] == "auto-plan":
+            # Called only *after* exact current game main and green artifact
+            # admission inside the protected publisher. Writes no cloud state.
+            source_sha = sys.argv[2]
+            decision = plan_automatic_release(Client(os.environ), source_sha)
+            output = os.environ.get("GITHUB_OUTPUT")
+            if not output:
+                raise ProvisionError("Automatic release plan requires Actions output")
+            with open(output, "a", encoding="utf-8") as stream:
+                stream.write("publish=" + str(decision["publish"]).lower() + "\n")
+            print("SNOOKER_STAGING_AUTO_PLAN status=" + decision["reason"]
+                  + " publish=" + str(decision["publish"]).lower()
+                  + " source=" + source_sha[:12])
         elif len(sys.argv) == 3 and sys.argv[1] == "release-verify":
             # Last release gate after Wrangler and guest-denial checks. Never
             # trust a successful upload without exact canonical SHA parity.
@@ -381,7 +425,7 @@ def main():
             smoke_guest(aliases=actual_alias_hosts(project))
             print("SNOOKER_STAGING_GUEST_DENIAL_VERIFIED")
         else:
-            raise ProvisionError("Usage: identity-ready | bind | domain | smoke-guest | smoke-audit | release-audit | release-verify SHA")
+            raise ProvisionError("Usage: identity-ready | bind | domain | smoke-guest | smoke-audit | release-audit | release-verify SHA | auto-plan SHA")
         return 0
     except ReleaseAlignmentBlocked as exc:
         marker = ("SNOOKER_STAGING_RELEASE_ALIGNMENT status=blocked"

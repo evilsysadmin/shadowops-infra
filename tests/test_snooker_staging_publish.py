@@ -407,6 +407,112 @@ class PublishTests(unittest.TestCase):
         self.assertNotIn("wrangler pages deploy", workflow)
         self.assertNotIn("snooker_pages_provision.py project", workflow)
 
+
+    def test_auto_release_detects_stale_green_source_and_skips_current(self):
+        sha = "a" * 40
+        cloud = Fake()
+        cloud.domain = {"name": readiness.HOST, "status": "active"}
+        cloud.dns = [{"name": readiness.HOST, "type": "CNAME", "proxied": True,
+                      "content": "snooker-staging.pages.dev"}]
+        cloud.project["domains"] = [readiness.HOST, "snooker-staging.pages.dev"]
+        cloud.project["deployment_configs"]["production"]["env_vars"] = {
+            pub.KEY: {"type": "secret_text"},
+        }
+        production = cloud.project["canonical_deployment"]
+        production.update({
+            "environment": "production", "is_skipped": False,
+            "latest_stage": {"status": "success"},
+            "deployment_trigger": {
+                "type": "ad_hoc", "metadata": {
+                    "branch": "main", "commit_dirty": False, "commit_hash": "b" * 40,
+                },
+            },
+        })
+        guest = lambda url: 404 if "pages.dev" in url else 401
+        calls = []
+        kwargs = {"read_status": guest, "check_issuer": lambda: calls.append("issuer")}
+        self.assertEqual(pub.plan_automatic_release(cloud, sha, **kwargs),
+                         {"publish": True, "reason": "source-mismatch"})
+        self.assertEqual(calls, ["issuer"])
+        self.assertEqual(cloud.writes, [])
+        production["deployment_trigger"]["metadata"]["commit_hash"] = sha
+        self.assertEqual(pub.plan_automatic_release(cloud, sha, **kwargs),
+                         {"publish": False, "reason": "current"})
+        self.assertEqual(cloud.writes, [])
+
+    def test_auto_release_never_activates_absent_or_untrusted_staging(self):
+        sha = "a" * 40
+        cloud = Fake()
+        calls = []
+        kwargs = {"read_status": lambda _: calls.append("guest") or 401,
+                  "check_issuer": lambda: calls.append("issuer")}
+        with self.assertRaises(ProvisionError):
+            pub.plan_automatic_release(cloud, sha, **kwargs)
+        self.assertEqual(calls, [])
+        self.assertEqual(cloud.writes, [])
+        cloud.domain = {"name": readiness.HOST, "status": "active"}
+        cloud.dns = [{"name": readiness.HOST, "type": "CNAME", "proxied": True,
+                      "content": "snooker-staging.pages.dev"}]
+        with self.assertRaises(ProvisionError):
+            pub.plan_automatic_release(cloud, sha, **kwargs)
+        self.assertEqual(calls, [], "missing proof must reject before requests")
+        self.assertEqual(cloud.writes, [])
+
+    def test_auto_release_refuses_guest_bypass_and_invalid_deployment(self):
+        sha = "a" * 40
+        cloud = Fake()
+        cloud.domain = {"name": readiness.HOST, "status": "active"}
+        cloud.dns = [{"name": readiness.HOST, "type": "CNAME", "proxied": True,
+                      "content": "snooker-staging.pages.dev"}]
+        cloud.project["deployment_configs"]["production"]["env_vars"] = {
+            pub.KEY: {"type": "secret_text"},
+        }
+        for status in (200, 302, 404, 503):
+            with self.subTest(status=status), self.assertRaises(pub.GuestDenialBlocked):
+                pub.plan_automatic_release(
+                    cloud, sha,
+                    read_status=lambda url: 404 if "pages.dev" in url else status,
+                    check_issuer=lambda: None)
+            self.assertEqual(cloud.writes, [])
+        with self.assertRaises(pub.ReleaseAlignmentBlocked) as blocked:
+            pub.plan_automatic_release(
+                cloud, sha,
+                read_status=lambda url: 404 if "pages.dev" in url else 401,
+                check_issuer=lambda: None)
+        self.assertEqual(blocked.exception.stage, "canonical-invalid")
+        self.assertEqual(cloud.writes, [])
+        with self.assertRaises(pub.ReleaseAlignmentBlocked):
+            pub.plan_automatic_release(cloud, "invalid", check_issuer=lambda: None)
+
+    def test_auto_release_does_not_mask_identity_outage(self):
+        sha = "a" * 40
+        cloud = Fake()
+        cloud.domain = {"name": readiness.HOST, "status": "active"}
+        cloud.dns = [{"name": readiness.HOST, "type": "CNAME", "proxied": True,
+                      "content": "snooker-staging.pages.dev"}]
+        cloud.project["deployment_configs"]["production"]["env_vars"] = {
+            pub.KEY: {"type": "secret_text"},
+        }
+        with self.assertRaises(ProvisionError):
+            pub.plan_automatic_release(cloud, sha,
+                check_issuer=lambda: (_ for _ in ()).throw(
+                    ProvisionError("Identity unavailable")))
+        self.assertEqual(cloud.writes, [])
+
+    def test_auto_delivery_workflow_requires_protected_schedule_and_no_pr_deploy(self):
+        workflow = (Path(__file__).resolve().parents[1]
+                    / ".github/workflows/snooker-pages-release.yml").read_text()
+        self.assertIn("cron: '11,41 * * * *'", workflow)
+        self.assertIn("github.event_name == 'schedule'", workflow)
+        self.assertIn("github.event_name == 'workflow_dispatch'", workflow)
+        self.assertIn("github.event_name == 'push'", workflow)
+        self.assertIn("github.ref == 'refs/heads/main'", workflow)
+        self.assertIn("name: staging", workflow)
+        self.assertIn("snooker_staging_publish.py auto-plan", workflow)
+        self.assertIn("steps.decide.outputs.publish == 'true'", workflow)
+        self.assertIn("release-verify", workflow)
+        self.assertNotIn("github.event_name == 'pull_request' &&", workflow)
+
     def test_foreign_or_missing_deployment_alias_blocks_domain_writes(self):
         for candidate in ("https://foreign.pages.dev", "http://release.snooker-staging.pages.dev",
                           "https://release.snooker-staging.pages.dev.evil.test", None):
