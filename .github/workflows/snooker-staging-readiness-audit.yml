@@ -5,12 +5,16 @@ on:
       - '.github/workflows/snooker-staging-readiness-audit.yml'
       - 'scripts/snooker_staging_publish.py'
       - 'tests/test_snooker_staging_publish.py'
+      - 'scripts/snooker_identity_public_probe.py'
+      - 'tests/test_snooker_identity_public_probe.py'
   push:
     branches: [main]
     paths:
       - '.github/workflows/snooker-staging-readiness-audit.yml'
       - 'scripts/snooker_staging_publish.py'
       - 'tests/test_snooker_staging_publish.py'
+      - 'scripts/snooker_identity_public_probe.py'
+      - 'tests/test_snooker_identity_public_probe.py'
   workflow_dispatch:
   # Daily read-only health check. 07:17 UTC = 08:17/09:17 Madrid
   # depending on DST; never dispatch the manual Pages publisher.
