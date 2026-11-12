@@ -219,13 +219,15 @@ jobs:
     needs: [contracts, publish]
     # The downstream job cannot race Wrangler on the same push. A failed
     # publisher is also checked to provide a bounded, read-only diagnosis.
-    # Keep scheduled 15-minute no-ops cheap; daily audit is independent.
+    # Include schedule: even a no-op must independently prove the deployed
+    # canonical SHA and guest-denial contract (without cloud writes).
     if: >-
       always() &&
       needs.contracts.result == 'success' &&
       github.repository == 'evilsysadmin/shadowops-infra' &&
       github.ref == 'refs/heads/main' &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'schedule')
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     environment:

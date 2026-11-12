@@ -622,3 +622,26 @@ select the isolated Snooker config **only for the new image** and re-select
 the unchanged legacy config on rollback. That change requires another PR,
 complete CI and independent explicit activation; never work around it by
 editing the mounted legacy config or disabling the audience check.
+
+## Scheduled reconciliation and drift audit
+
+The protected `Snooker · publish authenticated staging Pages` workflow polls green game
+`main` on an off-hour 15-minute cadence, attempting publication only when
+the existing fail-closed admission determines that Pages is not serving the
+exact source SHA. GitHub scheduled workflows are **best effort** and can be
+delayed or skipped under Actions load; no recent schedule run must never be
+misinterpreted as an up-to-date deployment.
+
+Every actual scheduled run now also performs the independent, **read-only**
+guest-denial and canonical source-SHA audit after the publish job, including
+when that job reports "already current". On any mismatch, the scheduled
+workflow fails instead of silently reporting success. The same audit continues
+to run after explicit dispatch and Infra main pushes. It requires the existing
+protected `staging` environment and cannot bypass Identity; no new cloud
+credentials, external tokens or deployment privileges are introduced.
+
+If the scheduler does not run, an authorized operator should use the
+existing manual `workflow_dispatch` on protected Infra `main`, inspect the
+`publish` and `post_publish_audit` jobs, and verify that the deployed source
+SHA agrees with the latest green game `main`. A green game CI alone does not
+establish a deployed release.
