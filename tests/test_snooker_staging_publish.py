@@ -389,6 +389,30 @@ class PublishTests(unittest.TestCase):
             self.assertEqual(audit.call_count, 0)
         self.assertEqual(cloud.writes, [])
 
+
+    def test_readiness_waits_for_publisher_on_trusted_main_push(self):
+        flow = (Path(__file__).resolve().parents[1]
+                / ".github/workflows/snooker-staging-readiness-audit.yml").read_text()
+        self.assertIn("workflow_run:", flow)
+        self.assertIn("types: [completed]", flow)
+        self.assertIn("branches: [main]", flow)
+        self.assertIn("'Snooker · publish authenticated staging Pages (automatic + manual)'", flow)
+        self.assertIn("github.event_name == 'workflow_run'", flow)
+        self.assertIn("github.event.workflow_run.event == 'push'", flow)
+        self.assertIn("github.event.workflow_run.event == 'workflow_dispatch'", flow)
+        self.assertIn("github.event.workflow_run.head_repository.full_name == 'evilsysadmin/shadowops-infra'", flow)
+        self.assertIn("github.event.workflow_run.head_branch == 'main'", flow)
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", flow)
+        self.assertIn("github.event.workflow_run.conclusion == 'failure'", flow)
+        self.assertIn("github.event_name == 'schedule'", flow)
+        self.assertIn("github.event_name == 'workflow_dispatch'", flow)
+        # The push event still verifies code contracts but cannot run a live
+        # SHA audit racing the protected publisher.
+        self.assertNotIn("github.event_name != 'pull_request' &&", flow)
+        self.assertIn("if: ${{ !cancelled() }}", flow)
+        self.assertIn("name: staging", flow)
+        self.assertNotIn("wrangler pages deploy", flow)
+
     def test_daily_readiness_workflow_never_publishes_and_reports_fail_closed_gates(self):
         # The scheduled audit must remain a read-only staging check, not a
         # hidden automatic deploy or a green job with missing Vault proof.
