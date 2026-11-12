@@ -16,6 +16,14 @@ on:
       - 'scripts/snooker_identity_public_probe.py'
       - 'tests/test_snooker_identity_public_probe.py'
   workflow_dispatch:
+  # Main pushes deploy before the independent readiness check. Triggering
+  # the audit on the same push races Pages publication and produces false
+  # 'stale source' failures even when the protected publisher succeeds.
+  workflow_run:
+    workflows:
+      - 'Snooker · publish authenticated staging Pages (automatic + manual)'
+    types: [completed]
+    branches: [main]
   # Daily read-only health check. 07:17 UTC = 08:17/09:17 Madrid
   # depending on DST; never dispatch the manual Pages publisher.
   schedule:
@@ -28,6 +36,16 @@ concurrency:
   cancel-in-progress: false
 jobs:
   contracts:
+    # Ignore untrusted PR completions and periodic publisher schedules;
+    # the latter are reconciled separately by the daily audit.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.head_repository.full_name == 'evilsysadmin/shadowops-infra' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       (github.event.workflow_run.event == 'push' ||
+        github.event.workflow_run.event == 'workflow_dispatch') &&
+       (github.event.workflow_run.conclusion == 'success' ||
+        github.event.workflow_run.conclusion == 'failure'))
     runs-on: ubuntu-24.04
     timeout-minutes: 7
     steps:
@@ -40,10 +58,21 @@ jobs:
       - run: python3 -m unittest discover -s tests -p test_snooker_identity_public_probe.py -v
   audit:
     needs: contracts
+    # Trust only a fully completed publisher on our own protected main,
+    # or a standalone daily/manual read-only audit. A push itself NEVER
+    # audits the live SHA in parallel with a new publication.
     if: >-
-      github.event_name != 'pull_request' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
       github.ref == 'refs/heads/main' &&
-      github.repository == 'evilsysadmin/shadowops-infra'
+      (github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'schedule' ||
+       (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.head_repository.full_name == 'evilsysadmin/shadowops-infra' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        (github.event.workflow_run.event == 'push' ||
+         github.event.workflow_run.event == 'workflow_dispatch') &&
+        (github.event.workflow_run.conclusion == 'success' ||
+         github.event.workflow_run.conclusion == 'failure')))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment:
