@@ -9,6 +9,8 @@ on:
       - 'scripts/snooker_staging_operator.py'
       - 'tests/test_snooker_staging_publish.py'
       - 'tests/test_snooker_staging_operator.py'
+      - 'tests/snooker-identity-gate.test.mjs'
+      - 'edge/snooker-identity-gate.mjs'
       - 'docs/snooker-staging.md'
   push:
     branches: [main]
@@ -20,6 +22,8 @@ on:
       - 'scripts/snooker_staging_operator.py'
       - 'tests/test_snooker_staging_publish.py'
       - 'tests/test_snooker_staging_operator.py'
+      - 'tests/snooker-identity-gate.test.mjs'
+      - 'edge/snooker-identity-gate.mjs'
       - 'docs/snooker-staging.md'
   # Poll independently of the game repository, just like Football staging.
   # Each run admits only the exact green game-main SHA and is a no-op when
