@@ -25,11 +25,14 @@ on:
       - 'tests/snooker-identity-gate.test.mjs'
       - 'edge/snooker-identity-gate.mjs'
       - 'docs/snooker-staging.md'
+  # Poll green game-main CI at most every 15 minutes without sharing a
+  # cross-repository write token. Each current-release no-op makes no cloud
+  # changes; only a stale, fully admitted build triggers protected publishing.
   # Poll independently of the game repository, just like Football staging.
   # Each run admits only the exact green game-main SHA and is a no-op when
   # Cloudflare already serves that SHA through the protected domain.
   schedule:
-    - cron: '11,41 * * * *'
+    - cron: '11,26,41,56 * * * *'
   workflow_dispatch:
 permissions:
   contents: read
@@ -216,7 +219,7 @@ jobs:
     needs: [contracts, publish]
     # The downstream job cannot race Wrangler on the same push. A failed
     # publisher is also checked to provide a bounded, read-only diagnosis.
-    # Keep scheduled 30-minute no-ops cheap; daily audit is independent.
+    # Keep scheduled 15-minute no-ops cheap; daily audit is independent.
     if: >-
       always() &&
       needs.contracts.result == 'success' &&
