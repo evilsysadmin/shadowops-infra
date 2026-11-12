@@ -28,7 +28,10 @@ async function signed(change={},freshChange={}){
      Response.json(fresh):new Response('no',{status:401});
   throw Error('Unknown Identity origin');
  };
- return {jwt,options:{request,now,subtle:crypto.subtle}};
+ return {
+  jwt,options:{request,now,subtle:crypto.subtle},
+  revoke(){ fresh.session_active=false; },
+ };
 }
 test('Pages aliases, spoofed hosts, and guest app files never reach static assets',async()=>{
  let served=0;
@@ -92,4 +95,65 @@ test('revocation, wrong live audience, and Identity outages fail closed',async()
  const f=await signed();
  await assert.rejects(()=>authorize(f.jwt,env(),{now,subtle:crypto.subtle,
   request:async()=>{throw Error('Identity unavailable')}}),e=>e.status===503);
+});
+
+test('signed-in release is protected end to end; logout and live revocation deny assets',async()=>{
+ // The *real* Ed25519 JWT and edge Worker execute with deterministic mock
+ // JWKS/freshness, not a bypass or a fabricated signed-in HTTP 200.
+ const f=await signed();
+ const release={
+  schema:1, application:'snooker-of-matthias', environment:'staging',
+  source_sha:'a'.repeat(40),
+  authentication:{provider:'shadowops-id',audience:'snooker',required:true},
+ };
+ let assetsFetched=0;
+ const appEnv={
+  SHADOWOPS_SNOOKER_SERVICE_CREDENTIAL:PROOF,
+  ASSETS:{fetch:async(req)=>{
+   assetsFetched++;
+   assert.equal(new URL(req.url).pathname,'/release.json');
+   return Response.json(release);
+  }},
+ };
+ const guest=await handle(url('/release.json'),appEnv,f.options);
+ assert.equal(guest.status,401);
+ assert.equal(assetsFetched,0,'guest never reaches a protected manifest');
+
+ const handshake=await handle(url('/api/snooker/session',{
+  method:'POST',headers:{Origin:base,'Content-Type':'application/json'},
+  body:JSON.stringify({token:f.jwt}),
+ }),appEnv,f.options);
+ assert.equal(handshake.status,200);
+ const setCookie=handshake.headers.get('Set-Cookie');
+ assert.match(setCookie,/^__Host-snooker_staging=/);
+ assert.match(setCookie,/HttpOnly/);
+ assert.match(setCookie,/Secure/);
+ assert.match(setCookie,/SameSite=Lax/);
+ const cookie=setCookie.split(';')[0];
+ const granted=await handle(url('/release.json',{headers:{Cookie:cookie}}),appEnv,f.options);
+ assert.equal(granted.status,200);
+ assert.deepEqual(await granted.json(),release);
+ assert.equal(granted.headers.get('Cache-Control'),'no-store');
+ assert.equal(assetsFetched,1);
+
+ const status=await handle(url('/api/snooker/session',{headers:{Cookie:cookie}}),appEnv,f.options);
+ assert.equal(status.status,200);
+ assert.equal((await status.json()).identity,'snooker');
+
+ // Identical signed JWT and cookie, but Identity freshness now revokes it.
+ // The Worker may not serve a cached asset simply because JWT exp is future.
+ f.revoke();
+ const denied=await handle(url('/release.json',{headers:{Cookie:cookie}}),appEnv,f.options);
+ assert.equal(denied.status,401);
+ assert.equal(assetsFetched,1,'revoked sessions cannot read the release artifact');
+
+ const logout=await handle(url('/api/snooker/logout',{
+  method:'POST',headers:{Origin:base,Cookie:cookie},
+ }),appEnv,f.options);
+ assert.equal(logout.status,200);
+ assert.match(logout.headers.get('Set-Cookie'),/Max-Age=0/);
+ assert.match(logout.headers.get('Set-Cookie'),/HttpOnly/);
+ const cleared=await handle(url('/release.json'),appEnv,f.options);
+ assert.equal(cleared.status,401);
+ assert.equal(assetsFetched,1,'logout clears browser cookie; no guest asset leak');
 });
