@@ -680,3 +680,41 @@ GitHub will emit either event. Operators can use the watchdog's manual
 not just a green watchdog. No extra PAT, GitHub App installation, cloud
 credential or anonymous staging mode is needed. Signed-in desktop/mobile
 WebGL acceptance remains a separate human-operated gate.
+
+## Signed-in live Snooker browser acceptance (explicit protected operator)
+
+Workflow: **Snooker · real authenticated staging browser journey**,
+`.github/workflows/snooker-live-browser-journey.yml` on protected Infra `main`.
+It does not run authenticated login on PRs or ordinary pushes. PRs and pushes
+run offline contracts only. A reviewer/operator can manually dispatch it
+under the existing `staging` environment approval after configuring two
+**staging-only** environment secrets, `SNOOKER_E2E_USERNAME` and
+`SNOOKER_E2E_PASSWORD`, for an **existing dedicated test account**. This
+workflow intentionally will not create untracked permanent accounts in
+Identity (the browser service provides register/recover/logout but no
+self-service account deletion). Both secrets are mandatory; missing secrets
+fail the live job instead of producing a misleading green result.
+
+The live run first independently verifies anonymous custom-domain and Pages
+alias denial, exact Cloudflare canonical production SHA = current game `main`,
+and immutable source pinning. The browser then uses the real central Identity
+login UI and the production Snooker Worker handshake, without mocked APIs,
+manual cookies, fabricated JWTs, insecure TLS or proxy overrides. At desktop
+1440×900 and mobile 390×844 it proves genuine authenticated
+`/api/snooker/session`, the pinned private `release.json`, actual WebGL felt
+pixels, a real shot, F5/reload and newly initialized game, and finally Identity
+server-side revocation and Snooker cookie logout. With a still-present edge
+cookie, revocation must immediately deny protected files. After logout the
+login shell must return and no WebGL assets may be served to a guest.
+
+Game screenshots are captured **only after authentication**, with short
+retention; the Identity login, password, cookies, user subject, JWT, recovery
+codes and secret values are never photographed or logged. The workflow
+rechecks published SHA after play and does not write to Cloudflare, DNS or
+Vault. The current POC deliberately resets an unfinished rack on F5; this
+journey asserts that behavior rather than claiming game-state persistence.
+
+A green offline PR or postmerge contract run is **not** a completed signed-in
+live test. A real live acceptance requires an actual successful
+`workflow_dispatch` with the two dedicated test-account secrets and a green
+`live` job. Do not trigger on a personal user account or invent credentials.

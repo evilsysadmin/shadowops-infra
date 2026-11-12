@@ -1,0 +1,131 @@
+name: Snooker · real authenticated staging browser journey
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/snooker-live-browser-journey.yml'
+      - 'scripts/snooker_live_browser_contract.mjs'
+      - 'scripts/snooker_live_browser_journey.mjs'
+      - 'tests/snooker-live-browser-contract.test.mjs'
+      - 'docs/snooker-staging.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/snooker-live-browser-journey.yml'
+      - 'scripts/snooker_live_browser_contract.mjs'
+      - 'scripts/snooker_live_browser_journey.mjs'
+      - 'tests/snooker-live-browser-contract.test.mjs'
+      - 'docs/snooker-staging.md'
+  # Human opt-in: a dedicated existing staging test account is required.
+  # Never auto-create persistent Identity users or silently skip absent secrets.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: snooker-live-authenticated-browser
+  cancel-in-progress: false
+
+jobs:
+  contracts:
+    name: Validate real-login browser test and fail-closed secrets contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check scripts/snooker_live_browser_journey.mjs
+      - run: node --check scripts/snooker_live_browser_contract.mjs
+      - run: node --test tests/snooker-live-browser-contract.test.mjs
+
+  live:
+    name: Real private Pages / central Identity / Chromium desktop and mobile
+    needs: contracts
+    if: >-
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    environment:
+      name: staging
+      url: https://staging.snooker.shadowops.dpdns.org/
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Fail closed if dedicated staging E2E test account was not provisioned
+        env:
+          SNOOKER_E2E_USERNAME: ${{ secrets.SNOOKER_E2E_USERNAME }}
+          SNOOKER_E2E_PASSWORD: ${{ secrets.SNOOKER_E2E_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$SNOOKER_E2E_USERNAME" =~ ^[a-zA-Z][a-zA-Z0-9_]{2,31}$ ||
+                ${#SNOOKER_E2E_PASSWORD} -lt 15 ]]; then
+            echo 'SNOOKER_AUTH_BROWSER_BLOCKED stage=missing-dedicated-test-credentials' >&2
+            exit 1
+          fi
+          echo 'SNOOKER_AUTH_BROWSER_CREDENTIALS_READY scope=staging-only'
+      - name: Prove the currently deployed canonical Pages SHA and guest denial
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(gh api repos/evilsysadmin/snooker-of-matthias/commits/main --jq .sha)"
+          [[ "$sha" =~ ^[a-f0-9]{40}$ ]]
+          python3 scripts/snooker_staging_publish.py smoke-audit
+          python3 scripts/snooker_staging_publish.py release-audit
+          [[ "$(gh api repos/evilsysadmin/snooker-of-matthias/commits/main --jq .sha)" == "$sha" ]]
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "SNOOKER_AUTH_BROWSER_SOURCE_PINNED sha=${sha:0:12}"
+      - name: Checkout exact published Snooker game revision (test dependencies only)
+        uses: actions/checkout@v4
+        with:
+          repository: evilsysadmin/snooker-of-matthias
+          ref: ${{ steps.source.outputs.sha }}
+          path: snooker-source
+          persist-credentials: false
+      - name: Install test-only Chromium dependencies from pinned game source
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git -C snooker-source rev-parse HEAD)" = "$SOURCE_SHA"
+          npm ci --prefix snooker-source --ignore-scripts --no-audit --no-fund
+          cd snooker-source
+          npx playwright install chromium
+      - name: Log in with real ShadowOps ID, play, refresh and revoke on desktop/mobile
+        env:
+          SNOOKER_LIVE_BROWSER: '1'
+          SNOOKER_E2E_USERNAME: ${{ secrets.SNOOKER_E2E_USERNAME }}
+          SNOOKER_E2E_PASSWORD: ${{ secrets.SNOOKER_E2E_PASSWORD }}
+          SNOOKER_SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: node scripts/snooker_live_browser_journey.mjs
+      - name: Verify no release drift after authenticated browser run
+        if: ${{ !cancelled() }}
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: python3 scripts/snooker_staging_publish.py release-audit
+      - name: Preserve only game screenshots taken after authenticating
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snooker-private-live-journey-${{ github.run_id }}
+          path: artifacts/snooker-live-*.png
+          retention-days: 3
+          if-no-files-found: ignore
