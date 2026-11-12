@@ -645,3 +645,38 @@ existing manual `workflow_dispatch` on protected Infra `main`, inspect the
 `publish` and `post_publish_audit` jobs, and verify that the deployed source
 SHA agrees with the latest green game `main`. A green game CI alone does not
 establish a deployed release.
+
+## Independent half-hour drift watchdog (best-effort GitHub scheduler)
+
+The normal protected Snooker Pages publisher polls exact green game `main` every
+15 minutes. GitHub Actions scheduled events can nevertheless be skipped or
+severely delayed, even away from the top of the hour. A second, deliberately
+independent **read-only drift watchdog** polls at minutes 07 and 37. On an
+authorized Infra `main` push modifying its own implementation, it also runs
+once so the new code receives a real no-op check before relying on its cron.
+
+The watchdog reads the canonical **production** Pages SHA, verifies existing
+private Pages and DNS ownership, tests the live Identity callback and anonymous
+custom/alias denial, and reads the current game `main` SHA. A match is a cheap
+no-op and does **not** require historical CI ZIP retention. Only when source
+and deployment differ does it re-admit the exact green `main` CI, unique
+SHA256-bound unexpired artifact and unchanged source HEAD. A guarded Actions
+job with `actions:write` restricted to protected staging may then dispatch
+**only** `snooker-pages-release.yml` on the exact Infra `main`; it first
+rejects stale Infra or game SHAs and skips requests when the protected
+publisher is already active.
+
+The watchdog cannot deploy assets, change DNS, edit Identity or bypass the
+original publisher's independent source/artifact/Vault/guest/commit checks.
+All cloud operations, policy, staging approval, release convergence and
+read-only post-publish audit still happen exclusively inside that original
+protected workflow. A red game `main`, transient failed network probe, expired
+artifact or unsafe ownership blocks dispatch and reports failure.
+
+Both schedules remain **best effort**, not a hard deadline or a guarantee that
+GitHub will emit either event. Operators can use the watchdog's manual
+`workflow_dispatch` or the existing protected publisher workflow on Infra
+`main` when runs have stopped; they must inspect actual publish/audit jobs,
+not just a green watchdog. No extra PAT, GitHub App installation, cloud
+credential or anonymous staging mode is needed. Signed-in desktop/mobile
+WebGL acceptance remains a separate human-operated gate.
