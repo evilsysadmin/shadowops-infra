@@ -1,0 +1,93 @@
+name: Snooker · independent staging delivery watchdog
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/snooker-staging-watchdog.yml'
+      - 'scripts/snooker_staging_wake.py'
+      - 'tests/test_snooker_staging_wake.py'
+      - 'docs/snooker-staging.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/snooker-staging-watchdog.yml'
+      - 'scripts/snooker_staging_wake.py'
+      - 'tests/test_snooker_staging_wake.py'
+      - 'docs/snooker-staging.md'
+  # Independent half-hour cadence: GitHub schedule is best-effort, never a
+  # guaranteed timer. The normal protected release retains its own 15m poll.
+  schedule:
+    - cron: '07,37 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shadowops-snooker-staging-watchdog
+  cancel-in-progress: false
+
+jobs:
+  contracts:
+    name: Verify read-only watchdog and dispatch boundaries
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p test_snooker_staging_wake.py -v
+      - run: python3 -m py_compile scripts/snooker_staging_wake.py
+
+  watch:
+    needs: contracts
+    if: >-
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'push')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    # The Actions write capability is narrowly confined to this guarded job.
+    # It may only dispatch the EXISTING protected publisher, not mutate Pages.
+    permissions:
+      contents: read
+      actions: write
+    environment:
+      name: staging
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - id: decide
+        name: Verify canonical private Pages drift and exact green game main
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: python3 scripts/snooker_staging_wake.py
+      - name: Dispatch existing protected Snooker publisher only on admitted drift
+        if: steps.decide.outputs.dispatch == 'true'
+        env:
+          SOURCE_SHA: ${{ steps.decide.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == 'evilsysadmin/shadowops-infra' ]]
+          [[ "$GITHUB_REF" == 'refs/heads/main' ]]
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          # Reject stale decisions from a queue or concurrent repository push.
+          [[ "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" == "$GITHUB_SHA" ]]
+          [[ "$(gh api repos/evilsysadmin/snooker-of-matthias/commits/main --jq .sha)" == "$SOURCE_SHA" ]]
+          # Let an in-progress publisher finish instead of queuing redundant
+          # write-capable staging work; it has its own strict concurrency lock.
+          active="$(gh api 'repos/evilsysadmin/shadowops-infra/actions/workflows/snooker-pages-release.yml/runs?per_page=30' \
+            --jq '[.workflow_runs[] | select(.status == "in_progress" or .status == "queued" or .status == "waiting" or .status == "requested")] | length')"
+          [[ "$active" =~ ^[0-9]+$ ]]
+          if (( active != 0 )); then
+            echo 'SNOOKER_WATCHDOG_ALREADY_PUBLISHING'
+            exit 0
+          fi
+          gh workflow run snooker-pages-release.yml --repo evilsysadmin/shadowops-infra --ref main
+          echo 'SNOOKER_WATCHDOG_DISPATCHED publisher=protected-main'
+          echo 'Requested existing protected release; its source, Identity, Pages and guest gates remain authoritative.' >> "$GITHUB_STEP_SUMMARY"
