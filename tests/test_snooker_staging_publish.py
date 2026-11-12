@@ -541,6 +541,8 @@ class PublishTests(unittest.TestCase):
         self.assertIn("snooker_staging_publish.py auto-plan", workflow)
         self.assertIn("steps.decide.outputs.publish == 'true'", workflow)
         self.assertIn("release-verify", workflow)
+        self.assertIn("'tests/snooker-identity-gate.test.mjs'", workflow)
+        self.assertIn("'edge/snooker-identity-gate.mjs'", workflow)
         self.assertNotIn("github.event_name == 'pull_request' &&", workflow)
 
     def test_foreign_or_missing_deployment_alias_blocks_domain_writes(self):
