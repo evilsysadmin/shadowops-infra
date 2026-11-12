@@ -210,3 +210,56 @@ jobs:
           echo "Snooker staging: $SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
           echo "Exact source CI ZIP: $DIGEST" >> "$GITHUB_STEP_SUMMARY"
           echo "Guest/alias denied. Authenticated browser journey still requires a human signed-in smoke." >> "$GITHUB_STEP_SUMMARY"
+
+  post_publish_audit:
+    name: Snooker · independent post-publish guest and SHA audit
+    needs: [contracts, publish]
+    # The downstream job cannot race Wrangler on the same push. A failed
+    # publisher is also checked to provide a bounded, read-only diagnosis.
+    # Keep scheduled 30-minute no-ops cheap; daily audit is independent.
+    if: >-
+      always() &&
+      needs.contracts.result == 'success' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    environment:
+      name: staging
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      PUBLISH_RESULT: ${{ needs.publish.result }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check deployed host and every alias deny anonymous users
+        id: guest
+        run: python3 scripts/snooker_staging_publish.py smoke-audit
+      - name: Check canonical production SHA matches current green game main
+        id: source
+        if: ${{ !cancelled() }}
+        run: python3 scripts/snooker_staging_publish.py release-audit
+      - name: Report independent post-publish acceptance
+        if: ${{ always() }}
+        env:
+          GUEST_RESULT: ${{ steps.guest.outcome }}
+          SOURCE_RESULT: ${{ steps.source.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo '### Snooker · post-publish independent read-only audit'
+            echo
+            echo "| Publisher | $PUBLISH_RESULT |"
+            echo "| Anonymous custom domain and Pages aliases denied | $GUEST_RESULT |"
+            echo "| Deployed canonical game SHA equals source main | $SOURCE_RESULT |"
+            echo
+            echo 'A failed or skipped check is not staging acceptance.'
+            echo 'Read-only after publish; a human signed-in browser journey remains a separate gate.'
+          } >> "$GITHUB_STEP_SUMMARY"
