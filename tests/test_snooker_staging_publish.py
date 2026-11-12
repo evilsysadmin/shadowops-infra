@@ -558,7 +558,7 @@ class PublishTests(unittest.TestCase):
     def test_auto_delivery_workflow_requires_protected_schedule_and_no_pr_deploy(self):
         workflow = (Path(__file__).resolve().parents[1]
                     / ".github/workflows/snooker-pages-release.yml").read_text()
-        self.assertIn("cron: '11,41 * * * *'", workflow)
+        self.assertIn("cron: '11,26,41,56 * * * *'", workflow)
         self.assertIn("github.event_name == 'schedule'", workflow)
         self.assertIn("github.event_name == 'workflow_dispatch'", workflow)
         self.assertIn("github.event_name == 'push'", workflow)
