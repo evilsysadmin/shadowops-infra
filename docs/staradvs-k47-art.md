@@ -72,3 +72,29 @@ This pipeline does not accept proprietary Star Trek models, unlicensed media,
 unknown external GLB resources, screenshots substituted for source binaries,
 untested source commits, outdated source `main`, or production activation
 without a separate reviewed PR.
+
+
+## Read-only live CDN readiness and activation handoff
+
+Every K-47 source-art audit also verifies the **public CDN itself** using
+the exact byte bodies and immutable keys from the admitted green
+`star-adventures` source-main artifact. It has no Cloudflare or R2 keys and
+cannot perform a write. A 404 is classified as `K47_PUBLIC_CDN_PENDING`
+(expected before the approved upload). Redirects, inaccessible CDN, incorrect
+MIME/CORS/cache headers, wrong lengths or wrong GLB bytes are NOT treated as
+missing; the audit fails closed instead of claiming the art is published.
+
+When and only when **all three** objects return approved headers and identical
+model bytes, audit produces an artifact called
+`k47-public-cdn-bytes-<source-sha>` containing `public-proof.json`.
+The proof pins the current original-art source SHA, all three public HTTPS URLs,
+full SHA-256, byte sizes and the matching `manifest` ready for review. The
+fields `humanVisualApproval=false` and `activationDone=false` ensure this
+isn't an automatic game release. If the CDN still returns any 404, no
+public-proof artifact is produced; the audit reports the number missing.
+
+The `probe` subcommand may also be run locally on the admitted source ZIP
+with `--source-sha ... --artifact ... --out public-proof.json`; it neither
+fetches untrusted URLs nor touches cloud credentials. After approval, a
+**separate** game PR activates only the verified manifest and must run
+real mobile/desktop gameplay, fog, F5, click targets and WebGL fallback.
