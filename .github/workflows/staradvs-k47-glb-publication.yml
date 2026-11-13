@@ -89,7 +89,6 @@ jobs:
               out.write("K47_ARTIFACT_ID="+str(p["artifactId"])+"\n")
               out.write("K47_ARTIFACT_DIGEST="+p["artifactDigest"]+"\n")
           PY
-          test -n "$K47_ARTIFACT_ID" || true
       - name: Download and hash-confirm immutable source ZIP
         shell: bash
         run: |
