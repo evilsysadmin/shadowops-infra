@@ -238,6 +238,11 @@ def public_probe(entries: dict[str, bytes]) -> list[str]:
                 missing.append(key)
                 continue
             raise PublishError("K-47 public CDN returned unexpected HTTP status") from None
+        except PublishError:
+            # Integrity failures are NOT network outages: surface their
+            # precise reason so a corrupted public object can never masquerade
+            # as an ordinary CDN availability problem.
+            raise
         except (OSError, ValueError):
             raise PublishError("K-47 public CDN verification unavailable") from None
         check(data == blob, "K-47 public CDN model SHA mismatch")
