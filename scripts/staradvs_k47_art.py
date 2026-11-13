@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import struct
 import sys
+import urllib.error
 import urllib.request
 import zipfile
 
@@ -207,9 +208,18 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def public_verify(entries: dict[str, bytes]) -> None:
+def public_probe(entries: dict[str, bytes]) -> list[str]:
+    """Read the public CDN without credentials; distinguish 404 from corruption.
+
+    Missing immutable keys are an expected NOT-YET-PUBLISHED state. A wrong
+    checksum, CORS, cache policy, content type, redirect or other HTTP failure
+    is NEVER treated as proof of publication or as a safe missing object.
+    """
     opener = urllib.request.build_opener(NoRedirect)
-    for key, blob in entries.items():
+    missing: list[str] = []
+    for key, blob in sorted(entries.items()):
+        check(key.startswith(PREFIX) and len(blob) <= MAX_FILE,
+              "outside approved K-47 CDN probe scope")
         url = "https://assets.chess-studio.shadowops.dpdns.org/" + key
         req = urllib.request.Request(url, headers={
             "Origin": ORIGIN, "Cache-Control": "no-cache",
@@ -223,9 +233,42 @@ def public_verify(entries: dict[str, bytes]) -> None:
                       resp.headers.get("Access-Control-Allow-Origin", "") in ("*", ORIGIN),
                       "K-47 public GLB HTTP/CORS/immutability headers not verified")
                 data = resp.read(len(blob) + 1)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                missing.append(key)
+                continue
+            raise PublishError("K-47 public CDN returned unexpected HTTP status") from None
         except (OSError, ValueError):
             raise PublishError("K-47 public CDN verification unavailable") from None
         check(data == blob, "K-47 public CDN model SHA mismatch")
+    return missing
+
+
+def public_verify(entries: dict[str, bytes]) -> None:
+    check(not public_probe(entries),
+          "K-47 public CDN missing one or more immutable objects")
+
+
+def public_activation_evidence(source_sha: str, manifest: dict,
+                               entries: dict[str, bytes]) -> dict:
+    """Only call after public_probe verified ALL bytes and headers."""
+    check(bool(source.HEX.fullmatch(source_sha)) and len(entries) == 3,
+          "incomplete original model public proof")
+    return {
+        "schemaVersion": 1,
+        "sourceSha": source_sha,
+        "cdnPublicBytesVerified": True,
+        "verifiedModelCount": len(entries),
+        "models": [{
+            "url": "https://assets.chess-studio.shadowops.dpdns.org/" + key,
+            "sha256": hashlib.sha256(blob).hexdigest(),
+            "bytes": len(blob),
+        } for key, blob in sorted(entries.items())],
+        "manifest": manifest,
+        "humanVisualApproval": False,
+        "activationDone": False,
+        "note": "Exact public byte proof only; activation requires a separately reviewed source PR.",
+    }
 
 
 def publisher_client():
@@ -314,7 +357,7 @@ def publish(source_sha: str, manifest: dict, entries: dict[str, bytes]):
 
 def main() -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("action", choices=("discover", "validate", "publish"))
+    p.add_argument("action", choices=("discover", "validate", "probe", "publish"))
     p.add_argument("--source-sha", required=True)
     p.add_argument("--artifact", type=Path)
     p.add_argument("--out", type=Path)
@@ -333,6 +376,24 @@ def main() -> int:
         print("K47_ART_CANDIDATE_VERIFIED " + json.dumps({
             "sourceSha": args.source_sha, "glbs": len(entries),
             "bytes": sum(map(len, entries.values())), "writes": 0}))
+        if args.action == "probe":
+            check(args.out is not None and not args.out.exists(),
+                  "fresh CDN proof destination required")
+            missing = public_probe(entries)
+            if missing:
+                print("K47_PUBLIC_CDN_PENDING " + json.dumps({
+                    "sourceSha": args.source_sha, "missing": len(missing),
+                    "verified": len(entries) - len(missing),
+                    "activationDone": False, "writes": 0,
+                }, sort_keys=True))
+                return 0
+            evidence = public_activation_evidence(args.source_sha, manifest, entries)
+            args.out.write_text(json.dumps(evidence, indent=2) + "\n")
+            print("K47_PUBLIC_CDN_BYTES_VERIFIED " + json.dumps({
+                "sourceSha": args.source_sha, "models": len(entries),
+                "activationDone": False, "writes": 0,
+            }, sort_keys=True))
+            return 0
         if args.action == "publish":
             check(args.confirm == "K47-VISUAL-APPROVED",
                   "explicit approved visual release authorization required")
