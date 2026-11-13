@@ -1,0 +1,94 @@
+name: Snooker · real public guest and Identity browser
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/snooker-guest-browser-journey.yml'
+      - 'scripts/snooker_guest_browser_contract.mjs'
+      - 'scripts/snooker_guest_browser_journey.mjs'
+      - 'tests/snooker-guest-browser-contract.test.mjs'
+      - 'docs/snooker-staging.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/snooker-guest-browser-journey.yml'
+      - 'scripts/snooker_guest_browser_contract.mjs'
+      - 'scripts/snooker_guest_browser_journey.mjs'
+      - 'tests/snooker-guest-browser-contract.test.mjs'
+      - 'docs/snooker-staging.md'
+  # Best-effort once-daily guest browser check, offset from the publisher.
+  schedule:
+    - cron: '23 7 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: shadowops-snooker-guest-browser-${{ github.event_name == 'pull_request' && github.ref || 'live' }}
+  cancel-in-progress: false
+jobs:
+  contracts:
+    name: Verify exact public guest-browser and fail-closed login contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check scripts/snooker_guest_browser_contract.mjs
+      - run: node --check scripts/snooker_guest_browser_journey.mjs
+      - run: node --test tests/snooker-guest-browser-contract.test.mjs
+  live:
+    name: Real Chromium 1440/390px guest, protected assets and Identity login
+    needs: contracts
+    if: >-
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 13
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Pin to current main of the real deployed Snooker game
+        id: source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha="$(gh api repos/evilsysadmin/snooker-of-matthias/commits/main --jq .sha)"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "SNOOKER_GUEST_BROWSER_SOURCE_PINNED sha=${sha:0:12}"
+      - uses: actions/checkout@v4
+        with:
+          repository: evilsysadmin/snooker-of-matthias
+          ref: ${{ steps.source.outputs.sha }}
+          path: snooker-source
+          persist-credentials: false
+      - name: Install immutable browser tooling from pinned game dependencies
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$(git -C snooker-source rev-parse HEAD)" == "$SOURCE_SHA" ]]
+          npm ci --prefix snooker-source --ignore-scripts --no-audit --no-fund
+          cd snooker-source
+          npx playwright install --with-deps chromium
+      - name: Real staging guest to Identity and back, no login or route mocks
+        run: node scripts/snooker_guest_browser_journey.mjs
+      - name: Preserve public guest screenshots only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snooker-guest-browser-${{ github.run_id }}
+          path: artifacts/snooker-guest-*.png
+          retention-days: 3
+          if-no-files-found: ignore
