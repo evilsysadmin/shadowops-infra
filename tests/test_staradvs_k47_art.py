@@ -1,12 +1,15 @@
 """Offline contract checks for the manual-only original K-47 immutable publisher."""
 import hashlib
 import io
+import tempfile
+import urllib.error
 import json
 from pathlib import Path
 import struct
 import sys
 import unittest
 import zipfile
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import staradvs_k47_art as art
@@ -125,6 +128,88 @@ class VerifiedGlbReleaseTest(unittest.TestCase):
             manifest["slots"][0]["asset"]["url"] = "https://elsewhere.example/a.glb"
         with self.assertRaisesRegex(art.PublishError, "immutable CDN path"):
             art.verify_archive(make_bundle(mutate=mutate), SOURCE)
+
+
+    def test_public_cdn_probe_absent_objects_are_pending_not_approved(self):
+        _, entries = art.verify_archive(make_bundle(), SOURCE)
+        class Missing:
+            def open(self, request, timeout):
+                raise urllib.error.HTTPError(request.full_url, 404, "not found", {}, None)
+        with patch.object(art.urllib.request, "build_opener", return_value=Missing()):
+            self.assertEqual(art.public_probe(entries), sorted(entries))
+            with self.assertRaisesRegex(art.PublishError, "missing"):
+                art.public_verify(entries)
+
+    def test_public_probe_distinguishes_tampered_bytes_from_missing(self):
+        _, entries = art.verify_archive(make_bundle(), SOURCE)
+        class Response:
+            status = 200
+            def __init__(self, request, payload, content_type="model/gltf-binary"):
+                self.request, self.payload = request, payload
+                from email.message import Message
+                self.headers = Message()
+                self.headers["Content-Type"] = content_type
+                self.headers["Cache-Control"] = art.CACHE
+                self.headers["Access-Control-Allow-Origin"] = art.ORIGIN
+            def geturl(self):
+                return self.request.full_url
+            def read(self, length):
+                return self.payload[:length]
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+        class MockCDN:
+            def __init__(self, status="valid"):
+                self.status = status
+            def open(self, request, timeout):
+                key = request.full_url.removeprefix(
+                    "https://assets.chess-studio.shadowops.dpdns.org/")
+                payload = entries[key]
+                if self.status == "bad-bytes":
+                    payload = payload[:-1] + b"X"
+                return Response(request, payload,
+                    "application/octet-stream" if self.status == "bad-mime"
+                    else "model/gltf-binary")
+        with patch.object(art.urllib.request, "build_opener", return_value=MockCDN()):
+            self.assertEqual(art.public_probe(entries), [])
+            art.public_verify(entries)
+        with patch.object(art.urllib.request, "build_opener", return_value=MockCDN("bad-bytes")):
+            with self.assertRaisesRegex(art.PublishError, "SHA mismatch"):
+                art.public_probe(entries)
+        with patch.object(art.urllib.request, "build_opener", return_value=MockCDN("bad-mime")):
+            with self.assertRaisesRegex(art.PublishError, "HTTP/CORS"):
+                art.public_probe(entries)
+
+    def test_public_evidence_is_not_activation_approval(self):
+        manifest, entries = art.verify_archive(make_bundle(), SOURCE)
+        receipt = art.public_activation_evidence(SOURCE, manifest, entries)
+        self.assertTrue(receipt["cdnPublicBytesVerified"])
+        self.assertFalse(receipt["humanVisualApproval"])
+        self.assertFalse(receipt["activationDone"])
+        self.assertEqual(receipt["manifest"], manifest)
+        self.assertEqual(len(receipt["models"]), 3)
+        self.assertEqual({x["sha256"] for x in receipt["models"]},
+                         {hashlib.sha256(blob).hexdigest() for blob in entries.values()})
+
+    def test_probe_writes_evidence_only_after_all_public_bytes_verified(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            z = root / "source.zip"
+            output = root / "public-proof.json"
+            z.write_bytes(make_bundle())
+            command = ["staradvs_k47_art.py", "probe", "--source-sha", SOURCE,
+                       "--artifact", str(z), "--out", str(output)]
+            with patch.object(sys, "argv", command), patch.object(
+                    art, "public_probe", return_value=[art.PREFIX + "missing.glb"]):
+                self.assertEqual(art.main(), 0)
+                self.assertFalse(output.exists())
+            with patch.object(sys, "argv", command), patch.object(
+                    art, "public_probe", return_value=[]):
+                self.assertEqual(art.main(), 0)
+                data = json.loads(output.read_text())
+                self.assertTrue(data["cdnPublicBytesVerified"])
+                self.assertFalse(data["activationDone"])
 
 
 if __name__ == "__main__":
