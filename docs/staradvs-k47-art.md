@@ -31,11 +31,16 @@ binary bytes* and 390/1280 real Chromium screenshots produced by the
 
 In the Infra GitHub Actions UI, select
 `Star Adventures · manual K-47 original GLB publication`.
-First choose `action=plan`, provide the exact source main SHA and run it.
-The workflow independently discovers the exact green source run/artifact,
-downloads the signed-digest ZIP, validates all original GLB 2.0 chunks,
-canonical blocked footprints, full SHA-256/size, exact source receipt and
-8 real 390/1280 PNG screenshots. **Plan cannot write to R2.**
+The workflow automatically runs a **read-only art admission** job on
+the publisher's PR/push events. It also runs when selecting manual
+`action=plan`, without entering a protected environment or requiring
+Cloudflare credentials. This job independently discovers the exact current
+green source run/artifact, downloads the signed-digest ZIP, validates all
+original GLB 2.0 chunks, canonical blocked footprints, full SHA-256/size,
+exact source receipt and 8 real 390/1280 PNG screenshots. It records
+`K47_READONLY_ART_ADMISSION_OK` and a source SHA in its summary.
+**Audit/plan cannot write to R2.** An admission failure blocks the manual
+publisher; fix the source artifact or credentials rather than bypassing it.
 
 After visual inspection, run again with `action=publish`, the same current
 source main SHA, and `confirm_reviewed=K47-VISUAL-APPROVED`. The Infra
