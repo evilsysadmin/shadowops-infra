@@ -105,6 +105,35 @@ jobs:
             echo "Cloud/R2 writes: **0**. Publication still requires separate manual approval."
           } >> "$GITHUB_STEP_SUMMARY"
 
+
+      - name: Probe public CDN for the exact original three GLBs (read-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/staradvs_k47_art.py probe \
+            --source-sha "$K47_AUDITED_SOURCE_SHA" \
+            --artifact "$RUNNER_TEMP/k47-readonly-artifact.zip" \
+            --out "$RUNNER_TEMP/k47-public-bytes-proof.json"
+          if [[ -s "$RUNNER_TEMP/k47-public-bytes-proof.json" ]]; then
+            mkdir -p k47-public-byte-proof
+            cp "$RUNNER_TEMP/k47-public-bytes-proof.json" k47-public-byte-proof/public-proof.json
+            echo "K47_ORIGINAL_GLBS_READY_FOR_SEPARATE_ACTIVATION_REVIEW sha=$K47_AUDITED_SOURCE_SHA"
+            {
+              echo "Public CDN: **all three immutable original GLBs verified byte-for-byte**"
+              echo "Human visual review: **still required**; game manifest: **unchanged**."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "K47_ORIGINAL_GLBS_NOT_YET_PUBLIC sha=$K47_AUDITED_SOURCE_SHA"
+            echo "Public CDN: **missing immutable assets**; no R2 upload attempted." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Preserve public-byte proof only if all three CDN assets exist
+        uses: actions/upload-artifact@v4
+        with:
+          name: k47-public-cdn-bytes-${{ env.K47_AUDITED_SOURCE_SHA }}
+          path: k47-public-byte-proof/public-proof.json
+          if-no-files-found: ignore
+          retention-days: 14
+
   candidate:
     name: Exact source K-47 art · manually approved immutable R2 publication
     needs: [contracts, audit]
