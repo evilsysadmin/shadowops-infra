@@ -43,7 +43,9 @@ test('live browser uses no synthetic authentication or cloud write authority', (
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /github\.ref == 'refs\/heads\/main'/);
   assert.match(workflow, /actions\/checkout@v4/);
-  assert.match(workflow, /npm ci --prefix snooker-source --ignore-scripts/);
+  assert.match(workflow, /@playwright\/test@1\.56\.1/);
+  assert.match(workflow, /SNOOKER_GUEST_TOOL_ROOT/);
+  assert.doesNotMatch(workflow, /repository: evilsysadmin\/snooker-of-matthias|ref: \$\{\{ steps\.source\.outputs\.sha \}\}/);
   assert.doesNotMatch(workflow, /secrets\.|actions: write|environment:\s+name: staging|wrangler/);
   assert.match(browser, /page\.goto\(SNOOKER_ORIGIN/);
   assert.match(browser, /login\.click\(\)/);
@@ -51,4 +53,5 @@ test('live browser uses no synthetic authentication or cloud write authority', (
   assert.match(browser, /GUEST_DENIED_PATHS/);
   assert.doesNotMatch(browser, /page\.route\(|addCookies\(|setExtraHTTPHeaders\(|ignoreHTTPSErrors|api\/identity\/register/);
   assert.doesNotMatch(browser, /SNOOKER_E2E_PASSWORD|SNOOKER_E2E_USERNAME/);
+  assert.doesNotMatch(browser, /snooker-source\/package\.json/);
 });

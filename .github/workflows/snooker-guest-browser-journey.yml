@@ -55,34 +55,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Pin to current main of the real deployed Snooker game
-        id: source
+      # No checkout or execution of game source is needed for a browser-only
+      # guest smoke. Keep its npm dependency fixed and runtime isolated.
+      - name: Install fixed browser tooling, no game checkout
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          sha="$(gh api repos/evilsysadmin/snooker-of-matthias/commits/main --jq .sha)"
-          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || exit 1
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "SNOOKER_GUEST_BROWSER_SOURCE_PINNED sha=${sha:0:12}"
-      - uses: actions/checkout@v4
-        with:
-          repository: evilsysadmin/snooker-of-matthias
-          ref: ${{ steps.source.outputs.sha }}
-          path: snooker-source
-          persist-credentials: false
-      - name: Install immutable browser tooling from pinned game dependencies
-        shell: bash
-        env:
-          SOURCE_SHA: ${{ steps.source.outputs.sha }}
-        run: |
-          set -euo pipefail
-          [[ "$(git -C snooker-source rev-parse HEAD)" == "$SOURCE_SHA" ]]
-          npm ci --prefix snooker-source --ignore-scripts --no-audit --no-fund
-          cd snooker-source
-          npx playwright install --with-deps chromium
+          mkdir -p "$RUNNER_TEMP/snooker-guest-tool"
+          npm install --prefix "$RUNNER_TEMP/snooker-guest-tool" \
+            --no-save --ignore-scripts --no-audit --no-fund '@playwright/test@1.56.1'
+          "$RUNNER_TEMP/snooker-guest-tool/node_modules/.bin/playwright" install --with-deps chromium
       - name: Real staging guest to Identity and back, no login or route mocks
+        env:
+          SNOOKER_GUEST_TOOL_ROOT: ${{ runner.temp }}/snooker-guest-tool
         run: node scripts/snooker_guest_browser_journey.mjs
       - name: Preserve public guest screenshots only
         if: always()

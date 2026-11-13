@@ -9,8 +9,12 @@ import { SNOOKER_ORIGIN, IDENTITY_ORIGIN, LOGIN_URL, RETURN_URL,
   GUEST_DENIED_PATHS, assertGuestStatus, assertLoginReturnUrl,
   assertNoPrivilegedCookies } from './snooker_guest_browser_contract.mjs';
 
-const gameRequire = createRequire(new URL('../snooker-source/package.json', import.meta.url));
-const { chromium } = gameRequire('@playwright/test');
+const toolRoot = process.env.SNOOKER_GUEST_TOOL_ROOT;
+if (!toolRoot || !toolRoot.startsWith('/') || toolRoot.includes('..')) {
+  throw new Error('SNOOKER_GUEST_BROWSER_TOOL_ROOT_MISSING');
+}
+const toolRequire = createRequire(toolRoot + '/package.json');
+const { chromium } = toolRequire('@playwright/test');
 mkdirSync('artifacts', { recursive: true });
 const browser = await chromium.launch({ headless: true });
 try {
