@@ -289,10 +289,17 @@ def publish(source_sha: str, manifest: dict, entries: dict[str, bytes]):
                 raise PublishError("R2 immutable create-once rejected") from None
         try:
             obj = client.get_object(Bucket=BUCKET, Key=key)
-            body = obj["Body"].read(len(blob) + 1)
+            stream = obj["Body"]
+            try:
+                body = stream.read(len(blob) + 1)
+            finally:
+                stream.close()
             check(obj.get("ContentType") == "model/gltf-binary" and
+                  obj.get("CacheControl") == CACHE and
                   body == blob, "R2 object readback differs from approved original")
-        except (KeyError, OSError):
+        except PublishError:
+            raise
+        except Exception:
             raise PublishError("R2 object readback not verifiable") from None
     # Independent public HTTPS/CDN bytes verification is required before a
     # receipt can authorize the game's separate manifest activation PR.
@@ -335,7 +342,7 @@ def main() -> int:
             args.out.write_text(json.dumps(receipt, indent=2) + "\n")
             print("K47_PUBLIC_R2_ORIGINALS_VERIFIED source_sha=" + args.source_sha)
         return 0
-    except (PublishError, OSError, UnicodeError) as exc:
+    except (PublishError, source.SourceAdmissionError, OSError, UnicodeError) as exc:
         print("K47_R2_PUBLICATION_BLOCKED: " + str(exc), file=sys.stderr)
         return 1
 
