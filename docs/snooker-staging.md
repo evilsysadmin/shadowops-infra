@@ -718,3 +718,30 @@ A green offline PR or postmerge contract run is **not** a completed signed-in
 live test. A real live acceptance requires an actual successful
 `workflow_dispatch` with the two dedicated test-account secrets and a green
 `live` job. Do not trigger on a personal user account or invent credentials.
+
+## Real public/guest Chromium check (no Identity test account required)
+
+The `Snooker · real public guest and Identity browser` workflow is a
+**separate**, read-only live check that runs on changes to its own workflow,
+on a best-effort daily schedule at 07:23 UTC, and on manual dispatch.
+PRs run only the local security contracts; the real Chromium job runs from
+Infra `main` after merge (or on schedule/manual execution).
+
+At desktop 1440×900 and mobile 390×844, it visits the **real**
+`https://staging.snooker.shadowops.dpdns.org/` and requires a 401 login
+shell, a working `/_shadowops/session.js` anonymous UX, all five private
+asset/manifest/session URLs denied with 401, zero visible game canvases and
+zero privileged browser cookies. It clicks the real link to
+`id-staging.shadowops.dpdns.org/login?app=snooker`, verifies the actual
+central login form and exact pinned return URL, and clicks its return link
+back to a still-protected game shell. It checks overflow and browser errors
+on both viewport sizes. Only the public guest shell is screenshotted; no
+identity forms or credential material is captured. Tests use **no routes,
+mock login, injected JWTs, Cloudflare writes, secrets or TLS bypass**.
+
+A green guest-browser run proves only guest security and pre-login UI;
+**it is not a successful authenticated game or WebGL play-through**. The
+manual protected `snooker-live-browser-journey.yml` remains required for
+signed-in E2E and needs a pre-existing staging-only account in the two
+`SNOOKER_E2E_*` secrets. A missing test account must never be silently
+replaced with a fake login or production user credentials.
