@@ -19,7 +19,7 @@ on:
         required: true
         default: plan
         options: [plan, publish]
-        description: Plan never writes R2; publish requires explicit review and scoped credentials
+        description: Plan is read-only and automatic; publish requires explicit review and scoped credentials
       source_sha:
         type: string
         required: true
@@ -44,16 +44,76 @@ jobs:
           persist-credentials: false
       - run: python3 -S -m unittest discover -s tests -p 'test_staradvs_k47_art.py' -v
 
-  candidate:
-    name: Exact source K-47 art handoff · manual plan or immutable R2 publication
+  audit:
+    name: Read-only verified source-main GLB and real-game screenshot handoff
     needs: contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Discover exact green Star Adventures main and matching art gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha="$(gh api repos/evilsysadmin/star-adventures/commits/main --jq .sha)"
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "K47_AUDITED_SOURCE_SHA=$source_sha" >> "$GITHUB_ENV"
+          python3 scripts/staradvs_k47_art.py discover --source-sha "$source_sha" \
+            --out "$RUNNER_TEMP/k47-readonly-discovery.json"
+      - name: Read exact artifact identity and expected source SHA-256
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          info=json.loads((Path(os.environ["RUNNER_TEMP"])/"k47-readonly-discovery.json").read_text())
+          assert info["sourceSha"] == os.environ["K47_AUDITED_SOURCE_SHA"]
+          with open(os.environ["GITHUB_ENV"],"a") as output:
+              output.write("K47_AUDIT_ARTIFACT_ID="+str(info["artifactId"])+"\n")
+              output.write("K47_AUDIT_DIGEST="+info["artifactDigest"]+"\n")
+          PY
+      - name: Download exact original-art source archive, verify GitHub digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$K47_AUDIT_ARTIFACT_ID" =~ ^[0-9]+$ &&
+             "$K47_AUDIT_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+          gh api "repos/evilsysadmin/star-adventures/actions/artifacts/$K47_AUDIT_ARTIFACT_ID/zip" \
+            > "$RUNNER_TEMP/k47-readonly-artifact.zip"
+          printf '%s  %s\n' "${K47_AUDIT_DIGEST#sha256:}" \
+            "$RUNNER_TEMP/k47-readonly-artifact.zip" | sha256sum -c -
+      - name: Validate three real self-contained GLBs, footprints and 390/1280 screenshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/staradvs_k47_art.py validate \
+            --source-sha "$K47_AUDITED_SOURCE_SHA" \
+            --artifact "$RUNNER_TEMP/k47-readonly-artifact.zip"
+          echo "K47_READONLY_ART_ADMISSION_OK sha=$K47_AUDITED_SOURCE_SHA"
+          {
+            echo "### K-47 original art: read-only verified handoff"
+            echo "Source SHA: \`$K47_AUDITED_SOURCE_SHA\`"
+            echo "Original models: 3; gameplay A/B: 390 and 1280 px"
+            echo "Cloud/R2 writes: **0**. Publication still requires separate manual approval."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  candidate:
+    name: Exact source K-47 art · manually approved immutable R2 publication
+    needs: [contracts, audit]
     if: >-
       github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' &&
       github.repository == 'evilsysadmin/shadowops-infra' &&
-      (inputs.action == 'plan' ||
-       (inputs.action == 'publish' &&
-        inputs.confirm_reviewed == 'K47-VISUAL-APPROVED'))
+      inputs.action == 'publish' &&
+      inputs.confirm_reviewed == 'K47-VISUAL-APPROVED'
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     concurrency:
