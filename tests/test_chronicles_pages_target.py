@@ -92,7 +92,7 @@ class TargetPreflight(unittest.TestCase):
         self.assertLess(manifest, receipt)
         self.assertIn("VITE_API_URL: https://chronicles-api.shadowops.dpdns.org/api", content)
         api_source_gate = 'scripts/chronicles_production_audit.py --verify-api-sha'
-        self.assertEqual(content.count(api_source_gate), 3)
+        self.assertEqual(content.count(api_source_gate), 4)
         first = content.index("Require actual production API SHA before Pages mutations")
         owner = content.index("Require protected mains and single Pages owner")
         project = content.index("scripts/chronicles_pages.py project")
@@ -109,6 +109,30 @@ class TargetPreflight(unittest.TestCase):
         self.assertLess(web, manifest)
         self.assertLess(manifest, third)
         self.assertLess(third, cert)
+
+
+    def test_production_pages_retries_only_confirmed_cloudflare_internal_function_error(self):
+        path = pathlib.Path(__file__).resolve().parents[1] / ".github/workflows/chronicles-pages-release.yml"
+        content = path.read_text(encoding="utf-8").split("\n  production:\n", 1)[1]
+        publish = content.split("      - name: Publish exact source SHA to the isolated Pages project", 1)[1]
+        publish = publish.split("      - name: Reconcile the exact domain", 1)[0]
+        # No new workflow trigger or credential; one extra attempt in the
+        # same production lock only for the observed provider-internal signature.
+        self.assertIn("for attempt in 1 2; do", publish)
+        self.assertIn("if npx --yes wrangler@4.127.1 pages deploy", publish)
+        self.assertIn("2>&1 | tee \"$publish_log\"; then", publish)
+        self.assertIn("if [[ \"$attempt\" == 2 ]] ||", publish)
+        self.assertIn("! grep -Fq 'Failed to publish your Function.'", publish)
+        self.assertIn("! grep -Fq 'Unknown internal error occurred.'", publish)
+        self.assertIn("exit 1", publish)
+        self.assertEqual(
+            publish.count('scripts/chronicles_production_audit.py --verify-api-sha'),
+            2,
+        )
+        self.assertLess(publish.index("sleep 12"),
+                        publish.rindex("scripts/chronicles_production_audit.py --verify-api-sha"))
+        self.assertNotIn("continue-on-error", publish)
+        self.assertNotIn("|| true", publish)
 
 
 
