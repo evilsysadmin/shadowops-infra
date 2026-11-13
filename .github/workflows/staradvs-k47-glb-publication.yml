@@ -1,0 +1,139 @@
+name: Star Adventures · manual K-47 original GLB publication
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/staradvs-k47-glb-publication.yml"
+      - "scripts/staradvs_k47_art.py"
+      - "tests/test_staradvs_k47_art.py"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/staradvs-k47-glb-publication.yml"
+      - "scripts/staradvs_k47_art.py"
+      - "tests/test_staradvs_k47_art.py"
+  workflow_dispatch:
+    inputs:
+      action:
+        type: choice
+        required: true
+        default: plan
+        options: [plan, publish]
+        description: Plan never writes R2; publish requires explicit review and scoped credentials
+      source_sha:
+        type: string
+        required: true
+        description: Exact 40-character Star Adventures main SHA with green source CI + K-47 visual gate
+      confirm_reviewed:
+        type: string
+        required: false
+        description: To publish only, type K47-VISUAL-APPROVED after inspecting 390/1280 captures
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  contracts:
+    name: Offline immutable K-47 GLB / source / screenshot contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -S -m unittest discover -s tests -p 'test_staradvs_k47_art.py' -v
+
+  candidate:
+    name: Exact source K-47 art handoff · manual plan or immutable R2 publication
+    needs: contracts
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      (inputs.action == 'plan' ||
+       (inputs.action == 'publish' &&
+        inputs.confirm_reviewed == 'K47-VISUAL-APPROVED'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    concurrency:
+      group: shadowops-staradvs-r2-original-art
+      cancel-in-progress: false
+    environment:
+      name: staging
+      url: https://staging.staradvs.shadowops.dpdns.org
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Admit current source main and exact successful real-game visual artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+          python3 scripts/staradvs_k47_art.py discover --source-sha "$SOURCE_SHA" \
+            --out "$RUNNER_TEMP/k47-discovery.json"
+      - name: Download only the pinned source artifact and verify its GitHub SHA256 digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os
+          p=json.load(open(os.environ["RUNNER_TEMP"]+"/k47-discovery.json"))
+          assert p["sourceSha"]==os.environ["SOURCE_SHA"]
+          with open(os.environ["GITHUB_ENV"],"a") as out:
+              out.write("K47_ARTIFACT_ID="+str(p["artifactId"])+"\n")
+              out.write("K47_ARTIFACT_DIGEST="+p["artifactDigest"]+"\n")
+          PY
+      - name: Download and hash-confirm immutable source ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$K47_ARTIFACT_ID" =~ ^[0-9]+$ &&
+             "$K47_ARTIFACT_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+          gh api "repos/evilsysadmin/star-adventures/actions/artifacts/$K47_ARTIFACT_ID/zip" \
+            > "$RUNNER_TEMP/k47-source-artifact.zip"
+          printf '%s  %s\n' "${K47_ARTIFACT_DIGEST#sha256:}" \
+            "$RUNNER_TEMP/k47-source-artifact.zip" | sha256sum -c -
+      - name: Validate every original GLB byte, canonical wall footprint and visual PNG
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/staradvs_k47_art.py validate --source-sha "$SOURCE_SHA" \
+            --artifact "$RUNNER_TEMP/k47-source-artifact.zip"
+          echo "K47_ORIGINAL_ART_MANUAL_PLAN_SUCCESS sha=$SOURCE_SHA"
+      - name: Install S3 client only for explicitly reviewed publication
+        if: inputs.action == 'publish'
+        run: python3 -m pip install --disable-pip-version-check --no-cache-dir 'boto3==1.40.44'
+      - name: Recheck source and immutable Infra main, publish create-once and verify public CDN
+        if: inputs.action == 'publish'
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          STARADVS_R2_ACCESS_KEY_ID: ${{ secrets.STARADVS_R2_ACCESS_KEY_ID }}
+          STARADVS_R2_SECRET_ACCESS_KEY: ${{ secrets.STARADVS_R2_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+          test "$(gh api repos/evilsysadmin/star-adventures/commits/main --jq .sha)" = "$SOURCE_SHA"
+          python3 scripts/staradvs_source_admission.py "$SOURCE_SHA"
+          python3 scripts/staradvs_k47_art.py discover --source-sha "$SOURCE_SHA" \
+            --out "$RUNNER_TEMP/k47-discovery-recheck.json"
+          cmp "$RUNNER_TEMP/k47-discovery.json" "$RUNNER_TEMP/k47-discovery-recheck.json"
+          mkdir -p verified-staradvs-k47
+          python3 scripts/staradvs_k47_art.py publish --source-sha "$SOURCE_SHA" \
+            --artifact "$RUNNER_TEMP/k47-source-artifact.zip" \
+            --confirm 'K47-VISUAL-APPROVED' \
+            --out verified-staradvs-k47/receipt.json
+      - name: Retain receipt for a separate source manifest activation review
+        if: inputs.action == 'publish'
+        uses: actions/upload-artifact@v4
+        with:
+          name: staradvs-k47-original-glb-public-verified-${{ inputs.source_sha }}
+          path: verified-staradvs-k47/receipt.json
+          if-no-files-found: error
+          retention-days: 30
