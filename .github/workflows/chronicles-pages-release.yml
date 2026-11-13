@@ -644,11 +644,29 @@ jobs:
           # Guard the last gap after Cloudflare project reconciliation.
           # Manual dispatches must be as safe as daily train dispatches.
           python3 scripts/chronicles_production_audit.py --verify-api-sha "$CHRONICLES_SOURCE_SHA"
-          npx --yes wrangler@4.127.1 pages deploy "$RUNNER_TEMP/chronicles-pages" \
-            --project-name chronicles-production \
-            --branch main \
-            --commit-hash "$CHRONICLES_SOURCE_SHA" \
-            --commit-dirty=false
+          # A confirmed provider-internal Pages Function failure is retryable
+          # exactly once. Never retry auth, input, ownership or unknown failures.
+          # The same protected job and immutable build retain their deploy lock.
+          publish_log="$RUNNER_TEMP/chronicles-production-pages-publish.log"
+          for attempt in 1 2; do
+            if npx --yes wrangler@4.127.1 pages deploy "$RUNNER_TEMP/chronicles-pages" \
+              --project-name chronicles-production \
+              --branch main \
+              --commit-hash "$CHRONICLES_SOURCE_SHA" \
+              --commit-dirty=false 2>&1 | tee "$publish_log"; then
+              echo "CHRONICLES_PAGES_PRODUCTION_PUBLISH_OK attempt=$attempt"
+              break
+            fi
+            if [[ "$attempt" == 2 ]] ||
+              ! grep -Fq 'Failed to publish your Function.' "$publish_log" ||
+              ! grep -Fq 'Unknown internal error occurred.' "$publish_log"; then
+              echo 'CHRONICLES_PAGES_PRODUCTION_PUBLISH_BLOCKED reason=provider-or-client-failure' >&2
+              exit 1
+            fi
+            echo '::warning title=Chronicles Pages provider transient::One bounded retry after exact API SHA check'
+            sleep 12
+            python3 scripts/chronicles_production_audit.py --verify-api-sha "$CHRONICLES_SOURCE_SHA"
+          done
       - name: Reconcile the exact domain without overwriting other DNS
         run: python3 scripts/chronicles_pages.py domain
       - name: Prove the public game build at root
