@@ -23,3 +23,9 @@
 6. Retire any prior publicly accessible `evilsysadmin.github.io/matthias-bridge-squad/` deployment at cutover. A login on the custom domain is not protection if static content remains publicly served elsewhere.
 
 This PR does not mutate Cloudflare, DNS, OCI, Vault, Identity runtime, or production. Do not claim the requested hostname live on the strength of these unit tests alone.
+
+## Read-only Cloudflare discovery (no activation)
+
+`scripts/bridgesquad_pages_readiness.py plan` prints fixed intended identities with no external calls. The `inspect` command uses only authenticated GET requests to Cloudflare's zone, the exact project `bridgesquad-production`, its exact custom domain, and the exact DNS record. It rejects foreign Pages source/branch/custom domains, ambiguous zone and DNS, unexpected aliases, and CNAME targets that differ from the owned project. It deliberately prints only `present/absent` and `not-verified`; this is never proof of signed-in delivery.
+
+The workflow `Bridge Squad · production Pages inventory (read-only)` runs offline tests on PR/main. Its manual `workflow_dispatch` inventory job is restricted to trusted Infra `main` and uses the existing Cloudflare account/secret bindings; no Cloudflare mutator is invoked. It does not enable the Identity audience or create DNS/Pages. If credentials are missing, inspect must fail, not assume resources are absent.
