@@ -1,0 +1,48 @@
+name: Bridge Squad · source release admission (read-only)
+on:
+  pull_request:
+    paths:
+      - 'scripts/bridgesquad_source_admission.py'
+      - 'tests/test_bridgesquad_source_admission.py'
+      - '.github/workflows/bridgesquad-source-admission.yml'
+      - 'docs/bridgesquad-identity.md'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/bridgesquad_source_admission.py'
+      - 'tests/test_bridgesquad_source_admission.py'
+      - '.github/workflows/bridgesquad-source-admission.yml'
+      - 'docs/bridgesquad-identity.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  contracts:
+    name: Verify source provenance and reject corrupted artifacts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test exact green main and private release ZIP
+        run: python3 -m unittest discover -s tests -p test_bridgesquad_source_admission.py -v
+      - run: python3 -m py_compile scripts/bridgesquad_source_admission.py
+  candidate:
+    name: Check current exact source CI metadata without writes
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main'
+    needs: contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inspect only current successful Bridge Squad main release
+        run: python3 scripts/bridgesquad_source_admission.py check-current
