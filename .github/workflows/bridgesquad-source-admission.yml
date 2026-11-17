@@ -6,6 +6,7 @@ on:
       - 'tests/test_bridgesquad_source_admission.py'
       - 'scripts/bridgesquad_release_package.py'
       - 'tests/test_bridgesquad_release_package.py'
+      - 'tests/test_bridgesquad_sealed_handoff_workflow.py'
       - '.github/workflows/bridgesquad-source-admission.yml'
       - 'docs/bridgesquad-identity.md'
   push:
@@ -15,6 +16,7 @@ on:
       - 'tests/test_bridgesquad_source_admission.py'
       - 'scripts/bridgesquad_release_package.py'
       - 'tests/test_bridgesquad_release_package.py'
+      - 'tests/test_bridgesquad_sealed_handoff_workflow.py'
       - '.github/workflows/bridgesquad-source-admission.yml'
       - 'docs/bridgesquad-identity.md'
   workflow_dispatch:
@@ -36,6 +38,8 @@ jobs:
       - name: Verify sealed Pages package contains only trusted Infra Worker
         run: python3 -m unittest discover -s tests -p test_bridgesquad_release_package.py -v
       - run: python3 -m py_compile scripts/bridgesquad_release_package.py
+      - name: Ensure handoff cannot bypass source checks or deploy publicly
+        run: python3 -m unittest discover -s tests -p test_bridgesquad_sealed_handoff_workflow.py -v
   candidate:
     name: Check current exact source CI metadata without writes
     if: >-
@@ -53,3 +57,74 @@ jobs:
           persist-credentials: false
       - name: Inspect only current successful Bridge Squad main release
         run: python3 scripts/bridgesquad_source_admission.py check-current
+
+  sealed-candidate:
+    name: Produce private SHA-pinned Pages candidate (NEVER deploy)
+    needs: contracts
+    if: >-
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Admit source main, CI, and exact artifact provenance
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, sys
+          sys.path.insert(0, 'scripts')
+          import bridgesquad_source_admission as source
+          reader=source.GithubReader(os.environ['GH_TOKEN'])
+          sha=source.current_sha(reader)
+          proof=source.admit(reader, sha)
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out:
+              for name in ('source_sha','artifact_id','artifact_digest','run_id'):
+                  out.write(f'{name}={proof[name]}\n')
+          print('BRIDGESQUAD_ADMITTED_SOURCE sha='+sha
+                +' artifact_id='+str(proof['artifact_id'])
+                +' digest='+proof['artifact_digest'])
+          PY
+      - name: Download exact verified source artifact and reject tampering
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+          ARTIFACT_ID: ${{ steps.source.outputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ steps.source.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          gh api "repos/evilsysadmin/matthias-bridge-squad/actions/artifacts/$ARTIFACT_ID/zip" > "$RUNNER_TEMP/bridgesquad-source.zip"
+          python3 scripts/bridgesquad_source_admission.py verify-archive             "$RUNNER_TEMP/bridgesquad-source.zip" "$ARTIFACT_DIGEST" "$SOURCE_SHA"
+      - name: Seal the exact HTML with Infra-owned fail-closed Identity Worker
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+          ARTIFACT_DIGEST: ${{ steps.source.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/bridgesquad_release_package.py prepare             "$RUNNER_TEMP/bridgesquad-source.zip" "$ARTIFACT_DIGEST"             "$SOURCE_SHA" "$RUNNER_TEMP/bridgesquad-sealed"
+          python3 scripts/bridgesquad_release_package.py verify             "$RUNNER_TEMP/bridgesquad-sealed" "$ARTIFACT_DIGEST" "$SOURCE_SHA"
+      - name: Recheck unchanged game main before publishing private artifact
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        run: python3 scripts/bridgesquad_source_admission.py check "$SOURCE_SHA"
+      - name: Archive private Infra candidate for later protected delivery
+        uses: actions/upload-artifact@v4
+        with:
+          name: bridgesquad-sealed-${{ steps.source.outputs.source_sha }}-${{ github.sha }}
+          path: ${{ runner.temp }}/bridgesquad-sealed/
+          retention-days: 14
+          if-no-files-found: error
