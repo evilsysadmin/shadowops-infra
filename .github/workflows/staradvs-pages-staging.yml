@@ -12,9 +12,11 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+# PR contracts never contend with protected staging publication.
+# Cancel only superseded PR revisions; preserve serialized deploy/reconcile runs.
 concurrency:
-  group: shadowops-staradvs-staging-pages
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'pull_request' && format('shadowops-staradvs-pages-pr-{0}', github.event.pull_request.number) || 'shadowops-staradvs-staging-pages' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   contracts:
     name: Verify source admission and Pages isolation
