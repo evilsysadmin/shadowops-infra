@@ -6,6 +6,7 @@ on:
       - 'tests/test_bridgesquad_source_admission.py'
       - 'scripts/bridgesquad_release_package.py'
       - 'tests/test_bridgesquad_release_package.py'
+      - 'tests/test_bridgesquad_sealed_handoff_workflow.py'
       - '.github/workflows/bridgesquad-source-admission.yml'
       - 'docs/bridgesquad-identity.md'
   push:
@@ -15,6 +16,7 @@ on:
       - 'tests/test_bridgesquad_source_admission.py'
       - 'scripts/bridgesquad_release_package.py'
       - 'tests/test_bridgesquad_release_package.py'
+      - 'tests/test_bridgesquad_sealed_handoff_workflow.py'
       - '.github/workflows/bridgesquad-source-admission.yml'
       - 'docs/bridgesquad-identity.md'
   workflow_dispatch:
@@ -36,6 +38,8 @@ jobs:
       - name: Verify sealed Pages package contains only trusted Infra Worker
         run: python3 -m unittest discover -s tests -p test_bridgesquad_release_package.py -v
       - run: python3 -m py_compile scripts/bridgesquad_release_package.py
+      - name: Ensure handoff cannot bypass source checks or deploy publicly
+        run: python3 -m unittest discover -s tests -p test_bridgesquad_sealed_handoff_workflow.py -v
   candidate:
     name: Check current exact source CI metadata without writes
     if: >-
