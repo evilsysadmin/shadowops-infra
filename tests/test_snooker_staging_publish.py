@@ -569,7 +569,12 @@ class PublishTests(unittest.TestCase):
         self.assertIn("release-verify", workflow)
         self.assertIn("'tests/snooker-identity-gate.test.mjs'", workflow)
         self.assertIn("'edge/snooker-identity-gate.mjs'", workflow)
-        self.assertNotIn("github.event_name == 'pull_request' &&", workflow)
+        # PR-only concurrency must not broaden the protected publisher's event guard.
+        publish = workflow.split("  publish:", 1)[1].split("  post_publish_audit:", 1)[0]
+        self.assertNotIn("github.event_name == 'pull_request'", publish)
+        self.assertIn("|| 'shadowops-snooker-private-pages-delivery' }}", workflow)
+        self.assertIn("format('shadowops-snooker-pages-pr-{0}', github.event.pull_request.number)", workflow)
+        self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", workflow)
 
     def test_foreign_or_missing_deployment_alias_blocks_domain_writes(self):
         for candidate in ("https://foreign.pages.dev", "http://release.snooker-staging.pages.dev",
