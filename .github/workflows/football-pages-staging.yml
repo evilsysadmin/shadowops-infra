@@ -186,6 +186,13 @@ jobs:
         with: {persist-credentials: false}
       - uses: actions/setup-node@v4
         with: {node-version: '22'}
+      # Cache only the browser revision required by pinned Playwright.
+      # PR caches are scoped by GitHub; publishing still uses trusted main.
+      - name: Restore pinned Chromium cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: football-staging-chromium-${{ runner.os }}-${{ runner.arch }}-playwright-1.64.1
       - name: Install pinned isolated browser runner
         run: |
           npm install --prefix "$RUNNER_TEMP/football-browser" --no-audit --no-fund playwright@1.64.1
