@@ -76,13 +76,13 @@ const bootstrap=`const status=document.querySelector('[role=status]');
  if(!session.ok)throw Error();location.replace('/');
 }catch{status.textContent='El acceso con ShadowOps ID aún no está disponible. Vuelve a intentarlo en unos minutos.';}})();`;
 function login(status=401){
- const body=`<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bridge Squad · ShadowOps ID</title><style>body{margin:0;background:#08130d;color:#f4e9d1;font:18px system-ui;min-height:100vh;display:grid;place-items:center}main{max-width:34rem;margin:1rem;padding:2rem;border:1px solid #52634c;border-radius:18px}a,button{display:inline-block;padding:14px 18px;background:#d6c18b;color:#132115;border:0;border-radius:9px;font:inherit;text-decoration:none}p{line-height:1.6}small{color:#b8c8ad}a:focus-visible,button:focus-visible{outline:3px solid #9ef4b1;outline-offset:4px}</style><main><small>BRIDGESQUAD OF MATTHIAS</small><h1>Tu cuenta ShadowOps ID</h1><p role="status">Comprobando tu sesión…</p><a href="${ISSUER}/login?app=bridgesquad">Entrar con ShadowOps ID</a><p><small>Una mesa 3D protegida mediante ShadowOps ID.</small></p></main><script src="/_shadowops/session.js" defer></script></html>`;
+ const body=`<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bridge Squad · ShadowOps ID</title><style>body{margin:0;background:#08130d;color:#f4e9d1;font:18px system-ui;min-height:100vh;display:grid;place-items:center}main{max-width:34rem;margin:1rem;padding:2rem;border:1px solid #52634c;border-radius:18px}a,button{display:inline-block;padding:14px 18px;background:#d6c18b;color:#132115;border:0;border-radius:9px;font:inherit;text-decoration:none}p{line-height:1.6}small{color:#b8c8ad}a:focus-visible,button:focus-visible{outline:3px solid #9ef4b1;outline-offset:4px}</style><main><small>BRIDGESQUAD OF MATTHIAS</small><h1>Tu cuenta ShadowOps ID</h1><p role="status">Comprobando tu sesión…</p><a href="${ISSUER}/login?app=bridgesquad">Entrar con ShadowOps ID</a><p><small>Un arcade táctico protegido mediante ShadowOps ID.</small></p></main><script src="/_shadowops/session.js" defer></script></html>`;
  return new Response(body,{status,headers:{...headers,'Content-Type':'text/html; charset=utf-8',
   'Content-Security-Policy':`default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self' ${ISSUER}; base-uri 'none'; frame-ancestors 'none'; form-action ${ISSUER}`}});
 }
 export async function handle(request,env,options={}){
  const url=new URL(request.url);
- if(url.hostname!==HOST)return new Response('Not found',{status:404,headers});
+ if(url.protocol!=='https:'||url.host!==HOST)return new Response('Not found',{status:404,headers});
  if(url.pathname==='/_shadowops/session.js'&&request.method==='GET')return new Response(bootstrap,{headers:{...headers,'Content-Type':'text/javascript; charset=utf-8'}});
  try{
   if(url.pathname==='/api/bridgesquad/session'&&request.method==='POST'){
@@ -106,7 +106,7 @@ export async function handle(request,env,options={}){
  }catch(error){
   const status=error instanceof Denied?error.status:503;
   if(url.pathname==='/'||url.pathname==='/index.html')return login(status===401?401:503);
-  return json({error:status===401?'authentication_required':'access_unavailable'},status,status===503?{'X-Bridge Squad-Identity-Error':error instanceof Denied?error.stage:'edge_runtime'}:{});
+  return json({error:status===401?'authentication_required':'access_unavailable'},status,status===503?{'X-Bridge-Squad-Identity-Error':error instanceof Denied?error.stage:'edge_runtime'}:{});
  }
 }
 export default {fetch:handle};

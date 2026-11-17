@@ -168,3 +168,16 @@ test('identity proof absent: valid production cookie still cannot serve HTML',as
   {ASSETS:{fetch:()=>{fetched++;return new Response('game')}}},f.options);
  assert.equal(denied.status,503);assert.equal(fetched,0);
 });
+
+test('bad upstream/missing service proof yields valid 503 header instead of uncaught runtime TypeError',async()=>{
+ const f=await signed();let assets=0;
+ const res=await handle(url('/assets/index.js',{headers:{Cookie:COOKIE+'='+f.jwt}}),
+  {ASSETS:{fetch:()=>{assets++;return new Response('LEAK')}}},f.options);
+ assert.equal(res.status,503);
+ assert.equal(res.headers.get('X-Bridge-Squad-Identity-Error'),'edge_configuration');
+ assert.equal(assets,0);
+});
+test('production gateway refuses plain HTTP even when hostname matches',async()=>{
+ const response=await handle(new Request('http://'+HOST+'/index.html'),env());
+ assert.equal(response.status,404);
+});
