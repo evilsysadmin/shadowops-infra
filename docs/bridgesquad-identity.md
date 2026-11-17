@@ -50,3 +50,16 @@ python3 scripts/bridgesquad_release_package.py verify ./dist-sealed sha256:<DIGE
 El empaquetador preserva sin reconstruir los bytes de `index.html`, descarta el manifiesto no confiable del juego después de validarlo y añade exclusivamente el `edge/bridgesquad-identity-gate.mjs` auditado por Infra como `_worker.js`. Genera un nuevo `release.json` con el digest del ZIP, SHA del origen y hashes del HTML y Worker, y rechaza symlinks, archivos extra, resultados manipulados o Workers diferentes de la versión auditada. Los tests de PR/main comprueban estas invariantes con ZIPs sintéticos, incluyendo escenarios de autenticación debilitada.
 
 **Límite de confianza:** construir el directorio no prueba que GitHub haya autorizado ese ZIP, ni publica el dominio ni prueba login. El futuro workflow de publicación deberá exigir ambos recibos (metadatos GitHub actuales + ZIP validado), credenciales de producción protegidas, Cloudflare Pages configurado para **no servir estáticos sin Worker**, DNS con titularidad comprobada, y pruebas E2E sobre el host y aliases. No se permite usar staging Identity para el dominio de producción.
+
+## Handoff automatizado de release sellado (sin desplegar)
+
+El workflow `.github/workflows/bridgesquad-source-admission.yml` ahora prepara un artefacto **sin publicación** tras el paso de contratos, tanto en un `push` de Infra `main` como en un `workflow_dispatch` manual confiable. El job `sealed-candidate`:
+
+1. Comprueba mediante la API de GitHub el `main` actual del juego, su CI `push`, los dos jobs requeridos y el ID/digest de un único artefacto.
+2. Descarga ese **ID exacto** de GitHub Actions; verifica el SHA-256 del ZIP y el manifiesto de `index.html`.
+3. Introduce el Worker de autenticación auditado por Infra y genera `release.json` propio; verifica los tres archivos contra los hashes calculados.
+4. Revalida que el `main` del juego sigue siendo el mismo antes de archivar el paquete como `bridgesquad-sealed-<GAME_SHA>-<INFRA_SHA>` durante 14 días.
+
+La ejecución no utiliza Cloudflare, DNS, OCI ni Vault. No despliega nada. Los artefactos de GitHub Actions **no deben tratarse como almacén de secretos**: contienen solo HTML/JavaScript y metadatos públicos. Si la identidad del artefacto ha cambiado o las credenciales de lectura GitHub no son válidas, el job falla sin producir un paquete.
+
+Para el futuro despliegue es obligatoria una nueva comprobación de vigencia del SHA, integridad del paquete, identidad del Worker y despliegue fail-closed en Pages con prueba de login real. Este workflow **no resuelve** el bloqueo de Identity de producción registrado en #611.
