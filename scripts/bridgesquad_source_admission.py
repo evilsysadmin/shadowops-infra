@@ -127,7 +127,7 @@ def admit(reader, expected_sha: str) -> dict:
         artifacts = artifacts_result.get("artifacts") if isinstance(artifacts_result, dict) else None
         if not isinstance(artifacts, list):
             raise AdmissionError("Source artifacts unavailable")
-        matches = [a for a in artifacts if isinstance(a, dict) and a.get("name") == ARTIFACT]
+        matches = [a for a in artifacts if isinstance(a, dict) and a.get("name") == ARTIFACT_PREFIX + expected_sha]
         if len(matches) != 1:
             raise AdmissionError("Unique Bridge Squad dist artifact required")
         item = matches[0]
