@@ -25,9 +25,11 @@ on:
 permissions:
   contents: read
   actions: read
+# PR contracts never contend with protected staging publication.
+# Cancel only superseded PR revisions; preserve serialized deploy/reconcile runs.
 concurrency:
-  group: shadowops-football-staging-pages
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'pull_request' && format('shadowops-football-pages-pr-{0}', github.event.pull_request.number) || 'shadowops-football-staging-pages' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   contracts:
     runs-on: ubuntu-24.04
