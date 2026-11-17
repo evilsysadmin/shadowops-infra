@@ -4,6 +4,8 @@ on:
     paths:
       - 'scripts/bridgesquad_source_admission.py'
       - 'tests/test_bridgesquad_source_admission.py'
+      - 'scripts/bridgesquad_release_package.py'
+      - 'tests/test_bridgesquad_release_package.py'
       - '.github/workflows/bridgesquad-source-admission.yml'
       - 'docs/bridgesquad-identity.md'
   push:
@@ -11,6 +13,8 @@ on:
     paths:
       - 'scripts/bridgesquad_source_admission.py'
       - 'tests/test_bridgesquad_source_admission.py'
+      - 'scripts/bridgesquad_release_package.py'
+      - 'tests/test_bridgesquad_release_package.py'
       - '.github/workflows/bridgesquad-source-admission.yml'
       - 'docs/bridgesquad-identity.md'
   workflow_dispatch:
@@ -29,6 +33,9 @@ jobs:
       - name: Test exact green main and private release ZIP
         run: python3 -m unittest discover -s tests -p test_bridgesquad_source_admission.py -v
       - run: python3 -m py_compile scripts/bridgesquad_source_admission.py
+      - name: Verify sealed Pages package contains only trusted Infra Worker
+        run: python3 -m unittest discover -s tests -p test_bridgesquad_release_package.py -v
+      - run: python3 -m py_compile scripts/bridgesquad_release_package.py
   candidate:
     name: Check current exact source CI metadata without writes
     if: >-
