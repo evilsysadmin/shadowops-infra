@@ -37,3 +37,16 @@ El verificador `scripts/bridgesquad_source_admission.py` valida con GitHub, solo
 Para un ZIP descargado desde **ese ID exacto de artefacto**, `verify-archive ZIP sha256:DIGEST SHA` valida el digest del fichero comprimido y exclusivamente las dos entradas `index.html` y `release.json`, con límites de tamaño, sin symlinks ni ficheros adicionales. Comprueba el SHA-256 del HTML, la identidad del repositorio y el commit, `environment=production`, `audience=bridgesquad` y `authentication.required=true`. No extrae el ZIP ni incorpora un Worker proporcionado por el repositorio del juego. **Las etiquetas de autenticación de un manifiesto no proporcionan seguridad por sí mismas**.
 
 El workflow `Bridge Squad · source release admission (read-only)` ejecuta todos los tests en PR y push. La tarea de inventario de GitHub para una versión actual se ejecuta **únicamente por dispatch manual desde Infra main**, y puede fallar por permisos de lectura entre repositorios. No escribe en Cloudflare, Identity, Vault ni DNS y no supone una publicación autorizada. El despliegue posterior deberá incluir el Worker auditado por Infra, verificar que el paquete descargado coincide con el recibo y probar acceso anónimo denegado y login/revocación reales. Seguimiento: #611.
+
+## Paquete sellado por ShadowOps Infra (sin despliegue)
+
+Después de admitir el SHA exacto mediante `bridgesquad_source_admission.py` y verificar independientemente el ZIP contra su digest GitHub, el operador puede preparar un directorio **nuevo** mediante:
+
+```sh
+python3 scripts/bridgesquad_release_package.py prepare candidato.zip sha256:<DIGEST_DEL_ZIP> <SHA_DEL_COMMIT> ./dist-sealed
+python3 scripts/bridgesquad_release_package.py verify ./dist-sealed sha256:<DIGEST_DEL_ZIP> <SHA_DEL_COMMIT>
+```
+
+El empaquetador preserva sin reconstruir los bytes de `index.html`, descarta el manifiesto no confiable del juego después de validarlo y añade exclusivamente el `edge/bridgesquad-identity-gate.mjs` auditado por Infra como `_worker.js`. Genera un nuevo `release.json` con el digest del ZIP, SHA del origen y hashes del HTML y Worker, y rechaza symlinks, archivos extra, resultados manipulados o Workers diferentes de la versión auditada. Los tests de PR/main comprueban estas invariantes con ZIPs sintéticos, incluyendo escenarios de autenticación debilitada.
+
+**Límite de confianza:** construir el directorio no prueba que GitHub haya autorizado ese ZIP, ni publica el dominio ni prueba login. El futuro workflow de publicación deberá exigir ambos recibos (metadatos GitHub actuales + ZIP validado), credenciales de producción protegidas, Cloudflare Pages configurado para **no servir estáticos sin Worker**, DNS con titularidad comprobada, y pruebas E2E sobre el host y aliases. No se permite usar staging Identity para el dominio de producción.
