@@ -1,0 +1,27 @@
+name: Bridge Squad · production Identity gate contract (offline)
+on:
+  pull_request:
+    paths:
+      - 'edge/bridgesquad-identity-gate.mjs'
+      - 'tests/bridgesquad-identity-gate.test.mjs'
+      - 'docs/bridgesquad-identity.md'
+      - '.github/workflows/bridgesquad-identity.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'edge/bridgesquad-identity-gate.mjs'
+      - 'tests/bridgesquad-identity-gate.test.mjs'
+      - 'docs/bridgesquad-identity.md'
+      - '.github/workflows/bridgesquad-identity.yml'
+permissions:
+  contents: read
+jobs:
+  gate-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify production admission, alias denial and revocation
+        run: node --test tests/bridgesquad-identity-gate.test.mjs
