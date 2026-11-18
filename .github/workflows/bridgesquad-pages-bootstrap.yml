@@ -47,7 +47,10 @@ jobs:
   bootstrap:
     name: One-time Pages upload; verify all public aliases return 404
     needs: contracts
+    # Retired after successful one-time locked upload: Actions run 44401118894.
+    # Retain source for auditable history; only the read-only watchdog may run.
     if: >-
+      false &&
       github.repository == 'evilsysadmin/shadowops-infra' &&
       github.ref == 'refs/heads/main' &&
       github.event_name == 'push'
