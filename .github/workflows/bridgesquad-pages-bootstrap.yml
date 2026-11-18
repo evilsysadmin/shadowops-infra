@@ -1,0 +1,146 @@
+name: Bridge Squad · one-time locked Pages alias bootstrap
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/bridgesquad-pages-bootstrap.yml'
+      - 'scripts/bridgesquad_alias_bootstrap.py'
+      - 'tests/test_bridgesquad_alias_bootstrap.py'
+      - 'tests/test_bridgesquad_pages_bootstrap_workflow.py'
+      - 'edge/bridgesquad-identity-gate.mjs'
+      - 'docs/bridgesquad-identity.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/bridgesquad-pages-bootstrap.yml'
+      - 'scripts/bridgesquad_alias_bootstrap.py'
+      - 'tests/test_bridgesquad_alias_bootstrap.py'
+      - 'tests/test_bridgesquad_pages_bootstrap_workflow.py'
+      - 'edge/bridgesquad-identity-gate.mjs'
+      - 'docs/bridgesquad-identity.md'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: bridgesquad-first-locked-pages-upload
+  cancel-in-progress: false
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Assert exact-host, production JWT, anonymous-denial edge contract
+        run: node --test tests/bridgesquad-identity-gate.test.mjs
+      - name: Verify Cloudflare empty-private contract and aliases
+        run: python3 -m unittest discover -s tests -p test_bridgesquad_alias_bootstrap.py -v
+      - name: Verify release admission, HTML seal and Worker byte parity
+        run: |
+          python3 -m unittest discover -s tests -p test_bridgesquad_source_admission.py -v
+          python3 -m unittest discover -s tests -p test_bridgesquad_release_package.py -v
+      - name: Prove workflow never installs production DNS or secrets
+        run: python3 -m unittest discover -s tests -p test_bridgesquad_pages_bootstrap_workflow.py -v
+  bootstrap:
+    name: One-time Pages upload; verify all public aliases return 404
+    needs: contracts
+    if: >-
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    environment:
+      name: staging
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Refuse non-empty, foreign or fail-open Pages project before upload
+        run: python3 scripts/bridgesquad_alias_bootstrap.py preflight
+      - name: Admit exact green game main and artifact ID/digest
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os,sys
+          sys.path.insert(0,'scripts')
+          import bridgesquad_source_admission as source
+          reader=source.GithubReader(os.environ['GH_TOKEN'])
+          sha=source.current_sha(reader)
+          receipt=source.admit(reader,sha)
+          with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as out:
+              for key in ('source_sha','artifact_id','artifact_digest'):
+                  out.write(f'{key}={receipt[key]}\n')
+          print('BRIDGESQUAD_PAGES_SOURCE_READY sha='+sha
+                +' artifact_id='+str(receipt['artifact_id']))
+          PY
+      - name: Download and seal only the SHA-pinned game release with audited Infra Worker
+        env:
+          GAME_SHA: ${{ steps.source.outputs.source_sha }}
+          ARTIFACT_ID: ${{ steps.source.outputs.artifact_id }}
+          ZIP_DIGEST: ${{ steps.source.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GAME_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$ZIP_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          gh api "repos/evilsysadmin/matthias-bridge-squad/actions/artifacts/$ARTIFACT_ID/zip" > "$RUNNER_TEMP/bridgesquad-source.zip"
+          python3 scripts/bridgesquad_source_admission.py verify-archive \
+            "$RUNNER_TEMP/bridgesquad-source.zip" "$ZIP_DIGEST" "$GAME_SHA"
+          python3 scripts/bridgesquad_release_package.py prepare \
+            "$RUNNER_TEMP/bridgesquad-source.zip" "$ZIP_DIGEST" "$GAME_SHA" "$RUNNER_TEMP/bridgesquad-pages"
+          python3 scripts/bridgesquad_release_package.py verify \
+            "$RUNNER_TEMP/bridgesquad-pages" "$ZIP_DIGEST" "$GAME_SHA"
+      - name: Recheck project privacy and both immutable main SHAs immediately before upload
+        env:
+          GAME_SHA: ${{ steps.source.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/bridgesquad_alias_bootstrap.py preflight
+          test "$(gh api repos/evilsysadmin/matthias-bridge-squad/commits/main --jq .sha)" = "$GAME_SHA"
+          test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+      - name: Upload sealed bundle only to the private Pages project (NO custom domain)
+        env:
+          GAME_SHA: ${{ steps.source.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.127.1 pages deploy \
+            "$RUNNER_TEMP/bridgesquad-pages" \
+            --project-name bridgesquad-production \
+            --branch main \
+            --commit-hash "$GAME_SHA" \
+            --commit-dirty=false
+      - name: Prove canonical source, every Pages alias GET/HEAD/POST denies guests
+        env:
+          GAME_SHA: ${{ steps.source.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6; do
+            if python3 scripts/bridgesquad_alias_bootstrap.py postflight "$GAME_SHA"; then
+              test "$(gh api repos/evilsysadmin/matthias-bridge-squad/commits/main --jq .sha)" = "$GAME_SHA"
+              echo 'BRIDGESQUAD_PAGES_LOCKED aliases=404 domain=absent dns=absent identity=not-provisioned' >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo 'BRIDGESQUAD_PAGES_BOOTSTRAP_BLOCKED no authenticated-only alias receipt' >&2
+          exit 1

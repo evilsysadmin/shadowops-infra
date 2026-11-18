@@ -1,4 +1,4 @@
-// Production admission contract only; do not deploy until independent production Identity issues the bridgesquad audience and the secret proof is provisioned in Infra custody.
+// Production admission remains disabled until dedicated production Identity issues the bridgesquad audience and its independent service proof is provisioned. A one-time alias-only bootstrap may install this fail-closed Worker with NO custom domain, DNS or proof: every *.pages.dev host is always rejected before any asset access.
 // Infra-owned Pages Worker: exact Bridge Squad host, live Identity and no preview aliases.
 // Pages edge authority. Only this server checks JWT signatures and live Identity
 // freshness. No service proof, signing key or JWT is persisted in browser storage.
