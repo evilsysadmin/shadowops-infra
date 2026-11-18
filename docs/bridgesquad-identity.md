@@ -63,3 +63,11 @@ El workflow `.github/workflows/bridgesquad-source-admission.yml` ahora prepara u
 La ejecución no utiliza Cloudflare, DNS, OCI ni Vault. No despliega nada. Los artefactos de GitHub Actions **no deben tratarse como almacén de secretos**: contienen solo HTML/JavaScript y metadatos públicos. Si la identidad del artefacto ha cambiado o las credenciales de lectura GitHub no son válidas, el job falla sin producir un paquete.
 
 Para el futuro despliegue es obligatoria una nueva comprobación de vigencia del SHA, integridad del paquete, identidad del Worker y despliegue fail-closed en Pages con prueba de login real. Este workflow **no resuelve** el bloqueo de Identity de producción registrado en #611.
+
+## Alta del proyecto vacío de Pages (NO publica el juego)
+
+El workflow `Bridge Squad · create empty fail-closed Pages project` crea únicamente el proyecto Direct Upload `bridgesquad-production` cuando el inventario anterior declara ausencia del proyecto, dominio y DNS, o comprueba la propiedad de un proyecto propio previamente creado. Se ejecuta exclusivamente desde `evilsysadmin/shadowops-infra/main` al fusionar estos contratos o mediante `workflow_dispatch`. Los PR ejecutan solo los tests.
+
+El operador utiliza el entorno GitHub protegido `staging` **solo como custodio de la credencial de la misma cuenta Cloudflare**; esto NO conecta ShadowOps Identity staging al juego de producción. El cliente únicamente permite dos mutaciones exactas: `POST /accounts/{account}/pages/projects` para el nombre `bridgesquad-production` y `PATCH /accounts/{account}/pages/projects/bridgesquad-production` para desactivar `fail_open` en producción y previews, añadiendo la compatibilidad `global_fetch_strictly_public`. Nunca crea DNS, vincula un dominio, instala una credencial de Identity ni publica un archivo. Relee el proyecto después de la operación y falla si la política no coincide.
+
+En este paso los recursos pueden quedar como `project=present domain=absent dns=absent`, lo que **no implica que el juego esté online**. Ante recursos ajenos, DNS huérfano, permisos Cloudflare insuficientes, o configuración incompatible, el workflow falla sin adoptar ni modificar esos recursos. La publicación futura y la prueba de acceso autenticado siguen condicionadas al Identity de producción (#611).
