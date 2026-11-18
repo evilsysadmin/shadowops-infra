@@ -114,11 +114,17 @@ def guest_status(url: str, method: str = "GET") -> int:
     req = urllib.request.Request(
         url, method=method, headers={"User-Agent": "ShadowOps-BridgeSquad-GuestAudit/1.0"},
     )
+    def check_response(response, code):
+        if code == 404 and method != "HEAD":
+            # A generic provider 404 is not proof that our reviewed Worker ran.
+            # Exact 9-byte response is the worker's foreign-host denial.
+            return 404 if response.read(1025) == b"Not found" else 599
+        return code
     try:
         with urllib.request.build_opener(_NoRedirect()).open(req, timeout=12) as response:
-            return response.status
+            return check_response(response, response.status)
     except urllib.error.HTTPError as exc:
-        return exc.code
+        return check_response(exc, exc.code)
     except (urllib.error.URLError, TimeoutError):
         raise BootstrapBlocked("Pages alias HTTPS unavailable") from None
 
