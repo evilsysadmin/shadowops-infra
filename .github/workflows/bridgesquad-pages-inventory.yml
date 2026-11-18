@@ -4,6 +4,7 @@ on:
     paths:
       - 'scripts/bridgesquad_pages_readiness.py'
       - 'tests/test_bridgesquad_pages_readiness.py'
+      - 'tests/test_bridgesquad_inventory_workflow.py'
       - '.github/workflows/bridgesquad-pages-inventory.yml'
       - 'docs/bridgesquad-identity.md'
   push:
@@ -11,6 +12,7 @@ on:
     paths:
       - 'scripts/bridgesquad_pages_readiness.py'
       - 'tests/test_bridgesquad_pages_readiness.py'
+      - 'tests/test_bridgesquad_inventory_workflow.py'
       - '.github/workflows/bridgesquad-pages-inventory.yml'
       - 'docs/bridgesquad-identity.md'
   workflow_dispatch:
@@ -28,14 +30,21 @@ jobs:
         run: python3 -m unittest discover -s tests -p test_bridgesquad_pages_readiness.py -v
       - name: Show immutable, no-secret inventory plan
         run: python3 scripts/bridgesquad_pages_readiness.py plan
+      - name: Verify bounded owner-only workflow dispatch for protected Cloudflare inventory
+        run: python3 -m unittest discover -s tests -p test_bridgesquad_inventory_workflow.py -v
   inventory:
     needs: contracts
     if: >-
       github.repository == 'evilsysadmin/shadowops-infra' &&
       github.ref == 'refs/heads/main' &&
-      github.event_name == 'workflow_dispatch'
+      (github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'push')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    # Reuse the already protected Cloudflare read credential custody. This is
+    # Cloudflare ZONE inventory only, NOT staging Identity on a production host.
+    environment:
+      name: staging
     permissions:
       contents: read
     env:
