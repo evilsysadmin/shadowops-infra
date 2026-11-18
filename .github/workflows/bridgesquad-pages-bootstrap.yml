@@ -59,9 +59,9 @@ jobs:
       contents: read
       actions: read
     env:
-      GH_TOKEN: \${{ github.token }}
-      CLOUDFLARE_ACCOUNT_ID: \${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_API_TOKEN: \${{ secrets.CLOUDFLARE_API_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -91,9 +91,9 @@ jobs:
           PY
       - name: Download and seal only the SHA-pinned game release with audited Infra Worker
         env:
-          GAME_SHA: \${{ steps.source.outputs.source_sha }}
-          ARTIFACT_ID: \${{ steps.source.outputs.artifact_id }}
-          ZIP_DIGEST: \${{ steps.source.outputs.artifact_digest }}
+          GAME_SHA: ${{ steps.source.outputs.source_sha }}
+          ARTIFACT_ID: ${{ steps.source.outputs.artifact_id }}
+          ZIP_DIGEST: ${{ steps.source.outputs.artifact_digest }}
         shell: bash
         run: |
           set -euo pipefail
@@ -109,7 +109,7 @@ jobs:
             "$RUNNER_TEMP/bridgesquad-pages" "$ZIP_DIGEST" "$GAME_SHA"
       - name: Recheck project privacy and both immutable main SHAs immediately before upload
         env:
-          GAME_SHA: \${{ steps.source.outputs.source_sha }}
+          GAME_SHA: ${{ steps.source.outputs.source_sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -118,7 +118,7 @@ jobs:
           test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
       - name: Upload sealed bundle only to the private Pages project (NO custom domain)
         env:
-          GAME_SHA: \${{ steps.source.outputs.source_sha }}
+          GAME_SHA: ${{ steps.source.outputs.source_sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -130,7 +130,7 @@ jobs:
             --commit-dirty=false
       - name: Prove canonical source, every Pages alias GET/HEAD/POST denies guests
         env:
-          GAME_SHA: \${{ steps.source.outputs.source_sha }}
+          GAME_SHA: ${{ steps.source.outputs.source_sha }}
         shell: bash
         run: |
           set -euo pipefail
