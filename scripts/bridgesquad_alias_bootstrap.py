@@ -40,7 +40,10 @@ def _project(client, *, require_empty: bool) -> dict:
     alias = project.get("subdomain")
     if not isinstance(alias, str) or not readiness.ALIAS_PATTERN.fullmatch(alias):
         raise BootstrapBlocked("Unknown Pages project alias")
-    if set(project.get("domains") or []) - {alias}:
+    domains = project.get("domains") or []
+    if (not isinstance(domains, list) or any(
+            not isinstance(domain, str) or domain not in {alias}
+            for domain in domains)):
         raise BootstrapBlocked("Unexpected Pages custom domain")
     configs = project.get("deployment_configs")
     if not isinstance(configs, dict):
@@ -76,6 +79,7 @@ def _hosts(project: dict) -> tuple[str, ...]:
         if (parsed.scheme != "https" or parsed.username or parsed.password
                 or parsed.port is not None or parsed.path not in ("", "/")
                 or parsed.query or parsed.fragment
+                or not isinstance(parsed.hostname, str)
                 or not (parsed.hostname == alias or parsed.hostname.endswith("." + alias))):
             raise BootstrapBlocked("Foreign immutable Pages deployment alias")
         hosts.add(parsed.hostname)
