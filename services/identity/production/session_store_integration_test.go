@@ -153,6 +153,44 @@ func TestMongoConcurrentCASExactlyOneWinner(t *testing.T) {
 	}
 }
 
+func TestMongoRejectsLegacyAndForeignSessionRows(t *testing.T) {
+ _,database:=db(t)
+ ctx:=context.Background()
+ store,err:=NewSessionStore(ctx,database)
+ if err!=nil{t.Fatal(err)}
+ now:=time.Now().UTC().Truncate(time.Second)
+ rec:=session.Record{Digest:[32]byte{52},Environment:"production",Subject:alice,IssuedAt:now,ExpiresAt:now.Add(time.Hour),SessionVersion:0}
+ if err:=store.Create(ctx,rec);!errors.Is(err,ErrInvalidStore){t.Fatal("unversioned production session created")}
+ rec.SessionVersion=4
+ rec.Subject="unknown-username"
+ if err:=store.Create(ctx,rec);!errors.Is(err,ErrInvalidStore){t.Fatal("invalid subject created")}
+ rec.Subject=alice
+ rec.Environment="staging"
+ if err:=store.Create(ctx,rec);!errors.Is(err,ErrInvalidStore){t.Fatal("cross environment write admitted")}
+ // Simulate an old/corrupt database document inserted out of band. The
+ // production reader must not silently accept it as a current session.
+ rec.Environment="production"
+ _,err=database.Collection(sessionCollectionName).InsertOne(ctx,bson.M{
+   "digest": "3400000000000000000000000000000000000000000000000000000000000000",
+   "environment":"production","subject":alice,
+   "issued_at":now,"expires_at":now.Add(time.Hour),"session_version":int64(0),
+ })
+ if err!=nil{t.Fatal(err)}
+ if _,found,err:=store.Get(ctx,"production",[32]byte{52});err==nil||found{
+  t.Fatal("malformed production record passed authoritative store")
+ }
+ // Foreign record with identical digest must not satisfy a production lookup.
+ _,err=database.Collection(sessionCollectionName).InsertOne(ctx,bson.M{
+   "digest": "3500000000000000000000000000000000000000000000000000000000000000",
+   "environment":"staging","subject":alice,
+   "issued_at":now,"expires_at":now.Add(time.Hour),"session_version":int64(4),
+ })
+ if err!=nil{t.Fatal(err)}
+ if _,found,err:=store.Get(ctx,"production",[32]byte{53});err!=nil||found{
+  t.Fatal("cross environment row surfaced to production")
+ }
+}
+
 func TestMongoRejectsExpiredSwapAndWrongEnvironment(t *testing.T) {
 	_, database := db(t)
 	store, err := NewSessionStore(context.Background(), database)
