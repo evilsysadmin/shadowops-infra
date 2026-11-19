@@ -1,0 +1,46 @@
+name: ShadowOps Identity · production localhost TLS origin proof (disposable)
+on:
+  pull_request:
+    paths:
+      - 'scripts/identity_production_origin_probe.py'
+      - 'scripts/bridgesquad_prod_identity_probe.py'
+      - 'tests/test_identity_production_origin_probe.py'
+      - '.github/workflows/identity-production-origin-probe.yml'
+      - 'docs/identity-production-origin-probe.md'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/identity_production_origin_probe.py'
+      - 'scripts/bridgesquad_prod_identity_probe.py'
+      - 'tests/test_identity_production_origin_probe.py'
+      - '.github/workflows/identity-production-origin-probe.yml'
+      - 'docs/identity-production-origin-probe.md'
+permissions:
+  contents: read
+jobs:
+  offline:
+    name: Verified local TLS handshake, SNI, readiness, JWKS and negative routes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Exercise real localhost TLS against synthetic CA and denial cases
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p test_identity_production_origin_probe.py -v
+          python3 -m py_compile scripts/identity_production_origin_probe.py
+      - name: CI without operator CA must not inspect or activate the real origin
+        env:
+          IDENTITY_PRODUCTION_ORIGIN_CA_FILE: ''
+        run: |
+          set -euo pipefail
+          if python3 scripts/identity_production_origin_probe.py inspect; then
+            echo 'ERROR: origin without operator-owned CA was admitted' >&2
+            exit 1
+          fi
+          echo 'IDENTITY_LOCAL_TLS_FIXTURE_OK no-real-origin no-DNS no-secrets'
