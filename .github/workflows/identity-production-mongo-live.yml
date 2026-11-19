@@ -1,0 +1,53 @@
+name: ShadowOps Identity · production Mongo TLS RBAC integration (disposable)
+on:
+  pull_request:
+    paths:
+      - 'scripts/identity_production_mongo_operator.py'
+      - 'tests/identity_production_mongo_live_ci.py'
+      - 'services/identity/production/**'
+      - 'docs/identity-production-mongo.md'
+      - '.github/workflows/identity-production-mongo-live.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/identity_production_mongo_operator.py'
+      - 'tests/identity_production_mongo_live_ci.py'
+      - 'services/identity/production/**'
+      - 'docs/identity-production-mongo.md'
+      - '.github/workflows/identity-production-mongo-live.yml'
+permissions:
+  contents: read
+jobs:
+  real-local-auth:
+    name: Real MongoDB 7 TLS, 3-collection RBAC, Go runtime startup + drift denial
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      CI: 'true'
+      IDENTITY_PRODUCTION_MONGO_LIVE_CI: '1'
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.4'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install only local MongoDB test driver (no operator credentials)
+        run: python3 -m pip install --disable-pip-version-check --no-cache-dir 'pymongo==4.16.0'
+      - name: Enforce syntax and deny production CLI apply from CI
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/identity_production_mongo_operator.py tests/identity_production_mongo_live_ci.py
+          if IDENTITY_PRODUCTION_MONGO_APPLY=PROVISION_EXACT_PRODUCTION_IDENTITY_DB python3 scripts/identity_production_mongo_operator.py apply; then
+            echo 'production operator CLI apply unexpectedly worked in CI' >&2
+            exit 1
+          fi
+      - name: Real disposable TLS Mongo authentication, least privilege and runtime denial
+        run: python3 tests/identity_production_mongo_live_ci.py
+      # The fixture itself owns a try/finally cleanup, including failure paths.
+      # No secrets, environment approvals, DNS, OCI or external Mongo connection.
