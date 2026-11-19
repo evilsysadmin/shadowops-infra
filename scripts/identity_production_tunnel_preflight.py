@@ -26,6 +26,31 @@ UID = 65532
 class Refused(ValueError):
     pass
 
+class StrictYAML(yaml.SafeLoader):
+    """Reject ambiguous YAML that another parser could interpret differently."""
+
+    def compose_node(self, parent, index):
+        if self.check_event(yaml.AliasEvent) or getattr(self.peek_event(), "anchor", None):
+            raise Refused("YAML anchors and aliases are not admitted")
+        return super().compose_node(parent, index)
+
+    def construct_mapping(self, node, deep=False):
+        seen = set()
+        for key_node, _ in node.value:
+            if key_node.tag == "tag:yaml.org,2002:merge":
+                raise Refused("YAML merge keys are not admitted")
+            key = self.construct_object(key_node, deep=deep)
+            if not isinstance(key, str) or key in seen:
+                raise Refused("duplicate or non-string YAML mapping key")
+            seen.add(key)
+        return super().construct_mapping(node, deep=deep)
+
+def strict_yaml(contents: str):
+    try:
+        return yaml.load(contents, Loader=StrictYAML)
+    except yaml.YAMLError as exc:
+        raise Refused("invalid or ambiguous YAML") from exc
+
 def private_file(path: str, *, expected_uid: int = UID) -> Path:
     if not path or "\x00" in path:
         raise Refused("private file missing")
@@ -49,7 +74,7 @@ def validate_config(contents: str) -> None:
     if len(contents.encode("utf-8")) > 16384:
         raise Refused("tunnel config too large")
     try:
-        data = yaml.safe_load(contents)
+        data = strict_yaml(contents)
     except yaml.YAMLError as exc:
         raise Refused("invalid tunnel YAML") from exc
     if not isinstance(data, dict) or set(data) != {"tunnel", "credentials-file", "ingress"}:
@@ -81,7 +106,7 @@ def validate_config(contents: str) -> None:
 
 def validate_overlay() -> None:
     try:
-        data = yaml.safe_load(OVERLAY.read_text(encoding="utf-8"))
+        data = strict_yaml(OVERLAY.read_text(encoding="utf-8"))
         services, networks = data["services"], data["networks"]
         runtime, tunnel = services["identity-production"], services["identity-production-tunnel"]
     except (OSError, KeyError, TypeError, yaml.YAMLError) as exc:
