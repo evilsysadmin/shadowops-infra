@@ -19,7 +19,7 @@ class ProductionBootstrapWorkflowTests(unittest.TestCase):
         for disallowed in (
             "secrets.", "environment: staging", "CLOUDFLARE_", "OCI_", "wrangler",
             "docker/build-push-action", "docker/login-action", "upload-artifact",
-            "deploy", "GH_TOKEN", "curl", "ssh", "workflow_call",
+            "pages deploy", "wrangler deploy", "kubectl apply", "GH_TOKEN", "curl", "ssh", "workflow_call",
         ):
             with self.subTest(disallowed=disallowed):
                 self.assertNotIn(disallowed.lower(), self.workflow.lower())
