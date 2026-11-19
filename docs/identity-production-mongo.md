@@ -74,3 +74,32 @@ pendientes despliegue real, ingress TLS, Vault/Cloudflare y E2E autenticado
 en el host publicado. Bridge Squad sigue en cuarentena 401.
 Seguimiento: [#287](https://github.com/evilsysadmin/shadowops-infra/issues/287)
 y [#611](https://github.com/evilsysadmin/shadowops-infra/issues/611).
+
+## Integración con MongoDB 7 real de CI: TLS, RBAC y runtime Go
+
+El workflow [production Mongo TLS RBAC integration](../.github/workflows/identity-production-mongo-live.yml)
+arranca un contenedor `mongo:7.0` con un **replica set exclusivamente en
+127.0.0.1:27029**, CA y certificado TLS efímeros, `keyFile` efímero y
+cuentas sintéticas que desaparecen al terminar. No conecta con Atlas,
+OCI, Mongo de staging ni Mongo de producción. El fixture comprueba que el
+puerto no estaba ya ocupado y que corre explícitamente en GitHub Actions.
+
+Usa la función de aprovisionamiento sobre ese Mongo **desechable**,
+no ejecuta `identity_production_mongo_operator.py apply` (que sigue
+prohibido desde CI). Verifica:
+
+- Alta real de tres colecciones, cinco índices, rol y usuario separados;
+  repetición idempotente y auditoría posterior sin escrituras adicionales.
+- Autenticación efectiva con el usuario del runtime y TLS con CA fiable.
+  Mongo niega borrar cuentas/tokens, crear o eliminar colecciones, consultar
+  cuentas administrativas y leer la base de staging.
+- El `NewProductionService` real de Go arranca con el rol exacto,
+  transacciona el alta de una cuenta nativa, emite una sesión y la revoca.
+- Después se introduce un segundo rol `readWrite` al usuario de prueba;
+  tanto la inspección del operador como el **arranque real** del runtime
+  deben rechazarlo. No se intenta corregir automáticamente el rol desviado.
+
+Se trata de una **prueba de integración de infraestructura local**, no de
+un despliegue, ni una prueba de Vault, recuperación de bases externas o
+retirada de la cuarentena HTTP 401 del dominio público. El provisioning real
+continúa bajo custodia y decisión explícita de un operador.
