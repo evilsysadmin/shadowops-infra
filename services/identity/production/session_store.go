@@ -22,28 +22,7 @@ const sessionCollectionName = "sessions"
 
 var (
 	ErrInvalidStore = errors.New("identity production session store requires isolated Mongo database")
-	sessionSubjectPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}// Package mongostore implements the Identity session.Store against a dedicated
-// production Mongo database. No production driver, credentials or HTTP integration.
-package production
-
-import (
-	"context"
-	"encoding/hex"
-	"errors"
-	"regexp"
-	"time"
-
-	"github.com/evilsysadmin/shadowops-infra/services/identity/session"
-	"go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
-	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
-	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
-)
-
-const sessionCollectionName = "sessions"
-
-)
+	sessionSubjectPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 )
 
 type Store struct{ collection *mongo.Collection }
