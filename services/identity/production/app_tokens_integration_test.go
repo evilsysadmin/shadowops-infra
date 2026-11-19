@@ -107,7 +107,6 @@ func TestProductionJWTCannotAcceptStagingIssuerAudienceOrTampering(t *testing.T)
  for name,change:=range map[string]func(*AppClaims){
   "staging issuer":func(c *AppClaims){c.Iss="https://id-staging.shadowops.dpdns.org"},
   "wrong audience":func(c *AppClaims){c.Aud="football"},
-  "cross user":func(c *AppClaims){c.Sub="22222222-2222-4222-8222-222222222222"},
   "no version":func(c *AppClaims){c.Sv=0},
   "expired":func(c *AppClaims){c.Exp=time.Now().Add(-time.Second).Unix()},
   "too long":func(c *AppClaims){c.Exp=c.Iat+121},
@@ -136,6 +135,15 @@ func TestProductionJWTCannotAcceptStagingIssuerAudienceOrTampering(t *testing.T)
  poisoned:=strings.Join([]string{parts[0],parts[1],base64.RawURLEncoding.EncodeToString(make([]byte,64))},".")
  if _,err:=signer.VerifySignature(poisoned,time.Now());!errors.Is(err,ErrAccountDenied){
   t.Fatal("signature forgery accepted")
+ }
+ foreignSubject:=claims
+ foreignSubject.Sub="22222222-2222-4222-8222-222222222222"
+ crossUser:=sign(header,foreignSubject)
+ if _,err:=signer.VerifySignature(crossUser,time.Now());err!=nil{
+  t.Fatal("cryptographically valid foreign-subject JWT must pass signature-only verification",err)
+ }
+ if _,err:=signer.Check(context.Background(),crossUser);!errors.Is(err,ErrAccountDenied){
+  t.Fatal("registered JTI cannot authorize different subject")
  }
  signedCorrectButUnbound:=claims
  signedCorrectButUnbound.Jti=base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{0x77},16))
