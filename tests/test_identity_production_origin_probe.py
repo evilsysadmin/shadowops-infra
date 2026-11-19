@@ -162,7 +162,13 @@ class ProductionOriginProbeTests(unittest.TestCase):
             with self.assertRaises(ssl.SSLCertVerificationError):
                 origin.inspect(self.ca, port=server.port)
         other = self.folder / "untrusted-ca.pem"
-        other.write_text(self.crt.read_text())
+        subprocess.run([
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            "-days", "2", "-keyout", str(self.folder / "untrusted-ca.key"),
+            "-out", str(other), "-subj", "/CN=unrelated-test-trust-root",
+            "-addext", "basicConstraints=critical,CA:TRUE",
+            "-addext", "keyUsage=critical,keyCertSign,cRLSign",
+        ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         with TLSServer(self.crt, self.key) as server:
             with self.assertRaises(ssl.SSLCertVerificationError):
                 origin.inspect(other, port=server.port)
