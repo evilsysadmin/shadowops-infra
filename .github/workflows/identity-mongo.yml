@@ -46,4 +46,4 @@ jobs:
         env:
           IDENTITY_MONGO_TEST_URL: mongodb://127.0.0.1:27017
           IDENTITY_INVENTORY_TEST_MONGO: mongodb://127.0.0.1:27097
-        run: go test -race -count=1 -v ./mongostore ./pendingaccounts ./admininventory
+        run: go test -race -count=1 -v ./mongostore ./production ./pendingaccounts ./admininventory
