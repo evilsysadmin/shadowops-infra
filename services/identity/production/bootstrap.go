@@ -1,8 +1,7 @@
-// Package production defines an isolated, deliberately UNREADY TLS bootstrap.
-//
-// It is not an Identity provider: no login, user database connection, tokens,
-// issuance or freshness API is wired. The production runtime must fail closed
-// until those independent services have been audited and explicitly enabled.
+// Package production contains a separate, opt-in production Identity runtime.
+// Its default unready bootstrap never authenticates. Explicit serve-ready
+// requires an operator-owned private TLS/EdDSA/consumer bundle and strictly
+// scoped production Mongo role before serving any login or application tokens.
 package production
 
 import (
@@ -35,8 +34,9 @@ var ErrDenied = errors.New("production Identity bootstrap denied")
 
 // Bundle is a private, environment-specific and non-publicly sourced contract.
 // Only the Bridge Squad consumer is admitted in the initial production scope.
-// The bootstrap deliberately does not consume the Mongo URI or consumer proof
-// to make authentication decisions; there is no active authentication here.
+// The serve-unready bootstrap never uses Mongo or the service proof.
+// Explicit serve-ready validates and consumes both; this structure alone
+// does not establish production provisioning or authorize deployment.
 type Bundle struct {
 	Environment   string            `json:"environment"`
 	MongoURI      string            `json:"mongo_uri"`
