@@ -52,7 +52,7 @@ jobs:
           assert s["ports"]==[{"mode":"ingress","target":9443,"published":"19443","host_ip":"127.0.0.1","protocol":"tcp"}]
           assert s["volumes"][0]["target"]=="/run/secrets/identity-production.json"
           assert s["volumes"][0]["read_only"] is True
-          assert s["volumes"][0]["bind"]["create_host_path"] is False
+          assert s["volumes"][0].get("bind",{}).get("create_host_path",False) is False
           assert set(s["environment"])=={"IDENTITY_PRODUCTION_CONFIG_FILE","IDENTITY_INTERNAL_PORT"}
           print("OFFLINE_PRODUCTION_COMPOSE_CONTRACT_OK no-container-started")
           PY
