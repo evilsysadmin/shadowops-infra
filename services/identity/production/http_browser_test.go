@@ -39,7 +39,7 @@ func setupBrowser()(*ProductionBrowserHandler,*fakeBrowserAccount,*fakeBrowserTo
  a:=&fakeBrowserAccount{handle:"so1_"+base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{0x37},32))}
  tok:=&fakeBrowserToken{token:strings.Repeat("a",90)}
  f:=&fakeFreshnessHTTP{}
- return &ProductionBrowserHandler{accounts:a,tokens:tok,freshness:f},a,tok,f
+ return &ProductionBrowserHandler{accounts:a,tokens:tok,freshness:f,kdf:make(chan struct{},2)},a,tok,f
 }
 func requestBrowser(path,method,origin,body string)*http.Request{
  r:=httptest.NewRequest(method,"https://"+Host+path,strings.NewReader(body))
