@@ -119,11 +119,18 @@ func (b Bundle) Validate(now time.Time) (tls.Certificate, error) {
 	if !hasPassword || password == "" {
 		return deny()
 	}
-	query := uri.Query()
+	query, err := url.ParseQuery(uri.RawQuery)
+	if err != nil {
+		return deny()
+	}
 	for key, vals := range query {
 		switch strings.ToLower(key) {
 		case "tls", "ssl":
 			if len(vals) != 1 || vals[0] != "true" {
+				return deny()
+			}
+		case "authsource":
+			if len(vals) != 1 || (vals[0] != "admin" && vals[0] != Database) {
 				return deny()
 			}
 		case "tlsinsecure", "tlsallowinvalidcertificates", "tlsallowinvalidhostnames",
