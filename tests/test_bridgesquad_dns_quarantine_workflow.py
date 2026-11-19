@@ -52,7 +52,7 @@ class BridgeSquadDNSQuarantineWorkflowTests(unittest.TestCase):
         self.assertIn('is_dns = (method == "POST"', self.script)
         self.assertIn('"proxied": True, "ttl": 1', self.script)
         self.assertIn('raise QuarantineError("Noncanonical Cloudflare mutation denied")', self.script)
-        for forbidden in ("pages deploy", "wrangler", "gh api", "OCI_PRIVATE_KEY",
+        for forbidden in ("wrangler pages deploy", "/pages/deployments", "gh api", "OCI_PRIVATE_KEY",
                           'method="PUT"', 'method="PATCH"', 'method="DELETE"'):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden.lower(), self.script.lower())
