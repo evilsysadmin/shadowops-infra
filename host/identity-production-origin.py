@@ -87,43 +87,52 @@ def run(args, *, runner=subprocess.run):
 
 
 def check_compose_config(raw: str, image: str, tunnel_digest: str) -> None:
+    """Validate rendered Compose; errors expose only bounded fixed field names."""
     try:
         obj = json.loads(raw)
-        if obj["name"] != PROJECT or set(obj["services"]) != {SERVICE, TUNNEL}:
-            raise Refused("unexpected project or service")
+        def require(label, ok):
+            if not ok:
+                raise Refused("rendered production Compose rejected: " + label)
+
+        require("project", obj["name"] == PROJECT)
+        require("service-set", set(obj["services"]) == {SERVICE, TUNNEL})
         origin_service = obj["services"][SERVICE]
         proxy = obj["services"][TUNNEL]
-        if (origin_service["image"] != image or
-                origin_service["command"] != ["serve-ready"] or
-                origin_service["user"] != "65532:65532" or
-                origin_service.get("read_only") is not True or
-                origin_service.get("privileged", False) is not False or
-                origin_service["restart"] != "no" or
-                origin_service["cap_drop"] != ["ALL"] or
-                origin_service["security_opt"] != ["no-new-privileges:true"] or
-                origin_service["ports"] != [{
-                    "mode": "ingress", "target": 9443, "published": "19443",
-                    "host_ip": "127.0.0.1", "protocol": "tcp",
-                }] or
-                set(origin_service["networks"]) != {"identity-origin", "identity-mongo-egress"} or
-                set(origin_service["environment"]) != {
-                    "IDENTITY_PRODUCTION_CONFIG_FILE", "IDENTITY_INTERNAL_PORT",
-                } or
-                origin_service["environment"]["IDENTITY_INTERNAL_PORT"] != "9443" or
-                origin_service["environment"]["IDENTITY_PRODUCTION_CONFIG_FILE"] !=
-                "/run/secrets/identity-production.json" or
-                len(origin_service["volumes"]) != 1 or
-                origin_service["volumes"][0]["target"] != "/run/secrets/identity-production.json" or
-                origin_service["volumes"][0]["read_only"] is not True or
-                origin_service["volumes"][0].get("bind", {}).get("create_host_path") is not False or
-                proxy["image"] != "cloudflare/cloudflared@" + tunnel_digest or
-                proxy["restart"] != "no" or
-                proxy.get("ports") or
-                set(proxy["networks"]) != {"identity-origin", "identity-tunnel-egress"} or
-                obj["networks"]["identity-origin"].get("internal") is not True):
-            raise Refused("unexpected rendered production origin Compose")
-    except (TypeError, KeyError, ValueError) as exc:
-        raise Refused("invalid production Compose config") from None
+
+        require("origin-image", origin_service["image"] == image)
+        require("origin-command", origin_service["command"] == ["serve-ready"])
+        require("origin-user", origin_service["user"] == "65532:65532")
+        require("origin-isolation", (
+            origin_service.get("read_only") is True and
+            origin_service.get("privileged", False) is False and
+            origin_service["restart"] == "no" and
+            origin_service["cap_drop"] == ["ALL"] and
+            origin_service["security_opt"] == ["no-new-privileges:true"]
+        ))
+        require("loopback-port", origin_service["ports"] == [{
+            "mode": "ingress", "target": 9443, "published": "19443",
+            "host_ip": "127.0.0.1", "protocol": "tcp",
+        }])
+        require("origin-networks", set(origin_service["networks"]) ==
+                {"identity-origin", "identity-mongo-egress"})
+        require("origin-environment", origin_service["environment"] == {
+            "IDENTITY_PRODUCTION_CONFIG_FILE": "/run/secrets/identity-production.json",
+            "IDENTITY_INTERNAL_PORT": "9443",
+        })
+        require("origin-private-volume", (
+            len(origin_service["volumes"]) == 1 and
+            origin_service["volumes"][0]["target"] == "/run/secrets/identity-production.json" and
+            origin_service["volumes"][0]["read_only"] is True and
+            origin_service["volumes"][0].get("bind", {}).get("create_host_path", False) is False
+        ))
+        require("tunnel-image", proxy["image"] ==
+                "cloudflare/cloudflared@" + tunnel_digest)
+        require("tunnel-disabled", proxy["restart"] == "no" and not proxy.get("ports"))
+        require("tunnel-segregation",
+                set(proxy["networks"]) == {"identity-origin", "identity-tunnel-egress"})
+        require("private-origin-network", obj["networks"]["identity-origin"].get("internal") is True)
+    except (TypeError, KeyError, json.JSONDecodeError) as exc:
+        raise Refused("invalid production Compose structure") from None
 
 
 def parse_ps(raw: str) -> list[dict]:
