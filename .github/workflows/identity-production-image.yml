@@ -1,0 +1,138 @@
+name: ShadowOps Identity · production candidate container (no deployment)
+on:
+  pull_request:
+    paths:
+      - 'services/identity/production/**'
+      - 'services/identity/cmd/service-production/**'
+      - 'services/identity/Dockerfile.production'
+      - 'services/identity/go.mod'
+      - 'services/identity/go.sum'
+      - '.github/workflows/identity-production-image.yml'
+      - 'tests/test_identity_production_image_workflow.py'
+      - 'docs/identity-production-image.md'
+  push:
+    branches: [main]
+    paths:
+      - 'services/identity/production/**'
+      - 'services/identity/cmd/service-production/**'
+      - 'services/identity/Dockerfile.production'
+      - 'services/identity/go.mod'
+      - 'services/identity/go.sum'
+      - '.github/workflows/identity-production-image.yml'
+      - 'tests/test_identity_production_image_workflow.py'
+      - 'docs/identity-production-image.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: identity-production-image-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  candidate-contracts:
+    name: Verify isolated production image refuses implicit startup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.4'
+          cache: false
+      - name: Enforce no secrets, no staging binary and no runtime deployment
+        run: python3 -m unittest discover -s tests -p test_identity_production_image_workflow.py -v
+      - name: Verify production runtime and operator CLI
+        working-directory: services/identity
+        run: |
+          go test -race -count=1 ./production ./cmd/service-production
+          go vet ./production ./cmd/service-production
+      - uses: docker/setup-buildx-action@v4
+      - name: Build AMD64 candidate and prove no default authentication startup
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="shadowops-identity-production-ci:${GITHUB_SHA}"
+          docker buildx build --load --platform linux/amd64 \
+            --file services/identity/Dockerfile.production \
+            --build-arg "IDENTITY_SOURCE_SHA=${GITHUB_SHA}" \
+            -t "$image" services/identity
+          # No CMD is permitted: attempting to run without an explicit mode
+          # MUST exit nonzero; it must never serve login automatically.
+          if docker run --rm "$image" >/dev/null 2>&1; then
+            echo 'ERROR: production candidate started without explicit mode' >&2
+            exit 1
+          fi
+          if docker run --rm "$image" serve-ready >/dev/null 2>&1; then
+            echo 'ERROR: production candidate admitted without private bundle' >&2
+            exit 1
+          fi
+          docker image inspect "$image" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' | grep -Fx "${GITHUB_SHA}"
+
+  publish-candidate:
+    name: Publish only SHA-tagged unsigned-secret-free production candidate
+    needs: candidate-contracts
+    if: >-
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      IMAGE: ghcr.io/evilsysadmin/shadowops-identity-production-candidate
+    steps:
+      - name: Require unchanged protected main before candidate publication
+        id: admission
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          [[ "$current" =~ ^[0-9a-f]{40}$ ]]
+          if [[ "$GITHUB_SHA" == "$current" ]]; then
+            echo 'publish=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'publish=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::Candidate superseded by newer main; no publication.'
+          fi
+      - uses: actions/checkout@v5
+        if: steps.admission.outputs.publish == 'true'
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v4
+        if: steps.admission.outputs.publish == 'true'
+      - uses: docker/login-action@v4
+        if: steps.admission.outputs.publish == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v7
+        id: push
+        if: steps.admission.outputs.publish == 'true'
+        with:
+          context: services/identity
+          file: services/identity/Dockerfile.production
+          platforms: linux/arm64,linux/amd64
+          push: true
+          build-args: IDENTITY_SOURCE_SHA=${{ github.sha }}
+          tags: ${{ env.IMAGE }}:sha-${{ github.sha }}
+      - uses: actions/attest-build-provenance@v4
+        if: steps.admission.outputs.publish == 'true'
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+      - name: Record image digest; never deploy or configure Identity
+        if: steps.admission.outputs.publish == 'true'
+        run: |
+          echo "### Identity production *candidate*, not a live service" >> "$GITHUB_STEP_SUMMARY"
+          echo "${IMAGE}@${{ steps.push.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "No OCI, Cloudflare, DNS, Vault or Mongo runtime mutation performed." >> "$GITHUB_STEP_SUMMARY"
