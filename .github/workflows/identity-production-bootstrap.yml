@@ -1,0 +1,65 @@
+name: ShadowOps Identity · isolated production unready bootstrap (offline)
+on:
+  pull_request:
+    paths:
+      - 'services/identity/production/**'
+      - 'services/identity/cmd/service-production/**'
+      - '.github/workflows/identity-production-bootstrap.yml'
+      - 'tests/test_identity_production_bootstrap_workflow.py'
+      - 'docs/identity-production-bootstrap.md'
+  push:
+    branches: [main]
+    paths:
+      - 'services/identity/production/**'
+      - 'services/identity/cmd/service-production/**'
+      - '.github/workflows/identity-production-bootstrap.yml'
+      - 'tests/test_identity_production_bootstrap_workflow.py'
+      - 'docs/identity-production-bootstrap.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contracts:
+    name: Reject unsafe TLS, Mongo and production-login activation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.4'
+          cache: false
+      - name: Prove main workflow is offline and has no deploy path
+        run: python3 -m unittest discover -s tests -p test_identity_production_bootstrap_workflow.py -v
+      - name: Verify separate production TLS and private Mongo configuration contracts
+        working-directory: services/identity
+        run: |
+          go test -race -count=1 ./production ./cmd/service-production
+          go vet ./production ./cmd/service-production
+      - name: Compile production bootstrap on amd64 and arm64 without publishing
+        working-directory: services/identity
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            bin="$RUNNER_TEMP/identity-prod-unready-$arch"
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -o "$bin" ./cmd/service-production
+            test "$(go version "$bin")" = "$bin: go1.27.4"
+            if [[ "$arch" == amd64 ]]; then
+              if "$bin" preflight >/dev/null 2>&1; then
+                echo 'ERROR: production without a private bundle admitted' >&2
+                exit 1
+              fi
+              if "$bin" serve-unready >/dev/null 2>&1; then
+                echo 'ERROR: production unready bootstrap started with no bundle' >&2
+                exit 1
+              fi
+              if "$bin" >/dev/null 2>&1; then
+                echo 'ERROR: default production entry point started' >&2
+                exit 1
+              fi
+            fi
+          done
