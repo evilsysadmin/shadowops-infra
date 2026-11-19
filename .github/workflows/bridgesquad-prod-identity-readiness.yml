@@ -1,0 +1,69 @@
+name: Bridge Squad · production Identity public readiness (read-only)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/bridgesquad-prod-identity-readiness.yml'
+      - 'scripts/bridgesquad_prod_identity_probe.py'
+      - 'tests/test_bridgesquad_prod_identity_probe.py'
+      - 'tests/test_bridgesquad_prod_identity_workflow.py'
+      - 'config/identity/platform-contract.json'
+      - 'docs/bridgesquad-identity.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/bridgesquad-prod-identity-readiness.yml'
+      - 'scripts/bridgesquad_prod_identity_probe.py'
+      - 'tests/test_bridgesquad_prod_identity_probe.py'
+      - 'tests/test_bridgesquad_prod_identity_workflow.py'
+      - 'config/identity/platform-contract.json'
+      - 'docs/bridgesquad-identity.md'
+  schedule:
+    - cron: '41 8 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bridgesquad-production-identity-readiness
+  cancel-in-progress: false
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate production issuer, origin and JWKS strictness offline
+        run: python3 -m unittest discover -s tests -p test_bridgesquad_prod_identity_probe.py -v
+      - name: Validate isolated production readiness workflow
+        run: python3 -m unittest discover -s tests -p test_bridgesquad_prod_identity_workflow.py -v
+      - run: python3 -m py_compile scripts/bridgesquad_prod_identity_probe.py
+  public-readiness:
+    name: Inspect exact production Identity public surface, without credentials
+    needs: contracts
+    if: >-
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' ||
+       github.event_name == 'schedule' ||
+       github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check only HTTPS production readyz, JWKS and Bridge Squad login page
+        run: python3 scripts/bridgesquad_prod_identity_probe.py inspect
+      - name: Record non-activation boundary
+        run: |
+          {
+            echo '### Production ShadowOps ID · Bridge Squad public check'
+            echo
+            echo 'See probe receipt above for per-endpoint present/unavailable.'
+            echo 'Public login/JWKS alone are insufficient for real readiness.'
+            echo 'No production Identity credentials, signed-in journey or cross-environment trust verified.'
+            echo 'No Cloudflare/DNS/Identity mutation or browser token request performed.'
+          } >> "$GITHUB_STEP_SUMMARY"

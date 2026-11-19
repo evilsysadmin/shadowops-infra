@@ -99,6 +99,11 @@
           "audience": "cka-simulator",
           "origin": "https://cka.shadowops.dpdns.org",
           "status": "static-preview-only"
+        },
+        {
+          "audience": "bridgesquad",
+          "origin": "https://bridgesquad.shadowops.dpdns.org",
+          "status": "not-provisioned"
         }
       ]
     }
