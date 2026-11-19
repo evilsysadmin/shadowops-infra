@@ -73,7 +73,7 @@ class BridgeSquadProductionIdentityTests(unittest.TestCase):
         for payload in (
             LOGIN.replace(probe.ORIGIN.encode(), b"https://staging.bridgesquad.shadowops.dpdns.org"),
             LOGIN.replace(b"Bridge Squad", b"Snooker"),
-            LOGIN + b"id-staging.shadowops.dpdns.org",
+            LOGIN.replace(b'data-return-url="' + RETURN, b'data-return-url="https://id-staging.shadowops.dpdns.org/'),
         ):
             path = probe.ISSUER + "/login?app=bridgesquad"
             with self.subTest(payload=payload[:50]), self.assertRaises(probe.UnsafeIssuer):
