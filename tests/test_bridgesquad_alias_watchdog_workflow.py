@@ -50,7 +50,7 @@ class AliasWatchdogWorkflowTests(unittest.TestCase):
     def test_watchdog_uses_live_project_and_existing_denial_contract(self):
         self.assertIn("bootstrap.postflight(client, sha, status=probe)", self.code)
         self.assertIn("client.get(path)", self.code)
-        self.assertIn("result[\"aliases\"] < 2", self.code)
+        self.assertIn("int(result[\"aliases\"]) < 2", self.code)
         self.assertNotIn("subprocess.", self.code)
         self.assertNotIn("requests.post", self.code)
 

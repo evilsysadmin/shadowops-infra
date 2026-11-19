@@ -6,6 +6,9 @@ on:
       - '.github/workflows/bridgesquad-pages-bootstrap.yml'
       - 'scripts/bridgesquad_alias_bootstrap.py'
       - 'scripts/bridgesquad_alias_watchdog.py'
+      - 'scripts/bridgesquad_dns_quarantine.py'
+      - 'tests/test_bridgesquad_dns_quarantine.py'
+      - 'tests/test_bridgesquad_dns_quarantine_workflow.py'
       - 'tests/test_bridgesquad_alias_bootstrap.py'
       - 'tests/test_bridgesquad_alias_watchdog.py'
       - 'tests/test_bridgesquad_alias_watchdog_workflow.py'
@@ -17,6 +20,9 @@ on:
       - '.github/workflows/bridgesquad-pages-bootstrap.yml'
       - 'scripts/bridgesquad_alias_bootstrap.py'
       - 'scripts/bridgesquad_alias_watchdog.py'
+      - 'scripts/bridgesquad_dns_quarantine.py'
+      - 'tests/test_bridgesquad_dns_quarantine.py'
+      - 'tests/test_bridgesquad_dns_quarantine_workflow.py'
       - 'tests/test_bridgesquad_alias_bootstrap.py'
       - 'tests/test_bridgesquad_alias_watchdog.py'
       - 'tests/test_bridgesquad_alias_watchdog_workflow.py'
@@ -43,8 +49,10 @@ jobs:
         run: python3 -m unittest discover -s tests -p test_bridgesquad_alias_watchdog.py -v
       - name: Audit that no PR has access to Cloudflare credentials
         run: python3 -m unittest discover -s tests -p test_bridgesquad_alias_watchdog_workflow.py -v
+      - name: Confirm quarantine DNS audit cannot serve game anonymously
+        run: python3 -m unittest discover -s tests -p test_bridgesquad_dns_quarantine.py -v
       - name: Python syntax
-        run: python3 -m py_compile scripts/bridgesquad_alias_bootstrap.py scripts/bridgesquad_alias_watchdog.py
+        run: python3 -m py_compile scripts/bridgesquad_alias_bootstrap.py scripts/bridgesquad_alias_watchdog.py scripts/bridgesquad_dns_quarantine.py
   audit:
     name: Prove deployed Pages aliases remain anonymous-denying
     needs: contracts
@@ -71,5 +79,5 @@ jobs:
         run: python3 scripts/bridgesquad_alias_watchdog.py audit
       - name: Log fail-closed audit receipt
         run: |
-          echo 'Bridge Squad protected Pages aliases verified without DNS/Identity writes.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Bridge Squad Pages aliases denied; if DNS is live the canonical HTTPS host shows only the authentication shell.' >> "$GITHUB_STEP_SUMMARY"
           echo 'Any non-404 or unaudited deployment fails the prior job.' >> "$GITHUB_STEP_SUMMARY"
