@@ -45,7 +45,7 @@ jobs:
           s=services["identity-production"]
           assert s["image"]=="ghcr.io/evilsysadmin/shadowops-identity-production-candidate@sha256:"+"a"*64
           assert s["command"]==["serve-ready"]
-          assert s["read_only"] is True and s["privileged"] is False
+          assert s["read_only"] is True and s.get("privileged",False) is False
           assert s["user"]=="65532:65532"
           assert s["cap_drop"]==["ALL"]
           assert s["restart"]=="no"
