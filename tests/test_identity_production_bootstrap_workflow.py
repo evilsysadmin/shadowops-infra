@@ -29,7 +29,7 @@ class ProductionBootstrapWorkflowTests(unittest.TestCase):
 
     def test_explicit_start_only_and_hard_unready_routes(self):
         self.assertIn('os.Args[1]!="preflight" && os.Args[1]!="serve-unready"', self.main)
-        self.assertIn('production.LoadBundle(path)', self.main)
+        self.assertIn('production.LoadBundle(os.Getenv("IDENTITY_PRODUCTION_CONFIG_FILE"))', self.main)
         self.assertIn('production.NewUnreadyServer(cert)', self.main)
         self.assertIn('os.Args[1]!="serve-ready"', self.main)
         self.assertIn('production.NewProductionService(start,cfg)', self.main)
