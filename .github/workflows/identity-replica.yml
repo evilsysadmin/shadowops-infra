@@ -58,6 +58,7 @@ jobs:
           go test -race -count=1 -v ./roles
           go test -race -count=1 -v ./cmd/role-operator
           go test -race -count=1 -v ./issuance
+          go test -race -count=1 -v ./production
           go test -race -count=1 -v ./websession
       - uses: actions/setup-node@v4
         with:
