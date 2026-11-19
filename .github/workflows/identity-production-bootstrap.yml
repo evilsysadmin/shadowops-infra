@@ -57,6 +57,10 @@ jobs:
                 echo 'ERROR: production unready bootstrap started with no bundle' >&2
                 exit 1
               fi
+              if "$bin" serve-ready >/dev/null 2>&1; then
+                echo 'ERROR: production login started without an independently provisioned private bundle' >&2
+                exit 1
+              fi
               if "$bin" >/dev/null 2>&1; then
                 echo 'ERROR: default production entry point started' >&2
                 exit 1
