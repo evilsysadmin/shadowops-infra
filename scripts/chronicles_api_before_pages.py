@@ -149,25 +149,36 @@ def wait_for_api(sha: str, token: str, *, attempts: int = 49, sleep=time.sleep,
                  revision=public_api_revision_state) -> None:
     if not SHA.fullmatch(sha) or not token:
         raise GateError("Missing read token or invalid source SHA")
+    pending = "CHRONICLES_API_RECEIPT_TIMEOUT"
     for attempt in range(attempts):
         current = get(f"repos/{SOURCE}/commits/main", token).get("sha")
         if current != sha:
             raise GateError("CHRONICLES_PAGES_STALE_SOURCE_BLOCKED")
         if api_receipt_available(sha, token, get=get):
-            # A past OCI/E2E receipt must not permit Pages mutations while the
-            # actual public API is degraded. Retry on the next admitted run.
+            # OCI may have published its trusted receipt before the public
+            # /health and /ready endpoints converge. Keep Pages fail-closed,
+            # but retry this transient state within the SAME bounded wait.
+            # Every retry rechecks source main and the exact-SHA receipt.
             if not healthy():
-                raise GateError("CHRONICLES_API_PUBLIC_HEALTH_UNAVAILABLE")
-            state = revision(sha)
-            if state != "match":
-                raise GateError("CHRONICLES_API_PUBLIC_SOURCE_" +
-                                ("MISMATCH" if state == "different" else "INCONCLUSIVE"))
-            print("CHRONICLES_API_VERIFIED_BEFORE_PAGES sha=" + sha)
-            return
+                pending = "CHRONICLES_API_PUBLIC_HEALTH_UNAVAILABLE"
+                print("CHRONICLES_API_PUBLIC_HEALTH_PENDING attempt=" +
+                      str(attempt + 1), flush=True)
+            else:
+                state = revision(sha)
+                if state != "match":
+                    # A mismatched public revision is positive evidence of
+                    # drift, not merely a delayed health check.
+                    raise GateError("CHRONICLES_API_PUBLIC_SOURCE_" +
+                                    ("MISMATCH" if state == "different" else "INCONCLUSIVE"))
+                print("CHRONICLES_API_VERIFIED_BEFORE_PAGES sha=" + sha)
+                return
+        else:
+            pending = "CHRONICLES_API_RECEIPT_TIMEOUT"
+            print("CHRONICLES_API_RECEIPT_PENDING attempt=" +
+                  str(attempt + 1), flush=True)
         if attempt + 1 < attempts:
-            print("CHRONICLES_API_RECEIPT_PENDING attempt=" + str(attempt + 1), flush=True)
             sleep(15)
-    raise GateError("CHRONICLES_API_RECEIPT_TIMEOUT")
+    raise GateError(pending)
 
 
 def main() -> int:
