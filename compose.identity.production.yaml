@@ -1,0 +1,35 @@
+# Manual, operator-only runtime candidate; never invoked by CI or staging.
+# Host port intentionally loopback-only. A separate reviewed TLS ingress is
+# required before the public production host can use this service.
+name: shadowops-identity-production
+
+services:
+  identity-production:
+    profiles: ["production"]
+    image: ghcr.io/evilsysadmin/shadowops-identity-production-candidate@${IDENTITY_PRODUCTION_IMAGE_DIGEST:?Pin an attested sha256 image digest}
+    command: ["serve-ready"]
+    user: "65532:65532"
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    privileged: false
+    restart: "no"
+    pids_limit: 128
+    mem_limit: 512m
+    stop_grace_period: 20s
+    environment:
+      IDENTITY_PRODUCTION_CONFIG_FILE: /run/secrets/identity-production.json
+      IDENTITY_INTERNAL_PORT: "9443"
+    ports:
+      - target: 9443
+        published: "19443"
+        host_ip: 127.0.0.1
+        protocol: tcp
+    volumes:
+      - type: bind
+        source: ${IDENTITY_PRODUCTION_BUNDLE_FILE:?Supply an absolute private operator-owned bundle}
+        target: /run/secrets/identity-production.json
+        read_only: true
+        bind:
+          create_host_path: false
