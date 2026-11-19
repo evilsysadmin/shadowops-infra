@@ -107,6 +107,16 @@ func verifyProductionReplica(ctx context.Context,client *mongo.Client)error{
 type RunningProduction struct {
  Server *http.Server
  Client *mongo.Client
+ accounts *AccountAuthority
+}
+
+// ProvisionNativeAccount is callable only by the local explicit operator CLI.
+// No HTTP route exposes this method. The same production TLS, isolated Mongo
+// role, replica and signing-secret checks as serve-ready must have succeeded.
+func (r *RunningProduction) ProvisionNativeAccount(ctx context.Context,alias,password string)error{
+ if r==nil || r.Server==nil || r.Client==nil || r.accounts==nil{return ErrProductionUnavailable}
+ _,err:=r.accounts.Register(ctx,alias,password)
+ return err
 }
 
 // NewProductionService is not reachable from the staging runtime. A production
@@ -146,7 +156,7 @@ func NewProductionService(ctx context.Context,cfg Bundle)(*RunningProduction,err
  server,err:=newProductionHTTPServer(cert,client,handler)
  if err!=nil{return nil,ErrProductionUnavailable}
  opened=true
- return &RunningProduction{Server:server,Client:client},nil
+ return &RunningProduction{Server:server,Client:client,accounts:accounts},nil
 }
 
 // newProductionHTTPServer can be exercised using a disposable test Mongo

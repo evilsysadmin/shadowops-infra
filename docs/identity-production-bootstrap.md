@@ -115,3 +115,35 @@ Antes de crear índices ni mostrar el login, `NewProductionService` conecta con 
 Solo tras superar los controles se instancian la autoridad de cuentas productivas, el emisor de JTI/JWT y el transporte HTTP del login, JWKS y frescura. El listener sirve TLS nativo de forma explícita; el `GET /readyz` responde 200 solo si se completó la inicialización y Mongo mantiene un primario disponible, mientras `/livez` confirma únicamente que el proceso está vivo. El modo `serve-unready` continúa devolviendo 503 para login/JWKS/token. Los errores de arranque no incluyen credenciales.
 
 **No equiparar «runtime construido» con «IdP desplegado».** Antes de un despliegue abierto se necesitan custodia y rotación independiente de secretos, CA/TLS y Mongo gestionados, plan de alta y recuperación de cuentas, ingress endurecido y una prueba real de navegador entre `id.shadowops.dpdns.org` y `bridgesquad.shadowops.dpdns.org` (incluidas cookies cross-site y revocación). La zona Cloudflare de Bridge Squad permanece en cuarentena con activos protegidos. Seguimientos #287 y #611.
+
+## Provisionar una cuenta nativa de producción (sin HTTP, opt-in)
+
+Tras acreditar y provisionar **todos** los prerrequisitos reales del runtime
+(certificado TLS para `id.shadowops.dpdns.org`, Mongo producción con RBAC
+estricto y réplica, bundle 0600, semilla Ed25519 y prueba `bridgesquad`
+independientes), el operador puede registrar una cuenta nueva con
+`service-production provision-native-account ALIAS`. El ejecutable:
+
+- Rechaza cualquier inicio implícito; el modo es **manual y explícito**.
+- Solo lee una contraseña de 15 o más caracteres Unicode UTF-8, máximo 4096
+  bytes, desde **stdin tipo pipe**. No acepta argumentos, variables de entorno,
+  terminal con eco o ficheros regulares como fuente de contraseña.
+- Antes de escribir, ejecuta las **mismas** validaciones de bundle, identidad
+  Mongo, permisos exactos, TLS, primario y secretos que `serve-ready`; después
+  llama a `Register` sobre `native_accounts`, y desconecta Mongo sin arrancar
+  ningún servidor HTTP.
+- No publica identificadores de usuario, contraseñas, hashes ni datos privados
+  en logs. Los alias duplicados y las escrituras fallidas se rechazan.
+
+El gestor de secretos del operador debe entregar el secreto nuevo por una
+tubería anónima protegida, por ejemplo conceptualmente
+`password-manager read | service-production provision-native-account ALIAS`,
+con `IDENTITY_PRODUCTION_CONFIG_FILE` apuntando al bundle privado. El nombre
+`password-manager` es **ilustrativo**, no una herramienta instalada ni una
+receta que permita copiar una contraseña a la consola. No enviar secretos
+mediante `echo`, argumentos CLI ni GitHub Actions.
+
+Esta operación prepara una cuenta; **no** habilita registro público, recuperación
+de contraseña, DNS Identity, Cloudflare, Vault ni el login de Bridge Squad.
+La política de recuperación/alta, custodia, rollback, limitación de cuentas y
+verificación E2E debe aprobarse antes de declarar la aplicación jugable.
