@@ -170,7 +170,8 @@ class QuarantineDNSContracts(unittest.TestCase):
             self.assertEqual(receipt["https"], "401-login-shell")
             self.assertEqual(receipt["assets"], "denied")
             self.assertEqual(receipt["aliases"], "2")
-            result = watchdog.audit(c, probe=guest)
+            with mock.patch.object(q, "https_probe", side_effect=web):
+                result = watchdog.audit(c, probe=guest)
             self.assertEqual(result["host"], readiness.HOST)
 
     def test_leaking_game_assets_login_redirects_and_auth_bypass_fail(self):
