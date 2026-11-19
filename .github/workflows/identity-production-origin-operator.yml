@@ -1,0 +1,84 @@
+name: ShadowOps Identity · manual production origin operator admission (offline)
+on:
+  pull_request:
+    paths:
+      - 'host/identity-production-origin.py'
+      - 'tests/test_identity_production_origin_operator.py'
+      - '.github/workflows/identity-production-origin-operator.yml'
+      - 'docs/identity-production-origin-operator.md'
+      - 'scripts/identity_production_compose_preflight.py'
+      - 'scripts/identity_production_tunnel_preflight.py'
+      - 'scripts/identity_production_origin_probe.py'
+      - 'compose.identity.production.yaml'
+      - 'compose.identity.production-tunnel.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'host/identity-production-origin.py'
+      - 'tests/test_identity_production_origin_operator.py'
+      - '.github/workflows/identity-production-origin-operator.yml'
+      - 'docs/identity-production-origin-operator.md'
+      - 'scripts/identity_production_compose_preflight.py'
+      - 'scripts/identity_production_tunnel_preflight.py'
+      - 'scripts/identity_production_origin_probe.py'
+      - 'compose.identity.production.yaml'
+      - 'compose.identity.production-tunnel.yaml'
+permissions:
+  contents: read
+jobs:
+  offline:
+    name: Operator CLI least-privilege startup, no tunnel, scoped rollback and source pin
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Contract tests with mocked Docker, no OCI/Cloudflare/Mongo access
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check 'PyYAML==6.0.2'
+          python3 -m unittest discover -s tests -p test_identity_production_origin_operator.py -v
+          python3 -m py_compile host/identity-production-origin.py
+          python3 host/identity-production-origin.py plan
+          if python3 host/identity-production-origin.py start-origin; then
+            echo 'CI was able to start production origin' >&2
+            exit 1
+          fi
+          if python3 host/identity-production-origin.py stop-origin; then
+            echo 'CI was able to stop production origin' >&2
+            exit 1
+          fi
+      - name: Real Docker Compose render must match only scoped production services
+        env:
+          IDENTITY_PRODUCTION_IMAGE_DIGEST: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          IDENTITY_PRODUCTION_SOURCE_SHA: cccccccccccccccccccccccccccccccccccccccc
+          IDENTITY_PRODUCTION_BUNDLE_FILE: /tmp/disposable-absent-origin-bundle
+          IDENTITY_PRODUCTION_TUNNEL_DIGEST: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          IDENTITY_PRODUCTION_TUNNEL_CONFIG_FILE: /tmp/disposable-absent-tunnel-config
+          IDENTITY_PRODUCTION_TUNNEL_CREDENTIALS_FILE: /tmp/disposable-absent-tunnel-credentials
+          IDENTITY_PRODUCTION_TUNNEL_ORIGIN_CA_FILE: /tmp/disposable-absent-tunnel-origin-ca
+        run: |
+          set -euo pipefail
+          docker compose -f compose.identity.production.yaml \
+            -f compose.identity.production-tunnel.yaml \
+            --profile production --profile production-tunnel \
+            config --format json > "$RUNNER_TEMP/identity-production-operator-compose.json"
+          python3 - "$RUNNER_TEMP/identity-production-operator-compose.json" <<'PY'
+          import importlib.util, pathlib, sys
+          f=pathlib.Path("host/identity-production-origin.py").resolve()
+          spec=importlib.util.spec_from_file_location("operator", f)
+          op=importlib.util.module_from_spec(spec);spec.loader.exec_module(op)
+          data=pathlib.Path(sys.argv[1]).read_text()
+          op.check_compose_config(
+            data,
+            op.IMAGE+"sha256:"+"a"*64,
+            "sha256:"+"b"*64,
+          )
+          print("PRODUCTION_ORIGIN_OPERATOR_COMPOSE_OK render=real no-up no-pull no-secrets")
+          PY
