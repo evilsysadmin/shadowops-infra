@@ -1,0 +1,108 @@
+name: Chronicles staging autonomous playtest
+on:
+  workflow_dispatch:
+  schedule:
+    # Runs against the actual published SHA, after the routine Pages :47 cycle.
+    - cron: '12 7 * * *'
+  pull_request:
+    paths:
+      - '.github/workflows/chronicles-autonomous-playtest.yml'
+      - 'tests/test_chronicles_autonomous_playtest.py'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/chronicles-autonomous-playtest.yml'
+      - 'tests/test_chronicles_autonomous_playtest.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chronicles-staging-autonomous-playtest
+  cancel-in-progress: false
+
+jobs:
+  contracts:
+    name: Keep staging playtest isolated and SHA-pinned
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_autonomous_playtest.py' -v
+
+  playtest:
+    name: Two genuine staging expeditions (no deployment)
+    needs: contracts
+    if: >-
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    environment:
+      name: staging
+      url: https://staging.chronicles.shadowops.dpdns.org
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Read exact live public Chronicles SHA
+        id: public
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --fail --silent --show-error --retry 3 --max-time 20 \
+            --max-redirs 0 --write-out '%{http_code}' \
+            -H 'Cache-Control: no-cache' \
+            "https://staging.chronicles.shadowops.dpdns.org/release.json?playtest=${GITHUB_RUN_ID}" \
+            -o "$RUNNER_TEMP/chronicles-live-playtest-release.json")"
+          [[ "$code" == '200' ]] || { echo 'CHRONICLES_PLAYTEST_RELEASE_NOT_200' >&2; exit 1; }
+          bytes="$(wc -c < "$RUNNER_TEMP/chronicles-live-playtest-release.json")"
+          (( bytes > 0 && bytes <= 65536 )) || { echo 'CHRONICLES_PLAYTEST_RELEASE_OVERSIZED' >&2; exit 1; }
+          sha="$(node -p "JSON.parse(require('node:fs').readFileSync(process.env.RUNNER_TEMP + '/chronicles-live-playtest-release.json')).build")"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo 'CHRONICLES_PLAYTEST_INVALID_SHA' >&2; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: Checkout playtester from the published SHA
+        uses: actions/checkout@v4
+        with:
+          repository: evilsysadmin/chronicles-of-matthias
+          ref: ${{ steps.public.outputs.sha }}
+          persist-credentials: false
+          path: chronicles-source
+      - name: Require exact source revision
+        env:
+          PUBLIC_SHA: ${{ steps.public.outputs.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git -C chronicles-source rev-parse HEAD)" = "$PUBLIC_SHA"
+      - name: Install isolated browser test dependencies
+        working-directory: chronicles-source/frontend
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund
+          bash smoke/ensure-chromium.sh
+          node --check smoke/public-staging-playtest.mjs
+      - name: Play the real campaign with reproducible aggressive and cautious policies
+        working-directory: chronicles-source/frontend
+        env:
+          CHRONICLES_SOURCE_SHA: ${{ steps.public.outputs.sha }}
+          CHRONICLES_STAGING_INVITE_CODE: ${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$CHRONICLES_STAGING_INVITE_CODE" ]]; then
+            echo '::error title=Missing staging invitation::Configure CHRONICLES_STAGING_INVITE_CODE in the ShadowOps staging environment.'
+            exit 1
+          fi
+          node smoke/public-staging-playtest.mjs
+      - name: Preserve bounded QA reports and browser captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chronicles-autonomous-playtest-${{ github.run_id }}
+          path: |
+            chronicles-source/frontend/chronicles-playtest-report.json
+            chronicles-source/frontend/chronicles-playtest-*.png
+          if-no-files-found: ignore
+          retention-days: 7
