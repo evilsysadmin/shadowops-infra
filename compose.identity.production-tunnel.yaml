@@ -1,0 +1,51 @@
+# Candidate ONLY. Combine with compose.identity.production.yaml for a reviewed
+# operator-controlled launch; never activated by CI or staging.
+name: shadowops-identity-production
+services:
+  identity-production:
+    networks: [identity-origin, identity-mongo-egress]
+  identity-production-tunnel:
+    profiles: ["production-tunnel"]
+    image: cloudflare/cloudflared@${IDENTITY_PRODUCTION_TUNNEL_DIGEST:?Pin cloudflared sha256 digest}
+    command: ["tunnel", "--no-autoupdate", "--config", "/etc/cloudflared/config.yml", "run"]
+    user: "65532:65532"
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    privileged: false
+    restart: "no"
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.25
+    networks: [identity-origin, identity-tunnel-egress]
+    depends_on:
+      identity-production:
+        condition: service_started
+    volumes:
+      - type: bind
+        source: ${IDENTITY_PRODUCTION_TUNNEL_CONFIG_FILE:?Absolute operator-owned named tunnel config}
+        target: /etc/cloudflared/config.yml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${IDENTITY_PRODUCTION_TUNNEL_CREDENTIALS_FILE:?Absolute private named tunnel credentials}
+        target: /run/secrets/identity-tunnel-credentials.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${IDENTITY_PRODUCTION_TUNNEL_ORIGIN_CA_FILE:?Absolute origin TLS CA certificate}
+        target: /run/secrets/identity-tunnel-origin-ca.pem
+        read_only: true
+        bind:
+          create_host_path: false
+networks:
+  identity-origin:
+    name: shadowops-identity-production-origin
+    internal: true
+  identity-mongo-egress:
+    name: shadowops-identity-production-mongo-egress
+  identity-tunnel-egress:
+    name: shadowops-identity-production-tunnel-egress

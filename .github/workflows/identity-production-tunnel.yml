@@ -1,0 +1,87 @@
+name: ShadowOps Identity · production Cloudflare tunnel admission (offline)
+on:
+  pull_request:
+    paths:
+      - compose.identity.production-tunnel.yaml
+      - scripts/identity_production_tunnel_preflight.py
+      - tests/test_identity_production_tunnel.py
+      - .github/workflows/identity-production-tunnel.yml
+      - docs/identity-production-tunnel.md
+  push:
+    branches: [main]
+    paths:
+      - compose.identity.production-tunnel.yaml
+      - scripts/identity_production_tunnel_preflight.py
+      - tests/test_identity_production_tunnel.py
+      - .github/workflows/identity-production-tunnel.yml
+      - docs/identity-production-tunnel.md
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Verify strict routing, private inputs, origin CA and unsafe Compose rejection
+        run: |
+          python3 -m pip install --disable-pip-version-check 'PyYAML==6.0.2'
+          python3 -m unittest discover -s tests -p test_identity_production_tunnel.py -v
+          python3 -m py_compile scripts/identity_production_tunnel_preflight.py
+      - name: Render both profiles with synthetic paths, never start a container
+        env:
+          IDENTITY_PRODUCTION_IMAGE_DIGEST: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          IDENTITY_PRODUCTION_BUNDLE_FILE: /tmp/ci-absent-prod-bundle
+          IDENTITY_PRODUCTION_TUNNEL_DIGEST: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          IDENTITY_PRODUCTION_TUNNEL_CONFIG_FILE: /tmp/ci-absent-tunnel-config
+          IDENTITY_PRODUCTION_TUNNEL_CREDENTIALS_FILE: /tmp/ci-absent-tunnel-credentials
+          IDENTITY_PRODUCTION_TUNNEL_ORIGIN_CA_FILE: /tmp/ci-absent-tunnel-origin-ca
+        run: |
+          set -euo pipefail
+          docker compose -f compose.identity.production.yaml -f compose.identity.production-tunnel.yaml \
+            --profile production --profile production-tunnel config --format json > "$RUNNER_TEMP/identity-tunnel.json"
+          python3 - "$RUNNER_TEMP/identity-tunnel.json" <<'PY'
+          import json, sys
+          d=json.load(open(sys.argv[1]))
+          services=d["services"]
+          assert set(services)=={"identity-production", "identity-production-tunnel"}
+          identity=services["identity-production"]
+          tunnel=services["identity-production-tunnel"]
+          assert identity["ports"]==[{"mode":"ingress","target":9443,"published":"19443","host_ip":"127.0.0.1","protocol":"tcp"}]
+          assert set(identity["networks"])=={"identity-origin","identity-mongo-egress"}
+          assert identity["user"]=="65532:65532" and identity["read_only"] is True
+          assert "identity-tunnel-egress" not in identity["networks"]
+          assert not tunnel.get("ports") and not tunnel.get("network_mode")
+          assert tunnel["user"]=="65532:65532" and tunnel["read_only"] is True
+          assert tunnel["cap_drop"]==["ALL"] and tunnel.get("privileged",False) is False
+          assert "no-new-privileges:true" in tunnel["security_opt"]
+          assert tunnel["command"]==["tunnel","--no-autoupdate","--config","/etc/cloudflared/config.yml","run"]
+          assert tunnel["image"]=="cloudflare/cloudflared@sha256:"+"b"*64
+          assert tunnel["restart"]=="no"
+          assert set(tunnel["networks"])=={"identity-origin","identity-tunnel-egress"}
+          assert "identity-mongo-egress" not in tunnel["networks"]
+          assert len(tunnel["volumes"])==3
+          assert all(v["read_only"] is True and v.get("bind",{}).get("create_host_path",False) is False for v in tunnel["volumes"])
+          assert {v["target"] for v in tunnel["volumes"]}=={
+              "/etc/cloudflared/config.yml", "/run/secrets/identity-tunnel-credentials.json",
+              "/run/secrets/identity-tunnel-origin-ca.pem"}
+          assert d["networks"]["identity-origin"]["internal"] is True
+          assert d["networks"]["identity-mongo-egress"].get("internal",False) is False
+          assert d["networks"]["identity-tunnel-egress"].get("internal",False) is False
+          print("PRODUCTION_TUNNEL_OFFLINE_COMPOSE_OK no-pull no-up no-DNS")
+          PY
+          if env -u IDENTITY_PRODUCTION_TUNNEL_DIGEST docker compose \
+               -f compose.identity.production.yaml -f compose.identity.production-tunnel.yaml \
+               --profile production --profile production-tunnel config --quiet >/dev/null 2>&1; then
+            echo 'missing tunnel image digest admitted' >&2; exit 1
+          fi
+          if env -u IDENTITY_PRODUCTION_TUNNEL_CREDENTIALS_FILE docker compose \
+               -f compose.identity.production.yaml -f compose.identity.production-tunnel.yaml \
+               --profile production --profile production-tunnel config --quiet >/dev/null 2>&1; then
+            echo 'missing private tunnel credentials admitted' >&2; exit 1
+          fi
