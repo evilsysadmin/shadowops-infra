@@ -7,6 +7,7 @@ inspection alone is NOT a production sign-in or a Pages activation receipt.
 from __future__ import annotations
 
 import json
+from html.parser import HTMLParser
 import sys
 import urllib.error
 import urllib.request
@@ -70,15 +71,39 @@ def _jwks(body: bytes) -> None:
         kids.add(key["kid"])
 
 
+class LoginReturns(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.body_returns = []
+        self.links = []
+        self.application_seen = False
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "body":
+            self.body_returns.append(attrs.get("data-return-url"))
+        if tag == "a" and attrs.get("class") in ("brand", "return-link"):
+            self.links.append((attrs.get("class"), attrs.get("href")))
+
+
 def _login(body: bytes, headers: dict) -> None:
     try:
         html = body.decode("utf-8")
     except UnicodeError:
         raise UnsafeIssuer("Production login page is not UTF-8") from None
-    if (ORIGIN + "/?shadowops=central" not in html
-            or "Bridge Squad" not in html
-            or "id-staging.shadowops.dpdns.org" in html
-            or "staging.bridgesquad" in html):
+    canonical_return = ORIGIN + "/?shadowops=central"
+    document = LoginReturns()
+    try:
+        document.feed(html)
+        document.close()
+    except ValueError:
+        raise UnsafeIssuer("Production login page invalid HTML") from None
+    # Staging and production must never share login return destinations.
+    # Validate exact HTML attributes, not a substring of arbitrary page text.
+    if (document.body_returns != [canonical_return]
+            or sorted(document.links) != sorted([
+                ("brand", canonical_return), ("return-link", canonical_return)
+            ]) or "Bridge Squad" not in html):
         raise UnsafeIssuer("Production login audience or return origin not pinned")
     csp = headers.get("Content-Security-Policy", headers.get("content-security-policy", ""))
     if "default-src 'none'" not in csp or "form-action 'self'" not in csp:
