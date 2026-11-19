@@ -86,6 +86,12 @@ func (h *ProductionFreshnessHandler) ServeHTTP(w http.ResponseWriter,r *http.Req
   productionFailure(w,http.StatusServiceUnavailable)
   return
  }
+ if r.URL.Path=="/readyz" || r.URL.Path=="/login" ||
+  (strings.HasPrefix(r.URL.Path,"/api/identity/") &&
+   r.URL.Path!="/api/identity/jwks" && r.URL.Path!=ProductionFreshnessPath) {
+  productionFailure(w,http.StatusServiceUnavailable)
+  return
+ }
  if r.URL.RawQuery!="" {
   productionFailure(w,http.StatusBadRequest)
   return
