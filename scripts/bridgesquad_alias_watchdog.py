@@ -10,6 +10,7 @@ import os
 import sys
 
 import bridgesquad_alias_bootstrap as bootstrap
+import bridgesquad_dns_quarantine as quarantine
 import bridgesquad_pages_readiness as readiness
 import bridgesquad_source_admission as source
 
@@ -29,8 +30,12 @@ def audit(client, *, probe=bootstrap.guest_status) -> dict:
     sha = metadata.get("commit_hash") if isinstance(metadata, dict) else None
     if not isinstance(sha, str) or not source.SHA.fullmatch(sha):
         raise WatchdogBlocked("Cannot establish immutable deployed game source")
-    result = bootstrap.postflight(client, sha, status=probe)
-    if result["aliases"] < 2:
+    inventory = readiness.inspect(client)
+    if inventory["domain"] == "present" and inventory["dns"] == "present":
+        result = quarantine.audit(client, guest=probe)
+    else:
+        result = bootstrap.postflight(client, sha, status=probe)
+    if int(result["aliases"]) < 2:
         raise WatchdogBlocked("Pages canonical immutable alias not discoverable")
     return result
 
