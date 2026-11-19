@@ -108,7 +108,7 @@ func TestProductionFreshnessStrictJSONAndMethodContract(t *testing.T){
   "trailing JSON":func(r *http.Request){r.Body=ioNopCloser(strings.NewReader("{} {}"))},
   "legacy subject":func(r *http.Request){r.Body=ioNopCloser(strings.NewReader(`{"subject":"admin","session_version":4,"token_jti":"MTExMTExMTExMTExMTExMQ"}`))},
   "no session version":func(r *http.Request){r.Body=ioNopCloser(strings.NewReader("{}"))},
-  "invalid JTI":func(r *http.Request){r.Body=ioNopCloser(strings.NewReader(`{"subject":"11111111-1111-4111-8111-111111111111","session_version":4,"token_jti":"abcdefghijklmnopqrstuv"}`))},
+  "invalid JTI":func(r *http.Request){r.Body=ioNopCloser(strings.NewReader(`{"subject":"11111111-1111-4111-8111-111111111111","session_version":4,"token_jti":"abcdefghijklmnopqrstu!"}`))},
  } {
   t.Run(name,func(t *testing.T){
    h,fake:=testFreshnessHandler()
