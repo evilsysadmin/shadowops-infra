@@ -113,3 +113,28 @@ El workflow `Bridge Squad · activate DNS quarantine (auth required, game locked
 La prueba final exige resolución DNS, HTTPS/TLS válido, `GET /` y `GET /index.html` devolviendo **401 con la pantalla de ShadowOps ID** (nunca el HTML Canvas), y `GET /release.json`, `GET /_worker.js` y `GET /api/bridgesquad/session` devolviendo `401 authentication_required`. `HEAD` debe estar protegido y todos los aliases Pages deben seguir respondiendo 404 del Worker. Si Cloudflare demora el certificado o existe una fuga de archivos, el job **falla** y no se anuncia el dominio como listo. El watchdog diario ahora comprueba el mismo contrato cuando el DNS ya existe.
 
 **Límite estricto:** tener el dominio accesible no significa poder iniciar sesión ni jugar. El emisor `id.shadowops.dpdns.org` permanece sin provisionar; el enlace de login puede fallar hasta disponer de Identity productivo, cuentas, tokens, comprobación de frescura y revocación. **Prohibido** convertir el enlace a staging, desactivar el Worker o servir el juego anónimamente para resolverlo. La siguiente fase activará la credencial productiva y sustituirá el contrato de cuarentena por pruebas completas de usuario autenticado antes de anunciar un lanzamiento jugable. Seguimiento #287 y #611.
+
+## Chromium production Identity login E2E aislado (sin despliegue)
+
+El workflow de réplica efímera de Identity añade
+`TestChromiumProductionBridgeSquadJourney`, que arranca las rutas
+**reales** de login de producción, sesiones nativas en Mongo local de pruebas,
+firma JWT Ed25519, JWKS, CORS, cookies HTTPS host-only y comprobación
+transaccional de frescura. Chromium recorre dos tamaños de pantalla (desktop y
+móvil), entra en `id.shadowops.dpdns.org`, vuelve a
+`bridgesquad.shadowops.dpdns.org`, comprueba el intercambio de token
+`aud=bridgesquad`, verifica la firma con JWKS y prueba que logout invalida
+la sesión y el JWT existente.
+
+Ambos dominios se resuelven **solo dentro del navegador del runner**, hacia
+`127.0.0.1:19444`; las rutas de Identity usan un servidor TLS real con
+certificado efímero. El consumidor web de prueba es **HTML sintético** para
+probar las reglas de navegador: **no es** el bundle del juego, ni el Worker
+Cloudflare real, ni la cuenta productiva ni el DNS público. La suite no
+provisiona secretos, no modifica OCI, Mongo externo ni Cloudflare. La prueba
+HTTP + firma real del Worker sigue en
+`tests/bridgesquad-identity-gate.test.mjs`, separada de esta prueba.
+
+El E2E real del host publicado, con autenticación productiva, despliegue Pages,
+revocación vía edge y prueba jugable, sigue siendo obligatorio antes de retirar
+el estado 401. Ver #611.
