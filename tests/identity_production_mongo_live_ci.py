@@ -58,7 +58,8 @@ def tls_material(path: Path):
     (path / "mongo.pem").write_bytes(
         (path / "server.crt").read_bytes() + (path / "server.key").read_bytes()
     )
-    (path / "replica.key").write_text(secrets.token_urlsafe(384))
+    (path / "replica.key").write_bytes(subprocess.check_output(
+        ["openssl", "rand", "-base64", "500"]))
     path.chmod(0o755)
 
 
@@ -90,7 +91,7 @@ def client(uri: str, ca: Path) -> MongoClient:
 
 def ready_without_auth(ca: Path):
     uri = f"mongodb://127.0.0.1:{PORT}/admin?directConnection=true&tls=true"
-    for attempt in range(50):
+    for attempt in range(35):
         try:
             c = client(uri, ca)
             hello = c.admin.command({"hello": 1})
@@ -98,6 +99,17 @@ def ready_without_auth(ca: Path):
                 return c
         except PyMongoError:
             pass
+        state = subprocess.run(
+            ["docker", "inspect", "-f", "{{.State.Status}} {{.State.ExitCode}}", CONTAINER],
+            capture_output=True, text=True, timeout=10).stdout.strip()
+        if state.startswith(("exited ", "dead ")):
+            # No database credentials exist yet at this point. Limit output
+            # to the disposable mongod startup diagnostic.
+            logs = subprocess.run(["docker", "logs", "--tail", "12", CONTAINER],
+                                  capture_output=True, text=True, timeout=10)
+            print("EPHEMERAL_MONGO_EXIT=" + state, flush=True)
+            print("EPHEMERAL_MONGO_DIAGNOSTIC=" + (logs.stderr or logs.stdout)[-2600:], flush=True)
+            raise AssertionError("disposable TLS MongoDB container exited")
         time.sleep(1)
     raise AssertionError("disposable TLS MongoDB did not start")
 
@@ -156,6 +168,7 @@ def main():
         try:
             start_mongo(p)
             started = True
+            print("DISPOSABLE_MONGO_CONTAINER_CREATED", flush=True)
             bootstrap = ready_without_auth(p / "ca.pem")
             try:
                 bootstrap.admin.command({"replSetInitiate": {
