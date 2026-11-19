@@ -36,6 +36,7 @@ type ProductionBrowserHandler struct {
  tokens productionTokenIssuer
  freshness http.Handler
  limits browserThrottle
+ kdf chan struct{}
 }
 
 // NewProductionBrowserHandler refuses a mix of different production
@@ -47,7 +48,7 @@ func NewProductionBrowserHandler(accounts *AccountAuthority,tokens *ProductionAp
  }
  fresh,err:=NewProductionFreshnessHandler(tokens,secret)
  if err!=nil{return nil,err}
- return &ProductionBrowserHandler{accounts:accounts,tokens:tokens,freshness:fresh},nil
+ return &ProductionBrowserHandler{accounts:accounts,tokens:tokens,freshness:fresh,kdf:make(chan struct{},2)},nil
 }
 
 type browserCounter struct {minute time.Time; total,logins int}
@@ -195,6 +196,16 @@ func (h *ProductionBrowserHandler) ServeHTTP(w http.ResponseWriter,r *http.Reque
    len(body.Password)==0 || len(body.Password)>4096 {
    productionFailure(w,http.StatusBadRequest);return
   }
+  // Argon2id is memory-intensive: cap simultaneous KDF operations in
+  // addition to IP/global request limits, including when login races occur.
+  if h.kdf==nil{productionFailure(w,http.StatusServiceUnavailable);return}
+  select {
+  case h.kdf<-struct{}{}:
+   defer func(){<-h.kdf}()
+  default:
+   w.Header().Set("Retry-After","60")
+   productionFailure(w,http.StatusTooManyRequests);return
+  }
   handle,err:=h.accounts.Issue(ctx,body.Username,body.Password)
   if err!=nil{browserError(w,err);return}
   if _,ok:=productionHandleDigest(handle);!ok {
@@ -261,13 +272,13 @@ form.addEventListener('submit',async event=>{
   const response=await fetch('/api/identity/login',{
    method:'POST',credentials:'same-origin',redirect:'error',
    headers:{'Content-Type':'application/json'},
-   body:JSON.stringify({username:form.username.value,password:form.password.value}),
+   body:JSON.stringify({username:document.querySelector('#username').value,password:document.querySelector('#password').value}),
    signal:AbortSignal.timeout(10000)
   });
   if(!response.ok){status.textContent=response.status===429?'Demasiados intentos. Inténtalo en un minuto.':'Acceso no autorizado o servicio temporalmente no disponible.';return;}
   location.replace(document.body.dataset.returnUrl);
  }catch{status.textContent='No se ha podido conectar con ShadowOps ID.';}
- finally{form.password.value='';submit.disabled=false;}
+ finally{document.querySelector('#password').value='';submit.disabled=false;}
 });`
 
 func serveProductionLogin(w http.ResponseWriter,r *http.Request){
