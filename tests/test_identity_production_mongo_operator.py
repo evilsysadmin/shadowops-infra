@@ -1,5 +1,6 @@
 """Offline least-privilege operator contract. Never connects to MongoDB."""
 import importlib.util
+from copy import deepcopy
 from pathlib import Path
 import os
 import sys
@@ -46,9 +47,9 @@ class Mongo:
             return {"users": [self.user] if self.user else []}
         self.calls.append(command)
         if command == "createRole":
-            self.role = {"db": m.DB, "role": m.ROLE, "roles": [], "privileges": arg["privileges"]}
+            self.role = {"db": m.DB, "role": m.ROLE, "roles": [], "privileges": deepcopy(arg["privileges"])}
         elif command == "createUser":
-            self.user = {"db": m.DB, "user": m.USER, "roles": arg["roles"]}
+            self.user = {"db": m.DB, "user": m.USER, "roles": deepcopy(arg["roles"])}
         else:
             raise AssertionError("foreign Mongo command")
         return {"ok": 1}
@@ -103,7 +104,7 @@ class OperatorContracts(unittest.TestCase):
                 self.assertEqual(db.calls, before)
 
     def test_apply_requires_strong_password_before_writes(self):
-        for candidate in ("bad", "", "password\\nwith\\nnewline" * 3, None):
+        for candidate in ("bad", "", "password\nwith\nnewline" * 3, None):
             with self.subTest(candidate=candidate):
                 db = Mongo()
                 with self.assertRaises(m.Refused):
