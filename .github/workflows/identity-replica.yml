@@ -88,15 +88,7 @@ jobs:
           IDENTITY_PRODUCTION_BROWSER_TEST: '1'
           IDENTITY_BROWSER_ARTIFACTS: ${{ runner.temp }}/identity-browser-artifacts
           NODE_PATH: ${{ runner.temp }}/identity-browser-tools/node_modules
-        run: go test -race -count=1 -v ./production -run '^TestChromiumProductionBridgeSquadJourney        with:
-          name: identity-login-desktop-mobile
-          path: ${{ runner.temp }}/identity-browser-artifacts
-          if-no-files-found: ignore
-          retention-days: 7
-      - name: Remove test replica set
-        if: always()
-        run: docker rm -f identity-replica || true
-
+        run: go test -race -count=1 -v ./production -run '^TestChromiumProductionBridgeSquadJourney$'
       - uses: actions/upload-artifact@v4
         if: always()
         with:
