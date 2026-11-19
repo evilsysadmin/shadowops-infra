@@ -134,7 +134,7 @@ func (b Bundle) Validate(now time.Time) (tls.Certificate, error) {
 				return deny()
 			}
 		case "tlsinsecure", "tlsallowinvalidcertificates", "tlsallowinvalidhostnames",
-			"tlsdisableocspendpointcheck", "tlsdisablecertificaterevocationcheck",:
+			"tlsdisableocspendpointcheck", "tlsdisablecertificaterevocationcheck":
 			return deny()
 		}
 	}
