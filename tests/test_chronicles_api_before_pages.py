@@ -159,6 +159,7 @@ class ApiBeforePages(unittest.TestCase):
 
     def test_pages_cannot_mutate_when_trusted_api_receipt_is_not_live(self):
         calls = []
+        sleeps = []
         def get(path, token):
             calls.append(path)
             if path.endswith("/commits/main"):
@@ -167,10 +168,45 @@ class ApiBeforePages(unittest.TestCase):
                 return {"artifacts": [receipt()]}
             return run()
         with self.assertRaisesRegex(gate.GateError, "PUBLIC_HEALTH_UNAVAILABLE"):
+            gate.wait_for_api(SHA, TOKEN, attempts=4, sleep=sleeps.append,
+                              get=get, healthy=lambda: False,
+                              revision=lambda _: self.fail("Unhealthy API must not verify revision"))
+        self.assertEqual(sleeps, [15, 15, 15])
+        # Every health retry must independently revalidate source main and
+        # the trusted receipt, never treat the first result as permanent.
+        self.assertEqual(sum("/artifacts?" in path for path in calls), 4)
+        self.assertEqual(sum(path.endswith("/commits/main") for path in calls), 4)
+
+    def test_pages_admits_only_after_transient_api_health_recovers(self):
+        checks = []
+        sleeps = []
+        def get(path, token):
+            if path.endswith("/commits/main"):
+                return {"sha": SHA}
+            if "/actions/artifacts?" in path:
+                return {"artifacts": [receipt()]}
+            return run()
+        def healthy():
+            checks.append("health")
+            return len(checks) == 3
+        gate.wait_for_api(SHA, TOKEN, attempts=4, sleep=sleeps.append,
+                          get=get, healthy=healthy, revision=lambda _: "match")
+        self.assertEqual(checks, ["health"] * 3)
+        self.assertEqual(sleeps, [15, 15])
+
+    def test_pages_blocks_superseded_source_even_while_health_is_pending(self):
+        checks = []
+        def get(path, token):
+            if path.endswith("/commits/main"):
+                checks.append("source")
+                return {"sha": SHA if len(checks) == 1 else "b" * 40}
+            if "/actions/artifacts?" in path:
+                return {"artifacts": [receipt()]}
+            return run()
+        with self.assertRaisesRegex(gate.GateError, "STALE_SOURCE"):
             gate.wait_for_api(SHA, TOKEN, attempts=4, sleep=lambda _: None,
                               get=get, healthy=lambda: False)
-        self.assertEqual(sum("/artifacts?" in path for path in calls), 1)
-        self.assertEqual(sum(path.endswith("/commits/main") for path in calls), 1)
+        self.assertEqual(checks, ["source", "source"])
 
     def test_api_release_proves_exact_public_source_revision(self):
         sha = SHA
