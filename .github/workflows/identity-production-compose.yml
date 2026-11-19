@@ -1,0 +1,64 @@
+name: ShadowOps Identity · production Compose admission (offline, no deploy)
+on:
+  pull_request:
+    paths:
+      - 'compose.identity.production.yaml'
+      - 'scripts/identity_production_compose_preflight.py'
+      - 'tests/test_identity_production_compose.py'
+      - '.github/workflows/identity-production-compose.yml'
+      - 'docs/identity-production-image.md'
+  push:
+    branches: [main]
+    paths:
+      - 'compose.identity.production.yaml'
+      - 'scripts/identity_production_compose_preflight.py'
+      - 'tests/test_identity_production_compose.py'
+      - '.github/workflows/identity-production-compose.yml'
+      - 'docs/identity-production-image.md'
+permissions:
+  contents: read
+jobs:
+  offline:
+    name: Deny unpinned image, unsafe mounts, exposed host or implicit activation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Read-only production Compose admission unit contracts
+        run: |
+          python3 -m unittest discover -s tests -p test_identity_production_compose.py -v
+          python3 -m py_compile scripts/identity_production_compose_preflight.py
+      - name: Render only synthetic digest and nonexistent private bundle path
+        env:
+          IDENTITY_PRODUCTION_IMAGE_DIGEST: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          IDENTITY_PRODUCTION_BUNDLE_FILE: /tmp/ci-nonexistent-identity-production-bundle
+        run: |
+          set -euo pipefail
+          docker compose -f compose.identity.production.yaml --profile production config --format json > "$RUNNER_TEMP/identity-prod-compose.json"
+          python3 - "$RUNNER_TEMP/identity-prod-compose.json" <<'PY'
+          import json, sys
+          doc=json.load(open(sys.argv[1]))
+          services=doc["services"]
+          assert list(services)==["identity-production"]
+          s=services["identity-production"]
+          assert s["image"]=="ghcr.io/evilsysadmin/shadowops-identity-production-candidate@sha256:"+"a"*64
+          assert s["command"]==["serve-ready"]
+          assert s["read_only"] is True and s["privileged"] is False
+          assert s["user"]=="65532:65532"
+          assert s["cap_drop"]==["ALL"]
+          assert s["restart"]=="no"
+          assert s["ports"]==[{"mode":"ingress","target":9443,"published":"19443","host_ip":"127.0.0.1","protocol":"tcp"}]
+          assert s["volumes"][0]["target"]=="/run/secrets/identity-production.json"
+          assert s["volumes"][0]["read_only"] is True
+          assert s["volumes"][0]["bind"]["create_host_path"] is False
+          assert set(s["environment"])=={"IDENTITY_PRODUCTION_CONFIG_FILE","IDENTITY_INTERNAL_PORT"}
+          print("OFFLINE_PRODUCTION_COMPOSE_CONTRACT_OK no-container-started")
+          PY
+          if env -u IDENTITY_PRODUCTION_IMAGE_DIGEST docker compose -f compose.identity.production.yaml --profile production config --quiet >/dev/null 2>&1; then
+            echo 'ERROR: accepted image without digest' >&2; exit 1
+          fi
+          if env -u IDENTITY_PRODUCTION_BUNDLE_FILE docker compose -f compose.identity.production.yaml --profile production config --quiet >/dev/null 2>&1; then
+            echo 'ERROR: accepted missing private bundle path' >&2; exit 1
+          fi
