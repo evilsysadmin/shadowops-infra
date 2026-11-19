@@ -14,8 +14,13 @@ JWKS = json.dumps({"keys": [{
     "kty": "OKP", "crv": "Ed25519", "use": "sig",
     "kid": "production-key", "x": "A" * 43,
 }]}).encode()
-LOGIN = (b"<html><h1>Bridge Squad</h1><a href='"
-         + probe.ORIGIN.encode() + b"/?shadowops=central'>Continue</a></html>")
+RETURN = (probe.ORIGIN + "/?shadowops=central").encode()
+LOGIN = (
+    b'<html><body data-return-url="' + RETURN + b'"><h1>Bridge Squad</h1>'
+    b'<a class="brand" href="' + RETURN + b'">SHADOWOPS</a>'
+    b'<a class="return-link" href="' + RETURN + b'">Volver a Bridge Squad</a>'
+    b'</body></html>'
+)
 CSP = "default-src 'none'; form-action 'self'; frame-ancestors 'none'"
 
 
@@ -77,6 +82,18 @@ class BridgeSquadProductionIdentityTests(unittest.TestCase):
         path = probe.ISSUER + "/login?app=bridgesquad"
         with self.assertRaises(probe.UnsafeIssuer):
             probe.inspect(reader({path: (200, {"Content-Type": "text/html"}, LOGIN)}))
+
+    def test_malicious_return_link_cannot_hide_behind_valid_url_text(self):
+        path = probe.ISSUER + "/login?app=bridgesquad"
+        for injection in (
+            LOGIN.replace(b'class="return-link" href="' + RETURN,
+                          b'class="return-link" href="https://id-staging.shadowops.dpdns.org/'),
+            LOGIN.replace(b'data-return-url="' + RETURN, b'data-return-url="https://evil.test/'),
+            LOGIN + b'<p>' + RETURN + b'</p><a class="brand" href="https://evil.test/">bad</a>',
+        ):
+            with self.subTest(injection=injection[:70]), self.assertRaises(probe.UnsafeIssuer):
+                probe.inspect(reader({path: (200, {
+                    "Content-Type": "text/html", "Content-Security-Policy": CSP}, injection)}))
 
     def test_no_dangerous_jwks(self):
         for item in (
