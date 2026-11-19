@@ -1,0 +1,39 @@
+name: ShadowOps Identity · production Mongo operator contract (offline)
+on:
+  pull_request:
+    paths:
+      - 'scripts/identity_production_mongo_operator.py'
+      - 'tests/test_identity_production_mongo_operator.py'
+      - 'docs/identity-production-mongo.md'
+      - '.github/workflows/identity-production-mongo.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/identity_production_mongo_operator.py'
+      - 'tests/test_identity_production_mongo_operator.py'
+      - 'docs/identity-production-mongo.md'
+      - '.github/workflows/identity-production-mongo.yml'
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Exact Mongo scoped role, indexes, idempotence and fail-closed operator gates
+        run: |
+          python3 -m unittest discover -s tests -p test_identity_production_mongo_operator.py -v
+          python3 -m py_compile scripts/identity_production_mongo_operator.py
+          python3 scripts/identity_production_mongo_operator.py plan
+      - name: CI must never be able to invoke an apply
+        env:
+          CI: 'true'
+          IDENTITY_PRODUCTION_MONGO_APPLY: PROVISION_EXACT_PRODUCTION_IDENTITY_DB
+        run: |
+          if python3 scripts/identity_production_mongo_operator.py apply; then
+            echo "Unsafe Mongo production apply admitted in CI" >&2
+            exit 1
+          fi
