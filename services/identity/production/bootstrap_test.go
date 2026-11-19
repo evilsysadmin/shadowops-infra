@@ -12,7 +12,6 @@ import (
  "encoding/json"
  "encoding/pem"
  "math/big"
- "net/http"
  "net/http/httptest"
  "os"
  "path/filepath"
