@@ -85,3 +85,45 @@ jobs:
                --profile production --profile production-tunnel config --quiet >/dev/null 2>&1; then
             echo 'missing private tunnel credentials admitted' >&2; exit 1
           fi
+      - name: Real pinned cloudflared parses only exact Identity hostname and deny-all
+        run: |
+          set -euo pipefail
+          # This is the already-pinned cloudflared binary used by ShadowOps
+          # staging, NEVER staging's tunnel ID or its credentials.
+          image='cloudflare/cloudflared@sha256:b269e8abd07a5bf6f3f4be65d5050b2174eca89c56a0241a8ff32a16aec454e4'
+          fixture="$RUNNER_TEMP/identity-production-cloudflared-cli"
+          mkdir -p "$fixture"
+          python3 - "$fixture/config.yml" <<'PY'
+          from pathlib import Path
+          import sys
+          sys.path.insert(0,'tests')
+          from test_identity_production_tunnel import CONFIG
+          Path(sys.argv[1]).write_text(CONFIG)
+          PY
+          # Public/synthetic CA only. Named-tunnel credential file does not
+          # exist and is NEVER mounted. There is no network access.
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -keyout "$fixture/fake-ca.key" -out "$fixture/origin-ca.pem" \
+            -subj '/CN=synthetic-no-production-material' >/dev/null 2>&1
+          chmod 0644 "$fixture/config.yml" "$fixture/origin-ca.pem"
+          docker_args=(--rm --network none --user 65532:65532 --read-only \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --mount "type=bind,src=$fixture/config.yml,dst=/etc/cloudflared/config.yml,readonly" \
+            --mount "type=bind,src=$fixture/origin-ca.pem,dst=/run/secrets/identity-tunnel-origin-ca.pem,readonly")
+          docker run "${docker_args[@]}" "$image" tunnel --config /etc/cloudflared/config.yml ingress validate
+          for case in \
+            'https://id.shadowops.dpdns.org/login?app=bridgesquad|#0' \
+            'https://id.shadowops.dpdns.org/api/identity/jwks|#0' \
+            'https://bridgesquad.shadowops.dpdns.org/|#1' \
+            'https://id-staging.shadowops.dpdns.org/|#1' \
+            'https://rogue.example.invalid/|#1'; do
+            url="${case%|*}"
+            expected="${case#*|}"
+            route="$(docker run "${docker_args[@]}" "$image" tunnel \
+              --config /etc/cloudflared/config.yml ingress rule "$url")"
+            if ! grep -Fq "Matched rule $expected" <<< "$route"; then
+              echo "Cloudflared ingress did not match expected rule $expected" >&2
+              exit 1
+            fi
+          done
+          echo 'REAL_CLOUDFLARED_LOCAL_INGRESS_OK credential=absent network=none deploy=none'

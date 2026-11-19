@@ -50,6 +50,47 @@ class TunnelTests(unittest.TestCase):
             with self.subTest(candidate=value[-90:]), self.assertRaises(m.Refused):
                 m.validate_config(value)
 
+    def test_ambiguous_yaml_duplicate_keys_and_aliases_fail_closed(self):
+        # All these documents used to pass yaml.safe_load when the last key
+        # happened to contain the approved value. cloudflared can disagree.
+        cases = (
+            CONFIG.replace("tunnel: 123e4567-e89b-42d3-a456-426614174000",
+                           "ingress: [{hostname: evil.example, service: http://evil.example}]\ntunnel: 123e4567-e89b-42d3-a456-426614174000"),
+            CONFIG.replace("    service: https://identity-production:9443",
+                           "    service: http://evil.example\n    service: https://identity-production:9443"),
+            CONFIG.replace("      originServerName: id.shadowops.dpdns.org",
+                           "      noTLSVerify: true\n      noTLSVerify: false\n      originServerName: id.shadowops.dpdns.org"),
+            CONFIG.replace("  - service: http_status:404",
+                           "  - service: http_status:200\n    service: http_status:404"),
+            CONFIG.replace("    originRequest:",
+                           "    originRequest: &tls\n      noTLSVerify: true\n    originRequest:"),
+            CONFIG.replace("    originRequest:",
+                           "    originRequest: &tls"),
+            CONFIG.replace("  - service: http_status:404", "  - service: *tls"),
+            CONFIG.replace("      httpHostHeader: id.shadowops.dpdns.org",
+                           "      <<: {noTLSVerify: true}\n      httpHostHeader: id.shadowops.dpdns.org"),
+            CONFIG.replace("      caPool: /run/secrets/identity-tunnel-origin-ca.pem",
+                           "      noTLSVerify: false\n      caPool: /run/secrets/identity-tunnel-origin-ca.pem\n      noTLSVerify: false"),
+        )
+        for value in cases:
+            with self.subTest(sample=value[:72]), self.assertRaises(m.Refused):
+                m.validate_config(value)
+
+    def test_duplicate_keys_in_compose_overlay_cannot_override_security(self):
+        source = m.OVERLAY.read_text()
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "compose.yaml"
+            for altered in (
+                source + "\nservices:\n  identity-production-tunnel:\n    privileged: true\n",
+                source.replace('    privileged: false',
+                               '    privileged: true\n    privileged: false'),
+                source.replace('    networks: [identity-origin, identity-tunnel-egress]',
+                               '    networks: [identity-mongo-egress]\n    networks: [identity-origin, identity-tunnel-egress]'),
+            ):
+                target.write_text(altered)
+                with mock.patch.object(m, "OVERLAY", target), self.assertRaises(m.Refused):
+                    m.validate_overlay()
+
     def test_digest_and_compose_surface(self):
         m.validate_overlay()
         for digest in ("", "latest", "sha256:" + "f"*63, "sha256:" + "F"*64,

@@ -82,3 +82,22 @@ sustituyen esa prueba de integración en el dominio publicado.
 **No activar el juego ni retirar su cuarentena HTTP 401 con esta PR.**
 Seguimiento [#287](https://github.com/evilsysadmin/shadowops-infra/issues/287)
 y [#611](https://github.com/evilsysadmin/shadowops-infra/issues/611).
+
+## Prueba adicional contra el parser real de cloudflared
+
+La CI comprueba la configuración sintética mediante los comandos del
+**ejecutable `cloudflared` auténtico**, obtenido por digest inmutable
+del mismo artefacto binario aprobado para staging (nunca se usan sus
+credenciales ni su túnel). Ejercita `tunnel ingress validate` y
+`tunnel ingress rule` para comprobar que las rutas `/login` y
+`/api/identity/jwks` apuntan a la regla del hostname productivo y
+que Bridge Squad, staging y un hostname desconocido terminan en la regla
+404. El contenedor de CI ejecuta `--network none`, sin credenciales
+de túnel; su CA es sintética y no se realiza conexión con Cloudflare
+ni con un servidor productivo. Además, la admisión Python rechaza claves
+YAML duplicadas, alias/anchors y merge keys que puedan causar diferencias
+de interpretación entre parsers (también en el overlay Compose).
+
+Esta prueba demuestra **parsing y routing local**, no entrega TLS
+real, túnel Cloudflare activo ni una sesión final. La verificación TLS
+de producción exige un origen real y CA custodiada antes del primer deploy.
