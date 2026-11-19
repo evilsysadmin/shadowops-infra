@@ -112,3 +112,10 @@ func TestLiveProductionServerRequiresExactTLSHostAndMongoReplica(t *testing.T){
   }
  }
 }
+
+func TestAccountProvisioningCannotUseAnUninitializedProductionRuntime(t *testing.T){
+ var absent *RunningProduction
+ ctx:=context.Background()
+ if err:=absent.ProvisionNativeAccount(ctx,"operator","a-strong-sample-passphrase");!errors.Is(err,ErrProductionUnavailable){t.Fatal("nil runtime authorized account provisioning")}
+ if err:=(&RunningProduction{}).ProvisionNativeAccount(ctx,"operator","a-strong-sample-passphrase");!errors.Is(err,ErrProductionUnavailable){t.Fatal("uninitialized runtime authorized account provisioning")}
+}
