@@ -120,8 +120,8 @@ def assess_one(client, game, request_status) -> dict:
         "hosts_probed": 0,
         "historic_inventory_complete": False,
         "skipped_hosts": 0,
-        "exposed_hosts": [],
-        "unverified_hosts": [],
+        "exposed_host_count": 0,
+        "unverified_host_count": 0,
     }
     try:
         hosts, completed = list_hosts(client, game)
@@ -161,13 +161,19 @@ def assess_one(client, game, request_status) -> dict:
     grouped = {host: [] for host in selected}
     for host, path, status in observations:
         grouped[host].append(status)
-    result["exposed_hosts"] = [host for host, codes in grouped.items()
-                               if any(code in (200, 206) for code in codes)][:12]
-    result["unverified_hosts"] = [host for host, codes in grouped.items()
-                                  if any(code not in ALLOWED_DENIAL | {200, 206} for code in codes)][:12]
-    if result["exposed_hosts"]:
+    # The repository and its Actions logs are PUBLIC. Publishing even a
+    # bounded set of opaque 8-hex legacy deployment hostnames gives attackers
+    # an index of direct-access bypasses. Emit counts ONLY, never hostnames.
+    result["exposed_host_count"] = sum(
+        any(code in (200, 206) for code in codes) for codes in grouped.values()
+    )
+    result["unverified_host_count"] = sum(
+        any(code not in ALLOWED_DENIAL | {200, 206} for code in codes)
+        for codes in grouped.values()
+    )
+    if result["exposed_host_count"]:
         result["state"] = "REVIEW_ANONYMOUS_200"
-    elif (not completed or result["skipped_hosts"] or result["unverified_hosts"]):
+    elif (not completed or result["skipped_hosts"] or result["unverified_host_count"]):
         result["state"] = "NOT_FULLY_VERIFIED"
     else:
         result["state"] = "GUEST_DENIAL_OBSERVED"

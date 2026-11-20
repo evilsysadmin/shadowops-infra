@@ -82,7 +82,9 @@ class PagesHistoryTests(unittest.TestCase):
             return 200 if "/release.json" in url and "d1." in url else 404
         report = audit.assess_one(cf, g, old_static)
         self.assertEqual(report["state"], "REVIEW_ANONYMOUS_200")
-        self.assertIn("d1.staradvs-staging.pages.dev", report["exposed_hosts"])
+        self.assertEqual(report["exposed_host_count"], 1)
+        self.assertNotIn("exposed_hosts", report)
+        self.assertNotIn("d1.staradvs-staging.pages.dev", str(report))
         self.assertEqual(report["hosts_discovered"], 4)
 
     def test_incomplete_history_or_host_budget_never_yields_green(self):
@@ -137,6 +139,21 @@ class PagesHistoryTests(unittest.TestCase):
                 result = audit.assess_one(cf, g, fail)
                 self.assertIn(result["reason"], {"Foreign Pages source/project", "Unexpected Pages custom domains", "Unexpected Pages alias"})
                 self.assertEqual(result["state"], "NOT_FULLY_VERIFIED")
+
+    def test_public_actions_report_never_includes_opaque_deployment_hostname(self):
+        import json
+        cf = FakeCloudflare()
+        result = audit.audit(cf, lambda url, method: 200 if "d0." in url else 404)
+        self.assertEqual(result["state"], "REVIEW_ANONYMOUS_200")
+        raw = json.dumps(result, sort_keys=True)
+        for game in audit.projects():
+            alias = game.pages_project + ".pages.dev"
+            self.assertNotIn("d0." + alias, raw)
+            self.assertNotIn("current." + alias, raw)
+        for row in result["projects"]:
+            self.assertNotIn("exposed_hosts", row)
+            self.assertNotIn("unverified_hosts", row)
+            self.assertGreater(row["exposed_host_count"], 0)
 
     def test_cloudflare_status_is_safe_but_provider_text_stays_private(self):
         g = audit.projects()[0]
