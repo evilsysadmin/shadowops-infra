@@ -93,7 +93,7 @@ class VerifiedGlbReleaseTest(unittest.TestCase):
 
     def test_dedicated_bucket_and_old_chess_studio_origin_are_rejected(self):
         self.assertEqual(art.BUCKET, "star-adventures")
-        self.assertEqual(art.PREFIX, "star-adventures/environment/")
+        self.assertEqual(art.PREFIX, "environment/")
         self.assertEqual(art.CDN,
             "https://pub-0e83bbe83562412182441ed82173d704.r2.dev/"
             + art.PREFIX)
@@ -105,6 +105,13 @@ class VerifiedGlbReleaseTest(unittest.TestCase):
                 + art.PREFIX + name)
         with self.assertRaisesRegex(art.PublishError, "immutable CDN path"):
             art.verify_archive(make_bundle(mutate=old_origin), SOURCE)
+        def doubled_prefix(manifest, receipt, assets):
+            name = manifest["slots"][0]["asset"]["url"].rsplit("/", 1)[-1]
+            manifest["slots"][0]["asset"]["url"] = (
+                art.CDN.removesuffix(art.PREFIX)
+                + "star-adventures/environment/" + name)
+        with self.assertRaisesRegex(art.PublishError, "immutable CDN path"):
+            art.verify_archive(make_bundle(mutate=doubled_prefix), SOURCE)
 
     def test_wrong_sha_rejected_without_cloud(self):
         with self.assertRaisesRegex(art.PublishError, "source SHA"):
@@ -213,7 +220,7 @@ class VerifiedGlbReleaseTest(unittest.TestCase):
         _, entries = art.verify_archive(make_bundle(), SOURCE)
         sample = sorted(entries)[0]
         filename = sample.removeprefix(art.PREFIX)
-        alternative = art.CDN.removesuffix(art.PREFIX) + "environment/" + filename
+        alternative = art.CDN.removesuffix(art.PREFIX) + "star-adventures/environment/" + filename
 
         class Response:
             status = 200
@@ -239,7 +246,7 @@ class VerifiedGlbReleaseTest(unittest.TestCase):
                 return Response(request, body)
 
         with patch.object(art.urllib.request, "build_opener", return_value=Probe()):
-            self.assertEqual(art.diagnose_public_paths(entries), ["environment/"])
+            self.assertEqual(art.diagnose_public_paths(entries), ["star-adventures/environment/"])
         with patch.object(art.urllib.request, "build_opener",
                           return_value=Probe(mismatched=True)):
             self.assertEqual(art.diagnose_public_paths(entries), [])
