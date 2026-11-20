@@ -1,0 +1,72 @@
+name: Pages · game Cloudflare Access bypass preflight (read-only)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/pages-access-readiness.yml'
+      - 'scripts/pages_access_readiness.py'
+      - 'tests/test_pages_access_readiness.py'
+      - 'docs/pages-access-bypass-remediation.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/pages-access-readiness.yml'
+      - 'scripts/pages_access_readiness.py'
+      - 'tests/test_pages_access_readiness.py'
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        options: [inspect]
+        default: inspect
+        required: true
+        description: Only GET Cloudflare Access applications and policies; no mutation
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: Exact root/wildcard/custom scopes and no bypass policies
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_pages_access_readiness.py' -v
+      - run: python3 -m py_compile scripts/pages_access_readiness.py
+
+  inspect:
+    name: Cloudflare Access scopes for Chronicles and Star Adventures (GET only)
+    needs: contracts
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.operation == 'inspect'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    environment: staging
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ACCESS_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_READ_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inspect Access app scope/policy metadata without disclosing Access rules
+        shell: bash
+        run: |
+          set -euo pipefail
+          rc=0
+          python3 scripts/pages_access_readiness.py inspect > "$RUNNER_TEMP/access-readiness.json" || rc=$?
+          if [[ "$rc" == '10' ]]; then
+            echo 'PAGES_ACCESS_REMEDIATION_REQUIRED no Access cutover proof'
+          elif [[ "$rc" == '0' ]]; then
+            echo 'PAGES_ACCESS_METADATA_CANDIDATE guest and authenticated E2E still required'
+          else
+            echo 'Access API unavailable, incomplete or unauthorized. Never infer protected hosts.' >&2
+            exit "$rc"
+          fi
+          tee -a "$GITHUB_STEP_SUMMARY" < "$RUNNER_TEMP/access-readiness.json"

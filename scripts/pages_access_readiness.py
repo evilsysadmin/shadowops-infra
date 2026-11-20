@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""Inspect Cloudflare Access for historical Pages bypasses; GET only, no writes.
+
+Access on Pages previews does NOT cover the base <project>.pages.dev host.
+This tool demands separate exact root, wildcard, and companion custom-domain
+destinations before calling an environment ready for *further testing*.
+
+App metadata or an Access sign-in redirect alone cannot establish that all
+historical URLs are protected or that ShadowOps ID gameplay still works.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import ssl
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+from uuid import UUID
+
+API = "https://api.cloudflare.com/client/v4"
+HOSTS = {
+    "chronicles-staging": "staging.chronicles.shadowops.dpdns.org",
+    "chronicles-production": "chronicles.shadowops.dpdns.org",
+    "staradvs-staging": "staging.staradvs.shadowops.dpdns.org",
+}
+UUID_PATTERN = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
+ACCOUNT_PATTERN = re.compile(r"[0-9a-fA-F]{32}\Z")
+VALID_ACTIONS = {"allow", "block"}
+MAX_APPS = 100
+MAX_POLICIES = 100
+
+
+class ReadinessError(Exception):
+    pass
+
+
+class AccessClient:
+    """Independent Access: Apps and Policies Read token; no Pages write token."""
+    def __init__(self, env):
+        account = env.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
+        token = env.get("CLOUDFLARE_ACCESS_READ_TOKEN", "").strip()
+        if not ACCOUNT_PATTERN.fullmatch(account) or not token:
+            raise ReadinessError("Access read-only account/token not configured")
+        self.account = account
+        self._token = token
+
+    def get(self, path):
+        if not isinstance(path, str) or not path.startswith("/accounts/" + self.account + "/access/apps"):
+            raise ReadinessError("Access endpoint outside approved account")
+        if any(v in path for v in ("?", "..", "//", "#")) or not re.fullmatch(
+            r"/accounts/[0-9a-fA-F]{32}/access/apps(?:/[0-9a-f-]{36}/policies)?", path
+        ):
+            raise ReadinessError("Access endpoint not allowlisted")
+        req = urllib.request.Request(API + path, method="GET", headers={
+            "Authorization": "Bearer " + self._token,
+            "Accept": "application/json",
+            "User-Agent": "ShadowOps-Pages-Access-Readiness/1.0",
+        })
+        try:
+            opener = urllib.request.build_opener(
+                urllib.request.HTTPSHandler(context=ssl.create_default_context()),
+                NoRedirect())
+            with opener.open(req, timeout=15) as res:
+                raw, status = res.read(1_000_001), res.status
+        except urllib.error.HTTPError as exc:
+            exc.close()
+            raise ReadinessError("Access inventory rejected: HTTP " + str(exc.code)) from None
+        except (OSError, urllib.error.URLError, TimeoutError):
+            raise ReadinessError("Access API unavailable") from None
+        if status != 200 or len(raw) > 1_000_000:
+            raise ReadinessError("Access inventory response not bounded HTTP 200")
+        try:
+            obj = json.loads(raw)
+        except (UnicodeError, ValueError):
+            raise ReadinessError("Access response invalid JSON") from None
+        if not isinstance(obj, dict) or obj.get("success") is not True:
+            raise ReadinessError("Access returned no approved inventory")
+        return obj
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def parse_apps(payload):
+    if not isinstance(payload, dict) or not isinstance(payload.get("result"), list):
+        raise ReadinessError("Access applications missing")
+    apps = payload["result"]
+    info = payload.get("result_info")
+    if len(apps) > MAX_APPS:
+        raise ReadinessError("Access app inventory too large")
+    if not isinstance(info, dict):
+        raise ReadinessError("Access pagination not independently verified")
+    # Never treat a possibly truncated first page as a complete Access census.
+    if (type(info.get("total_pages")) is not int or info["total_pages"] != 1
+            or type(info.get("count")) is not int or info["count"] != len(apps)
+            or type(info.get("total_count")) is not int or info["total_count"] != len(apps)):
+        raise ReadinessError("Access applications inventory partial")
+    return apps
+
+
+def normalized_destination(value):
+    if not isinstance(value, str) or not value or len(value) > 255:
+        return None
+    if value.startswith("https://"):
+        value = value[len("https://"):]
+    # The app must cover the entire hostname, never a specific page/path.
+    if "/" in value or "?" in value or "#" in value or ":" in value:
+        return None
+    return value.lower() if value == value.lower() else None
+
+
+def app_destinations(app):
+    if not isinstance(app, dict) or app.get("type") != "self_hosted":
+        return set(), False
+    destinations = app.get("destinations")
+    if destinations is not None:
+        if not isinstance(destinations, list) or not destinations:
+            return set(), False
+        domains = set()
+        for entry in destinations:
+            if (not isinstance(entry, dict) or entry.get("type", "public") != "public"
+                    or entry.get("overrides")):
+                return set(), False
+            name = normalized_destination(entry.get("uri"))
+            if name is None:
+                return set(), False
+            domains.add(name)
+        return domains, True
+    # Legacy Access applications represent hostname scopes differently.
+    domains = set()
+    legacy = app.get("self_hosted_domains")
+    if legacy:
+        if not isinstance(legacy, list):
+            return set(), False
+        for entry in legacy:
+            if not isinstance(entry, dict):
+                return set(), False
+            name = normalized_destination(entry.get("domain"))
+            if name is None:
+                return set(), False
+            domains.add(name)
+    else:
+        name = normalized_destination(app.get("domain"))
+        if name:
+            domains.add(name)
+    return domains, bool(domains)
+
+
+def policy_review(payload):
+    if not isinstance(payload, dict):
+        return "not-verified"
+    rows = payload.get("result")
+    page = payload.get("result_info")
+    if (not isinstance(rows, list) or len(rows) > MAX_POLICIES
+            or not isinstance(page, dict)
+            or type(page.get("total_pages")) is not int
+            or page["total_pages"] != 1
+            or type(page.get("total_count")) is not int
+            or page["total_count"] != len(rows)
+            or type(page.get("count")) is not int
+            or page["count"] != len(rows)):
+        return "not-verified"
+    if not rows:
+        # All-deny is possible, but do not label an unconfigured Access
+        # application ready for real authorized previews.
+        return "not-verified"
+    for policy in rows:
+        if not isinstance(policy, dict):
+            return "not-verified"
+        action = policy.get("decision", policy.get("action"))
+        if action not in VALID_ACTIONS:
+            return "review-required"
+        if action == "allow":
+            include = policy.get("include")
+            if not isinstance(include, list) or not include:
+                return "review-required"
+            # Everyone can include any user with an Access session; this does
+            # not demonstrate a restricted operator policy.
+            if any(not isinstance(x, dict) or "everyone" in x for x in include):
+                return "review-required"
+    return "restricted-policy-candidate"
+
+
+def inspect(client):
+    apps = parse_apps(client.get("/accounts/" + client.account + "/access/apps"))
+    project_rows = []
+    for project, custom in HOSTS.items():
+        wanted = {
+            "main": project + ".pages.dev",
+            "immutable": "*." + project + ".pages.dev",
+            "custom_companion": custom,
+        }
+        matches = {k: [] for k in wanted}
+        for app in apps:
+            domains, safe = app_destinations(app)
+            if not safe:
+                continue
+            for k, domain in wanted.items():
+                if domain in domains:
+                    matches[k].append(app)
+        status = {}
+        for scope, candidates in matches.items():
+            if len(candidates) != 1:
+                status[scope] = "missing" if not candidates else "ambiguous"
+                continue
+            app = candidates[0]
+            raw_id = app.get("id")
+            try:
+                app_id = str(UUID(raw_id))
+            except (TypeError, ValueError, AttributeError):
+                status[scope] = "unverified"
+                continue
+            if raw_id != app_id or not UUID_PATTERN.fullmatch(app_id):
+                status[scope] = "unverified"
+                continue
+            pol = client.get(f"/accounts/{client.account}/access/apps/{app_id}/policies")
+            status[scope] = policy_review(pol)
+        project_rows.append({
+            "project": project, "environment": "production" if project == "chronicles-production" else "staging",
+            "application_scopes": status,
+            "source_of_truth": "cloudflare-access-apps-and-policies-get",
+            "guest_http_probe": "not-performed",
+            "shadowops_id_e2e": "not-performed",
+        })
+    all_planned = all(all(v == "restricted-policy-candidate" for v in row["application_scopes"].values()) for row in project_rows)
+    return {
+        "state": "CONFIGURED_FOR_GUEST_TEST" if all_planned else "ACCESS_REMEDIATION_REQUIRED",
+        "projects": project_rows,
+        "can_activate": False,
+        "claim_all_games_protected": False,
+        "note": "Only metadata: live guest denial, Pages history, custom login, signed-in ShadowOps ID E2E still required",
+    }
+
+
+def main(argv):
+    if argv != ["inspect"]:
+        print("Usage: pages_access_readiness.py inspect", file=sys.stderr)
+        return 64
+    try:
+        report = inspect(AccessClient(os.environ))
+    except Exception as exc:
+        # All Access/Cloudflare responses can contain confidential fields;
+        # never print exception text, app IDs, policy rules or tokens.
+        print("PAGES_ACCESS_READINESS_BLOCKED kind=" + type(exc).__name__, file=sys.stderr)
+        return 2
+    print(json.dumps(report, sort_keys=True))
+    return 0 if report["state"] == "CONFIGURED_FOR_GUEST_TEST" else 10
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
