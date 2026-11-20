@@ -191,8 +191,12 @@ class StartOperatorTests(unittest.TestCase):
         self.assertEqual(up[0][-1], op.SERVICE)
         for required in ("--no-build", "--no-deps", "--pull", "never", "--detach"):
             self.assertIn(required, up[0])
-        for forbidden in ("down", "rm", "-v", "prune", "identity-tunnel"):
-            self.assertNotIn(forbidden, " ".join(str(x) for x in d.calls))
+        for call in d.calls:
+            self.assertNotIn(call[1], ("down", "rm", "prune", "pull"))
+            if call[1] == "compose":
+                self.assertFalse(any(arg in ("down", "rm", "prune", "-v",
+                                            "identity-production-tunnel")
+                                     for arg in call[2:]))
         self.assertFalse(any("stop" in x for x in d.calls))
 
     def test_partial_start_and_rogue_container_rollback_scope(self):
