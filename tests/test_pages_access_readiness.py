@@ -132,6 +132,48 @@ class AccessReadinessTests(unittest.TestCase):
         self.assertFalse(safe)
         self.assertEqual(len(domains), 2)
 
+    def test_broad_app_overlapping_all_pages_cannot_hide_behind_valid_apps(self):
+        examples = [
+            {"type": "self_hosted", "domain": "*.pages.dev"},
+            {"type": "self_hosted", "destinations": [
+                {"type": "public", "uri": "https://*.pages.dev/private"}]},
+            {"type": "self_hosted", "destinations": [
+                {"type": "public", "uri": "*.chronicles-staging.pages.dev"},
+                {"type": "private", "uri": "hidden.internal"}]},
+            {"type": "self_hosted", "self_hosted_domains": [
+                {"domain": "*.staradvs-staging.pages.dev"},
+                {"domain": "other.pages.dev"}]},
+            {"type": "self_hosted", "domain": "https://chronicles-production.pages.dev/path"},
+            {"type": "self_hosted", "domain": "*.shadowops.dpdns.org"},
+        ]
+        for extra in examples:
+            with self.subTest(extra=extra):
+                apps = full_apps() + [dict(extra, id=ident(70))]
+                report = a.inspect(Fake(apps))
+                self.assertEqual(report["state"], "ACCESS_REMEDIATION_REQUIRED")
+                self.assertTrue(any(
+                    v == "ambiguous"
+                    for row in report["projects"]
+                    for v in row["application_scopes"].values()
+                ))
+                self.assertNotIn(ident(70), json.dumps(report))
+
+    def test_specific_existing_deployment_conflicts_with_preview_wildcard(self):
+        apps = full_apps() + [app("d1.chronicles-staging.pages.dev", 71)]
+        result = a.inspect(Fake(apps))
+        row = next(x for x in result["projects"]
+                   if x["project"] == "chronicles-staging")
+        self.assertEqual(row["application_scopes"]["immutable"], "ambiguous")
+        self.assertEqual(result["state"], "ACCESS_REMEDIATION_REQUIRED")
+
+    def test_unrelated_access_apps_do_not_block_complete_readiness(self):
+        apps = full_apps() + [
+            app("private-other.example.net", 60),
+            app("*.snooker-staging.pages.dev", 61),
+        ]
+        result = a.inspect(Fake(apps))
+        self.assertEqual(result["state"], "CONFIGURED_FOR_GUEST_TEST")
+
     def test_bypass_or_everyone_are_not_restricted_operator_access(self):
         for policy in (
             [{"action": "bypass", "include": [{"everyone": {}}]}],
