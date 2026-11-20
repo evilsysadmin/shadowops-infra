@@ -71,7 +71,6 @@ class WorkflowTests(unittest.TestCase):
             "bridgesquad_source_admission.py check",
             "commits/main --jq .sha",
             "bridgesquad_production_release.py preflight \"$LIVE_SHA\" \"$TARGET_SHA\"",
-            "bridgesquad_legacy_pages_guard.py inspect",
             "npx --yes wrangler@4.127.1 pages deploy",
             "--project-name bridgesquad-production",
             "--branch main",
@@ -86,9 +85,6 @@ class WorkflowTests(unittest.TestCase):
                         self.publish.index("production_release.py preflight"))
         self.assertLess(self.publish.index("production_release.py preflight"),
                         self.publish.index("wrangler@4.127.1 pages deploy"))
-        self.assertLess(self.publish.index("legacy_pages_guard.py inspect"),
-                        self.publish.index("wrangler@4.127.1 pages deploy"))
-        self.assertIn("test_bridgesquad_legacy_pages_guard.py", self.contracts)
         self.assertLess(self.publish.index("wrangler@4.127.1 pages deploy"),
                         self.publish.index("production_release.py postflight"))
         self.assertIn("steps.before.outputs.prior_deployment_id", self.publish)
@@ -96,6 +92,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("wrangler pages project create", self.publish)
         self.assertNotIn("dns_records", self.publish)
         self.assertNotIn("secret put", self.publish)
+        self.assertNotIn("github.io", self.yaml)
+        self.assertNotIn("legacy_pages_guard", self.yaml)
 
     def test_admission_only_reads_provider_and_rejects_unbound_identity(self):
         for required in ("quarantine.project(client, allow_bound=True)",

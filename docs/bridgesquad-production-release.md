@@ -1,6 +1,6 @@
 # Matthias Bridge Squad · promoción protegida del juego a producción
 
-Este release train sustituye la antigua publicación estática anónima: **no**
+Este release train publica exclusivamente en **Cloudflare Pages**, bajo el proyecto `bridgesquad-production`. GitHub proporciona repositorios y artefactos CI; **GitHub Pages no forma parte del alojamiento**. El proceso **no**
 genera cuentas, credenciales, DNS, Identity productivo ni secretos. La
 preparación ocurre sin acceso a Cloudflare; la promoción es una decisión
 **manual** del operador, nunca un push automático de juego o Infra.
@@ -48,14 +48,7 @@ y requiere:
    Bridge Squad y `/readyz` disponibles. No sirve staging.
 4. Visitante sin sesión: shell HTTP 401 y acceso a todos los assets denegado;
    `*.pages.dev` GET/HEAD/POST rechazados 404 por el Worker.
-5. **GitHub Pages anterior desactivado:** la API pública
-   `/repos/evilsysadmin/matthias-bridge-squad/pages` debe devolver 404,
-   y las URLs `evilsysadmin.github.io/matthias-bridge-squad/` e
-   `/index.html` también 404, sin HTML del juego. El verificador
-   `bridgesquad_legacy_pages_guard.py` se ejecuta dos veces: antes de
-   acceder a la promoción y justo antes de subirla. Un 200, redirect,
-   timeout, 403 o estado ambiguo **bloquea**, nunca asume cierre.
-6. SHA del deployment actual igual al `expected_live_sha` suministrado,
+5. SHA del deployment actual igual al `expected_live_sha` suministrado,
    distinto del `target_sha`, y `canonical_deployment.id` definido.
    Una modificación concurrente, secreto inesperado, IdP caído o SHA
    avanzado aborta **antes** de subir nada.
@@ -81,12 +74,10 @@ La comprobación productiva pendiente de #611 exige login real en el
 hostname definitivo desde escritorio y móvil, cookie host-only,
 `aud=bridgesquad`, JWT productivo, lectura de juego autorizada,
 renovación, logout/revocación, cambio de cuenta sin heredar progreso,
-IdP caído con acceso denegado, estado final de aliases 404 y ausencia
-de una copia pública antigua en GitHub Pages. Guardar recibos de SHA,
+IdP caído con acceso denegado, y estado final de los aliases
+`*.pages.dev` de Cloudflare con HTTP 404. Guardar recibos de SHA,
 deployment ID y navegación real antes de anunciar Bridge Squad como
 jugable.
-
-Si hay una copia heredada de GitHub Pages todavía disponible, debe desactivarse expresamente en la configuración del repositorio del juego y verificarse el 404 antes del dispatch. **Quitar el workflow antiguo no despublica automáticamente un deployment previo.**
 
 Si Identity de producción aún no está arrancado o su proof no está ligado,
 el workflow **no puede publicar**: las comprobaciones fallan antes de
