@@ -19,24 +19,25 @@ class SealedHandoffWorkflowTests(unittest.TestCase):
         self.assertIn("github.event_name == 'workflow_dispatch'", self.job)
         self.assertNotIn("pull_request", self.job)
 
-    def test_exact_game_artifact_and_both_layers_of_verification(self):
+    def test_green_game_artifact_provenance_and_privately_rebuilt_source(self):
         for required in (
             "source.admit(reader, sha)",
-            "steps.source.outputs.artifact_id",
-            "steps.source.outputs.artifact_digest",
-            "gh api \"repos/evilsysadmin/matthias-bridge-squad/actions/artifacts/$ARTIFACT_ID/zip\"",
-            "bridgesquad_source_admission.py verify-archive",
+            "steps.source.outputs.source_sha",
+            "bridgesquad_source_snapshot.py snapshot",
+            "steps.snapshot.outputs.snapshot_digest",
             "bridgesquad_release_package.py prepare",
             "bridgesquad_release_package.py verify",
             "bridgesquad_source_admission.py check \"$SOURCE_SHA\"",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, self.job)
-        order = ["source.admit(reader, sha)", "gh api", "verify-archive",
+        order = ["source.admit(reader, sha)", "bridgesquad_source_snapshot.py snapshot",
                  "release_package.py prepare", "release_package.py verify",
                  "source_admission.py check", "actions/upload-artifact@v4"]
         offsets = [self.job.index(item) for item in order]
         self.assertEqual(offsets, sorted(offsets), "upload must follow all checks")
+        self.assertNotIn("/actions/artifacts/$ARTIFACT_ID/zip", self.job)
+        self.assertNotIn("gh api \"repos/evilsysadmin/matthias-bridge-squad/actions/artifacts", self.job)
 
     def test_signed_browser_runs_on_exact_sealed_artifact_before_archive(self):
         self.assertIn("node-version: '22'", self.text)
@@ -84,12 +85,13 @@ class SealedHandoffWorkflowTests(unittest.TestCase):
             self.job.index("source.admit(reader, sha)"),
         )
         for title in (
-            "Download exact verified source artifact and reject tampering",
+            "Rebuild pinned public game commit into a private source ZIP (no cross-repo Actions download)",
             "Seal the exact HTML with Infra-owned fail-closed Identity Worker",
             "Recheck unchanged game main before publishing private artifact",
             "Archive private Infra candidate for later protected delivery",
         ):
-            marker = "      - name: " + title + "\n        if: steps.duplicate.outputs.sealed_exists != 'true'"
+            id_line = "        id: snapshot\n" if title.startswith("Rebuild pinned") else ""
+            marker = "      - name: " + title + "\n" + id_line + "        if: steps.duplicate.outputs.sealed_exists != 'true'"
             with self.subTest(title=title):
                 self.assertIn(marker, self.job)
         self.assertIn("scripts/bridgesquad_sealed_candidate_dedupe.py", self.text)

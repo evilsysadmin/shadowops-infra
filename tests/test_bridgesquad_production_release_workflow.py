@@ -44,7 +44,8 @@ class WorkflowTests(unittest.TestCase):
     def test_immutable_source_and_real_sealed_browser_before_release(self):
         required = (
             "source.admit(source.GithubReader(os.environ['GH_TOKEN'])",
-            "gh api \"repos/evilsysadmin/matthias-bridge-squad/actions/artifacts/$ARTIFACT_ID/zip\"",
+            "bridgesquad_source_snapshot.py snapshot",
+            "steps.snapshot.outputs.snapshot_digest",
             "bridgesquad_source_admission.py verify-archive",
             "bridgesquad_release_package.py prepare",
             "bridgesquad_release_package.py verify",
@@ -55,11 +56,13 @@ class WorkflowTests(unittest.TestCase):
         for value in required:
             with self.subTest(value=value):
                 self.assertIn(value, self.prepare)
-        sequence = ["source.admit(", "gh api", "verify-archive", "release_package.py prepare",
+        sequence = ["source.admit(", "source_snapshot.py snapshot", "verify-archive", "release_package.py prepare",
                     "release_package.py verify", "sealed_worker_browser.py",
                     "source_admission.py check", "actions/upload-artifact@v4"]
         indexes = [self.prepare.index(item) for item in sequence]
         self.assertEqual(indexes, sorted(indexes))
+        self.assertNotIn("/actions/artifacts/$ARTIFACT_ID/zip", self.prepare)
+        self.assertIn("artifact_digest: ${{ steps.snapshot.outputs.snapshot_digest }}", self.prepare)
         self.assertIn("if-no-files-found: error", self.prepare)
         self.assertIn("retention-days: 1", self.prepare)
         self.assertIn("persist-credentials: false", self.prepare)
