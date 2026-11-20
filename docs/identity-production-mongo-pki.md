@@ -70,9 +70,19 @@ existe un despliegue/producto previo, instalar los tres ficheros en
 ```sh
 # Ejemplo: solo tras copiar explícitamente los 3 archivos de L14.
 # El directorio TEMP debe ser 0700, del operador ubuntu, con esos 3 ficheros.
+set -euo pipefail
 temp="$HOME/shadowops-mongo-pki-stage"
+test -d "$temp" && test ! -L "$temp"
 test "$(stat -c %a "$temp")" = 700
-test "$(find "$temp" -maxdepth 1 -type f | wc -l)" -eq 3
+test "$(find "$temp" -mindepth 1 -maxdepth 1 | wc -l)" -eq 3
+for name in ca.pem mongo.pem replica.key; do
+    test -f "$temp/$name" && test ! -L "$temp/$name"
+done
+# No adoptar ni sobrescribir otro despliegue Mongo.
+if sudo -n test -e /etc/shadowops/identity-production/mongo; then
+    echo "Directorio Mongo ya existente: operación cancelada" >&2
+    exit 1
+fi
 
 sudo -n install -d -o root -g root -m 0750 /etc/shadowops/identity-production
 sudo -n install -d -o root -g 999 -m 0750 /etc/shadowops/identity-production/mongo
