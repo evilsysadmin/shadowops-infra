@@ -1,0 +1,72 @@
+name: Games · ShadowOps ID historical Pages alias exposure
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/game-identity-pages-history.yml'
+      - 'scripts/game_identity_pages_history.py'
+      - 'tests/test_game_identity_pages_history.py'
+      - 'scripts/game_identity_exposure.py'
+      - 'docs/game-identity-pages-history.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/game-identity-pages-history.yml'
+      - 'scripts/game_identity_pages_history.py'
+      - 'tests/test_game_identity_pages_history.py'
+      - 'scripts/game_identity_exposure.py'
+  workflow_dispatch:
+  schedule:
+    - cron: '22 5 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: Owned project, immutable alias and no mutation contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_game_identity_pages_history.py' -v
+      - run: python3 -m py_compile scripts/game_identity_pages_history.py
+
+  inventory:
+    name: Probe actual historic Cloudflare Pages aliases (GET only)
+    needs: contracts
+    if: >-
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' ||
+       github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'schedule')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    environment: staging
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inventory owned Pages projects and probe prior deployments anonymously
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=0
+          python3 scripts/game_identity_pages_history.py audit > "$RUNNER_TEMP/identity-pages-history.json" || status=$?
+          cat "$RUNNER_TEMP/identity-pages-history.json" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$status" == '1' ]]; then
+            echo 'GAME_IDENTITY_PAGES_HISTORICAL_EXPOSURE observed public legacy Pages deployment'
+            exit 1
+          fi
+          if [[ "$status" == '2' ]]; then
+            echo 'GAME_IDENTITY_PAGES_HISTORY_INCOMPLETE no protected-coverage receipt'
+            exit 2
+          fi
+          [[ "$status" == '0' ]]
+          echo 'GAME_IDENTITY_PAGES_GUEST_DENIAL_OBSERVED signed-in E2E remains separately required'
