@@ -58,6 +58,15 @@ email. A Deny-only application is not evidence that an authorized user
 can log in. These are intentionally conservative readiness criteria,
 not a requirement to delete existing organization-wide Access groups.
 
+The global preflight also inspects **raw destination declarations**, even
+when malformed fields cause the strict parser to reject an application. A
+foreign application with `*.pages.dev`, an individual preview hostname,
+a custom-domain wildcard, or a path-specific destination overlapping any
+of the nine protected surfaces makes that scope `ambiguous`, never a
+readiness candidate. Unrelated Access applications are not blocked. This
+prevents a syntactically invalid extra destination from concealing a
+second, broader policy alongside a correctly configured application.
+
 It logs only app-scope classifications,
 never application identifiers, rule text, emails, Access users or opaque
 Pages deployment addresses.
