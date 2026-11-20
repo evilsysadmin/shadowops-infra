@@ -8,6 +8,7 @@ export OCI_SSH_USER OCI_SSH_KEY OCI_SSH_HOSTNAME
 export CKA_OPERATOR_SSH_KEY
 .PHONY: help cka-retire-host cka-retire-inspect identity-staging-bootstrap \
   oci-a1-ssh-check oci-a1-ssh \
+  identity-prod-mongo-host-plan identity-prod-mongo-host-inspect \
   identity-prod-plan identity-prod-doctor identity-prod-inspect identity-prod-mongo-inspect identity-prod-mongo-apply \
   identity-prod-origin-inspect identity-prod-origin-start identity-prod-origin-stop \
   identity-prod-tunnel-inspect identity-prod-tunnel-start identity-prod-tunnel-stop \
@@ -31,6 +32,8 @@ help:
 	  '  make identity-prod-plan       Safe plan; NO Docker, secrets, Cloudflare or Mongo changes' \
 	  '  make identity-prod-doctor     Local prerequisite inventory; no secrets printed or commands executed' \
 	  '  make identity-prod-inspect    Read-only Mongo + origin preflights (fails if not ready)' \
+	  '  make identity-prod-mongo-host-plan | identity-prod-mongo-host-inspect' \
+	  '       Validate isolated Mongo host Compose and private TLS file metadata (no deploy)' \
 	  '  make identity-prod-mongo-inspect | identity-prod-mongo-apply' \
 	  '  make identity-prod-origin-inspect | identity-prod-origin-start | identity-prod-origin-stop' \
 	  '  make identity-prod-tunnel-inspect | identity-prod-tunnel-start | identity-prod-tunnel-stop' \
@@ -87,6 +90,13 @@ identity-prod-inspect:
 	@$(PYTHON) scripts/identity_production_doctor.py
 	@$(PYTHON) scripts/identity_production_mongo_operator.py inspect
 	@$(PYTHON) host/identity-production-origin.py inspect
+
+# Phase 0: isolated Mongo host candidate; never creates resources or starts Docker.
+identity-prod-mongo-host-plan:
+	@$(PYTHON) scripts/identity_production_mongo_host.py plan
+
+identity-prod-mongo-host-inspect:
+	@$(PYTHON) scripts/identity_production_mongo_host.py inspect
 
 identity-prod-mongo-inspect:
 	@$(PYTHON) scripts/identity_production_mongo_operator.py inspect
