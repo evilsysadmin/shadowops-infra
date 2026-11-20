@@ -17,11 +17,11 @@ para desplegar ni para retirar la cuarentena del juego.
    mínimo auditado, credenciales en custodia privada y certificado TLS correcto.
    Revisar la atestación del candidato GHCR del SHA seleccionado, descargar el
    digest inmutable por una vía administrada y verificarlo.
-2. Preparar fuera de Git el bundle privado de Identity y los tres ficheros
-   del túnel (config YAML exacta, credencial privada y CA de origen).
-   Identity debe poder leer el bundle como UID 65532. Aunque el túnel aún no
-   arranque, sus ficheros deben existir para comprobar anticipadamente que
-   la CA del probe y la CA del túnel son idénticas.
+2. Preparar fuera de Git el bundle privado de Identity y la CA TLS del
+   origen. Identity debe leer el bundle como UID 65532. **Fase 1 no requiere
+   ningún fichero, digest ni credencial de Cloudflare Tunnel.** El operador
+   del túnel validará su configuración y la CA compartida de forma estricta
+   en la fase 2, sin mezclar staging ni producción.
 3. En el **terminal root del host productivo** (rutas ficticias, no incluir
    contraseñas en comandos, CI ni logs):
 
@@ -29,10 +29,6 @@ para desplegar ni para retirar la cuarentena del juego.
 export IDENTITY_PRODUCTION_IMAGE_DIGEST=sha256:<digest-inmutable-verificado>
 export IDENTITY_PRODUCTION_SOURCE_SHA=<40hex-del-commit-admitido>
 export IDENTITY_PRODUCTION_BUNDLE_FILE=/etc/shadowops/identity-production/service.json
-export IDENTITY_PRODUCTION_TUNNEL_DIGEST=sha256:<digest-cloudflared-revisado>
-export IDENTITY_PRODUCTION_TUNNEL_CONFIG_FILE=/etc/shadowops/identity-production/tunnel.yml
-export IDENTITY_PRODUCTION_TUNNEL_CREDENTIALS_FILE=/etc/shadowops/identity-production/tunnel-credentials.json
-export IDENTITY_PRODUCTION_TUNNEL_ORIGIN_CA_FILE=/etc/shadowops/identity-production/origin-ca.pem
 export IDENTITY_PRODUCTION_ORIGIN_CA_FILE=/etc/shadowops/identity-production/origin-ca.pem
 
 python3 host/identity-production-origin.py plan
@@ -41,11 +37,13 @@ python3 host/identity-production-origin.py inspect
 python3 host/identity-production-origin.py start-origin
 ~~~
 
-plan no abre secretos ni ejecuta Docker. inspect comprueba ambos
-preflights: bundle privado, YAML del túnel, credenciales privadas **sin leer
-su contenido**, CA coincidente para túnel y sonda, Compose con puerto
-**solo loopback**, imagen local por digest y etiqueta de fuente exactamente
-igual al SHA autorizado. No arranca contenedores ni toca OCI.
+plan no abre secretos ni ejecuta Docker. inspect valida exclusivamente el
+bundle privado de Identity, su CA TLS y el **Compose de origen-only**; no
+necesita ni lee credenciales, imagen o configuración del túnel. Confirma
+puerto **solo loopback**, imagen local fijada por digest, etiqueta de fuente
+exacta y redes de origen privado / Mongo separadas. El render de ambas fases
+se prueba en CI para evitar recreaciones o cambios de red en el corte.
+No arranca contenedores ni toca OCI.
 
 start-origin requiere root, TTY interactivo y escribir literalmente
 START_LOOPBACK_PRODUCTION_IDENTITY_ONLY. Rechaza CI/GitHub Actions, otro
@@ -84,3 +82,20 @@ DNS/credenciales Cloudflare de producción, probar login/JWKS/frescura
 y revocación desde un navegador autenticado contra el Worker y completar
 los 12 niveles. Hasta entonces HTTP 401 se mantiene en el juego.
 Seguimiento: #287 y #611.
+
+## Transición a fase 2 (materiales independientes del túnel)
+
+Cuando el origen haya superado su comprobación TLS/SNI/JWKS en localhost,
+preparar las credenciales y YAML de Cloudflare Tunnel, su digest cloudflared
+y la CA origin que coincida con la usada por el probe. **Solo entonces**
+se establecen IDENTITY_PRODUCTION_TUNNEL_DIGEST,
+IDENTITY_PRODUCTION_TUNNEL_CONFIG_FILE,
+IDENTITY_PRODUCTION_TUNNEL_CREDENTIALS_FILE y
+IDENTITY_PRODUCTION_TUNNEL_ORIGIN_CA_FILE para ejecutar
+host/identity-production-tunnel.py inspect/start-tunnel.
+El script de la fase 2 sigue usando su comprobación completa de ambos
+servicios y no inicia automáticamente el túnel. Las redes con nombres
+estables son idénticas en los dos Compose para conservar el origen activo.
+La parada del origen examina todos los contenedores etiquetados con el
+proyecto Docker, incluidos los del túnel que puedan quedar como orphans;
+no permitirá una parada si detecta el túnel funcionando.

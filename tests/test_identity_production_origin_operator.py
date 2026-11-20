@@ -52,10 +52,26 @@ def render():
         "networks": {"identity-origin": {"internal": True}},
     }
 
+def render_origin():
+    obj = copy.deepcopy(render())
+    obj["services"].pop(op.TUNNEL)
+    obj["networks"] = {
+        "identity-origin": {
+            "internal": True,
+            "name": "shadowops-identity-production-origin",
+        },
+        "identity-mongo-egress": {
+            "name": "shadowops-identity-production-mongo-egress",
+        },
+    }
+    return obj
+
+
 
 class DockerDouble:
     def __init__(self):
         self.config = render()
+        self.origin_config = render_origin()
         self.events = []
         self.containers = []
         self.fail_up = False
@@ -64,11 +80,16 @@ class DockerDouble:
 
     def __call__(self, args, **kwargs):
         self.events.append(tuple(args))
-        if args[:3] == ["docker", "image", "inspect"]:
+        if args[:2] == ["docker", "ps"]:
+            result = "\n".join(x["Service"] + "|" + x["State"] for x in self.containers)
+        elif args[:3] == ["docker", "image", "inspect"]:
             result = self.image_sha
         elif args[:2] == ["docker", "compose"]:
             if "config" in args:
-                result = json.dumps(self.config)
+                result = json.dumps(
+                    self.origin_config if str(op.ORIGIN_OVERLAY) in args
+                    else self.config
+                )
             elif "ps" in args:
                 result = "\n".join(json.dumps(x) for x in self.containers)
             elif "up" in args:
@@ -132,6 +153,70 @@ class OriginOperatorTests(unittest.TestCase):
                 with self.assertRaises(op.Refused):
                     op.check_compose_config(json.dumps(bad), IMAGE, TUNNEL_DIGEST)
 
+    def test_origin_only_compose_does_not_require_tunnel_configuration(self):
+        op.check_origin_compose_config(json.dumps(render_origin()), IMAGE)
+        for bad in ("port", "tunnel", "network", "root", "volume", "restart",
+                    "network-name", "private-network", "image"):
+            with self.subTest(bad=bad):
+                cfg = render_origin()
+                o = cfg["services"][op.SERVICE]
+                if bad == "port":
+                    o["ports"][0]["host_ip"] = "0.0.0.0"
+                elif bad == "tunnel":
+                    cfg["services"][op.TUNNEL] = render()["services"][op.TUNNEL]
+                elif bad == "network":
+                    o["networks"]["identity-tunnel-egress"] = {}
+                elif bad == "root":
+                    o["user"] = "0:0"
+                elif bad == "volume":
+                    o["volumes"][0]["read_only"] = False
+                elif bad == "restart":
+                    o["restart"] = "always"
+                elif bad == "network-name":
+                    cfg["networks"]["identity-origin"]["name"] = "foreign-network"
+                elif bad == "private-network":
+                    cfg["networks"]["identity-origin"]["internal"] = False
+                elif bad == "image":
+                    o["image"] = "unreviewed/image:latest"
+                with self.assertRaises(op.Refused):
+                    op.check_origin_compose_config(json.dumps(cfg), IMAGE)
+
+    def test_stage_one_requires_no_tunnel_credentials_even_for_admission(self):
+        origin_only = {
+            "IDENTITY_PRODUCTION_IMAGE_DIGEST": DIGEST,
+            "IDENTITY_PRODUCTION_SOURCE_SHA": SHA,
+            "IDENTITY_PRODUCTION_BUNDLE_FILE": "/synthetic/origin-service.json",
+            "IDENTITY_PRODUCTION_ORIGIN_CA_FILE": "/synthetic/origin-ca.pem",
+        }
+        with mock.patch.dict(os.environ, origin_only, clear=True), \
+             mock.patch.object(op.runtime, "validate") as runtime_check, \
+             mock.patch.object(op.origin, "ca_file", return_value=Path("/synthetic/origin-ca.pem")), \
+             mock.patch.object(op.tunnel, "validate", side_effect=AssertionError("tunnel required too early")):
+            self.assertEqual(op.origin_env_contract(), (SHA, IMAGE))
+            runtime_check.assert_called_once_with(DIGEST, "/synthetic/origin-service.json")
+        docker = DockerDouble()
+        with mock.patch.object(op, "origin_env_contract", return_value=(SHA, IMAGE)):
+            self.assertEqual(op.origin_admission(runner=docker), (SHA, IMAGE))
+        self.assertTrue(any("config" in x and str(op.ORIGIN_OVERLAY) in x for x in docker.events))
+        self.assertFalse(any("up" in x for x in docker.events))
+
+    def test_project_wide_status_finds_tunnel_even_when_origin_overlay_is_used(self):
+        docker = DockerDouble()
+        docker.containers = [
+            {"Service": op.SERVICE, "State": "running"},
+            {"Service": op.TUNNEL, "State": "running"},
+        ]
+        found = op.project_container_status(runner=docker)
+        self.assertEqual({x["Service"] for x in found}, {op.SERVICE, op.TUNNEL})
+        self.assertTrue(any(x[:2] == ("docker", "ps") for x in docker.events))
+        for malformed in ("unknown|running", "identity-production|garbage",
+                          "identity-production|running\nidentity-production|running",
+                          "identity-production", "|running"):
+            with self.subTest(malformed=malformed):
+                with mock.patch.object(op, "run", return_value=malformed):
+                    with self.assertRaises(op.Refused):
+                        op.project_container_status()
+
     def test_parse_status_requires_expected_project_and_services(self):
         self.assertEqual(op.parse_ps(""), [])
         self.assertEqual(len(op.parse_ps('[{"Service":"identity-production"}]')), 1)
@@ -169,7 +254,7 @@ class OriginOperatorTests(unittest.TestCase):
         docker = DockerDouble()
         with mock.patch.object(op, "require_manual"), \
              mock.patch.object(op, "exclusive", return_value=nullcontext()), \
-             mock.patch.object(op, "admission", return_value=(SHA, IMAGE)), \
+             mock.patch.object(op, "origin_admission", return_value=(SHA, IMAGE)), \
              mock.patch.object(op, "occupied", return_value=False), \
              mock.patch.object(op.origin, "ca_file", return_value=Path("/fixture/ca.pem")):
             op.start_origin(runner=docker, inspect=lambda ca: {"tls": "verified", "ready": "yes"})
@@ -190,7 +275,7 @@ class OriginOperatorTests(unittest.TestCase):
                 docker.extra_service = poison == "tunnel-started"
                 with mock.patch.object(op, "require_manual"), \
                      mock.patch.object(op, "exclusive", return_value=nullcontext()), \
-                     mock.patch.object(op, "admission", return_value=(SHA, IMAGE)), \
+                     mock.patch.object(op, "origin_admission", return_value=(SHA, IMAGE)), \
                      mock.patch.object(op, "occupied", return_value=False), \
                      mock.patch.object(op.origin, "ca_file", return_value=Path("/fixture/ca.pem")), \
                      mock.patch.object(op.time, "sleep"):
@@ -209,7 +294,7 @@ class OriginOperatorTests(unittest.TestCase):
                 docker.containers = [{"Service": op.SERVICE, "State": "running"}]
             with mock.patch.object(op, "require_manual"), \
                  mock.patch.object(op, "exclusive", return_value=nullcontext()), \
-                 mock.patch.object(op, "admission", return_value=(SHA, IMAGE)), \
+                 mock.patch.object(op, "origin_admission", return_value=(SHA, IMAGE)), \
                  mock.patch.object(op, "occupied", return_value=condition == "port"):
                 with self.assertRaises(op.Refused):
                     op.start_origin(runner=docker)
@@ -222,7 +307,7 @@ class OriginOperatorTests(unittest.TestCase):
                                  {"Service": op.TUNNEL, "State": "running" if tunnel_active else "exited"}]
             with mock.patch.object(op, "require_manual"), \
                  mock.patch.object(op, "exclusive", return_value=nullcontext()), \
-                 mock.patch.object(op, "admission", return_value=(SHA, IMAGE)):
+                 mock.patch.object(op, "origin_admission", return_value=(SHA, IMAGE)):
                 if tunnel_active:
                     with self.assertRaises(op.Refused):
                         op.stop_origin(runner=docker)

@@ -1,0 +1,13 @@
+# First-stage production Identity origin ONLY: no Cloudflare tunnel credentials.
+# Uses the same named networks as the separate production-tunnel overlay.
+# Combined with compose.identity.production.yaml by operator; never by CI.
+name: shadowops-identity-production
+services:
+  identity-production:
+    networks: [identity-origin, identity-mongo-egress]
+networks:
+  identity-origin:
+    name: shadowops-identity-production-origin
+    internal: true
+  identity-mongo-egress:
+    name: shadowops-identity-production-mongo-egress
