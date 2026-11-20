@@ -155,6 +155,73 @@ class PagesHistoryTests(unittest.TestCase):
             self.assertNotIn("unverified_hosts", row)
             self.assertGreater(row["exposed_host_count"], 0)
 
+    def test_only_exact_cloudflare_access_login_redirect_is_recognized(self):
+        origin = "https://old.pages-staging.pages.dev/"
+        valid = "https://shadowops.cloudflareaccess.com/cdn-cgi/access/login/old.pages-staging.pages.dev?redirect_url=%2F"
+        self.assertTrue(audit.is_access_login_redirect(origin, 302, valid))
+        self.assertTrue(audit.is_access_login_redirect(origin, 303, valid))
+        self.assertFalse(audit.is_access_login_redirect(origin, 301, valid))
+        invalid = (
+            "https://evil.invalid/login",
+            "http://shadowops.cloudflareaccess.com/cdn-cgi/access/login/old.pages-staging.pages.dev",
+            "https://evil.cloudflareaccess.com.evil.invalid/cdn-cgi/access/login/old.pages-staging.pages.dev",
+            "https://shadowops.cloudflareaccess.com@evil.invalid/cdn-cgi/access/login/old.pages-staging.pages.dev",
+            "https://shadowops.cloudflareaccess.com/cdn-cgi/access/login/different.pages.dev",
+            "https://shadowops.cloudflareaccess.com/cdn-cgi/access/login/old.pages-staging.pages.dev/extra",
+            "https://shadowops.cloudflareaccess.com:443/cdn-cgi/access/login/old.pages-staging.pages.dev",
+            "https://shadowops.cloudflareaccess.com/cdn-cgi/access/login/old.pages-staging.pages.dev#fragment",
+            "/cdn-cgi/access/login/old.pages-staging.pages.dev",
+            "https://shadowops.cloudflareaccess.com/cdn-cgi/access/login/old.pages-staging.pages.dev" + "a" * 2100,
+        )
+        for target in invalid:
+            with self.subTest(target=target[:100]):
+                self.assertFalse(audit.is_access_login_redirect(origin, 302, target))
+        self.assertFalse(audit.is_access_login_redirect("https://evil.invalid/", 302, valid))
+
+    def test_access_login_response_never_proves_protected_historic_coverage(self):
+        cf = FakeCloudflare()
+        g = next(g for g in audit.projects() if g.slug == "star-adventures")
+        challenge = audit.GuestProbe(302, True)
+        safe = audit.assess_one(cf, g, lambda _u, _m: challenge)
+        self.assertEqual(safe["access_login_challenge_count"], 4)
+        self.assertEqual(safe["exposed_host_count"], 0)
+        self.assertEqual(safe["unverified_host_count"], 0)
+        self.assertFalse(safe["historic_inventory_complete"])
+        self.assertEqual(safe["state"], "NOT_FULLY_VERIFIED")
+        # A redirect to some other origin is NOT an Access challenge.
+        unverified = audit.assess_one(cf, g, lambda _u, _m: audit.GuestProbe(302, False))
+        self.assertEqual(unverified["access_login_challenge_count"], 0)
+        self.assertEqual(unverified["unverified_host_count"], 4)
+        # One anonymous static 200 still blocks, even with a valid challenge elsewhere.
+        def mixed(url, _method):
+            if "d1." in url and "/release.json" in url:
+                return audit.GuestProbe(200)
+            return audit.GuestProbe(302, True)
+        exposed = audit.assess_one(cf, g, mixed)
+        self.assertEqual(exposed["state"], "REVIEW_ANONYMOUS_200")
+        self.assertEqual(exposed["exposed_host_count"], 1)
+        self.assertNotIn("d1.staradvs-staging.pages.dev", json.dumps(exposed))
+
+    def test_real_http_adapter_never_follows_redirects_or_logs_location(self):
+        import urllib.error
+        from unittest.mock import patch
+
+        url = "https://d1.staradvs-staging.pages.dev/"
+        location = "https://team.cloudflareaccess.com/cdn-cgi/access/login/d1.staradvs-staging.pages.dev"
+        class RedirectOpener:
+            def open(self, req, timeout):
+                self.request = req
+                self.timeout = timeout
+                raise urllib.error.HTTPError(url, 302, "Found", {"Location": location}, None)
+        opener = RedirectOpener()
+        with patch.object(audit.urllib.request, "build_opener", return_value=opener):
+            response = audit.fetch_pages_guest(url, "GET")
+        self.assertEqual(response, audit.GuestProbe(302, True))
+        self.assertEqual(opener.request.full_url, url)
+        self.assertEqual(opener.request.get_method(), "GET")
+        self.assertEqual(opener.timeout, 8)
+        self.assertNotIn("team.cloudflareaccess.com", repr(response))
+
     def test_cloudflare_status_is_safe_but_provider_text_stays_private(self):
         g = audit.projects()[0]
 
