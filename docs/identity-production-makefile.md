@@ -18,9 +18,27 @@ seguir fuera de Git, de argumentos de comandos y del historial.
 
 ```sh
 make identity-prod-plan
+make identity-prod-doctor          # Seguro incluso desde el L14: solo diagnostica ESTA máquina
 make bridgesquad-prod-identity-status
 make bridgesquad-prod-identity-ready   # Fallará hasta que el IdP REAL esté activo
 ```
+
+**Importante:** `make identity-prod-doctor` no instala Mongo ni se conecta
+por SSH; inspecciona las variables y rutas de **la máquina donde se ejecuta**
+sin abrir archivos privados, ni imprimir rutas, SHA, URI, claves o contraseñas.
+Por ejemplo, en un ThinkPad sin los materiales productivos indicará
+`mongo_admin_uri_file=missing`, `bundle_file=missing` y `root=no`.
+Es normal que `make identity-prod-inspect` siga devolviendo
+`PRODUCTION_MONGO_REFUSED` hasta preparar el **host productivo**.
+No basta con ejecutar `sudo make` en el portátil: el servicio debe operar
+en la infraestructura productiva autorizada, no en la máquina local.
+
+`make identity-prod-inspect` ahora imprime primero el diagnóstico
+local no sensible y a continuación ejecuta los preflights reales de Mongo
+y origen, que mantienen sus denegaciones genéricas para no filtrar URIs,
+ficheros de secretos, rutas o errores internos del driver. Un resultado
+`present` significa únicamente que existe un archivo regular en esa
+máquina, **no** que el secreto, CA, firma, servidor o rol sean correctos.
 
 `identity-prod-plan` no necesita Mongo, Docker, Cloudflare ni secretos
 para enseñar las etapas. `identity-prod-inspect` agrupa el chequeo
