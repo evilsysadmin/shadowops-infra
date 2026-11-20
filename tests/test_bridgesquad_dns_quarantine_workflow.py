@@ -24,6 +24,9 @@ class BridgeSquadDNSQuarantineWorkflowTests(unittest.TestCase):
         self.assertIn("github.repository == 'evilsysadmin/shadowops-infra'", self.job)
         self.assertIn("github.ref == 'refs/heads/main'", self.job)
         self.assertNotIn("github.event_name == 'pull_request'", self.job)
+        # DNS was bound on 2026-11-19. This one-time mutator must not run
+        # again after Pages production receives the Identity proof.
+        self.assertIn("if: >-\n      false &&", self.job)
 
     def test_credentials_only_in_main_protected_job(self):
         self.assertNotIn("secrets.CLOUDFLARE", self.testjob)
