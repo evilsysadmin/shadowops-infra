@@ -38,6 +38,21 @@ class SealedHandoffWorkflowTests(unittest.TestCase):
         offsets = [self.job.index(item) for item in order]
         self.assertEqual(offsets, sorted(offsets), "upload must follow all checks")
 
+    def test_signed_browser_runs_on_exact_sealed_artifact_before_archive(self):
+        self.assertIn("node-version: '22'", self.text)
+        self.assertIn("tests/test_bridgesquad_sealed_worker_fixture.py", self.text)
+        self.assertIn("scripts/bridgesquad_sealed_worker_browser.py", self.job)
+        self.assertIn("scripts/bridgesquad_sealed_worker_fixture.mjs", self.text)
+        self.assertIn("python3 -m playwright install --with-deps chromium", self.job)
+        self.assertIn("timeout-minutes: 12", self.job)
+        self.assertIn("if: steps.duplicate.outputs.sealed_exists != 'true'", self.job)
+        self.assertLess(self.job.index("bridgesquad_release_package.py verify"),
+                        self.job.index("scripts/bridgesquad_sealed_worker_browser.py"))
+        self.assertLess(self.job.index("scripts/bridgesquad_sealed_worker_browser.py"),
+                        self.job.index("bridgesquad_source_admission.py check \\"$SOURCE_SHA\\""))
+        self.assertLess(self.job.index("scripts/bridgesquad_sealed_worker_browser.py"),
+                        self.job.index("actions/upload-artifact@v4"))
+
     def test_no_cloudflare_dns_secret_binding_or_public_delivery(self):
         for prohibited in (
             "wrangler", "deploy-pages", "cloudflare-api", "CLOUDFLARE_API_TOKEN",
