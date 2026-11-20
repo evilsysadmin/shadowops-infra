@@ -211,13 +211,14 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 def public_probe(entries: dict[str, bytes]) -> list[str]:
     """Verify every original GLB public response; fail closed with all findings.
 
-    A 404 is pending (never proof). Wrong bytes, HTTP, MIME, cache, CORS or
-    network failures are distinct hard errors; examining every admitted key
-    avoids a costly operator fix/retry cycle for each bad object.
+    A 404 is pending (never proof). Wrong bytes, HTTP, MIME and CORS remain
+    hard errors. Missing immutable Cache-Control is advisory (operator opt-out)
+    while collecting every admitted key avoids repeat operator cycles.
     """
     opener = urllib.request.build_opener(NoRedirect)
     missing: list[str] = []
     invalid: list[str] = []
+    cache_advisory: list[str] = []
     for key, blob in sorted(entries.items()):
         check(key.startswith(PREFIX) and len(blob) <= MAX_FILE,
               "outside approved K-47 CDN probe scope")
@@ -236,7 +237,7 @@ def public_probe(entries: dict[str, bytes]) -> list[str]:
                     invalid.append("MIME mismatch: " + key + " (" + mime + ")")
                 cache = resp.headers.get("Cache-Control", "")
                 if "immutable" not in cache.lower():
-                    invalid.append("immutable Cache-Control missing: " + key)
+                    cache_advisory.append(key)
                 cors = resp.headers.get("Access-Control-Allow-Origin", "")
                 if cors not in ("*", ORIGIN):
                     invalid.append("staging CORS missing: " + key)
@@ -252,6 +253,11 @@ def public_probe(entries: dict[str, bytes]) -> list[str]:
             continue
         if data != blob:
             invalid.append("SHA mismatch: " + key)
+    if cache_advisory:
+        print("K47_PUBLIC_CACHE_ADVISORY " + json.dumps({
+            "withoutImmutableCache": cache_advisory,
+            "blocking": False,
+        }, sort_keys=True))
     check(not invalid, "K-47 public GLB checks failed: " + "; ".join(invalid))
     return missing
 
