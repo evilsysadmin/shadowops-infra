@@ -90,9 +90,11 @@ def inspect_local(env, *, euid=None, resolve=shutil.which) -> tuple[str, str]:
     return namespace, bucket
 
 
-def run_json(args: list[str], *, limit=131072) -> object:
+def run_json(args: list[str], *, limit=131072, timeout=30) -> object:
     try:
-        p = subprocess.run(args, check=False, capture_output=True, timeout=30)
+        # Uploads are allowed a longer bounded interval than lightweight
+        # Docker inspection and OCI HEAD requests.
+        p = subprocess.run(args, check=False, capture_output=True, timeout=timeout)
         if p.returncode or len(p.stdout) > limit:
             raise Refused("verified command failed")
         return json.loads(p.stdout)
@@ -210,7 +212,7 @@ def encrypted_dump(container_id: str, output: Path) -> None:
 
 
 def upload_verified(namespace: str, bucket: str, key: str, path: Path) -> None:
-    response = run_json(put_args(namespace, bucket, key, path))
+    response = run_json(put_args(namespace, bucket, key, path), timeout=900)
     # --no-overwrite can return a non-upload informational response.
     if not isinstance(response, dict) or not response.get("etag"):
         raise Refused("object PUT was not confirmed")
