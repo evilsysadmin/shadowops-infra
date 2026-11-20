@@ -6,7 +6,6 @@ is perfectly guarded. Unknown HTTP/network state is a denial, not success.
 """
 from __future__ import annotations
 
-import os
 import sys
 import urllib.error
 import urllib.request
@@ -28,15 +27,14 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def _read(url: str, *, token: str = "") -> tuple[int, bytes]:
+def _read(url: str) -> tuple[int, bytes]:
     if url not in (API, *ROUTES):
         raise Refused("unapproved legacy URL")
-    if url == API and not token:
-        raise Refused("GitHub release read credential missing")
     headers = {"Accept": "application/vnd.github+json" if url == API else "text/html",
                "User-Agent": "ShadowOps-BridgeSquad-Legacy-Denial/1.0"}
     if url == API:
-        headers["Authorization"] = "Bearer " + token
+        # The game repository is public. Query anonymously so a scoped
+        # GITHUB_TOKEN without Pages-read permission cannot masquerade as 404.
         headers["X-GitHub-Api-Version"] = "2022-11-28"
     req = urllib.request.Request(url, method="GET", headers=headers)
     try:
@@ -50,7 +48,7 @@ def _read(url: str, *, token: str = "") -> tuple[int, bytes]:
 
 def inspect(*, pages=None, public=None) -> dict:
     if pages is None:
-        pages = lambda: _read(API, token=os.environ.get("GH_TOKEN", ""))
+        pages = lambda: _read(API)
     if public is None:
         public = lambda url: _read(url)
     status, body = pages()
