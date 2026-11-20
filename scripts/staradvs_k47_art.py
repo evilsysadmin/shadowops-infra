@@ -255,6 +255,44 @@ def public_probe(entries: dict[str, bytes]) -> list[str]:
     return missing
 
 
+
+def diagnose_public_paths(entries: dict[str, bytes]) -> list[str]:
+    """Read-only hints for operator uploads at a wrong path; never authorize them.
+
+    Probe a single source-hash-bound model at bounded, same-host alternate
+    prefixes. Correct publication still requires ALL three canonical URLs.
+    Network failures or unknown responses remain non-authoritative hints.
+    """
+    first = sorted(entries)[0]
+    check(first.startswith(PREFIX), "diagnosis requires admitted K-47 keys")
+    name, expected = first.removeprefix(PREFIX), entries[first]
+    roots = (
+        "environment/",
+        "k47-r2/",
+        "",
+        "star-adventures/",
+        "star-adventures/k47-r2/",
+        "star-adventures/environment/k47-r2/",
+        "star-adventures/environment/assets/",
+    )
+    opener = urllib.request.build_opener(NoRedirect)
+    base = CDN.removesuffix(PREFIX)
+    matching: list[str] = []
+    for prefix in roots:
+        url = base + prefix + name
+        req = urllib.request.Request(url, headers={
+            "Origin": ORIGIN, "User-Agent": "ShadowOps-K47-route-diagnostic/1",
+        })
+        try:
+            with opener.open(req, timeout=8) as resp:
+                if (resp.status == 200 and resp.geturl() == url
+                        and resp.read(len(expected) + 1) == expected):
+                    matching.append(prefix or "<bucket-root>")
+        except (urllib.error.URLError, OSError, ValueError):
+            continue
+    return matching
+
+
 def public_verify(entries: dict[str, bytes]) -> None:
     check(not public_probe(entries),
           "K-47 public CDN missing one or more immutable objects")
@@ -397,6 +435,13 @@ def main() -> int:
                     "verified": len(entries) - len(missing),
                     "activationDone": False, "writes": 0,
                 }, sort_keys=True))
+                if len(missing) == len(entries):
+                    print("K47_PUBLIC_ROUTE_DIAGNOSTIC " + json.dumps({
+                        "exactByteMatchesAtOtherPrefixes":
+                            diagnose_public_paths(entries),
+                        "canonicalPrefixStillRequired": PREFIX,
+                        "writes": 0,
+                    }, sort_keys=True))
                 return 0
             evidence = public_activation_evidence(args.source_sha, manifest, entries)
             args.out.write_text(json.dumps(evidence, indent=2) + "\n")
