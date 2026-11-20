@@ -1,0 +1,46 @@
+name: Identity production Mongo backup-only user (offline)
+on:
+  pull_request:
+    paths:
+      - Makefile
+      - host/identity-production-mongo-backup-user.py
+      - tests/test_identity_production_mongo_backup_user.py
+      - docs/identity-production-mongo-backup.md
+      - .github/workflows/identity-production-mongo-backup-user.yml
+  push:
+    branches: [main]
+    paths:
+      - Makefile
+      - host/identity-production-mongo-backup-user.py
+      - tests/test_identity_production_mongo_backup_user.py
+      - docs/identity-production-mongo-backup.md
+      - .github/workflows/identity-production-mongo-backup-user.yml
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Deny CI creation and review exact backup-only user privileges
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check 'PyYAML==6.0.2'
+          python3 -m unittest discover -s tests -p test_identity_production_mongo_backup_user.py -v
+          python3 -m unittest discover -s tests -p test_identity_production_mongo_admin.py -v
+          python3 -m py_compile host/identity-production-mongo-backup-user.py
+          make identity-prod-mongo-backup-user-plan
+          make --dry-run identity-prod-mongo-backup-user-inspect
+          make --dry-run identity-prod-mongo-backup-user-create
+          if python3 -I host/identity-production-mongo-backup-user.py create; then
+            echo 'ERROR: CI was able to create Mongo backup user' >&2
+            exit 1
+          fi
