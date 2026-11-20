@@ -106,13 +106,54 @@ inicializar por segunda vez a ciegas: la operación puede haberse
 persistido; inspeccionar estado y logs sin volcarlos a esta conversación.
 No existe rollback automático de un replSet iniciado.
 
-**Sigue faltando el primer usuario admin de Mongo**, que debe
-crearse desde el localhost exception en un paso de credenciales
-separado y autorizado, con contraseña secreta fuera de argv,
-logs, CI y Git. Este operador nunca crea usuarios ni habilita
-login de Identity. Tras crear el admin, la excepción localhost
-se cierra. Después siguen los roles mínimos y la restauración
-real de backup antes de activar Identity.
+### Primer administrador (operación independiente, no ejecutar aún)
+
+```sh
+sudo -n make -C /opt/shadowops-infra identity-prod-mongo-admin-plan
+sudo -n make -C /opt/shadowops-infra identity-prod-mongo-admin-inspect
+# SOLO después de verificar PRIMARY, PKI, permisos y backups:
+sudo make -C /opt/shadowops-infra identity-prod-mongo-admin-create
+# ACK literal: CREATE_FIRST_PRODUCTION_MONGO_ADMIN_ONLY
+```
+
+Este tercer operador es distinto de `start` y `replica-init`. Exige
+**root, TTY real y ACK literal** antes de contactar a Docker. Revalida
+el ID inmutable del contenedor Mongo productivo, TLS/CA, imagen,
+red y volumen, y rechaza si el replica set no está en estado
+`PRIMARY`.
+
+El comando `docker exec -it` ejecuta un JS **fijo y no interpolado**
+sobre `127.0.0.1:27017`. MongoDB presenta dos peticiones de
+contraseña **ocultas** mediante `passwordPrompt()`, obliga a que
+coincidan y tengan como mínimo 32 caracteres, crea una única cuenta
+`identity_prod_admin` en la base `admin`, con mecanismo
+`SCRAM-SHA-256` y rol `root` (break-glass, **jamás el runtime**).
+La propia sesión se autentica con esa contraseña y comprueba el rol
+antes de anunciar éxito. La contraseña **no pasa por Python, argumentos
+de procesos, variables de entorno, CI, ficheros JS ni stdout**.
+Recomendación: generarla en tu gestor de contraseñas privado,
+guardarla fuera de la A1 y pegarla dos veces durante el procedimiento.
+No compartirla en chats, logs ni capturas.
+
+Esta cuenta `root` es para bootstrap y recuperación administrativa;
+las cuentas de aplicación y de backup tendrán roles separados de
+mínimos privilegios. La `localhost exception` **solo existe antes de
+la primera cuenta o rol** y se cierra después de crearla. Ante un fallo
+o corte de sesión tras el intento de creación, **no reejecutar create
+automáticamente**: la cuenta puede existir ya. Comprobar de forma
+manual y autenticada con la contraseña custodiada, sin revelar su valor.
+El comando `inspect` informa del estado de la réplica, **no puede
+atestiguar la existencia de cuentas sin autenticarse**.
+
+Después debe crearse un fichero URI administrativo de producción
+con permisos root 0400/0600, fuera del repositorio, compatible con
+`scripts/identity_production_mongo_operator.py`. Esa tarea **no la
+hace este bootstrap** y requiere cuidado especial con codificación de
+contraseñas de URI. Un primer usuario creado no significa que exista
+backup externo ni que Identity pueda arrancar. 
+
+Referencias: [excepción localhost de MongoDB](https://www.mongodb.com/docs/manual/core/localhost-exception/)
+y [`passwordPrompt()`](https://www.mongodb.com/docs/manual/reference/method/passwordprompt/).
 
 El segundo objetivo solo verifica un Compose con contrato exacto y
 metadatos de ficheros, sin conexión a Mongo ni apertura de claves secretas.
