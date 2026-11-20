@@ -74,6 +74,46 @@ esté `running` no implica un primario healthy; debe quedar fuera
 del tráfico y sin cuentas reales. El operador no ejecuta `down`,
 `prune`, `rm` ni el túnel de producción.
 
+### Inicialización explícita de un único miembro (paso separado)
+
+Cuando el contenedor productivo esté realmente levantado y
+se hayan aprobado la PKI y la configuración de backup:
+
+```sh
+sudo -n make -C /opt/shadowops-infra identity-prod-mongo-replica-plan
+sudo -n make -C /opt/shadowops-infra identity-prod-mongo-replica-inspect
+
+# Mutación manual, después de revisar el resultado inspect:
+sudo make -C /opt/shadowops-infra identity-prod-mongo-replica-init
+# Confirmación literal: INIT_ISOLATED_PRODUCTION_MONGO_REPLICA_ONLY
+
+sudo -n make -C /opt/shadowops-infra identity-prod-mongo-replica-inspect
+```
+
+La nueva herramienta `host/identity-production-mongo-replica.py`
+inspecciona el **ID inmutable del único contenedor productivo exacto**,
+sin aceptar nombres de staging, host SSH alternativo ni red no privada.
+Ejecuta `mongosh` **dentro del contenedor**, conectado solo a
+`127.0.0.1:27017`, con TLS y CA dedicada, mediante dos programas JS
+estáticos (sin credenciales ni argumentos suministrados por usuario).
+La única mutación admitida es el primer `rs.initiate` con
+`_id: identity-production-rs` y miembro DNS
+`identity-mongo-production:27017`. Rechaza reinit sobre réplica
+existente, y espera hasta comprobar `isWritablePrimary=true`.
+
+**Si la elección del primario tarda o falla**, no reconfigurar ni
+inicializar por segunda vez a ciegas: la operación puede haberse
+persistido; inspeccionar estado y logs sin volcarlos a esta conversación.
+No existe rollback automático de un replSet iniciado.
+
+**Sigue faltando el primer usuario admin de Mongo**, que debe
+crearse desde el localhost exception en un paso de credenciales
+separado y autorizado, con contraseña secreta fuera de argv,
+logs, CI y Git. Este operador nunca crea usuarios ni habilita
+login de Identity. Tras crear el admin, la excepción localhost
+se cierra. Después siguen los roles mínimos y la restauración
+real de backup antes de activar Identity.
+
 El segundo objetivo solo verifica un Compose con contrato exacto y
 metadatos de ficheros, sin conexión a Mongo ni apertura de claves secretas.
 Es normal que falle antes de aprovisionar la PKI. Exige directorios de ruta

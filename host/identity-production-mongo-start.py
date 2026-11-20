@@ -179,6 +179,7 @@ def poststart(*, runner=subprocess.run) -> None:
             raise Refused("unexpected production Mongo container security state")
     except (ValueError, KeyError, TypeError, AttributeError):
         raise Refused("invalid post-start Mongo container inspect") from None
+    return rows[0]  # exact inspected container ID, never an unpinned name
 
 
 def start(*, runner=subprocess.run) -> None:
