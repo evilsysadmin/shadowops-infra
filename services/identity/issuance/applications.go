@@ -4,12 +4,12 @@ package issuance
 type Application string
 
 const (
-	ChessStudio  Application = "chess-studio"
-	Chronicles   Application = "chronicles"
-	CKASimulator Application = "cka-simulator"
-	Football     Application = "football"
-	PawnAction   Application = "pawn-action"
-	Snooker      Application = "snooker"
+	ChessStudio    Application = "chess-studio"
+	Chronicles     Application = "chronicles"
+	CKASimulator   Application = "cka-simulator"
+	Football       Application = "football"
+	PawnAction     Application = "pawn-action"
+	Snooker        Application = "snooker"
 	StarAdventures Application = "staradvs"
 )
 
