@@ -1,0 +1,224 @@
+name: Bridge Squad · controlled ShadowOps ID production release
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/bridgesquad-production-release.yml'
+      - 'scripts/bridgesquad_production_release.py'
+      - 'tests/test_bridgesquad_production_release.py'
+      - 'tests/test_bridgesquad_production_release_workflow.py'
+      - 'scripts/bridgesquad_production_proof_bind.py'
+      - 'scripts/bridgesquad_dns_quarantine.py'
+      - 'scripts/bridgesquad_release_package.py'
+      - 'edge/bridgesquad-identity-gate.mjs'
+      - 'docs/bridgesquad-production-release.md'
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: 'Exact current green Bridge Squad main commit (40 lowercase hex)'
+        required: true
+        type: string
+      expected_live_sha:
+        description: 'Exact currently deployed Bridge Squad Pages commit (40 lowercase hex)'
+        required: true
+        type: string
+      confirm:
+        description: 'Type RELEASE_BRIDGESQUAD_PRODUCTION to request protected promotion'
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: bridgesquad-production-release
+  cancel-in-progress: false
+
+jobs:
+  contracts:
+    name: Offline release and security contracts (no secrets)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prove SHA-pinned, encrypted production-only and anonymous-denial gates
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p test_bridgesquad_production_release.py -v
+          python3 -m unittest discover -s tests -p test_bridgesquad_production_proof_bind.py -v
+          python3 -m unittest discover -s tests -p test_bridgesquad_dns_quarantine.py -v
+          python3 -m unittest discover -s tests -p test_bridgesquad_production_release_workflow.py -v
+          python3 -m py_compile scripts/bridgesquad_production_release.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Regress exact-host JWT/verifier and denied Pages aliases
+        run: node --test tests/bridgesquad-identity-gate.test.mjs
+
+  prepare:
+    name: Admit exact green game source and prove signed-in sealed package locally
+    needs: contracts
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.confirm == 'RELEASE_BRIDGESQUAD_PRODUCTION'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 17
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_SHA: ${{ inputs.target_sha }}
+    outputs:
+      artifact_digest: ${{ steps.source.outputs.artifact_digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Admit exact current game main and its successful browser/package jobs
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os,sys
+          sys.path.insert(0,'scripts')
+          import bridgesquad_source_admission as source
+          receipt=source.admit(source.GithubReader(os.environ['GH_TOKEN']),
+                               os.environ['TARGET_SHA'])
+          with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as out:
+              for field in ('artifact_id','artifact_digest'):
+                  out.write(f'{field}={receipt[field]}\n')
+          print('BRIDGESQUAD_PROTECTED_SOURCE_ADMITTED sha='+receipt['source_sha'])
+          PY
+      - name: Download and verify byte-exact current SHA game ZIP
+        env:
+          ARTIFACT_ID: ${{ steps.source.outputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ steps.source.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          gh api "repos/evilsysadmin/matthias-bridge-squad/actions/artifacts/$ARTIFACT_ID/zip" > "$RUNNER_TEMP/bridgesquad-source.zip"
+          python3 scripts/bridgesquad_source_admission.py verify-archive \
+            "$RUNNER_TEMP/bridgesquad-source.zip" "$ARTIFACT_DIGEST" "$TARGET_SHA"
+      - name: Seal exact HTML with current reviewed Infra Worker, never game-owned Worker
+        env:
+          ARTIFACT_DIGEST: ${{ steps.source.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          python3 scripts/bridgesquad_release_package.py prepare \
+            "$RUNNER_TEMP/bridgesquad-source.zip" "$ARTIFACT_DIGEST" "$TARGET_SHA" "$RUNNER_TEMP/bridgesquad-protected"
+          python3 scripts/bridgesquad_release_package.py verify \
+            "$RUNNER_TEMP/bridgesquad-protected" "$ARTIFACT_DIGEST" "$TARGET_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test actual sealed HTML and Infra Worker in signed-Ed25519 Chromium fixture
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check 'playwright>=1.50,<2'
+          python3 -m playwright install --with-deps chromium
+          python3 scripts/bridgesquad_sealed_worker_browser.py "$RUNNER_TEMP/bridgesquad-protected"
+      - name: Revalidate both live main SHAs before archive (no Cloudflare credentials)
+        run: |
+          set -euo pipefail
+          python3 scripts/bridgesquad_source_admission.py check "$TARGET_SHA"
+          test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bridgesquad-promote-${{ inputs.target_sha }}-${{ github.sha }}
+          path: ${{ runner.temp }}/bridgesquad-protected/
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    name: Protected Pages deploy (requires production environment approval and healthy IdP)
+    needs: prepare
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.confirm == 'RELEASE_BRIDGESQUAD_PRODUCTION'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: bridgesquad-production
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      TARGET_SHA: ${{ inputs.target_sha }}
+      LIVE_SHA: ${{ inputs.expected_live_sha }}
+      ARTIFACT_DIGEST: ${{ needs.prepare.outputs.artifact_digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: bridgesquad-promote-${{ inputs.target_sha }}-${{ github.sha }}
+          path: ${{ runner.temp }}/bridgesquad-protected/
+      - name: Verify immutable package, exact green source and trusted Infra main
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$LIVE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          python3 scripts/bridgesquad_release_package.py verify \
+            "$RUNNER_TEMP/bridgesquad-protected" "$ARTIFACT_DIGEST" "$TARGET_SHA"
+          python3 scripts/bridgesquad_source_admission.py check "$TARGET_SHA"
+          test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+      - name: Enforce real production Identity, exact previous Pages SHA and guest 401 before upload
+        id: before
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/bridgesquad_production_release.py preflight "$LIVE_SHA" "$TARGET_SHA" >> "$GITHUB_OUTPUT"
+          echo 'BRIDGESQUAD_RELEASE_ADMITTED proof=production-only guest=401 old-sha-pinned'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Recheck provider state and immutable SHAs immediately before one Pages upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/bridgesquad_production_release.py preflight "$LIVE_SHA" "$TARGET_SHA" > /dev/null
+          python3 scripts/bridgesquad_source_admission.py check "$TARGET_SHA"
+          test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+      - name: Upload only reviewed protected bundle to existing canonical Pages production
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.127.1 pages deploy \
+            "$RUNNER_TEMP/bridgesquad-protected" \
+            --project-name bridgesquad-production \
+            --branch main \
+            --commit-hash "$TARGET_SHA" \
+            --commit-dirty=false
+      - name: Verify live new canonical deployment ID/SHA, HTTPS guest denial and immutable aliases
+        env:
+          PRIOR_DEPLOYMENT_ID: ${{ steps.before.outputs.prior_deployment_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in 1 2 3 4 5 6; do
+            if python3 scripts/bridgesquad_production_release.py postflight "$TARGET_SHA" "$PRIOR_DEPLOYMENT_ID"; then
+              {
+                echo 'BRIDGESQUAD_PROTECTED_DEPLOYED sha='${TARGET_SHA}
+                echo 'Cloudflare Pages deployment/guest 401/aliases verified. Real account login, renewal and revocation still require independent signed-in production E2E.'
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'BRIDGESQUAD_POSTFLIGHT_BLOCKED: deployment state uncertain; do not claim authenticated availability' >&2
+          exit 1
