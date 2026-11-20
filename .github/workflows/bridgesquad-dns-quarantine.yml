@@ -60,7 +60,10 @@ jobs:
   attach:
     name: Claim owned Pages hostname and protected CNAME; verify real HTTPS quarantine
     needs: contracts
+    # DNS cutover succeeded on 2026-11-19. Do not re-run this one-time
+    # mutator after production Identity is bound; watchdog stays active.
     if: >-
+      false &&
       github.repository == 'evilsysadmin/shadowops-infra' &&
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
