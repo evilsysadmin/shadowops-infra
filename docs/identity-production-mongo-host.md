@@ -65,9 +65,11 @@ repositorio, shell history ni resultados de CI.
 1. Verificar que la A1 tiene espacio/disco/IO suficiente, no tiene conflicto
    con redes/proyectos existentes y dispone de salida para backups fuera
    de la A1. Reservar cuota y alertas; 768 MiB es un límite, no memoria gratis.
-2. Aprovisionar **backup cifrado fuera del host** con retención, alarmas y
-   restauración real en clúster desechable. **Esta PR no configura backups**;
-   eso es un cambio posterior obligatorio ANTES de alojar cuentas.
+2. Preparar [backup cifrado externo y restore drill](identity-production-mongo-backup.md)
+   con OCI Object Storage, retención, alertas y restauración real en
+   clúster desechable. El script y timer están listos en Git, **pero
+   no están desplegados ni activados**; se requiere prueba real ANTES
+   de alojar cuentas.
 3. Acreditar que `docker compose -f compose.identity.production-mongo.yaml
    --profile production-mongo config --quiet` muestra únicamente un
    Mongo productivo sin puertos y con volumen correcto. Verificar que la
