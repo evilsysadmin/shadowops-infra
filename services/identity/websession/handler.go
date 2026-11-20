@@ -29,6 +29,7 @@ var consumers = map[string]issuance.Application{
 	"https://staging.football.shadowops.dpdns.org":     issuance.Football,
 	"https://staging.pawnaction.shadowops.dpdns.org":   issuance.PawnAction,
 	"https://staging.snooker.shadowops.dpdns.org":      issuance.Snooker,
+	"https://staging.staradvs.shadowops.dpdns.org":     issuance.StarAdventures,
 	"https://staging.chess-studio.shadowops.dpdns.org": issuance.ChessStudio,
 	"https://staging.chronicles.shadowops.dpdns.org":   issuance.Chronicles,
 	"https://staging.cka.shadowops.dpdns.org":          issuance.CKASimulator,
