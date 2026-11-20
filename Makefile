@@ -10,6 +10,7 @@ export CKA_OPERATOR_SSH_KEY
   oci-a1-ssh-check oci-a1-ssh \
   identity-prod-mongo-host-plan identity-prod-mongo-host-inspect identity-prod-mongo-host-start \
   identity-prod-mongo-start-plan identity-prod-mongo-start-inspect \
+  identity-prod-mongo-replica-plan identity-prod-mongo-replica-inspect identity-prod-mongo-replica-init \
   identity-prod-mongo-backup-plan identity-prod-mongo-backup-inspect \
   identity-prod-plan identity-prod-doctor identity-prod-inspect identity-prod-mongo-inspect identity-prod-mongo-apply \
   identity-prod-origin-inspect identity-prod-origin-start identity-prod-origin-stop \
@@ -36,6 +37,8 @@ help:
 	  '  make identity-prod-inspect    Read-only Mongo + origin preflights (fails if not ready)' \
 	  '  make identity-prod-mongo-host-plan | identity-prod-mongo-host-inspect' \
 	  '  make identity-prod-mongo-host-start  Root+TTY, confirmation, new/empty Mongo only' \
+	  '  make identity-prod-mongo-replica-plan | identity-prod-mongo-replica-inspect' \
+	  '  make identity-prod-mongo-replica-init Root+TTY+ACK, exact running product Mongo only' \
 	  '  make identity-prod-mongo-backup-plan | identity-prod-mongo-backup-inspect' \
 	  '       Offline backup plan and local-only prerequisite check (never uploads)' \
 	  '       Validate isolated Mongo host Compose and private TLS file metadata (no deploy)' \
@@ -114,6 +117,16 @@ identity-prod-mongo-start-plan:
 
 identity-prod-mongo-start-inspect:
 	@$(PYTHON) host/identity-production-mongo-start.py inspect
+
+# Replica init is separate from starting the Mongo process and creating users.
+identity-prod-mongo-replica-plan:
+	@$(PYTHON) host/identity-production-mongo-replica.py plan
+
+identity-prod-mongo-replica-inspect:
+	@$(PYTHON) host/identity-production-mongo-replica.py inspect
+
+identity-prod-mongo-replica-init:
+	@$(PYTHON) host/identity-production-mongo-replica.py init
 
 # Off-host encrypted backup is deliberately not a Make mutation target.
 identity-prod-mongo-backup-plan:
