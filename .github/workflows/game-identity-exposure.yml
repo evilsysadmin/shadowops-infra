@@ -1,0 +1,58 @@
+name: Games · ShadowOps ID guest exposure audit
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/game-identity-exposure.yml'
+      - 'scripts/game_identity_exposure.py'
+      - 'tests/test_game_identity_exposure.py'
+      - 'docs/game-identity-coverage.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/game-identity-exposure.yml'
+      - 'scripts/game_identity_exposure.py'
+      - 'tests/test_game_identity_exposure.py'
+  workflow_dispatch:
+  schedule:
+    - cron: '41 5 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: Fixed host coverage and anonymous-denial classification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_game_identity_exposure.py' -v
+      - run: python3 -m py_compile scripts/game_identity_exposure.py
+  live:
+    name: Guest HTTPS probe (no credentials or writes)
+    needs: contracts
+    if: >-
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test fixed game hosts and predictable Pages main aliases anonymously
+        shell: bash
+        run: |
+          set -euo pipefail
+          result=0
+          python3 scripts/game_identity_exposure.py audit > "$RUNNER_TEMP/game-guest-exposure.json" || result=$?
+          cat "$RUNNER_TEMP/game-guest-exposure.json" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$result" -ne 0 ]; then
+            echo 'Unauthenticated game access is exposed or not fully verified. Do not claim Identity coverage.' >&2
+            exit "$result"
+          fi
+          echo 'Guest denial observed. Signed-in Identity, revocation and immutable aliases still require separate E2E.'
