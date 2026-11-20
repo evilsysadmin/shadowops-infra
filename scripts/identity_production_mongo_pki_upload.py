@@ -33,6 +33,20 @@ TRANSFER = "transfer-THREE-FILES-ONLY"
 OFFLINE = "offline-ca-KEEP-LOCAL"
 DEST = "/home/ubuntu/shadowops-mongo-pki-stage/"
 ACK = "UPLOAD_THREE_PRODUCTION_MONGO_PKI_FILES_ONLY"
+# Read-only, static remote probe. Do NOT allow rsync to create a world-
+# traversable directory if the authorized ubuntu staging was never created.
+REMOTE_PROBE = """import os, stat, sys
+p = '/home/ubuntu/shadowops-mongo-pki-stage'
+parent = os.lstat('/home/ubuntu')
+s = os.lstat(p)
+if not (stat.S_ISDIR(parent.st_mode) and parent.st_uid == 1001 and
+        stat.S_IMODE(parent.st_mode) & 0o022 == 0 and
+        stat.S_ISDIR(s.st_mode) and s.st_uid == 1001 and
+        stat.S_IMODE(s.st_mode) == 0o700 and
+        not os.listdir(p)):
+    sys.exit(21)
+print('EMPTY_PRIVATE_STAGE')
+"""
 MAX_BYTES = {"ca.pem": 131072, "mongo.pem": 131072, "replica.key": 2048}
 
 
@@ -145,6 +159,20 @@ def rsync_args(rsync: str, ssh: str, cloudflared: str,
     ]
 
 
+def remote_stage_probe(ssh: str, cloudflared: str, host: str,
+                       user: str, key: str, *, runner=subprocess.run) -> None:
+    args = a1.command(cloudflared, ssh, host, user, key) + [
+        "python3 -I -c " + shlex.quote(REMOTE_PROBE)
+    ]
+    try:
+        response = runner(args, stdin=None, stdout=subprocess.PIPE,
+                          stderr=subprocess.DEVNULL, check=False, timeout=35)
+    except (OSError, subprocess.TimeoutExpired):
+        raise Refused("remote private staging not verified") from None
+    if response.returncode != 0 or response.stdout != b"EMPTY_PRIVATE_STAGE\\n":
+        raise Refused("remote staging must be empty, private and owned by ubuntu")
+
+
 def require_workstation(env: dict[str, str], *, euid=None,
                         stdin=None, stdout=None, prompt=input) -> None:
     euid = os.geteuid() if euid is None else euid
@@ -190,6 +218,7 @@ def main(argv: list[str], *, env=None, runner=subprocess.run) -> int:
                   " local=valid edge=tls"
                   " remote_staging=not-inspected")
             return 0
+        remote_stage_probe(ssh, cloudflared, host, user, key, runner=runner)
         args = rsync_args(rsync, ssh, cloudflared, host, user, key, files)
         result = runner(args, stdin=None, stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL, check=False, timeout=300)
