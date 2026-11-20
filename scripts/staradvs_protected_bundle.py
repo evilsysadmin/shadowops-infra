@@ -14,7 +14,7 @@ import re
 import sys
 from pathlib import Path
 
-from staradvs_pages import entrypoint_path
+from staradvs_pages import AdmissionError, entrypoint_path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKER = ROOT / "edge" / "staradvs-identity-gate.mjs"
@@ -89,7 +89,7 @@ def _manifest(dist: Path, source_sha: str, *, protected: bool) -> dict:
         raise ProtectionError("Nonlocal JS entrypoint")
     try:
         actual = entrypoint_path(_read(dist / "index.html", 700000))
-    except (ValueError, UnicodeError, OSError) as exc:
+    except (AdmissionError, ValueError, UnicodeError, OSError):
         raise ProtectionError("Invalid HTML entrypoint") from None
     if actual != path:
         raise ProtectionError("HTML and release entrypoint mismatch")
