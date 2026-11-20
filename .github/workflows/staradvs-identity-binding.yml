@@ -1,0 +1,109 @@
+name: Star Adventures · isolated Identity Pages credential (manual only)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/staradvs-identity-binding.yml'
+      - 'scripts/staradvs_identity_binding.py'
+      - 'tests/test_staradvs_identity_binding.py'
+      - 'docs/staradvs-identity-binding.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/staradvs-identity-binding.yml'
+      - 'scripts/staradvs_identity_binding.py'
+      - 'tests/test_staradvs_identity_binding.py'
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        options: [plan, bind]
+        default: plan
+        required: true
+        description: Inspect binding metadata, or bind Star Adventures-only proof from OCI operator Vault
+      confirm:
+        type: string
+        required: false
+        description: Only for bind — enter STARADVS_BIND_ISOLATED_IDENTITY
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: No cross-game credential reuse or untrusted Pages mutations
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_staradvs_identity_binding.py' -v
+      - run: python3 -m py_compile scripts/staradvs_identity_binding.py
+
+  plan:
+    name: Read-only Pages service-proof binding metadata
+    needs: contracts
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.operation == 'plan' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: staging
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 scripts/staradvs_identity_binding.py plan
+
+  bind:
+    name: Bind existing isolated staging Vault proof to dedicated StarAdvs Pages project
+    needs: contracts
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.operation == 'bind' &&
+      inputs.confirm == 'STARADVS_BIND_ISOLATED_IDENTITY' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    environment: staging
+    concurrency:
+      group: shadowops-staradvs-staging-pages
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Verify approved exact Infra main and private Pages policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_SHA" == "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" ]]
+          python scripts/staradvs_identity_binding.py plan
+      - name: Read exact staradvs-only proof from Vault and bind as secret_text
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_SHA" == "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" ]]
+          python scripts/staradvs_identity_binding.py bind
+      - name: Confirm secret binding name and type without reading value
+        run: python scripts/staradvs_identity_binding.py plan
