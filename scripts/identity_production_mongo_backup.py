@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
+import importlib.util
 import fcntl
 import json
 import os
@@ -21,7 +22,17 @@ import subprocess
 import sys
 import tempfile
 
-import identity_production_mongo_host as host
+# The systemd unit uses python3 -I: isolated Python deliberately omits
+# the script directory from sys.path. Import only the sibling pinned by this
+# installed root-owned operator path, never from cwd/PYTHONPATH.
+_HOST_MODULE_PATH = Path(__file__).resolve().with_name("identity_production_mongo_host.py")
+_HOST_MODULE_SPEC = importlib.util.spec_from_file_location(
+    "identity_production_mongo_host", _HOST_MODULE_PATH
+)
+if _HOST_MODULE_SPEC is None or _HOST_MODULE_SPEC.loader is None:
+    raise SystemExit("IDENTITY_PRODUCTION_MONGO_BACKUP_REFUSED")
+host = importlib.util.module_from_spec(_HOST_MODULE_SPEC)
+_HOST_MODULE_SPEC.loader.exec_module(host)
 
 CONFIG_DIR = Path("/etc/shadowops/identity-production")
 BACKUP_DIR = Path("/var/lib/shadowops-identity-production/backup-staging")

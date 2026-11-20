@@ -28,6 +28,24 @@ class BackupContractTests(unittest.TestCase):
         self.assertIn("overwrite=deny", p.stdout)
         self.assertIn("restore=drill-required", p.stdout)
 
+    def test_systemd_isolated_python_exec_path_matches_unit(self):
+        # The installed systemd service starts 'python3 -I ... backup.py'.
+        # -I must still resolve its trusted, exact sibling module.
+        for action in ("plan", "inspect"):
+            p = subprocess.run(
+                ["python3", "-I", str(ROOT / "scripts/identity_production_mongo_backup.py"),
+                 action], capture_output=True, text=True, timeout=10, cwd="/tmp",
+                env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "CI": "true"},
+            )
+            with self.subTest(action=action):
+                if action == "plan":
+                    self.assertEqual(p.returncode, 0, p.stderr)
+                    self.assertIn("BACKUP_PLAN", p.stdout)
+                else:
+                    self.assertEqual(p.returncode, 1)
+                    self.assertIn("IDENTITY_PRODUCTION_MONGO_BACKUP_REFUSED", p.stderr)
+                    self.assertNotIn("Traceback", p.stderr)
+
     def test_backup_denied_without_explicit_operator_enable(self):
         with patch.object(backup, "inspect_local") as inspect:
             with self.assertRaises(backup.Refused):
