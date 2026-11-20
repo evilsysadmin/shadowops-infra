@@ -1,0 +1,68 @@
+name: Star Adventures · ShadowOps ID protected cutover inventory (read-only)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/staradvs-identity-readiness.yml'
+      - 'scripts/staradvs_identity_readiness.py'
+      - 'tests/test_staradvs_identity_readiness.py'
+      - 'docs/staradvs-identity-readiness.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/staradvs-identity-readiness.yml'
+      - 'scripts/staradvs_identity_readiness.py'
+      - 'tests/test_staradvs_identity_readiness.py'
+  workflow_dispatch:
+  schedule:
+    - cron: '34 6 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: Guest denial, owner and alias contracts (offline)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_staradvs_identity_readiness.py' -v
+      - run: python3 -m py_compile scripts/staradvs_identity_readiness.py
+
+  inspect:
+    name: Identity and Cloudflare Pages posture (GET only)
+    needs: contracts
+    if: >-
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    environment:
+      name: staging
+      url: https://staging.staradvs.shadowops.dpdns.org
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inspect exact provider audience, private Pages and anonymous denial
+        shell: bash
+        run: |
+          set -euo pipefail
+          rc=0
+          python3 scripts/staradvs_identity_readiness.py inspect > "$RUNNER_TEMP/cutover.json" || rc=$?
+          if [[ "$rc" == '10' ]]; then
+            echo 'STARADVS_IDENTITY_CUTOVER_PENDING no signed-in acceptance or mutation'
+          elif [[ "$rc" == '0' ]]; then
+            echo 'STARADVS_IDENTITY_NEXT_GATE_READY signed-in E2E still mandatory'
+          else
+            echo 'Untrusted/ambiguous cutover inventory. Operator review needed.' >&2
+            exit "$rc"
+          fi
+          cat "$RUNNER_TEMP/cutover.json" | tee -a "$GITHUB_STEP_SUMMARY"
