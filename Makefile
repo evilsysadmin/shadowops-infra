@@ -8,7 +8,8 @@ export OCI_SSH_USER OCI_SSH_KEY OCI_SSH_HOSTNAME
 export CKA_OPERATOR_SSH_KEY
 .PHONY: help cka-retire-host cka-retire-inspect identity-staging-bootstrap \
   oci-a1-ssh-check oci-a1-ssh \
-  identity-prod-mongo-host-plan identity-prod-mongo-host-inspect \
+  identity-prod-mongo-host-plan identity-prod-mongo-host-inspect identity-prod-mongo-host-start \
+  identity-prod-mongo-start-plan identity-prod-mongo-start-inspect \
   identity-prod-mongo-backup-plan identity-prod-mongo-backup-inspect \
   identity-prod-plan identity-prod-doctor identity-prod-inspect identity-prod-mongo-inspect identity-prod-mongo-apply \
   identity-prod-origin-inspect identity-prod-origin-start identity-prod-origin-stop \
@@ -34,6 +35,7 @@ help:
 	  '  make identity-prod-doctor     Local prerequisite inventory; no secrets printed or commands executed' \
 	  '  make identity-prod-inspect    Read-only Mongo + origin preflights (fails if not ready)' \
 	  '  make identity-prod-mongo-host-plan | identity-prod-mongo-host-inspect' \
+	  '  make identity-prod-mongo-host-start  Root+TTY, confirmation, new/empty Mongo only' \
 	  '  make identity-prod-mongo-backup-plan | identity-prod-mongo-backup-inspect' \
 	  '       Offline backup plan and local-only prerequisite check (never uploads)' \
 	  '       Validate isolated Mongo host Compose and private TLS file metadata (no deploy)' \
@@ -100,6 +102,18 @@ identity-prod-mongo-host-plan:
 
 identity-prod-mongo-host-inspect:
 	@$(PYTHON) scripts/identity_production_mongo_host.py inspect
+
+# Manual first-start only: requires root, TTY, pinned image, verified PKI,
+# no pre-existing project/volume/network, and a typed confirmation.
+identity-prod-mongo-host-start:
+	@$(PYTHON) host/identity-production-mongo-start.py start
+
+# Read-only first-start operator preflight (will reject until PKI exists).
+identity-prod-mongo-start-plan:
+	@$(PYTHON) host/identity-production-mongo-start.py plan
+
+identity-prod-mongo-start-inspect:
+	@$(PYTHON) host/identity-production-mongo-start.py inspect
 
 # Off-host encrypted backup is deliberately not a Make mutation target.
 identity-prod-mongo-backup-plan:
