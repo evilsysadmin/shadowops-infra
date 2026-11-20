@@ -159,13 +159,16 @@ class VerifiedGlbReleaseTest(unittest.TestCase):
         _, entries = art.verify_archive(make_bundle(), SOURCE)
         class Response:
             status = 200
-            def __init__(self, request, payload, content_type="model/gltf-binary"):
+            def __init__(self, request, payload, content_type="model/gltf-binary",
+                         cache=art.CACHE, cors=art.ORIGIN):
                 self.request, self.payload = request, payload
                 from email.message import Message
                 self.headers = Message()
                 self.headers["Content-Type"] = content_type
-                self.headers["Cache-Control"] = art.CACHE
-                self.headers["Access-Control-Allow-Origin"] = art.ORIGIN
+                if cache:
+                    self.headers["Cache-Control"] = cache
+                if cors:
+                    self.headers["Access-Control-Allow-Origin"] = cors
             def geturl(self):
                 return self.request.full_url
             def read(self, length):
@@ -183,9 +186,12 @@ class VerifiedGlbReleaseTest(unittest.TestCase):
                 payload = entries[key]
                 if self.status == "bad-bytes":
                     payload = payload[:-1] + b"X"
-                return Response(request, payload,
+                return Response(
+                    request, payload,
                     "application/octet-stream" if self.status == "bad-mime"
-                    else "model/gltf-binary")
+                    else "model/gltf-binary",
+                    cache="" if self.status == "bad-cache" else art.CACHE,
+                    cors="" if self.status == "bad-cors" else art.ORIGIN)
         with patch.object(art.urllib.request, "build_opener", return_value=MockCDN()):
             self.assertEqual(art.public_probe(entries), [])
             art.public_verify(entries)
@@ -193,7 +199,13 @@ class VerifiedGlbReleaseTest(unittest.TestCase):
             with self.assertRaisesRegex(art.PublishError, "SHA mismatch"):
                 art.public_probe(entries)
         with patch.object(art.urllib.request, "build_opener", return_value=MockCDN("bad-mime")):
-            with self.assertRaisesRegex(art.PublishError, "HTTP/CORS"):
+            with self.assertRaisesRegex(art.PublishError, "MIME mismatch"):
+                art.public_probe(entries)
+        with patch.object(art.urllib.request, "build_opener", return_value=MockCDN("bad-cache")):
+            with self.assertRaisesRegex(art.PublishError, "immutable Cache-Control missing"):
+                art.public_probe(entries)
+        with patch.object(art.urllib.request, "build_opener", return_value=MockCDN("bad-cors")):
+            with self.assertRaisesRegex(art.PublishError, "staging CORS missing"):
                 art.public_probe(entries)
 
     def test_public_evidence_is_not_activation_approval(self):
