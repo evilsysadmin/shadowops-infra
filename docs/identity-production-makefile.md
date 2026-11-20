@@ -61,6 +61,18 @@ para enseñar las etapas. `identity-prod-inspect` agrupa el chequeo
 local de Mongo y origen, **en ese orden**, y se detiene en el primer
 fallo; úsalo después de preparar los materiales en el host.
 
+## 0bis. Candidato de Mongo productivo en A1 (sin despliegue)
+
+```sh
+sudo -n make -C /opt/shadowops-infra identity-prod-mongo-host-plan
+sudo -n make -C /opt/shadowops-infra identity-prod-mongo-host-inspect
+```
+
+Estos objetivos solo describen o inspeccionan la [configuración
+independiente](identity-production-mongo-host.md); no arrancan Mongo,
+no preparan secretos, no toman backup y no modifican el host. El
+operador de roles/índices de la fase 1 sigue siendo separado.
+
 ## 1. Mongo production (recurso real + backup, no fixture CI)
 
 Aprovisionar un replica set con TLS, backup y credenciales de

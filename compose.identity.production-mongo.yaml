@@ -1,0 +1,76 @@
+# Operator-only isolated MongoDB candidate. Does not auto-start on checkout/CI.
+# Uses the same verified ARM64 Mongo binary as staging, but no shared state.
+name: shadowops-identity-production-mongo
+
+services:
+  identity-production-mongo:
+    profiles: [production-mongo]
+    image: mongo@sha256:8bb4442761a63a8dda452744082cdac9644b429807eb977b42324a63cef59ca4
+    platform: linux/arm64
+    user: "999:999"
+    entrypoint: [mongod]
+    command:
+      - --replSet
+      - identity-production-rs
+      - --bind_ip_all
+      - --wiredTigerCacheSizeGB
+      - "0.25"
+      - --keyFile
+      - /run/mongo/replica.key
+      - --tlsMode
+      - requireTLS
+      - --tlsCertificateKeyFile
+      - /run/mongo/mongo.pem
+      - --tlsCAFile
+      - /run/mongo/ca.pem
+      - --tlsAllowConnectionsWithoutCertificates
+    init: true
+    restart: "no"
+    read_only: true
+    privileged: false
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    mem_limit: 768m
+    cpus: 0.75
+    stop_grace_period: 60s
+    volumes:
+      - type: volume
+        source: identity-production-data
+        target: /data/db
+      - type: bind
+        source: /etc/shadowops/identity-production/mongo
+        target: /run/mongo
+        read_only: true
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m,uid=999,gid=999
+    networks:
+      identity-mongo-egress:
+        aliases: [identity-mongo-production]
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --norc
+        - --tls
+        - --tlsCAFile
+        - /run/mongo/ca.pem
+        - mongodb://127.0.0.1:27017/?directConnection=true
+        - --eval
+        - if (!db.hello().isWritablePrimary) quit(1)
+      interval: 15s
+      timeout: 5s
+      start_period: 45s
+      retries: 4
+
+volumes:
+  identity-production-data:
+    name: shadowops-identity-production-mongo-data
+
+networks:
+  identity-mongo-egress:
+    name: shadowops-identity-production-mongo-egress
+    internal: true
