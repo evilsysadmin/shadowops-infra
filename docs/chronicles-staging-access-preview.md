@@ -40,7 +40,10 @@ No write token or operator email may be passed in `workflow_dispatch` inputs.
    [Chronicles staging Access pilot workflow](https://github.com/evilsysadmin/shadowops-infra/actions/workflows/chronicles-staging-access-preview.yml)
    on the exact reviewed Infra `main` branch. Select `operation=plan`
    (the default). Inspect the status. Missing secrets, foreign ownership
-   or an overlapping Access app prevent mutation.
+   or an overlapping Access app prevent mutation. The plan inspects
+   raw hostname declarations before normalized API parsing; an invalid
+   destination cannot conceal an already-covered staging wildcard,
+   and broad `*.pages.dev` rules also block automatic creation.
 2. Check that the existing canonical staging login and game remain
    accessible before applying. No Pages/OCI deploy may be in progress.
 3. To apply **only on staging previews**, select `operation=apply` and type

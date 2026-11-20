@@ -121,6 +121,39 @@ class PilotTest(unittest.TestCase):
                     pilot.apply(cf, Pages(), EMAIL)
                 self.assertFalse(cf.posts)
 
+    def test_malformed_secondary_destination_cannot_hide_preview_overlap(self):
+        for value in (
+            {"id": APP_ID, "type": "self_hosted", "name": "foreign",
+             "destinations": [
+                 {"type": "public", "uri": pilot.WILDCARD},
+                 {"type": "private", "uri": "other-host.internal"}]},
+            {"id": APP_ID, "type": "self_hosted", "name": "foreign",
+             "destinations": [
+                 {"type": "public", "uri": pilot.WILDCARD},
+                 {"uri": pilot.WILDCARD, "overrides": [{"type": "public"}]}]},
+            {"id": APP_ID, "type": "self_hosted", "name": "foreign",
+             "domain": pilot.WILDCARD,
+             "destinations": [{"type": "public", "uri": "other-host.pages.dev"}]},
+            {"id": APP_ID, "type": "self_hosted", "name": "foreign",
+             "domain": "*.pages.dev"},
+            {"id": APP_ID, "type": "self_hosted", "name": "foreign",
+             "destinations": [{"type": "public",
+                               "uri": "https://*.chronicles-staging.pages.dev/private"}]},
+        ):
+            with self.subTest(value=value):
+                access = Access(existing=[value])
+                with self.assertRaises(pilot.CutoverError):
+                    pilot.apply(access, Pages(), EMAIL)
+                self.assertEqual(access.posts, [])
+
+    def test_unrelated_apps_do_not_block_exact_preview_pilot(self):
+        access = Access(existing=[
+            {"id": APP_ID, "type": "self_hosted", "name": "Unrelated",
+             "destinations": [{"type": "public", "uri": "*.snooker-staging.pages.dev"}]}
+        ])
+        self.assertEqual(pilot.plan(access, Pages(), EMAIL), "needs-operator-creation")
+        self.assertEqual(access.posts, [])
+
     def test_wrong_project_domain_or_source_never_writes(self):
         for delta in ({"name": "chronicles-production"},
                       {"production_branch": "feature"},

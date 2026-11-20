@@ -121,6 +121,37 @@ def exact_pages_owner(client):
     return True
 
 
+def overlapping_access_scope(app):
+    """Conservative check of raw Access hostname fields before normalization.
+
+    The shared parser discards destinations if any entry is invalid. Never
+    let a malformed second entry hide an exact preview wildcard already
+    present in the same Access application.
+    """
+    if not isinstance(app, dict):
+        raise CutoverError("Malformed Access application inventory")
+    raw = [app.get("domain")]
+    hosted = app.get("self_hosted_domains")
+    if hosted is not None:
+        if not isinstance(hosted, list):
+            raise CutoverError("Malformed Access application domain list")
+        raw.extend(x.get("domain") for x in hosted if isinstance(x, dict))
+    destinations = app.get("destinations")
+    if destinations is not None:
+        if not isinstance(destinations, list):
+            raise CutoverError("Malformed Access application destinations")
+        raw.extend(x.get("uri") for x in destinations if isinstance(x, dict))
+    for scope in raw:
+        if isinstance(scope, str) and (
+            WILDCARD in scope or scope.strip().lower() in {
+                "*.pages.dev", "https://*.pages.dev",
+                "*.*.pages.dev", "https://*.*.pages.dev",
+            }
+        ):
+            return True
+    return False
+
+
 def plan(access, pages, email):
     app_payload(email)  # Reject missing/invalid operator identity before touching provider.
     exact_pages_owner(pages)
@@ -128,8 +159,9 @@ def plan(access, pages, email):
     matching = []
     for app in inventory:
         domains, valid = app_destinations(app)
-        if WILDCARD in domains and not valid:
-            raise CutoverError("Conflicting multi-host/invalid Access application")
+        overlaps = overlapping_access_scope(app)
+        if overlaps and (not valid or domains != {WILDCARD}):
+            raise CutoverError("Conflicting broad/multi-host/invalid Access application")
         if WILDCARD in domains:
             matching.append(app)
     if len(matching) > 1:
