@@ -230,8 +230,8 @@ def upload_verified(namespace: str, bucket: str, key: str, path: Path) -> None:
     head = run_json(head_args(namespace, bucket, key))
     if (not isinstance(head, dict) or
             int(head.get("content-length", -1)) != path.stat().st_size or
-            not head.get("etag")):
-        raise Refused("remote ciphertext size not confirmed")
+            head.get("etag") != response["etag"]):
+        raise Refused("remote ciphertext identity and size not confirmed")
 
 
 def backup(env=None) -> str:
