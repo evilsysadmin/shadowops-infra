@@ -91,6 +91,21 @@ class VerifiedGlbReleaseTest(unittest.TestCase):
           for slot in art.SLOTS})
         self.assertTrue(all(art.PREFIX in key for key in entries))
 
+    def test_dedicated_bucket_and_old_chess_studio_origin_are_rejected(self):
+        self.assertEqual(art.BUCKET, "star-adventures")
+        self.assertEqual(art.PREFIX, "star-adventures/environment/")
+        self.assertEqual(art.CDN,
+            "https://pub-0e83bbe83562412182441ed82173d704.r2.dev/"
+            + art.PREFIX)
+
+        def old_origin(manifest, receipt, assets):
+            name = manifest["slots"][0]["asset"]["url"].rsplit("/", 1)[-1]
+            manifest["slots"][0]["asset"]["url"] = (
+                "https://assets.chess-studio.shadowops.dpdns.org/"
+                + art.PREFIX + name)
+        with self.assertRaisesRegex(art.PublishError, "immutable CDN path"):
+            art.verify_archive(make_bundle(mutate=old_origin), SOURCE)
+
     def test_wrong_sha_rejected_without_cloud(self):
         with self.assertRaisesRegex(art.PublishError, "source SHA"):
             art.verify_archive(make_bundle(), "main")
@@ -164,7 +179,7 @@ class VerifiedGlbReleaseTest(unittest.TestCase):
                 self.status = status
             def open(self, request, timeout):
                 key = request.full_url.removeprefix(
-                    "https://assets.chess-studio.shadowops.dpdns.org/")
+                    art.CDN.removesuffix(art.PREFIX))
                 payload = entries[key]
                 if self.status == "bad-bytes":
                     payload = payload[:-1] + b"X"
