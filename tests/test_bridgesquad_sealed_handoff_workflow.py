@@ -90,7 +90,8 @@ class SealedHandoffWorkflowTests(unittest.TestCase):
             "Recheck unchanged game main before publishing private artifact",
             "Archive private Infra candidate for later protected delivery",
         ):
-            marker = "      - name: " + title + "\n        if: steps.duplicate.outputs.sealed_exists != 'true'"
+            id_line = "        id: snapshot\n" if title.startswith("Rebuild pinned") else ""
+            marker = "      - name: " + title + "\n" + id_line + "        if: steps.duplicate.outputs.sealed_exists != 'true'"
             with self.subTest(title=title):
                 self.assertIn(marker, self.job)
         self.assertIn("scripts/bridgesquad_sealed_candidate_dedupe.py", self.text)
