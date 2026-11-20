@@ -1,0 +1,57 @@
+name: ShadowOps Identity · operator-only tunnel activation contract (offline)
+on:
+  pull_request:
+    paths:
+      - host/identity-production-tunnel.py
+      - host/identity-production-origin.py
+      - tests/test_identity_production_tunnel_operator.py
+      - .github/workflows/identity-production-tunnel-operator.yml
+      - docs/identity-production-tunnel-operator.md
+      - scripts/bridgesquad_prod_identity_probe.py
+      - scripts/bridgesquad_alias_bootstrap.py
+      - scripts/identity_production_origin_probe.py
+      - compose.identity.production-tunnel.yaml
+  push:
+    branches: [main]
+    paths:
+      - host/identity-production-tunnel.py
+      - host/identity-production-origin.py
+      - tests/test_identity_production_tunnel_operator.py
+      - .github/workflows/identity-production-tunnel-operator.yml
+      - docs/identity-production-tunnel-operator.md
+      - scripts/bridgesquad_prod_identity_probe.py
+      - scripts/bridgesquad_alias_bootstrap.py
+      - scripts/identity_production_origin_probe.py
+      - compose.identity.production-tunnel.yaml
+permissions:
+  contents: read
+jobs:
+  offline:
+    name: Deny unsafe tunnel activation, prove public JWKS binding and game guest 401
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    env:
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Realistic synthetic Docker/public GET contract and rollback
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check 'PyYAML==6.0.2'
+          python3 -m unittest discover -s tests -p test_identity_production_tunnel_operator.py -v
+          python3 -m py_compile host/identity-production-tunnel.py
+          python3 host/identity-production-tunnel.py plan
+          if python3 host/identity-production-tunnel.py start-tunnel; then
+            echo "ERROR: CI tunnel start admitted" >&2
+            exit 1
+          fi
+          if python3 host/identity-production-tunnel.py stop-tunnel; then
+            echo "ERROR: CI tunnel stop admitted" >&2
+            exit 1
+          fi
+          echo "IDENTITY_TUNNEL_OPERATOR_OFFLINE_OK no-Docker-up no-secrets no-DNS"
