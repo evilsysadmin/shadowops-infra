@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'scripts/bridgesquad_source_admission.py'
+      - 'scripts/bridgesquad_source_snapshot.py'
+      - 'tests/test_bridgesquad_source_snapshot.py'
       - 'scripts/bridgesquad_sealed_candidate_dedupe.py'
       - 'tests/test_bridgesquad_source_admission.py'
       - 'tests/test_bridgesquad_sealed_candidate_dedupe.py'
@@ -50,7 +52,10 @@ jobs:
         with:
           persist-credentials: false
       - name: Test exact green main and private release ZIP
-        run: python3 -m unittest discover -s tests -p test_bridgesquad_source_admission.py -v
+        run: |
+          python3 -m unittest discover -s tests -p test_bridgesquad_source_admission.py -v
+          python3 -m unittest discover -s tests -p test_bridgesquad_source_snapshot.py -v
+          python3 -m py_compile scripts/bridgesquad_source_snapshot.py
       - run: python3 -m py_compile scripts/bridgesquad_source_admission.py
       - name: Verify sealed Pages package contains only trusted Infra Worker
         run: python3 -m unittest discover -s tests -p test_bridgesquad_release_package.py -v
@@ -129,20 +134,18 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/bridgesquad_sealed_candidate_dedupe.py check "$SOURCE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
-      - name: Download exact verified source artifact and reject tampering
+      - name: Rebuild pinned public game commit into a private source ZIP (no cross-repo Actions download)
+        id: snapshot
         if: steps.duplicate.outputs.sealed_exists != 'true'
         env:
           SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
-          ARTIFACT_ID: ${{ steps.source.outputs.artifact_id }}
-          ARTIFACT_DIGEST: ${{ steps.source.outputs.artifact_digest }}
         shell: bash
         run: |
           set -euo pipefail
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
-          [[ "$ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          gh api "repos/evilsysadmin/matthias-bridge-squad/actions/artifacts/$ARTIFACT_ID/zip" > "$RUNNER_TEMP/bridgesquad-source.zip"
-          python3 scripts/bridgesquad_source_admission.py verify-archive             "$RUNNER_TEMP/bridgesquad-source.zip" "$ARTIFACT_DIGEST" "$SOURCE_SHA"
+          python3 scripts/bridgesquad_source_snapshot.py snapshot \
+            "$SOURCE_SHA" "$RUNNER_TEMP/bridgesquad-source.zip" >> "$GITHUB_OUTPUT"
+          [[ "$(sed -n 's/^snapshot_digest=//p' "$GITHUB_OUTPUT" | tail -n1)" =~ ^sha256:[0-9a-f]{64}$ ]]
       - uses: actions/setup-node@v4
         if: steps.duplicate.outputs.sealed_exists != 'true'
         with:
@@ -151,7 +154,7 @@ jobs:
         if: steps.duplicate.outputs.sealed_exists != 'true'
         env:
           SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
-          ARTIFACT_DIGEST: ${{ steps.source.outputs.artifact_digest }}
+          ARTIFACT_DIGEST: ${{ steps.snapshot.outputs.snapshot_digest }}
         shell: bash
         run: |
           set -euo pipefail
