@@ -55,10 +55,10 @@ def verify_run(args: list[str], *, runner=subprocess.run) -> None:
         raise Refused("TLS verification refused")
 
 
-def verify_replica_key() -> None:
+def verify_replica_key(path: Path | None = None) -> None:
     # A replica key is a secret. Check content only in memory; never log it.
     try:
-        with REPLICA_KEY.open("rb") as reader:
+        with (REPLICA_KEY if path is None else path).open("rb") as reader:
             content = reader.read(2049)
     except OSError:
         raise Refused("replica key not readable") from None
@@ -84,31 +84,34 @@ def verify_material(*, euid=None, env=None, runner=subprocess.run) -> None:
         raise Refused("manual root host only")
     host.validate_compose(host.COMPOSE.read_text(encoding="utf-8"))
     host.inspect_private_files()
+    verify_crypto(CA, CERT_KEY, REPLICA_KEY, runner=runner)
 
-    # A1 may hold only the server private key, never the signing CA key.
+
+def verify_crypto(ca: Path, cert: Path, key: Path, *, runner=subprocess.run) -> None:
+    """Cryptography-only check for fixed production files or a trusted staging trio.
+
+    The installer validates the source directory/owners/filenames first.
+    This function never prints contents, writes, or touches Docker.
+    """
     for name in FORBIDDEN_CA_KEYS:
-        if (CA.parent / name).exists() or (CA.parent / name).is_symlink():
+        if (ca.parent / name).exists() or (ca.parent / name).is_symlink():
             raise Refused("offline signing CA key must not be installed on A1")
-
-    # Verify the server certificate matches its own private key; opens in
-    # memory but never logs the key (SSLContext raises only generic errors).
     try:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        ctx.load_cert_chain(certfile=str(CERT_KEY))
+        ctx.load_cert_chain(certfile=str(cert))
     except (OSError, ssl.SSLError):
         raise Refused("server key/certificate pair invalid") from None
-
-    base = ["openssl", "verify", "-CAfile", str(CA), "-purpose", "sslserver"]
+    base = ["openssl", "verify", "-CAfile", str(ca), "-purpose", "sslserver"]
     for name in DNS:
-        verify_run([*base, "-verify_hostname", name, str(CERT_KEY)], runner=runner)
-    verify_run([*base, "-verify_ip", IP, str(CERT_KEY)], runner=runner)
-    for file in (CA, CERT_KEY):
+        verify_run([*base, "-verify_hostname", name, str(cert)], runner=runner)
+    verify_run([*base, "-verify_ip", IP, str(cert)], runner=runner)
+    for file in (ca, cert):
         verify_run(
             ["openssl", "x509", "-in", str(file), "-noout",
              "-checkend", str(MIN_LIFETIME_SECONDS)],
             runner=runner,
         )
-    verify_replica_key()
+    verify_replica_key(key)
 
 
 def main(args: list[str]) -> int:
