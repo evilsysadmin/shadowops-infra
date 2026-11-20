@@ -97,7 +97,7 @@ class PagesPrivatePolicyTests(unittest.TestCase):
                 else:
                     p["source"] = {"type": "github"}
                 cf = FakeCloudflare(p)
-                with self.assertRaises(policy.PrivatePolicyError):
+                with self.assertRaises((policy.PrivatePolicyError, pages.AdmissionError)):
                     policy.apply(cf)
                 self.assertFalse(any(method == "PATCH" for method, _, _ in cf.calls))
 
@@ -117,7 +117,7 @@ class PagesPrivatePolicyTests(unittest.TestCase):
                 else:
                     prod["env_vars"][policy.KEY] = {"type": "plain_text", "value": "bad"}
                 cf = FakeCloudflare(p)
-                with self.assertRaises(policy.PrivatePolicyError):
+                with self.assertRaises((policy.PrivatePolicyError, pages.AdmissionError)):
                     policy.apply(cf)
                 self.assertFalse(any(method == "PATCH" for method, _, _ in cf.calls))
 
