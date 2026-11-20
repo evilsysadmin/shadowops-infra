@@ -54,7 +54,9 @@ class Fake:
         policy = self.policies.get(ident_part, [
             {"decision": "allow", "include": [{"email": {"email": "operator@private.invalid"}}]}
         ])
-        return {"success": True, "result": policy}
+        return {"success": True, "result": policy,
+                "result_info": {"page": 1, "total_pages": 1,
+                                "count": len(policy), "total_count": len(policy)}}
 
 
 class AccessReadinessTests(unittest.TestCase):
@@ -114,6 +116,22 @@ class AccessReadinessTests(unittest.TestCase):
                 cf = Fake(policies={ident(1): policy})
                 result = a.inspect(cf)
                 self.assertEqual(result["state"], "ACCESS_REMEDIATION_REQUIRED")
+
+    def test_incomplete_policy_inventory_never_conveys_safe_access(self):
+        cf = Fake()
+
+        class IncompletePolicies(Fake):
+            def get(self, path):
+                result = super().get(path)
+                if path.endswith("/policies"):
+                    result["result_info"]["total_pages"] = 2
+                return result
+
+        result = a.inspect(IncompletePolicies(cf.apps))
+        self.assertEqual(result["state"], "ACCESS_REMEDIATION_REQUIRED")
+        for project in result["projects"]:
+            self.assertTrue(all(v == "not-verified"
+                                for v in project["application_scopes"].values()))
 
     def test_legacy_domain_allowed_only_with_no_public_destinations(self):
         old = app("staradvs-staging.pages.dev", 1, dest=False)
