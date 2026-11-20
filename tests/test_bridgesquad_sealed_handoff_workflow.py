@@ -53,6 +53,12 @@ class SealedHandoffWorkflowTests(unittest.TestCase):
         self.assertLess(self.job.index("scripts/bridgesquad_sealed_worker_browser.py"),
                         self.job.index("actions/upload-artifact@v4"))
 
+    def test_browser_fixture_does_not_eval_into_strict_csp_login_shell(self):
+        probe = (WORKFLOW.parents[2] / "scripts" /
+                 "bridgesquad_sealed_worker_browser.py").read_text(encoding="utf-8")
+        self.assertIn('page.locator(\'[data-action="play"]\').wait_for(', probe)
+        self.assertNotIn('window.__MBS_TEST__ && __MBS_TEST__.getState()', probe)
+
     def test_no_cloudflare_dns_secret_binding_or_public_delivery(self):
         for prohibited in (
             "wrangler", "deploy-pages", "cloudflare-api", "CLOUDFLARE_API_TOKEN",

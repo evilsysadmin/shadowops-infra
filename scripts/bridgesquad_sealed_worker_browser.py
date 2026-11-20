@@ -119,9 +119,11 @@ def run(bundle: Path) -> None:
                         "httpOnly": True, "sameSite": "None",
                     }])
                     page.goto(HOST + "/")
-                    page.wait_for_function(
-                        "window.__MBS_TEST__ && __MBS_TEST__.getState() === 'menu'",
-                        timeout=14000,
+                    # CSP on the 401 login shell deliberately forbids
+                    # eval: wait for an actual game DOM control instead of
+                    # Playwright's wait_for_function on the previous page.
+                    page.locator('[data-action="play"]').wait_for(
+                        state="visible", timeout=14000,
                     )
                     cookie_names = [c["name"] for c in context.cookies()]
                     assert "__Host-bridgesquad" in cookie_names, cookie_names
