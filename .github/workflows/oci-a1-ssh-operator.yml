@@ -1,0 +1,43 @@
+name: OCI A1 operator SSH entrypoints (offline)
+on:
+  pull_request:
+    paths:
+      - Makefile
+      - scripts/oci_a1_ssh.py
+      - tests/test_oci_a1_ssh.py
+      - docs/oci-a1-ssh.md
+      - .github/workflows/oci-a1-ssh-operator.yml
+  push:
+    branches: [main]
+    paths:
+      - Makefile
+      - scripts/oci_a1_ssh.py
+      - tests/test_oci_a1_ssh.py
+      - docs/oci-a1-ssh.md
+      - .github/workflows/oci-a1-ssh-operator.yml
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    env:
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Check operator CLI without SSH, OCI credentials or Cloudflare writes
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p test_oci_a1_ssh.py -v
+          python3 -m py_compile scripts/oci_a1_ssh.py
+          make --dry-run oci-a1-ssh-check
+          make --dry-run oci-a1-ssh
+          if python3 scripts/oci_a1_ssh.py ssh; then
+            echo 'ERROR: CI was able to enter operator SSH' >&2
+            exit 1
+          fi

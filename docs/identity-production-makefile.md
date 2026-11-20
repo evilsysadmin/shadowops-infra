@@ -14,6 +14,22 @@ credenciales de staging por debajo de Make. Los `start`, `apply`,
 operador (root y/o TTY y confirmaciones literales). Los secretos deben
 seguir fuera de Git, de argumentos de comandos y del historial.
 
+## Acceso previo a la A1 desde el L14
+
+El acceso SSH a la A1 existente ya se gestiona desde este repositorio:
+
+```sh
+make oci-a1-ssh-check
+make oci-a1-ssh
+```
+
+Estos comandos se ejecutan **desde tu estación de trabajo** (L14),
+usan Cloudflare Access y entran como `ubuntu` en la A1
+`chess-studio-staging`; no instalan Identity ni ejecutan automáticamente
+ninguno de los operadores productivos. La máquina compartida debe pasar
+una revisión explícita de aislamiento antes de admitir servicios de
+producción. Consulta [acceso OCI A1](oci-a1-ssh.md).
+
 ## 0. Solo lectura: por dónde falla hoy
 
 ```sh
