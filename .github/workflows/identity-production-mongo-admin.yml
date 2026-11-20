@@ -1,0 +1,46 @@
+name: Identity production Mongo first administrator (offline)
+on:
+  pull_request:
+    paths:
+      - Makefile
+      - host/identity-production-mongo-admin.py
+      - tests/test_identity_production_mongo_admin.py
+      - docs/identity-production-mongo-host.md
+      - .github/workflows/identity-production-mongo-admin.yml
+  push:
+    branches: [main]
+    paths:
+      - Makefile
+      - host/identity-production-mongo-admin.py
+      - tests/test_identity_production_mongo_admin.py
+      - docs/identity-production-mongo-host.md
+      - .github/workflows/identity-production-mongo-admin.yml
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Validate manual first-user only and fail-closed in CI
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check 'PyYAML==6.0.2'
+          python3 -m unittest discover -s tests -p test_identity_production_mongo_admin.py -v
+          python3 -m unittest discover -s tests -p test_identity_production_mongo_replica.py -v
+          python3 -m py_compile host/identity-production-mongo-admin.py
+          make identity-prod-mongo-admin-plan
+          make --dry-run identity-prod-mongo-admin-inspect
+          make --dry-run identity-prod-mongo-admin-create
+          if python3 -I host/identity-production-mongo-admin.py create; then
+            echo 'ERROR: CI could create Mongo production administrator' >&2
+            exit 1
+          fi
