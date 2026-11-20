@@ -9,6 +9,7 @@ export CKA_OPERATOR_SSH_KEY
 .PHONY: help cka-retire-host cka-retire-inspect identity-staging-bootstrap \
   oci-a1-ssh-check oci-a1-ssh \
   identity-prod-mongo-host-plan identity-prod-mongo-host-inspect \
+  identity-prod-mongo-backup-plan identity-prod-mongo-backup-inspect \
   identity-prod-plan identity-prod-doctor identity-prod-inspect identity-prod-mongo-inspect identity-prod-mongo-apply \
   identity-prod-origin-inspect identity-prod-origin-start identity-prod-origin-stop \
   identity-prod-tunnel-inspect identity-prod-tunnel-start identity-prod-tunnel-stop \
@@ -33,6 +34,8 @@ help:
 	  '  make identity-prod-doctor     Local prerequisite inventory; no secrets printed or commands executed' \
 	  '  make identity-prod-inspect    Read-only Mongo + origin preflights (fails if not ready)' \
 	  '  make identity-prod-mongo-host-plan | identity-prod-mongo-host-inspect' \
+	  '  make identity-prod-mongo-backup-plan | identity-prod-mongo-backup-inspect' \
+	  '       Offline backup plan and local-only prerequisite check (never uploads)' \
 	  '       Validate isolated Mongo host Compose and private TLS file metadata (no deploy)' \
 	  '  make identity-prod-mongo-inspect | identity-prod-mongo-apply' \
 	  '  make identity-prod-origin-inspect | identity-prod-origin-start | identity-prod-origin-stop' \
@@ -97,6 +100,13 @@ identity-prod-mongo-host-plan:
 
 identity-prod-mongo-host-inspect:
 	@$(PYTHON) scripts/identity_production_mongo_host.py inspect
+
+# Off-host encrypted backup is deliberately not a Make mutation target.
+identity-prod-mongo-backup-plan:
+	@$(PYTHON) scripts/identity_production_mongo_backup.py plan
+
+identity-prod-mongo-backup-inspect:
+	@$(PYTHON) scripts/identity_production_mongo_backup.py inspect
 
 identity-prod-mongo-inspect:
 	@$(PYTHON) scripts/identity_production_mongo_operator.py inspect
