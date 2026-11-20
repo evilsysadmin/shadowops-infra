@@ -49,7 +49,8 @@ def render():
                 "networks": {"identity-origin": {}, "identity-tunnel-egress": {}},
             },
         },
-        "networks": {"identity-origin": {"internal": True}},
+        "networks": {"identity-origin": {"internal": True},
+                     "identity-mongo-egress": {"name": op.MONGO_NETWORK, "external": True}},
     }
 
 def render_origin():
@@ -61,7 +62,7 @@ def render_origin():
             "name": "shadowops-identity-production-origin",
         },
         "identity-mongo-egress": {
-            "name": "shadowops-identity-production-mongo-egress",
+            "name": op.MONGO_NETWORK, "external": True,
         },
     }
     return obj
@@ -77,10 +78,21 @@ class DockerDouble:
         self.fail_up = False
         self.extra_service = False
         self.image_sha = SHA
+        self.mongo_network = {
+            "Name": op.MONGO_NETWORK, "Driver": "bridge", "Internal": True,
+            "Labels": {
+                "com.docker.compose.project": op.MONGO_OWNER,
+                "com.docker.compose.network": "identity-mongo-egress",
+                "com.docker.compose.version": "synthetic",
+            },
+            "Containers": {"a"*64: {"Name": op.MONGO_CONTAINER}},
+        }
 
     def __call__(self, args, **kwargs):
         self.events.append(tuple(args))
-        if args[:2] == ["docker", "ps"]:
+        if args[:3] == ["docker", "network", "inspect"]:
+            result = json.dumps(self.mongo_network)
+        elif args[:2] == ["docker", "ps"]:
             result = "\n".join(x["Service"] + "|" + x["State"] for x in self.containers)
         elif args[:3] == ["docker", "image", "inspect"]:
             result = self.image_sha
@@ -156,7 +168,7 @@ class OriginOperatorTests(unittest.TestCase):
     def test_origin_only_compose_does_not_require_tunnel_configuration(self):
         op.check_origin_compose_config(json.dumps(render_origin()), IMAGE)
         for bad in ("port", "tunnel", "network", "root", "volume", "restart",
-                    "network-name", "private-network", "image"):
+                    "network-name", "private-network", "mongo-not-external", "image"):
             with self.subTest(bad=bad):
                 cfg = render_origin()
                 o = cfg["services"][op.SERVICE]
@@ -176,10 +188,32 @@ class OriginOperatorTests(unittest.TestCase):
                     cfg["networks"]["identity-origin"]["name"] = "foreign-network"
                 elif bad == "private-network":
                     cfg["networks"]["identity-origin"]["internal"] = False
+                elif bad == "mongo-not-external":
+                    cfg["networks"]["identity-mongo-egress"].pop("external")
                 elif bad == "image":
                     o["image"] = "unreviewed/image:latest"
                 with self.assertRaises(op.Refused):
                     op.check_origin_compose_config(json.dumps(cfg), IMAGE)
+
+    def test_production_mongo_network_ownership_and_exact_participants(self):
+        docker = DockerDouble()
+        op.mongo_network_admission(runner=docker)
+        self.assertTrue(any(x[:3] == ("docker", "network", "inspect") for x in docker.events))
+        for label, mutate in (
+            ("staging-owner", lambda n: n["Labels"].update(
+                {"com.docker.compose.project": "shadowops-identity-staging"})),
+            ("public-network", lambda n: n.update(Internal=False)),
+            ("other-network", lambda n: n.update(Name="foreign-network")),
+            ("other-service", lambda n: n["Containers"].update(
+                {"b"*64: {"Name": "shadowops-identity-staging-identity-mongo-1"}})),
+            ("missing-mongo", lambda n: n.update(Containers={})),
+            ("untrusted-driver", lambda n: n.update(Driver="host")),
+        ):
+            with self.subTest(label=label):
+                docker = DockerDouble()
+                mutate(docker.mongo_network)
+                with self.assertRaises(op.Refused):
+                    op.mongo_network_admission(runner=docker)
 
     def test_stage_one_requires_no_tunnel_credentials_even_for_admission(self):
         origin_only = {
