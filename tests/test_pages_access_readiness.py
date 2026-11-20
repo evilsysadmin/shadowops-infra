@@ -118,7 +118,7 @@ class AccessReadinessTests(unittest.TestCase):
                 self.assertEqual(result["state"], "ACCESS_REMEDIATION_REQUIRED")
                 row = next(r for r in result["projects"]
                            if r["project"] == "chronicles-staging")
-                self.assertEqual(row["application_scopes"]["main"], "missing")
+                self.assertEqual(row["application_scopes"]["main"], "ambiguous")
 
     def test_legacy_multiple_self_hosted_domains_are_untrusted(self):
         value = {
