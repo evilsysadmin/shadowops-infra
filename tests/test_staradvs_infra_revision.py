@@ -50,7 +50,11 @@ class InfraRevisionTests(unittest.TestCase):
         self.assertEqual(app.compare(PINNED, CURRENT, reader(old, new)), (False, [RELEVANT]))
 
     def test_staging_hold_or_test_change_blocks(self):
-        for name in ("config/staradvs-staging-hold.json",
+        for name in ("edge/staradvs-identity-gate.mjs",
+                     "config/staradvs-protected-release.json",
+                     "scripts/staradvs_protected_bundle.py",
+                     "tests/test_staradvs_protected_bundle.py",
+                     "config/staradvs-staging-hold.json",
                      "scripts/staradvs_source_admission.py",
                      "tests/test_staradvs_pages.py",
                      "tests/staradvs-public-browser.test.mjs"):
