@@ -159,8 +159,11 @@ def check_compose_config(raw: str, image: str, tunnel_digest: str) -> None:
         require("tunnel-segregation",
                 set(proxy["networks"]) == {"identity-origin", "identity-tunnel-egress"})
         require("private-origin-network", obj["networks"]["identity-origin"].get("internal") is True)
-        require("mongo-owned-external-network", obj["networks"].get("identity-mongo-egress") ==
-                {"name": MONGO_NETWORK, "external": True})
+        require("mongo-named-network",
+                obj["networks"].get("identity-mongo-egress") in (
+                    {"name": MONGO_NETWORK},
+                    {"name": MONGO_NETWORK, "external": True},
+                ))
     except (TypeError, KeyError, json.JSONDecodeError) as exc:
         raise Refused("invalid production Compose structure") from None
 
@@ -182,9 +185,11 @@ def check_origin_compose_config(raw: str, image: str) -> None:
                 obj["networks"]["identity-origin"].get("internal") is True and
                 obj["networks"]["identity-origin"].get("name") ==
                     "shadowops-identity-production-origin")
-        require("mongo-owned-external-network",
-                obj["networks"]["identity-mongo-egress"] ==
-                    {"external": True, "name": MONGO_NETWORK})
+        require("mongo-named-network",
+                obj["networks"]["identity-mongo-egress"] in (
+                    {"name": MONGO_NETWORK},
+                    {"external": True, "name": MONGO_NETWORK},
+                ))
     except (TypeError, KeyError, json.JSONDecodeError):
         raise Refused("invalid origin-only Compose structure") from None
 
@@ -231,6 +236,18 @@ def project_container_status(*, runner=subprocess.run):
             raise Refused("ambiguous project-owned production container")
         rows.append({"Service": parts[0], "State": parts[1], "Project": PROJECT})
     return rows
+
+
+def origin_overlay_mongo_external() -> None:
+    """Check the source YAML: Docker Compose may omit 'external' from config JSON."""
+    try:
+        obj = tunnel.strict_yaml(ORIGIN_OVERLAY.read_text(encoding="utf-8"))
+        if obj["networks"]["identity-mongo-egress"] != {
+            "name": MONGO_NETWORK, "external": True,
+        }:
+            raise Refused("origin may only join pre-existing production Mongo network")
+    except (OSError, ValueError, KeyError, TypeError):
+        raise Refused("unsafe origin Mongo network declaration") from None
 
 
 def mongo_network_admission(*, runner=subprocess.run) -> None:
@@ -311,6 +328,7 @@ def admission(*, runner=subprocess.run):
 def origin_admission(*, runner=subprocess.run):
     """Stage 1 checks only its own image/bundle/CA and rendered network model."""
     sha, image = origin_env_contract()
+    origin_overlay_mongo_external()
     normalized = run(origin_compose_args("config", "--format", "json"), runner=runner)
     check_origin_compose_config(normalized, image)
     if image_revision(image, runner=runner) != sha:
