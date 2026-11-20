@@ -23,9 +23,9 @@ import staradvs_source_admission as source
 
 REPO = "evilsysadmin/star-adventures"
 WORKFLOW = "K-47 unified architecture · full-sector visual gate"
-BUCKET = "chess-studio-assets"
+BUCKET = "star-adventures"
 PREFIX = "star-adventures/environment/"
-CDN = "https://assets.chess-studio.shadowops.dpdns.org/" + PREFIX
+CDN = "https://pub-0e83bbe83562412182441ed82173d704.r2.dev/" + PREFIX
 ORIGIN = "https://staging.staradvs.shadowops.dpdns.org"
 CACHE = "public, max-age=31536000, immutable"
 SHA = re.compile(r"[0-9a-f]{64}\Z")
@@ -220,7 +220,7 @@ def public_probe(entries: dict[str, bytes]) -> list[str]:
     for key, blob in sorted(entries.items()):
         check(key.startswith(PREFIX) and len(blob) <= MAX_FILE,
               "outside approved K-47 CDN probe scope")
-        url = "https://assets.chess-studio.shadowops.dpdns.org/" + key
+        url = CDN + key.removeprefix(PREFIX)
         req = urllib.request.Request(url, headers={
             "Origin": ORIGIN, "Cache-Control": "no-cache",
             "User-Agent": "ShadowOps-K47-verified-art/1",
@@ -265,7 +265,7 @@ def public_activation_evidence(source_sha: str, manifest: dict,
         "cdnPublicBytesVerified": True,
         "verifiedModelCount": len(entries),
         "models": [{
-            "url": "https://assets.chess-studio.shadowops.dpdns.org/" + key,
+            "url": CDN + key.removeprefix(PREFIX),
             "sha256": hashlib.sha256(blob).hexdigest(),
             "bytes": len(blob),
         } for key, blob in sorted(entries.items())],
@@ -304,13 +304,13 @@ def publish(source_sha: str, manifest: dict, entries: dict[str, bytes]):
         try:
             page = client.list_objects_v2(**kwargs)
         except Exception:
-            raise PublishError("cannot establish complete shared R2 inventory") from None
+            raise PublishError("cannot establish complete dedicated Star Adventures R2 inventory") from None
         check(isinstance(page, dict) and type(page.get("IsTruncated")) is bool,
               "incomplete R2 capacity evidence")
         for item in page.get("Contents", []):
             name, size = item.get("Key"), item.get("Size")
             check(isinstance(name, str) and name not in objects and
-                  type(size) is int and size >= 0, "bad shared bucket inventory")
+                  type(size) is int and size >= 0, "bad dedicated bucket inventory")
             objects[name] = size
         if not page["IsTruncated"]:
             break
@@ -319,12 +319,12 @@ def publish(source_sha: str, manifest: dict, entries: dict[str, bytes]):
               "ambiguous R2 inventory continuation")
         marker = new_marker
     else:
-        raise PublishError("shared R2 inventory exceeds bounded pages")
+        raise PublishError("dedicated R2 inventory exceeds bounded pages")
     additions = sum(len(blob) for key, blob in entries.items() if key not in objects)
     check(sum(objects.values()) + additions <= MAX_BUCKET and
           sum(size for key, size in objects.items() if key.startswith(PREFIX)) +
           additions <= MAX_PREFIX,
-          "R2 shared/K47 prefix free-tier budget exceeded")
+          "R2 Star Adventures bucket/K47 prefix budget exceeded")
     for key, blob in entries.items():
         if key in objects:
             check(objects[key] == len(blob), "immutable R2 key has different size")
