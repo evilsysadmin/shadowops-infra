@@ -28,7 +28,10 @@ HOSTS = {
 }
 UUID_PATTERN = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
 ACCOUNT_PATTERN = re.compile(r"[0-9a-fA-F]{32}\Z")
-VALID_ACTIONS = {"allow", "block"}
+VALID_ACTIONS = {"allow", "deny"}
+# A narrow allow rule must name an individual operator, not a domain,
+# network range, Everyone, arbitrary Access group or all-service-token match.
+EXACT_OPERATOR_EMAIL = re.compile(r"[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+\Z")
 MAX_APPS = 100
 MAX_POLICIES = 100
 
@@ -172,6 +175,7 @@ def policy_review(payload):
         # All-deny is possible, but do not label an unconfigured Access
         # application ready for real authorized previews.
         return "not-verified"
+    has_restricted_allow = False
     for policy in rows:
         if not isinstance(policy, dict):
             return "not-verified"
@@ -182,11 +186,23 @@ def policy_review(payload):
             include = policy.get("include")
             if not isinstance(include, list) or not include:
                 return "review-required"
-            # Everyone can include any user with an Access session; this does
-            # not demonstrate a restricted operator policy.
-            if any(not isinstance(x, dict) or "everyone" in x for x in include):
-                return "review-required"
-    return "restricted-policy-candidate"
+            # Cloudflare Access Include rules are ORed. One broad rule
+            # (Everyone, email_domain, IP range, group, service token...)
+            # broadens the whole allow, even alongside an exact email.
+            # Accept only individual explicitly named operator addresses.
+            for rule in include:
+                if not isinstance(rule, dict) or set(rule) != {"email"}:
+                    return "review-required"
+                email = rule["email"]
+                if (not isinstance(email, dict) or set(email) != {"email"}
+                        or not isinstance(email["email"], str)
+                        or len(email["email"]) > 254
+                        or EXACT_OPERATOR_EMAIL.fullmatch(email["email"]) is None):
+                    return "review-required"
+            has_restricted_allow = True
+    # Deny-only policy can be safe but is not proof that an authorized
+    # operator can sign in and complete the subsequent gameplay E2E.
+    return "restricted-policy-candidate" if has_restricted_allow else "review-required"
 
 
 def inspect(client):
