@@ -176,3 +176,23 @@ Manual execution shares the automatic staging publisher concurrency group `shado
 The manual inspection reuses the live GET-only Cloudflare/HTTPS/receipt/immutable-bundle preflight, then independently validates an exactly matching machine-readable report and all forward/historic deployment identities, immutable URLs, release runs and receipt IDs. An inactive or reviewed active hold may be *inspected* but always yields `can_mutate: false` and `operator_approval: not_given`. The workflow writes a short-lived read-only report artifact and cannot POST/dispatch a rollback, deploy or modify DNS, hold or authorization.
 
 This PLAN action is not approval to restore. A future mutating workflow must be separately reviewed, must use its own protected `staging-recovery` environment and typed `ROLLBACK`/`FORWARD` confirmation, and must validate public Chrome/F5 after each transition before reviewed hold resumption. Do not interpret successful PLAN or absence of errors as a completed recovery.
+
+## ShadowOps ID staging: consumer contract only (not activated)
+
+The isolated staging Identity source now recognizes audience `staradvs` and the
+exact return origin `https://staging.staradvs.shadowops.dpdns.org`.
+The operator bundle can add a unique Star Adventures service credential only
+after a reviewed workflow_dispatch with `action=provision` and
+`staradvs_consumer=enable`. The default is `preserve`, and Go/CORS login
+remains disabled unless the trusted runtime has that explicit proof. Other
+games' credentials and production accounts cannot be reused.
+
+**This change does not activate the consumer, change Cloudflare, or protect
+the existing static Pages frontend.** The current staging publisher and
+anonymous public-browser tests are still written for public content.
+A subsequent guarded rollout must install an Infra-owned edge Worker,
+protect every HTML/JS/asset path and immutable Pages alias, bind the app-only
+proof, and revise public integrity/browser tests to require guest denial
+and real account login, refresh and revocation. Stop before publishing if
+those requirements cannot be verified.
+

@@ -67,6 +67,11 @@
           "audience": "snooker",
           "origin": "https://staging.snooker.shadowops.dpdns.org",
           "status": "explicit-opt-in-required-not-activated"
+        },
+        {
+          "audience": "staradvs",
+          "origin": "https://staging.staradvs.shadowops.dpdns.org",
+          "status": "explicit-opt-in-required-not-activated"
         }
       ]
     },
