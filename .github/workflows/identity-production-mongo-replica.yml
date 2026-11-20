@@ -1,0 +1,48 @@
+name: Identity production Mongo replica initialization operator (offline)
+on:
+  pull_request:
+    paths:
+      - Makefile
+      - host/identity-production-mongo-start.py
+      - host/identity-production-mongo-replica.py
+      - tests/test_identity_production_mongo_replica.py
+      - docs/identity-production-mongo-host.md
+      - .github/workflows/identity-production-mongo-replica.yml
+  push:
+    branches: [main]
+    paths:
+      - Makefile
+      - host/identity-production-mongo-start.py
+      - host/identity-production-mongo-replica.py
+      - tests/test_identity_production_mongo_replica.py
+      - docs/identity-production-mongo-host.md
+      - .github/workflows/identity-production-mongo-replica.yml
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Test replica initialization contract with strict Docker doubles
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check 'PyYAML==6.0.2'
+          python3 -m unittest discover -s tests -p test_identity_production_mongo_replica.py -v
+          python3 -m unittest discover -s tests -p test_identity_production_mongo_start.py -v
+          python3 -m py_compile host/identity-production-mongo-replica.py
+          make identity-prod-mongo-replica-plan
+          make --dry-run identity-prod-mongo-replica-inspect
+          make --dry-run identity-prod-mongo-replica-init
+          if python3 host/identity-production-mongo-replica.py init; then
+            echo 'ERROR: CI could initialize a live Mongo replica' >&2
+            exit 1
+          fi
