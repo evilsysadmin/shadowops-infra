@@ -1,0 +1,96 @@
+name: Star Adventures · private Pages policy (manual only)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/staradvs-private-pages-policy.yml'
+      - 'scripts/staradvs_private_pages_policy.py'
+      - 'tests/test_staradvs_private_pages_policy.py'
+      - 'docs/staradvs-private-pages-policy.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/staradvs-private-pages-policy.yml'
+      - 'scripts/staradvs_private_pages_policy.py'
+      - 'tests/test_staradvs_private_pages_policy.py'
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Inspect only, or apply policy to the exact owned Star Adventures staging project
+        type: choice
+        options: [plan, apply]
+        default: plan
+        required: true
+      confirm:
+        description: For apply only, enter STARADVS_PRIVATE_PAGES_POLICY
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: Owned project / no secret regression contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_staradvs_private_pages_policy.py' -v
+      - run: python3 -m py_compile scripts/staradvs_private_pages_policy.py
+
+  plan:
+    name: Read-only Pages policy preflight
+    needs: contracts
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.operation == 'plan' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: staging
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 scripts/staradvs_private_pages_policy.py plan
+
+  apply:
+    name: Protect existing Star Adventures staging Pages modes (no deploy)
+    needs: contracts
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.operation == 'apply' &&
+      inputs.confirm == 'STARADVS_PRIVATE_PAGES_POLICY' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    environment: staging
+    concurrency:
+      group: shadowops-staradvs-staging-pages
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify exact protected main before touching the existing Pages project
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_SHA" == "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" ]]
+          python3 scripts/staradvs_private_pages_policy.py plan
+      - name: Apply only fail_open=false and strict public Identity fetch flags
+        run: python3 scripts/staradvs_private_pages_policy.py apply
+      - name: Re-check idempotent protected policy
+        run: python3 scripts/staradvs_private_pages_policy.py plan
