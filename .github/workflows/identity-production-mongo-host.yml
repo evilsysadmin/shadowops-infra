@@ -1,0 +1,47 @@
+name: Identity production Mongo host Compose contract (offline)
+on:
+  pull_request:
+    paths:
+      - Makefile
+      - compose.identity.production-mongo.yaml
+      - scripts/identity_production_mongo_host.py
+      - tests/test_identity_production_mongo_host.py
+      - docs/identity-production-mongo-host.md
+      - .github/workflows/identity-production-mongo-host.yml
+  push:
+    branches: [main]
+    paths:
+      - Makefile
+      - compose.identity.production-mongo.yaml
+      - scripts/identity_production_mongo_host.py
+      - tests/test_identity_production_mongo_host.py
+      - docs/identity-production-mongo-host.md
+      - .github/workflows/identity-production-mongo-host.yml
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Validate production Mongo host candidate without credentials or OCI
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check 'PyYAML==6.0.2'
+          python3 -m unittest discover -s tests -p test_identity_production_mongo_host.py -v
+          python3 -m py_compile scripts/identity_production_mongo_host.py
+          make identity-prod-mongo-host-plan
+          make --dry-run identity-prod-mongo-host-inspect
+          docker compose -f compose.identity.production-mongo.yaml --profile production-mongo config --quiet
+          if python3 scripts/identity_production_mongo_host.py inspect; then
+            echo 'ERROR: CI admitted private Mongo host material' >&2
+            exit 1
+          fi
