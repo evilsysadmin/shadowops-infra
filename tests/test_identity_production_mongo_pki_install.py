@@ -85,6 +85,37 @@ class InstallerTests(unittest.TestCase):
             with self.assertRaises(op.Refused):
                 op.read_staging(stage=self.stage, operator_uid=os.getuid())
 
+    def test_real_synthetic_openssl_bundle_survives_host_install(self):
+        if not shutil.which("openssl"):
+            self.skipTest("native OpenSSL missing")
+        gen_spec = importlib.util.spec_from_file_location(
+            "mongo_local_pki_generator",
+            ROOT / "scripts/identity_production_mongo_pki_generate.py",
+        )
+        generator = importlib.util.module_from_spec(gen_spec)
+        gen_spec.loader.exec_module(generator)
+        work = self.base / "synthetic-offline"
+        generator.create_local_bundle(work)
+        src = work / "transfer-THREE-FILES-ONLY"
+        for name in op.NAMES:
+            shutil.copyfile(src / name, self.stage / name)
+            (self.stage / name).chmod(0o600)
+        op.material.verify_crypto(
+            self.stage / "ca.pem", self.stage / "mongo.pem",
+            self.stage / "replica.key",
+        )
+        payload = op.read_staging(stage=self.stage, operator_uid=os.getuid())
+        output = self.base / "productively-named-but-fully-synthetic"
+        op.write_new_files(
+            output, payload, file_uid=os.getuid(), file_gid=os.getgid(),
+        )
+        op.material.verify_crypto(
+            output / "ca.pem", output / "mongo.pem", output / "replica.key",
+        )
+        self.assertEqual({name: (output / name).read_bytes() for name in op.NAMES},
+                         payload)
+        self.assertEqual(set(p.name for p in output.iterdir()), set(op.NAMES))
+
     def test_new_private_install_files_no_overwrite(self):
         target = self.base / "production" / "mongo"
         target.parent.mkdir(mode=0o700)
