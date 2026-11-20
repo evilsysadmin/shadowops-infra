@@ -4,6 +4,8 @@ on:
     paths:
       - '.github/workflows/bridgesquad-production-release.yml'
       - 'scripts/bridgesquad_production_release.py'
+      - 'scripts/bridgesquad_source_snapshot.py'
+      - 'tests/test_bridgesquad_source_snapshot.py'
       - 'tests/test_bridgesquad_production_release.py'
       - 'tests/test_bridgesquad_production_release_workflow.py'
       - 'scripts/bridgesquad_production_proof_bind.py'
@@ -45,6 +47,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest discover -s tests -p test_bridgesquad_production_release.py -v
+          python3 -m unittest discover -s tests -p test_bridgesquad_source_snapshot.py -v
           python3 -m unittest discover -s tests -p test_bridgesquad_production_proof_bind.py -v
           python3 -m unittest discover -s tests -p test_bridgesquad_dns_quarantine.py -v
           python3 -m unittest discover -s tests -p test_bridgesquad_production_release_workflow.py -v
@@ -72,7 +75,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       TARGET_SHA: ${{ inputs.target_sha }}
     outputs:
-      artifact_digest: ${{ steps.source.outputs.artifact_digest }}
+      artifact_digest: ${{ steps.snapshot.outputs.snapshot_digest }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -93,22 +96,26 @@ jobs:
                   out.write(f'{field}={receipt[field]}\n')
           print('BRIDGESQUAD_PROTECTED_SOURCE_ADMITTED sha='+receipt['source_sha'])
           PY
-      - name: Download and verify byte-exact current SHA game ZIP
-        env:
-          ARTIFACT_ID: ${{ steps.source.outputs.artifact_id }}
-          ARTIFACT_DIGEST: ${{ steps.source.outputs.artifact_digest }}
+      - name: Rebuild exact green source commit from public Git bytes (never fetch private cross-repo artifact)
+        id: snapshot
         shell: bash
         run: |
           set -euo pipefail
           [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
-          [[ "$ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          gh api "repos/evilsysadmin/matthias-bridge-squad/actions/artifacts/$ARTIFACT_ID/zip" > "$RUNNER_TEMP/bridgesquad-source.zip"
+          python3 scripts/bridgesquad_source_snapshot.py snapshot \
+            "$TARGET_SHA" "$RUNNER_TEMP/bridgesquad-source.zip" >> "$GITHUB_OUTPUT"
+      - name: Verify rebuilt private source ZIP with independent admission contract
+        env:
+          SNAPSHOT_DIGEST: ${{ steps.snapshot.outputs.snapshot_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SNAPSHOT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
           python3 scripts/bridgesquad_source_admission.py verify-archive \
-            "$RUNNER_TEMP/bridgesquad-source.zip" "$ARTIFACT_DIGEST" "$TARGET_SHA"
+            "$RUNNER_TEMP/bridgesquad-source.zip" "$SNAPSHOT_DIGEST" "$TARGET_SHA"
       - name: Seal exact HTML with current reviewed Infra Worker, never game-owned Worker
         env:
-          ARTIFACT_DIGEST: ${{ steps.source.outputs.artifact_digest }}
+          ARTIFACT_DIGEST: ${{ steps.snapshot.outputs.snapshot_digest }}
         run: |
           set -euo pipefail
           python3 scripts/bridgesquad_release_package.py prepare \
