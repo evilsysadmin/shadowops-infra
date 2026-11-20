@@ -36,12 +36,43 @@ del Compose Mongo correcto, con el Mongo productivo conectado y sin
 contenedores ajenos. **No arrancar Identity hasta provisionar realmente
 Mongo y demostrar backups/restore.**
 
-## Inspección segura en A1
+## Inspección segura y primer arranque en A1
 
 ```sh
 sudo -n make -C /opt/shadowops-infra identity-prod-mongo-host-plan
 sudo -n make -C /opt/shadowops-infra identity-prod-mongo-host-inspect
+sudo -n make -C /opt/shadowops-infra identity-prod-mongo-start-plan
+sudo -n make -C /opt/shadowops-infra identity-prod-mongo-start-inspect
 ```
+
+La fase de primer arranque dispone de un operador explícito
+`host/identity-production-mongo-start.py`, independiente de las
+funciones del origen/túnel. `plan` es offline; `inspect` comprueba
+en el host local el digest ARM64 ya descargado, el Compose renderizado,
+los metadatos privados de PKI y que **no existan** previamente
+contenedores, volumen ni red con los nombres productivos. Si hay
+recursos existentes, **rechaza el arranque**: no los adopta ni los
+reemplaza. El repositorio no descarga imágenes ni genera credenciales.
+
+**Solo tras aprobar el host, los backups y las rutas privadas**, el
+primer arranque se realiza desde terminal root con confirmación
+literal `START_EMPTY_ISOLATED_PRODUCTION_MONGO_ONLY`:
+
+```sh
+# No ejecutar todavía hasta superar el preflight y autorizar el arranque.
+sudo make -C /opt/shadowops-infra identity-prod-mongo-host-start
+```
+
+`start` ejecuta exclusivamente `docker compose ... up --detach
+--no-build --no-deps --pull never identity-production-mongo`. Después
+comprueba nombre, imagen, UID, volumen, única red interna, ausencia de
+puertos y proceso vivo. Si falla detiene **solo** ese servicio y
+conserva los datos/volúmenes para inspección. **No ejecuta
+`rs.initiate()`, no crea usuarios, no conecta Identity y no instala
+el timer de backup**. Hasta la inicialización, que el contenedor
+esté `running` no implica un primario healthy; debe quedar fuera
+del tráfico y sin cuentas reales. El operador no ejecuta `down`,
+`prune`, `rm` ni el túnel de producción.
 
 El segundo objetivo solo verifica un Compose con contrato exacto y
 metadatos de ficheros, sin conexión a Mongo ni apertura de claves secretas.
