@@ -145,6 +145,9 @@ class CutoverReadinessTests(unittest.TestCase):
         path = ROOT / ".github/workflows/staradvs-identity-readiness.yml"
         flow = path.read_text()
         self.assertIn("staradvs_identity_readiness.py inspect", flow)
+        self.assertIn("github.event_name == 'push'", flow)
+        self.assertIn("github.ref == 'refs/heads/main'", flow)
+        self.assertIn("environment:", flow)
         self.assertIn("test_staradvs_identity_readiness.py", flow)
         self.assertNotIn("pages deploy", flow)
         self.assertNotIn("wrangler", flow)

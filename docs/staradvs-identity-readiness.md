@@ -28,7 +28,8 @@ not followed, TLS verification is required, and no cookies or tokens are
 provided.
 
 The workflow runs offline tests on PRs and performs a sanitized live probe
-only on trusted main via manual dispatch or its daily schedule. It reports
+only on trusted main after relevant source/workflow pushes, via manual dispatch,
+or on its daily schedule. It reports
 **PENDING** while any requirement is absent. A successfully completed
 inventory job does not imply a playable or protected release.
 
