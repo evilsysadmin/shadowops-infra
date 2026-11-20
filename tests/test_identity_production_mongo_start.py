@@ -106,6 +106,20 @@ class StartOperatorTests(unittest.TestCase):
         self.env = mock.patch.dict(os.environ, {"CI": "", "GITHUB_ACTIONS": ""})
         self.env.start()
         self.addCleanup(self.env.stop)
+        # Docker doubles exercise the operator flow, not live PKI; the
+        # dedicated material suite uses real synthetic OpenSSL certificates.
+        self.crypto = mock.patch.object(op.material, "verify_material", return_value=None)
+        self.crypto.start()
+        self.addCleanup(self.crypto.stop)
+
+    def test_crypto_preflight_refuses_before_first_docker_round_trip(self):
+        double = DockerDouble()
+        with mock.patch.object(op.host, "inspect_private_files"), \
+             mock.patch.object(op.material, "verify_material",
+                               side_effect=op.material.Refused("bad certificate")), \
+             self.assertRaises(op.material.Refused):
+            op.preflight(runner=double)
+        self.assertEqual(double.calls, [])
 
     def test_no_credentials_no_docker_plan(self):
         with mock.patch.object(op, "docker", side_effect=AssertionError("Docker used")):
