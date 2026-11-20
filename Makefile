@@ -1,7 +1,13 @@
 .DEFAULT_GOAL := help
 PYTHON ?= python3
+# Canonical operator SSH route to the existing OCI A1 (no OCI CLI session needed).
+OCI_SSH_USER ?= ubuntu
+OCI_SSH_KEY ?=
+OCI_SSH_HOSTNAME ?= ssh-chess-studio-staging.shadowops.dpdns.org
+export OCI_SSH_USER OCI_SSH_KEY OCI_SSH_HOSTNAME
 export CKA_OPERATOR_SSH_KEY
 .PHONY: help cka-retire-host cka-retire-inspect identity-staging-bootstrap \
+  oci-a1-ssh-check oci-a1-ssh \
   identity-prod-plan identity-prod-doctor identity-prod-inspect identity-prod-mongo-inspect identity-prod-mongo-apply \
   identity-prod-origin-inspect identity-prod-origin-start identity-prod-origin-stop \
   identity-prod-tunnel-inspect identity-prod-tunnel-start identity-prod-tunnel-stop \
@@ -15,6 +21,11 @@ help:
 	  '  make cka-retire-inspect       Verify CKA is absent from the A1' \
 	  '  CKA · retire online resources: run the existing manual GitHub Actions workflow.' \
 	  '  Local CKA app: run make up in cka-exam-simulator.' \
+	  '' \
+	  'OCI A1 access from an operator workstation (Cloudflare Access, no public TCP/22):' \
+	  '  make oci-a1-ssh-check      Check exact A1 Cloudflare DNS/TLS and local SSH tools' \
+	  '  make oci-a1-ssh            Open interactive SSH to ubuntu on the existing A1' \
+	  '       Optional: OCI_SSH_KEY=~/.ssh/my_private_key (private file never uploaded)' \
 	  '' \
 	  'Bridge Squad / ShadowOps ID production (run on the authorized production host):' \
 	  '  make identity-prod-plan       Safe plan; NO Docker, secrets, Cloudflare or Mongo changes' \
@@ -44,6 +55,14 @@ cka-lab-bootstrap cka-lab-cluster-bootstrap cka-lab-api-start cka-lab-tunnel-sta
 # Review/install only the fixed Identity staging wrapper and updated consumer schema.
 identity-staging-bootstrap:
 	bash host/bootstrap-identity-staging-over-ssh.sh
+
+# Operator workstation entrypoints. These only connect to the exact existing
+# A1 over the Cloudflare SSH tunnel; they never execute production operators.
+oci-a1-ssh-check:
+	@$(PYTHON) scripts/oci_a1_ssh.py check
+
+oci-a1-ssh:
+	@$(PYTHON) scripts/oci_a1_ssh.py ssh
 
 # Production execution is deliberately LOCAL to the authorized host.
 # No SSH fallback, sudo escalation, CI deploy, automated Cloudflare write,
