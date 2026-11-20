@@ -176,7 +176,9 @@ def main(argv):
     try:
         env = os.environ
         email = env.get("CLOUDFLARE_ACCESS_OPERATOR_EMAIL", "").strip()
-        access = AccessWriter(env)
+        # Plan needs only Access Read; write scope exists only in the
+        # explicitly confirmed manual apply path.
+        access = AccessClient(env) if argv == ["plan"] else AccessWriter(env)
         pages = CloudflareClient(env)
         status = plan(access, pages, email) if argv == ["plan"] else apply(access, pages, email)
         print("CHRONICLES_STAGING_ACCESS_PREVIEW state=" + status +
