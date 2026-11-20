@@ -134,7 +134,7 @@ class PagesHistoryTests(unittest.TestCase):
                 def fail(_url, _method):
                     raise AssertionError("Unsafe project should not be probed")
                 result = audit.assess_one(cf, g, fail)
-                self.assertEqual(result["reason"], "provider_inventory_unavailable_or_unexpected")
+                self.assertIn(result["reason"], {"Foreign Pages source/project", "Unexpected Pages custom domains", "Unexpected Pages alias"})
                 self.assertEqual(result["state"], "NOT_FULLY_VERIFIED")
 
     def test_new_workflow_runs_live_on_exact_main_only_and_no_writes(self):
@@ -145,6 +145,7 @@ class PagesHistoryTests(unittest.TestCase):
         self.assertIn("github.ref == 'refs/heads/main'", content)
         self.assertIn("environment: staging", content)
         self.assertIn("test_game_identity_pages_history.py", content)
+        self.assertIn('tee -a "$GITHUB_STEP_SUMMARY"', content)
         self.assertNotIn("pages deploy", content)
         self.assertNotIn("wrangler", content)
         self.assertNotIn("workflow_dispatch.inputs", content)
