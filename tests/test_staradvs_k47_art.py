@@ -216,6 +216,42 @@ class VerifiedGlbReleaseTest(unittest.TestCase):
                 art.public_probe(entries)
 
 
+    def test_probe_reports_all_bad_headers_without_approving_any_glb(self):
+        _, entries = art.verify_archive(make_bundle(), SOURCE)
+
+        class Response:
+            status = 200
+            def __init__(self, request, body):
+                self.request, self.body = request, body
+                from email.message import Message
+                self.headers = Message()
+                self.headers["Content-Type"] = "model/gltf-binary"
+                # Uploaded via dashboard without Cache-Control/CORS.
+            def geturl(self):
+                return self.request.full_url
+            def read(self, limit):
+                return self.body[:limit]
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+
+        class MissingMetadata:
+            def open(self, request, timeout):
+                key = request.full_url.removeprefix(
+                    art.CDN.removesuffix(art.PREFIX))
+                return Response(request, entries[key])
+
+        with patch.object(art.urllib.request, "build_opener",
+                          return_value=MissingMetadata()):
+            with self.assertRaises(art.PublishError) as raised:
+                art.public_probe(entries)
+        reason = str(raised.exception)
+        for key in entries:
+            self.assertIn("immutable Cache-Control missing: " + key, reason)
+            self.assertIn("staging CORS missing: " + key, reason)
+        self.assertNotIn("SHA mismatch", reason)
+
     def test_readonly_route_diagnosis_never_accepts_mismatched_bytes(self):
         _, entries = art.verify_archive(make_bundle(), SOURCE)
         sample = sorted(entries)[0]
