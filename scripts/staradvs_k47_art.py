@@ -209,14 +209,15 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def public_probe(entries: dict[str, bytes]) -> list[str]:
-    """Read the public CDN without credentials; distinguish 404 from corruption.
+    """Verify every original GLB public response; fail closed with all findings.
 
-    Missing immutable keys are an expected NOT-YET-PUBLISHED state. A wrong
-    checksum, CORS, cache policy, content type, redirect or other HTTP failure
-    is NEVER treated as proof of publication or as a safe missing object.
+    A 404 is pending (never proof). Wrong bytes, HTTP, MIME, cache, CORS or
+    network failures are distinct hard errors; examining every admitted key
+    avoids a costly operator fix/retry cycle for each bad object.
     """
     opener = urllib.request.build_opener(NoRedirect)
     missing: list[str] = []
+    invalid: list[str] = []
     for key, blob in sorted(entries.items()):
         check(key.startswith(PREFIX) and len(blob) <= MAX_FILE,
               "outside approved K-47 CDN probe scope")
@@ -227,33 +228,32 @@ def public_probe(entries: dict[str, bytes]) -> list[str]:
         })
         try:
             with opener.open(req, timeout=25) as resp:
-                check(resp.status == 200 and resp.geturl() == url,
-                      "K-47 public GLB HTTP status or redirect invalid: " + key)
+                if resp.status != 200 or resp.geturl() != url:
+                    invalid.append("HTTP status or redirect invalid: " + key)
+                    continue
                 mime = resp.headers.get_content_type()
-                check(mime == "model/gltf-binary",
-                      "K-47 public GLB MIME mismatch for " + key + ": " + mime)
+                if mime != "model/gltf-binary":
+                    invalid.append("MIME mismatch: " + key + " (" + mime + ")")
                 cache = resp.headers.get("Cache-Control", "")
-                check("immutable" in cache.lower(),
-                      "K-47 public GLB immutable Cache-Control missing: " + key)
+                if "immutable" not in cache.lower():
+                    invalid.append("immutable Cache-Control missing: " + key)
                 cors = resp.headers.get("Access-Control-Allow-Origin", "")
-                check(cors in ("*", ORIGIN),
-                      "K-47 public GLB staging CORS missing: " + key)
+                if cors not in ("*", ORIGIN):
+                    invalid.append("staging CORS missing: " + key)
                 data = resp.read(len(blob) + 1)
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
                 missing.append(key)
-                continue
-            raise PublishError("K-47 public CDN returned unexpected HTTP status") from None
-        except PublishError:
-            # Integrity failures are NOT network outages: surface their
-            # precise reason so a corrupted public object can never masquerade
-            # as an ordinary CDN availability problem.
-            raise
+            else:
+                invalid.append("unexpected HTTP " + str(exc.code) + ": " + key)
+            continue
         except (OSError, ValueError):
-            raise PublishError("K-47 public CDN verification unavailable") from None
-        check(data == blob, "K-47 public CDN model SHA mismatch")
+            invalid.append("public CDN verification unavailable: " + key)
+            continue
+        if data != blob:
+            invalid.append("SHA mismatch: " + key)
+    check(not invalid, "K-47 public GLB checks failed: " + "; ".join(invalid))
     return missing
-
 
 
 def diagnose_public_paths(entries: dict[str, bytes]) -> list[str]:
