@@ -2,6 +2,9 @@ name: ShadowOps Identity · manual production origin operator admission (offline
 on:
   pull_request:
     paths:
+      - 'Makefile'
+      - 'tests/test_identity_production_makefile.py'
+      - 'docs/identity-production-makefile.md'
       - 'host/identity-production-origin.py'
       - 'host/identity-production-native-account.py'
       - 'tests/test_identity_production_native_account_operator.py'
@@ -18,6 +21,9 @@ on:
   push:
     branches: [main]
     paths:
+      - 'Makefile'
+      - 'tests/test_identity_production_makefile.py'
+      - 'docs/identity-production-makefile.md'
       - 'host/identity-production-origin.py'
       - 'host/identity-production-native-account.py'
       - 'tests/test_identity_production_native_account_operator.py'
@@ -53,6 +59,8 @@ jobs:
           python3 -m pip install --disable-pip-version-check 'PyYAML==6.0.2'
           python3 -m unittest discover -s tests -p test_identity_production_origin_operator.py -v
           python3 -m unittest discover -s tests -p test_identity_production_native_account_operator.py -v
+          python3 -m unittest discover -s tests -p test_identity_production_makefile.py -v
+          make identity-prod-plan
           python3 -m py_compile host/identity-production-origin.py
           python3 -m py_compile host/identity-production-native-account.py
           python3 host/identity-production-native-account.py plan
