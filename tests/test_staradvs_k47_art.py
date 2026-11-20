@@ -208,6 +208,42 @@ class VerifiedGlbReleaseTest(unittest.TestCase):
             with self.assertRaisesRegex(art.PublishError, "staging CORS missing"):
                 art.public_probe(entries)
 
+
+    def test_readonly_route_diagnosis_never_accepts_mismatched_bytes(self):
+        _, entries = art.verify_archive(make_bundle(), SOURCE)
+        sample = sorted(entries)[0]
+        filename = sample.removeprefix(art.PREFIX)
+        alternative = art.CDN.removesuffix(art.PREFIX) + "environment/" + filename
+
+        class Response:
+            status = 200
+            def __init__(self, request, data):
+                self.request, self.data = request, data
+            def geturl(self):
+                return self.request.full_url
+            def read(self, limit):
+                return self.data[:limit]
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+
+        class Probe:
+            def __init__(self, mismatched=False):
+                self.mismatched = mismatched
+            def open(self, request, timeout):
+                if request.full_url != alternative:
+                    raise urllib.error.HTTPError(
+                        request.full_url, 404, "not found", {}, None)
+                body = entries[sample] if not self.mismatched else b"wrong"
+                return Response(request, body)
+
+        with patch.object(art.urllib.request, "build_opener", return_value=Probe()):
+            self.assertEqual(art.diagnose_public_paths(entries), ["environment/"])
+        with patch.object(art.urllib.request, "build_opener",
+                          return_value=Probe(mismatched=True)):
+            self.assertEqual(art.diagnose_public_paths(entries), [])
+
     def test_public_evidence_is_not_activation_approval(self):
         manifest, entries = art.verify_archive(make_bundle(), SOURCE)
         receipt = art.public_activation_evidence(SOURCE, manifest, entries)
