@@ -115,7 +115,8 @@ def main(argv: list[str]) -> int:
         client = readiness.CloudflareClient(os.environ)
         if argv[0] == "preflight":
             receipt = preflight(client, argv[1], argv[2])
-            print(" ".join(f"{key}={value}" for key, value in receipt.items()))
+            for key, value in receipt.items():
+                print(f"{key}={value}")
         else:
             receipt = postflight(client, argv[1], argv[2])
             print("BRIDGESQUAD_RELEASE_POSTFLIGHT_OK " +
