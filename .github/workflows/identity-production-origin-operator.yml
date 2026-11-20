@@ -3,6 +3,9 @@ on:
   pull_request:
     paths:
       - 'host/identity-production-origin.py'
+      - 'host/identity-production-native-account.py'
+      - 'tests/test_identity_production_native_account_operator.py'
+      - 'docs/identity-production-native-account-operator.md'
       - 'tests/test_identity_production_origin_operator.py'
       - '.github/workflows/identity-production-origin-operator.yml'
       - 'docs/identity-production-origin-operator.md'
@@ -16,6 +19,9 @@ on:
     branches: [main]
     paths:
       - 'host/identity-production-origin.py'
+      - 'host/identity-production-native-account.py'
+      - 'tests/test_identity_production_native_account_operator.py'
+      - 'docs/identity-production-native-account-operator.md'
       - 'tests/test_identity_production_origin_operator.py'
       - '.github/workflows/identity-production-origin-operator.yml'
       - 'docs/identity-production-origin-operator.md'
@@ -46,7 +52,14 @@ jobs:
           set -euo pipefail
           python3 -m pip install --disable-pip-version-check 'PyYAML==6.0.2'
           python3 -m unittest discover -s tests -p test_identity_production_origin_operator.py -v
+          python3 -m unittest discover -s tests -p test_identity_production_native_account_operator.py -v
           python3 -m py_compile host/identity-production-origin.py
+          python3 -m py_compile host/identity-production-native-account.py
+          python3 host/identity-production-native-account.py plan
+          if python3 host/identity-production-native-account.py create bridgeadmin; then
+            echo 'CI was able to create a real production account' >&2
+            exit 1
+          fi
           python3 host/identity-production-origin.py plan
           if python3 host/identity-production-origin.py start-origin; then
             echo 'CI was able to start production origin' >&2
