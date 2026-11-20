@@ -20,7 +20,7 @@ binary bytes* and 390/1280 real Chromium screenshots produced by the
    officer readability and full playable yard. Source CI proves correctness
    and screenshot existence, not artistic approval. Model geometry must be
    clearly closer to the approved mock, not merely different.
-4. Provision exact-bucket-scoped R2 S3 create/read credentials in the Infra
+4. Provision exact-`star-adventures`-bucket-scoped R2 S3 create/read credentials in the Infra
    `staging` environment as `STARADVS_R2_ACCESS_KEY_ID` and
    `STARADVS_R2_SECRET_ACCESS_KEY`. Existing Infra
    `CLOUDFLARE_ACCOUNT_ID` must refer to the correct account. These are
@@ -46,9 +46,9 @@ After visual inspection, run again with `action=publish`, the same current
 source main SHA, and `confirm_reviewed=K47-VISUAL-APPROVED`. The Infra
 `staging` environment review gate must be satisfied. Publication
 creates only missing immutable keys under
-`chess-studio-assets/star-adventures/environment/` using atomic
+`star-adventures/star-adventures/environment/` using atomic
 `IfNoneMatch: *`; it never deletes/repoints another game's asset or
-modifies DNS/Pages/OCI. A complete shared bucket inventory must fit the
+modifies DNS/Pages/OCI. A complete dedicated bucket inventory must fit the
 7 GB guard and K-47's 48 MiB prefix budget. Existing matching keys are
 byte-verified; mismatching keys fail closed. Public CDN GET must prove:
 HTTP 200, pinned HTTPS URL, correct model/gltf-binary MIME,
@@ -57,6 +57,16 @@ immutable cache headers, staging CORS, and SHA-256-equal actual bytes.
 Only then does the workflow emit
 `staradvs-k47-original-glb-public-verified-<sha>` receipt with
 `activationDone=false`.
+
+
+## Dedicated R2 public endpoint (2026-11-20)
+
+- **Bucket:** `star-adventures` (not `chess-studio-assets`).
+- **Exact object key prefix:** `star-adventures/environment/` **inside that bucket**. Do not accidentally omit or duplicate the `star-adventures/` key segment.
+- **Public base URL:** `https://pub-0e83bbe83562412182441ed82173d704.r2.dev/star-adventures/environment/`.
+- The three original SHA-addressed GLBs were manually uploaded by the operator. That is **not** proof of public readability, valid metadata or a passing integrity audit. The next read-only `probe` must verify the exact bytes and HTTP headers before any game manifest activation.
+- Ensure every GLB has `Content-Type: model/gltf-binary` and `Cache-Control: public, max-age=31536000, immutable`, and the bucket CORS policy returns an `Access-Control-Allow-Origin` matching `https://staging.staradvs.shadowops.dpdns.org` (or `*`). The existing manual publisher's `publish` mode can only verify already uploaded matching objects; it must **never** overwrite a mismatching immutable object.
+- The `r2.dev` endpoint is an interim public origin with Cloudflare-managed rate limits; later move to a dedicated custom domain in a separately verified migration. No DNS or production change is part of this PR.
 
 ## Activation is a distinct source PR
 
