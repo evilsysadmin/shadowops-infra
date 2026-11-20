@@ -71,6 +71,7 @@ class WorkflowTests(unittest.TestCase):
             "bridgesquad_source_admission.py check",
             "commits/main --jq .sha",
             "bridgesquad_production_release.py preflight \"$LIVE_SHA\" \"$TARGET_SHA\"",
+            "bridgesquad_legacy_pages_guard.py inspect",
             "npx --yes wrangler@4.127.1 pages deploy",
             "--project-name bridgesquad-production",
             "--branch main",
@@ -85,6 +86,9 @@ class WorkflowTests(unittest.TestCase):
                         self.publish.index("production_release.py preflight"))
         self.assertLess(self.publish.index("production_release.py preflight"),
                         self.publish.index("wrangler@4.127.1 pages deploy"))
+        self.assertLess(self.publish.index("legacy_pages_guard.py inspect"),
+                        self.publish.index("wrangler@4.127.1 pages deploy"))
+        self.assertIn("test_bridgesquad_legacy_pages_guard.py", self.contracts)
         self.assertLess(self.publish.index("wrangler@4.127.1 pages deploy"),
                         self.publish.index("production_release.py postflight"))
         self.assertIn("steps.before.outputs.prior_deployment_id", self.publish)
