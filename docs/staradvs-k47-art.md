@@ -46,7 +46,7 @@ After visual inspection, run again with `action=publish`, the same current
 source main SHA, and `confirm_reviewed=K47-VISUAL-APPROVED`. The Infra
 `staging` environment review gate must be satisfied. Publication
 creates only missing immutable keys under
-`star-adventures/star-adventures/environment/` using atomic
+`star-adventures/environment/` using atomic
 `IfNoneMatch: *`; it never deletes/repoints another game's asset or
 modifies DNS/Pages/OCI. A complete dedicated bucket inventory must fit the
 7 GB guard and K-47's 48 MiB prefix budget. Existing matching keys are
@@ -62,9 +62,9 @@ Only then does the workflow emit
 ## Dedicated R2 public endpoint (2026-11-20)
 
 - **Bucket:** `star-adventures` (not `chess-studio-assets`).
-- **Exact object key prefix:** `star-adventures/environment/` **inside that bucket**. Do not accidentally omit or duplicate the `star-adventures/` key segment.
-- **Public base URL:** `https://pub-0e83bbe83562412182441ed82173d704.r2.dev/star-adventures/environment/`.
-- The three original SHA-addressed GLBs were manually uploaded by the operator. That is **not** proof of public readability, valid metadata or a passing integrity audit. The next read-only `probe` must verify the exact bytes and HTTP headers before any game manifest activation.
+- **Exact object key prefix:** `environment/` **inside that bucket**. The bucket name is NOT part of each object key.
+- **Public base URL:** `https://pub-0e83bbe83562412182441ed82173d704.r2.dev/environment/`.
+- The three original SHA-addressed GLBs were manually uploaded by the operator. That is **not** proof of public readability, valid metadata or a passing integrity audit. The next read-only `probe` must verify the exact bytes and HTTP headers before any game manifest activation. The live read-only check found the first exact-byte model at `environment/`, confirming that the legacy shared-bucket prefix must not be retained.
 - Ensure every GLB has `Content-Type: model/gltf-binary` and `Cache-Control: public, max-age=31536000, immutable`, and the bucket CORS policy returns an `Access-Control-Allow-Origin` matching `https://staging.staradvs.shadowops.dpdns.org` (or `*`). The existing manual publisher's `publish` mode can only verify already uploaded matching objects; it must **never** overwrite a mismatching immutable object.
 - The `r2.dev` endpoint is an interim public origin with Cloudflare-managed rate limits; later move to a dedicated custom domain in a separately verified migration. No DNS or production change is part of this PR.
 
