@@ -11,6 +11,7 @@ export CKA_OPERATOR_SSH_KEY
   identity-prod-mongo-host-plan identity-prod-mongo-host-inspect identity-prod-mongo-host-start \
   identity-prod-mongo-start-plan identity-prod-mongo-start-inspect \
   identity-prod-mongo-replica-plan identity-prod-mongo-replica-inspect identity-prod-mongo-replica-init \
+  identity-prod-mongo-admin-plan identity-prod-mongo-admin-inspect identity-prod-mongo-admin-create \
   identity-prod-mongo-backup-plan identity-prod-mongo-backup-inspect \
   identity-prod-plan identity-prod-doctor identity-prod-inspect identity-prod-mongo-inspect identity-prod-mongo-apply \
   identity-prod-origin-inspect identity-prod-origin-start identity-prod-origin-stop \
@@ -39,6 +40,8 @@ help:
 	  '  make identity-prod-mongo-host-start  Root+TTY, confirmation, new/empty Mongo only' \
 	  '  make identity-prod-mongo-replica-plan | identity-prod-mongo-replica-inspect' \
 	  '  make identity-prod-mongo-replica-init Root+TTY+ACK, exact running product Mongo only' \
+	  '  make identity-prod-mongo-admin-plan | identity-prod-mongo-admin-inspect' \
+	  '  make identity-prod-mongo-admin-create Root+TTY+ACK, passwordPrompt in mongosh' \
 	  '  make identity-prod-mongo-backup-plan | identity-prod-mongo-backup-inspect' \
 	  '       Offline backup plan and local-only prerequisite check (never uploads)' \
 	  '       Validate isolated Mongo host Compose and private TLS file metadata (no deploy)' \
@@ -127,6 +130,16 @@ identity-prod-mongo-replica-inspect:
 
 identity-prod-mongo-replica-init:
 	@$(PYTHON) host/identity-production-mongo-replica.py init
+
+# First user is a separate one-time local operator action. Never chain it.
+identity-prod-mongo-admin-plan:
+	@$(PYTHON) host/identity-production-mongo-admin.py plan
+
+identity-prod-mongo-admin-inspect:
+	@$(PYTHON) host/identity-production-mongo-admin.py inspect
+
+identity-prod-mongo-admin-create:
+	@$(PYTHON) host/identity-production-mongo-admin.py create
 
 # Off-host encrypted backup is deliberately not a Make mutation target.
 identity-prod-mongo-backup-plan:
