@@ -47,7 +47,29 @@ fase anterior y verificar el backup.**
    `/etc/shadowops/identity-production/backup-recipients.txt`
    (root, 0400/0600). Probar el descifrado desde otro equipo.
 4. Crear un usuario exclusivo de Mongo con rol `backup`, sin permisos
-   de escritura. Guardar en
+   de escritura. Existe el operador específico de este paso, **separado**
+   del primer admin y de la inicialización de la réplica:
+
+```sh
+sudo -n make -C /opt/shadowops-infra identity-prod-mongo-backup-user-plan
+sudo -n make -C /opt/shadowops-infra identity-prod-mongo-backup-user-inspect
+# Solo tras aprobar la operación y con admin ya creado:
+sudo make -C /opt/shadowops-infra identity-prod-mongo-backup-user-create
+# ACK: CREATE_PRODUCTION_MONGO_BACKUP_USER_ONLY
+```
+
+   Se conecta con `mongosh --username identity_prod_admin` a
+   `127.0.0.1:27017` **dentro del único contenedor productivo**,
+   utilizando TLS/CA y una petición enmascarada de la contraseña
+   administrativa. Después solicita **dos veces** una contraseña nueva
+   de al menos 32 caracteres para `identity_prod_backup`, crea
+   exclusivamente el rol integrado `backup` en `admin`, y verifica
+   el rol exacto. Nunca imprime secretos, modifica staging ni reintenta
+   automáticamente una creación fallida. **Generar y custodiar ambas
+   contraseñas fuera de la A1; son cuentas distintas**. El operador
+   no habilita el backup ni crea el fichero privado.
+
+   Guardar en
    `/etc/shadowops/identity-production/mongo/backup-tools.yml`
    (UID 999, 0400) un fichero YAML con `uri` y `password`.
    La URI apunta exclusivamente a
