@@ -37,7 +37,7 @@ descritas en [operador Mongo](identity-production-mongo.md).
 ```sh
 make identity-prod-mongo-inspect         # Puede fallar antes del primer alta
 # Solo tras revisar clúster/backup, credenciales y autorización:
-# export IDENTITY_PRODUCTION_MONGO_APPLY=PROVISION_EXACT_PRODUCTION_IDENTITY_DB
+export IDENTITY_PRODUCTION_MONGO_APPLY=PROVISION_EXACT_PRODUCTION_IDENTITY_DB
 make identity-prod-mongo-apply           # Requiere ese ACK explícito + TTY
 make identity-prod-mongo-inspect
 ```
@@ -103,8 +103,10 @@ Cloudflare; **no se toma de `main` ni de una documentación antigua**.
 
 ```sh
 make bridgesquad-prod-pages-audit
-BRIDGESQUAD_PAGES_SHA=<sha-live-completo> make bridgesquad-prod-proof-inspect
-BRIDGESQUAD_PAGES_SHA=<sha-live-completo> make bridgesquad-prod-proof-bind
+# Sustituir estos puntos por el SHA real (40 dígitos hexadecimales, sin <>):
+export BRIDGESQUAD_PAGES_SHA=... 
+make bridgesquad-prod-proof-inspect
+make bridgesquad-prod-proof-bind
 make bridgesquad-prod-release-plan
 ```
 
