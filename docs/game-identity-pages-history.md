@@ -31,6 +31,16 @@ allowlisted project metadata or deployment inventory.
   REVIEW_ANONYMOUS_200, including a possible login shell. The response
   body and project secrets are never included in the log. A 401/403/404
   only establishes **guest denial**, not a working signed-in game.
+- A Cloudflare Access 302/303/307 login redirect is recognized **only**
+  when the Location is an HTTPS URL on a single `<team>.cloudflareaccess.com`
+  hostname with the exact `/cdn-cgi/access/login/<requested-pages-host>`
+  path. It is counted as `access_login_challenge_count`, separate from
+  generic unknown redirects and anonymous-200 counts. **It is merely
+  observational:** an origin can fabricate a 302, and it does not establish
+  cryptographic enforcement, account eligibility, session revocation or
+  full historic coverage. Unknown or foreign redirects remain unverified.
+  The Location URL, team name, opaque Pages aliases and queries are
+  never printed or persisted.
 - Prints a small per-game summary with counts only. The Infra repository
   and Actions logs are public; **never** print historical/immutable deployment
   hostnames, even in sanitized partial examples. They would form an index of

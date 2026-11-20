@@ -10,7 +10,11 @@ as proof that an authenticated game works.
 from __future__ import annotations
 
 import concurrent.futures
+from dataclasses import dataclass
 import json
+import ssl
+import urllib.error
+import urllib.request
 import os
 import re
 import sys
@@ -28,6 +32,63 @@ ALLOWED_DENIAL = {401, 403, 404}
 
 class InventoryError(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class GuestProbe:
+    status: int
+    access_login: bool = False
+
+
+def is_access_login_redirect(origin_url: str, status: int, location: object) -> bool:
+    """Recognize only an exact HTTPS Cloudflare Access login challenge target.
+
+    The returned boolean is *observational*, not cryptographic proof of
+    Cloudflare Access enforcement. A response origin can fabricate a redirect.
+    Neither the Location nor the team hostname is printed or persisted.
+    """
+    if status not in (302, 303, 307) or not isinstance(location, str):
+        return False
+    if not location or len(location) > 2048:
+        return False
+    try:
+        src = urllib.parse.urlsplit(origin_url)
+        dst = urllib.parse.urlsplit(location)
+        if (src.scheme != "https" or not src.hostname or not src.hostname.endswith(".pages.dev")
+                or src.username or src.password or src.port is not None
+                or dst.scheme != "https" or not dst.hostname or dst.username or dst.password
+                or dst.port is not None or dst.fragment
+                or not re.fullmatch(r"[a-z0-9-]{1,63}\.cloudflareaccess\.com", dst.hostname)
+                or dst.path != "/cdn-cgi/access/login/" + src.hostname):
+            return False
+    except ValueError:
+        return False
+    return True
+
+
+def fetch_pages_guest(url: str, method: str) -> GuestProbe:
+    # No cookie, token, redirect follow, response body logging or TLS bypass.
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPSHandler(context=ssl.create_default_context()),
+        exposure.NoRedirect())
+    req = urllib.request.Request(url, method=method, headers={
+        "User-Agent": "ShadowOps-Pages-Historic-Guest/1.0",
+        "Accept": "text/html,application/json",
+        "Cache-Control": "no-cache",
+    })
+    try:
+        with opener.open(req, timeout=8) as response:
+            response.read(2048)
+            return GuestProbe(response.status)
+    except urllib.error.HTTPError as exc:
+        try:
+            return GuestProbe(exc.code, is_access_login_redirect(
+                url, exc.code, exc.headers.get("Location") if exc.headers else None
+            ))
+        finally:
+            exc.close()
+    except (urllib.error.URLError, OSError, TimeoutError):
+        return GuestProbe(0)
 
 
 def projects():
@@ -121,6 +182,7 @@ def assess_one(client, game, request_status) -> dict:
         "historic_inventory_complete": False,
         "skipped_hosts": 0,
         "exposed_host_count": 0,
+        "access_login_challenge_count": 0,
         "unverified_host_count": 0,
     }
     try:
@@ -148,27 +210,43 @@ def assess_one(client, game, request_status) -> dict:
     def observe(pair):
         host, path = pair
         try:
-            status = request_status("https://" + host + path, "GET")
+            observation = request_status("https://" + host + path, "GET")
         except Exception:
-            status = 0
-        if type(status) is not int:
-            status = 0
-        return host, path, status
+            observation = GuestProbe(0)
+        if isinstance(observation, GuestProbe):
+            status = observation.status
+            access_login = observation.access_login
+        else:
+            status, access_login = observation, False
+        if type(status) is not int or type(access_login) is not bool:
+            status, access_login = 0, False
+        return host, path, status, access_login
 
     targets = [(host, path) for host in selected for path in PATHS]
     with concurrent.futures.ThreadPoolExecutor(max_workers=WORKERS) as pool:
         observations = list(pool.map(observe, targets))
     grouped = {host: [] for host in selected}
-    for host, path, status in observations:
-        grouped[host].append(status)
+    for host, path, status, access_login in observations:
+        grouped[host].append((status, access_login))
     # The repository and its Actions logs are PUBLIC. Publishing even a
     # bounded set of opaque 8-hex legacy deployment hostnames gives attackers
     # an index of direct-access bypasses. Emit counts ONLY, never hostnames.
     result["exposed_host_count"] = sum(
-        any(code in (200, 206) for code in codes) for codes in grouped.values()
+        any(code in (200, 206) for code, _ in codes) for codes in grouped.values()
+    )
+    # Distinguish a strict Access login redirect from a generic 302 without
+    # treating either as proof of revocation, authorized access or full
+    # historic coverage. A challenge redirect is not an authenticated E2E.
+    result["access_login_challenge_count"] = sum(
+        any(access and code in (302, 303, 307) for code, access in codes)
+        and all(code in ALLOWED_DENIAL or (access and code in (302, 303, 307))
+                for code, access in codes)
+        for codes in grouped.values()
     )
     result["unverified_host_count"] = sum(
-        any(code not in ALLOWED_DENIAL | {200, 206} for code in codes)
+        any(code not in ALLOWED_DENIAL | {200, 206}
+            and not (access and code in (302, 303, 307))
+            for code, access in codes)
         for codes in grouped.values()
     )
     if result["exposed_host_count"]:
@@ -180,7 +258,7 @@ def assess_one(client, game, request_status) -> dict:
     return result
 
 
-def audit(client, request_status=exposure.fetch_status) -> dict:
+def audit(client, request_status=fetch_pages_guest) -> dict:
     results = [assess_one(client, game, request_status) for game in projects()]
     states = {x["state"] for x in results}
     state = ("REVIEW_ANONYMOUS_200" if "REVIEW_ANONYMOUS_200" in states else
