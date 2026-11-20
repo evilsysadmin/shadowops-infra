@@ -15,12 +15,20 @@ El operador dispara **Run workflow** desde `shadowops-infra/main` con:
   `canonical_deployment` (no del `main` del juego).
 - `confirm`: exactamente `RELEASE_BRIDGESQUAD_PRODUCTION`.
 
-La etapa **prepare** exige una ejecución push verde del juego, verifica el
-ID/digest del ZIP en GitHub, prepara `index.html` + `_worker.js` Infra
-revisado + `release.json` y ejecuta Chromium contra el paquete sellado
-real con firma Ed25519 sintética, login, renovación, revocación, aliases 404.
-Recomprueba `main` del juego y de Infra. El artefacto no lleva secretos y
-caduca tras un día. En PR solo se ejecutan contratos sin credenciales.
+La etapa **prepare** exige una ejecución push verde del juego y verifica
+el ID/digest **como evidencia de CI**, sin intentar descargar ese artefacto
+privado de un repositorio ajeno con el `GITHUB_TOKEN` de Infra (que no concede
+permisos Actions de otro repositorio). En su lugar descarga únicamente los
+bytes de `index.html` desde `raw.githubusercontent.com` fijados a ese
+**mismo commit SHA**, sin credenciales, y el empaquetador controlado por Infra
+reconstruye `release.json` y un ZIP privado de dos entradas. Verifica el
+SHA-256 del ZIP reconstruido, el manifiesto, `index.html`, y añade el
+`_worker.js` auditado por Infra. El digest del paquete reconstruido NO se
+confunde con el digest original de la evidencia CI. Chromium prueba el Worker
+real sellado con Ed25519 sintético, login, renovación, revocación y aliases 404.
+Recomprueba `main` del juego y de Infra. El candidato no lleva secretos,
+caduca tras un día y **solo se entrega a Cloudflare Pages bajo el flujo
+protegido**. En PR se ejecutan únicamente contratos sin credenciales.
 
 La etapa **publish** requiere el entorno GitHub
 `bridgesquad-production`, con **revisores obligatorios** configurados
