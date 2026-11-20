@@ -166,3 +166,34 @@ Infra y publicar **solo** un artifact privado de GitHub Actions, sin
 enlazar DNS, sin subir a Cloudflare Pages y sin habilitar el dominio.
 Un `sealed-candidate` representa un candidato disponible para revisión,
 **nunca** un permiso de promoción ni una prueba de sesión real.
+
+## Navegador contra el paquete realmente sellado (CI aislada)
+
+El handoff privado ahora valida el **directorio sellado exacto**, antes de
+archivarlo, con Chromium y el Worker de Infra que se va a incluir en Pages.
+La prueba no copia la lógica de autorización: lee el archivo _worker.js
+del paquete, comprueba su digest contra release.json y ejecuta el handler
+real con WebCrypto Ed25519 y respuestas sintéticas de JWKS y freshness.
+
+En un navegador aislado, la prueba usa el host canónico para comprobar
+que el invitado obtiene 401 en raíz y manifiesto, que los aliases Pages
+siguen cerrados con 404, que una cuenta sintética con cookie HttpOnly de
+Identity intercambia un JWT EdDSA por una cookie del Worker, que el HTML
+**real del juego** carga y comienza una misión en 390 × 844 y
+1440 × 900, que la renovación no interrumpe la partida, y que la
+revocación posterior cierra tanto el acceso a assets como la partida.
+
+Toda solicitud del navegador se intercepta y resuelve en una pasarela
+**127.0.0.1** sin peticiones a DNS, Cloudflare o Identity productivo.
+Solo el artefacto juego/Worker es real; las claves, sesiones y cuenta
+son **efímeras y sintéticas**. La CI del PR prueba el Worker real contra
+HTML sintético y verifica los contratos de encadenamiento; la prueba de
+Chromium sobre HTML de release se ejecuta en el job sealed-candidate
+de main de Infra **solo para artefactos nuevos**. Si falla, el paquete
+no se archiva.
+
+Esto **no** acredita un login productivo real, secretos del consumidor,
+R2/Pages, configuración de DNS ni una partida completa de doce niveles
+en la URL real. El smoke determinista de los doce niveles sigue en el
+repositorio del juego; para quitar el HTTP 401 se necesita todavía el
+E2E autenticado contra los recursos productivos custodiados.
