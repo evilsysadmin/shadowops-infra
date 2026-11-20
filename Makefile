@@ -114,7 +114,7 @@ identity-prod-mongo-pki-plan:
 	@$(PYTHON) scripts/identity_production_mongo_pki_generate.py plan
 
 identity-prod-mongo-pki-generate:
-	@$(PYTHON) scripts/identity_production_mongo_pki_generate.py generate "${MONGO_PKI_OUTPUT_DIR:?set MONGO_PKI_OUTPUT_DIR to an absolute NEW path}"
+	@$(PYTHON) scripts/identity_production_mongo_pki_generate.py generate "$${MONGO_PKI_OUTPUT_DIR:?set MONGO_PKI_OUTPUT_DIR to an absolute NEW path}"
 
 identity-prod-mongo-host-plan:
 	@$(PYTHON) scripts/identity_production_mongo_host.py plan
