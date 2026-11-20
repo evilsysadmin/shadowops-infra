@@ -151,8 +151,19 @@ def app_destinations(app):
     return domains, bool(domains)
 
 
-def policy_review(rows):
-    if not isinstance(rows, list) or len(rows) > MAX_POLICIES:
+def policy_review(payload):
+    if not isinstance(payload, dict):
+        return "not-verified"
+    rows = payload.get("result")
+    page = payload.get("result_info")
+    if (not isinstance(rows, list) or len(rows) > MAX_POLICIES
+            or not isinstance(page, dict)
+            or type(page.get("total_pages")) is not int
+            or page["total_pages"] != 1
+            or type(page.get("total_count")) is not int
+            or page["total_count"] != len(rows)
+            or type(page.get("count")) is not int
+            or page["count"] != len(rows)):
         return "not-verified"
     if not rows:
         # All-deny is possible, but do not label an unconfigured Access
@@ -208,8 +219,7 @@ def inspect(client):
                 status[scope] = "unverified"
                 continue
             pol = client.get(f"/accounts/{client.account}/access/apps/{app_id}/policies")
-            rows = pol.get("result")
-            status[scope] = policy_review(rows)
+            status[scope] = policy_review(pol)
         project_rows.append({
             "project": project, "environment": "production" if project == "chronicles-production" else "staging",
             "application_scopes": status,
