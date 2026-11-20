@@ -159,11 +159,10 @@ def check_compose_config(raw: str, image: str, tunnel_digest: str) -> None:
         require("tunnel-segregation",
                 set(proxy["networks"]) == {"identity-origin", "identity-tunnel-egress"})
         require("private-origin-network", obj["networks"]["identity-origin"].get("internal") is True)
+        mongo = obj["networks"].get("identity-mongo-egress")
         require("mongo-named-network",
-                obj["networks"].get("identity-mongo-egress") in (
-                    {"name": MONGO_NETWORK},
-                    {"name": MONGO_NETWORK, "external": True},
-                ))
+                isinstance(mongo, dict) and mongo.get("name") == MONGO_NETWORK and
+                mongo.get("external") is not False and mongo.get("internal") is not True)
     except (TypeError, KeyError, json.JSONDecodeError) as exc:
         raise Refused("invalid production Compose structure") from None
 
@@ -185,11 +184,10 @@ def check_origin_compose_config(raw: str, image: str) -> None:
                 obj["networks"]["identity-origin"].get("internal") is True and
                 obj["networks"]["identity-origin"].get("name") ==
                     "shadowops-identity-production-origin")
+        mongo = obj["networks"]["identity-mongo-egress"]
         require("mongo-named-network",
-                obj["networks"]["identity-mongo-egress"] in (
-                    {"name": MONGO_NETWORK},
-                    {"external": True, "name": MONGO_NETWORK},
-                ))
+                isinstance(mongo, dict) and mongo.get("name") == MONGO_NETWORK and
+                mongo.get("external") is not False and mongo.get("internal") is not True)
     except (TypeError, KeyError, json.JSONDecodeError):
         raise Refused("invalid origin-only Compose structure") from None
 
