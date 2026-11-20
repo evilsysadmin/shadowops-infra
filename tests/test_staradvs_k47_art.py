@@ -208,9 +208,12 @@ class VerifiedGlbReleaseTest(unittest.TestCase):
         with patch.object(art.urllib.request, "build_opener", return_value=MockCDN("bad-mime")):
             with self.assertRaisesRegex(art.PublishError, "MIME mismatch"):
                 art.public_probe(entries)
-        with patch.object(art.urllib.request, "build_opener", return_value=MockCDN("bad-cache")):
-            with self.assertRaisesRegex(art.PublishError, "immutable Cache-Control missing"):
-                art.public_probe(entries)
+        with patch.object(art.urllib.request, "build_opener", return_value=MockCDN("bad-cache")), \
+             patch("builtins.print") as emit:
+            self.assertEqual(art.public_probe(entries), [])
+            art.public_verify(entries)
+            self.assertTrue(any(
+                "K47_PUBLIC_CACHE_ADVISORY" in str(call) for call in emit.call_args_list))
         with patch.object(art.urllib.request, "build_opener", return_value=MockCDN("bad-cors")):
             with self.assertRaisesRegex(art.PublishError, "staging CORS missing"):
                 art.public_probe(entries)
@@ -243,13 +246,16 @@ class VerifiedGlbReleaseTest(unittest.TestCase):
                 return Response(request, entries[key])
 
         with patch.object(art.urllib.request, "build_opener",
-                          return_value=MissingMetadata()):
+                          return_value=MissingMetadata()), \
+             patch("builtins.print") as emit:
             with self.assertRaises(art.PublishError) as raised:
                 art.public_probe(entries)
         reason = str(raised.exception)
         for key in entries:
-            self.assertIn("immutable Cache-Control missing: " + key, reason)
             self.assertIn("staging CORS missing: " + key, reason)
+            self.assertNotIn("Cache-Control", reason)
+        self.assertTrue(any(
+            "K47_PUBLIC_CACHE_ADVISORY" in str(call) for call in emit.call_args_list))
         self.assertNotIn("SHA mismatch", reason)
 
     def test_readonly_route_diagnosis_never_accepts_mismatched_bytes(self):
