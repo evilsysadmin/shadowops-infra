@@ -74,9 +74,8 @@ La comprobación productiva pendiente de #611 exige login real en el
 hostname definitivo desde escritorio y móvil, cookie host-only,
 `aud=bridgesquad`, JWT productivo, lectura de juego autorizada,
 renovación, logout/revocación, cambio de cuenta sin heredar progreso,
-IdP caído con acceso denegado, estado final de aliases 404 y ausencia
-
-de una copia pública antigua en GitHub Pages. Guardar recibos de SHA,
+IdP caído con acceso denegado, y estado final de los aliases
+`*.pages.dev` de Cloudflare con HTTP 404. Guardar recibos de SHA,
 deployment ID y navegación real antes de anunciar Bridge Squad como
 jugable.
 
