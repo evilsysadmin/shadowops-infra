@@ -138,6 +138,11 @@ class BackupContractTests(unittest.TestCase):
                      self.assertRaises(backup.Refused):
                     backup.upload_verified("tenant01", "prod-backups", "fixed-object", src)
             with patch.object(backup, "run_json", side_effect=[
+                    {"etag": "uploaded-object"}, {"etag": "foreign-object",
+                     "content-length": src.stat().st_size}]), \
+                 self.assertRaises(backup.Refused):
+                backup.upload_verified("tenant01", "prod-backups", "fixed-object", src)
+            with patch.object(backup, "run_json", side_effect=[
                     {"etag": "yes"}, {"etag": "yes", "content-length": 0}]), \
                  self.assertRaises(backup.Refused):
                 backup.upload_verified("tenant01", "prod-backups", "fixed-object", src)

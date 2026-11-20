@@ -12,8 +12,9 @@ El flujo está diseñado para la A1 `chessbackend`:
 `mongodump --oplog --archive --gzip` (100.x, copia completa de
 replica set) → tubería de procesos → `age -R` (cifrado local) →
 **único fichero cifrado** temporal (0600) → OCI Object Storage
-`put --no-overwrite --verify-checksum` → verificación de longitud remota
-mediante `object head` → borrar copia local cifrada **solo al confirmar**.
+`put --no-overwrite --verify-checksum` → verificación de longitud
+**y coincidencia exacta del ETag** de subida y `object head` →
+borrar copia local cifrada **solo al confirmar**.
 
 Nunca escribe archivos Mongo en claro en el host ni almacena la
 contraseña en argumentos/env/CI. La contraseña de backup reside solo
