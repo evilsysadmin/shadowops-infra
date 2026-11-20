@@ -29,6 +29,16 @@ if spec is None or spec.loader is None:
 host = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(host)
 
+# The first start cannot bypass real TLS chain/SAN/private-key verification.
+material_spec = importlib.util.spec_from_file_location(
+    "identity_production_mongo_material",
+    SCRIPT.parents[1] / "scripts/identity_production_mongo_material.py"
+)
+if material_spec is None or material_spec.loader is None:
+    raise SystemExit("IDENTITY_PRODUCTION_MONGO_MATERIAL_REFUSED")
+material = importlib.util.module_from_spec(material_spec)
+material_spec.loader.exec_module(material)
+
 LOCK = Path("/run/lock/shadowops-identity-production-mongo-start.lock")
 ACK = "START_EMPTY_ISOLATED_PRODUCTION_MONGO_ONLY"
 COMPOSE = host.COMPOSE
@@ -121,6 +131,7 @@ def preflight(*, runner=subprocess.run) -> None:
         raise Refused("CI may not access operator Mongo")
     host.validate_compose(COMPOSE.read_text(encoding="utf-8"))
     host.inspect_private_files()
+    material.verify_material()  # read-only; fail before Docker or any writes
     image_admission(runner=runner)
     ensure_empty(runner=runner)
     rendered_compose_admission(runner=runner)

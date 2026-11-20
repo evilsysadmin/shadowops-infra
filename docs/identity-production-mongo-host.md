@@ -41,6 +41,7 @@ Mongo y demostrar backups/restore.**
 ```sh
 sudo -n make -C /opt/shadowops-infra identity-prod-mongo-host-plan
 sudo -n make -C /opt/shadowops-infra identity-prod-mongo-host-inspect
+sudo -n make -C /opt/shadowops-infra identity-prod-mongo-material-verify
 sudo -n make -C /opt/shadowops-infra identity-prod-mongo-start-plan
 sudo -n make -C /opt/shadowops-infra identity-prod-mongo-start-inspect
 ```
@@ -156,7 +157,10 @@ Referencias: [excepción localhost de MongoDB](https://www.mongodb.com/docs/manu
 y [`passwordPrompt()`](https://www.mongodb.com/docs/manual/reference/method/passwordprompt/).
 
 El segundo objetivo solo verifica un Compose con contrato exacto y
-metadatos de ficheros, sin conexión a Mongo ni apertura de claves secretas.
+metadatos de ficheros. La [validación criptográfica](identity-production-mongo-material.md)
+abre el material privado únicamente en memoria root, verifica cadena TLS,
+SAN DNS/IP, clave privada correspondiente y autenticación de réplica sin
+imprimir secretos. Ninguno conecta ni arranca Mongo.
 Es normal que falle antes de aprovisionar la PKI. Exige directorios de ruta
 propiedad de root, no escribibles por grupo/otros, y tres ficheros regulares
 propiedad de UID 999 con modo 0400 o 0600:

@@ -9,6 +9,7 @@ export CKA_OPERATOR_SSH_KEY
 .PHONY: help cka-retire-host cka-retire-inspect identity-staging-bootstrap \
   oci-a1-ssh-check oci-a1-ssh \
   identity-prod-mongo-host-plan identity-prod-mongo-host-inspect identity-prod-mongo-host-start \
+  identity-prod-mongo-material-plan identity-prod-mongo-material-verify \
   identity-prod-mongo-start-plan identity-prod-mongo-start-inspect \
   identity-prod-mongo-replica-plan identity-prod-mongo-replica-inspect identity-prod-mongo-replica-init \
   identity-prod-mongo-admin-plan identity-prod-mongo-admin-inspect identity-prod-mongo-admin-create \
@@ -38,6 +39,8 @@ help:
 	  '  make identity-prod-doctor     Local prerequisite inventory; no secrets printed or commands executed' \
 	  '  make identity-prod-inspect    Read-only Mongo + origin preflights (fails if not ready)' \
 	  '  make identity-prod-mongo-host-plan | identity-prod-mongo-host-inspect' \
+	  '  make identity-prod-mongo-material-plan | identity-prod-mongo-material-verify' \
+	  '       Root-only, read-only cryptographic TLS chain + replica key verification' \
 	  '  make identity-prod-mongo-host-start  Root+TTY, confirmation, new/empty Mongo only' \
 	  '  make identity-prod-mongo-replica-plan | identity-prod-mongo-replica-inspect' \
 	  '  make identity-prod-mongo-replica-init Root+TTY+ACK, exact running product Mongo only' \
@@ -111,6 +114,13 @@ identity-prod-mongo-host-plan:
 
 identity-prod-mongo-host-inspect:
 	@$(PYTHON) scripts/identity_production_mongo_host.py inspect
+
+# This reads only local private material to verify crypto; no Docker/network.
+identity-prod-mongo-material-plan:
+	@$(PYTHON) scripts/identity_production_mongo_material.py plan
+
+identity-prod-mongo-material-verify:
+	@$(PYTHON) scripts/identity_production_mongo_material.py verify
 
 # Manual first-start only: requires root, TTY, pinned image, verified PKI,
 # no pre-existing project/volume/network, and a typed confirmation.
