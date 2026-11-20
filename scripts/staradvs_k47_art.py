@@ -23,9 +23,9 @@ import staradvs_source_admission as source
 
 REPO = "evilsysadmin/star-adventures"
 WORKFLOW = "K-47 unified architecture · full-sector visual gate"
-BUCKET = "chess-studio-assets"
-PREFIX = "star-adventures/environment/"
-CDN = "https://assets.chess-studio.shadowops.dpdns.org/" + PREFIX
+BUCKET = "star-adventures"
+PREFIX = "environment/"
+CDN = "https://pub-0e83bbe83562412182441ed82173d704.r2.dev/" + PREFIX
 ORIGIN = "https://staging.staradvs.shadowops.dpdns.org"
 CACHE = "public, max-age=31536000, immutable"
 SHA = re.compile(r"[0-9a-f]{64}\Z")
@@ -209,44 +209,94 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def public_probe(entries: dict[str, bytes]) -> list[str]:
-    """Read the public CDN without credentials; distinguish 404 from corruption.
+    """Verify every original GLB public response; fail closed with all findings.
 
-    Missing immutable keys are an expected NOT-YET-PUBLISHED state. A wrong
-    checksum, CORS, cache policy, content type, redirect or other HTTP failure
-    is NEVER treated as proof of publication or as a safe missing object.
+    A 404 is pending (never proof). Wrong bytes, HTTP, MIME and CORS remain
+    hard errors. Missing immutable Cache-Control is advisory (operator opt-out)
+    while collecting every admitted key avoids repeat operator cycles.
     """
     opener = urllib.request.build_opener(NoRedirect)
     missing: list[str] = []
+    invalid: list[str] = []
+    cache_advisory: list[str] = []
     for key, blob in sorted(entries.items()):
         check(key.startswith(PREFIX) and len(blob) <= MAX_FILE,
               "outside approved K-47 CDN probe scope")
-        url = "https://assets.chess-studio.shadowops.dpdns.org/" + key
+        url = CDN + key.removeprefix(PREFIX)
         req = urllib.request.Request(url, headers={
             "Origin": ORIGIN, "Cache-Control": "no-cache",
             "User-Agent": "ShadowOps-K47-verified-art/1",
         })
         try:
             with opener.open(req, timeout=25) as resp:
-                check(resp.status == 200 and resp.geturl() == url and
-                      resp.headers.get_content_type() == "model/gltf-binary" and
-                      "immutable" in resp.headers.get("Cache-Control", "").lower() and
-                      resp.headers.get("Access-Control-Allow-Origin", "") in ("*", ORIGIN),
-                      "K-47 public GLB HTTP/CORS/immutability headers not verified")
+                if resp.status != 200 or resp.geturl() != url:
+                    invalid.append("HTTP status or redirect invalid: " + key)
+                    continue
+                mime = resp.headers.get_content_type()
+                if mime != "model/gltf-binary":
+                    invalid.append("MIME mismatch: " + key + " (" + mime + ")")
+                cache = resp.headers.get("Cache-Control", "")
+                if "immutable" not in cache.lower():
+                    cache_advisory.append(key)
+                cors = resp.headers.get("Access-Control-Allow-Origin", "")
+                if cors not in ("*", ORIGIN):
+                    invalid.append("staging CORS missing: " + key)
                 data = resp.read(len(blob) + 1)
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
                 missing.append(key)
-                continue
-            raise PublishError("K-47 public CDN returned unexpected HTTP status") from None
-        except PublishError:
-            # Integrity failures are NOT network outages: surface their
-            # precise reason so a corrupted public object can never masquerade
-            # as an ordinary CDN availability problem.
-            raise
+            else:
+                invalid.append("unexpected HTTP " + str(exc.code) + ": " + key)
+            continue
         except (OSError, ValueError):
-            raise PublishError("K-47 public CDN verification unavailable") from None
-        check(data == blob, "K-47 public CDN model SHA mismatch")
+            invalid.append("public CDN verification unavailable: " + key)
+            continue
+        if data != blob:
+            invalid.append("SHA mismatch: " + key)
+    if cache_advisory:
+        print("K47_PUBLIC_CACHE_ADVISORY " + json.dumps({
+            "withoutImmutableCache": cache_advisory,
+            "blocking": False,
+        }, sort_keys=True))
+    check(not invalid, "K-47 public GLB checks failed: " + "; ".join(invalid))
     return missing
+
+
+def diagnose_public_paths(entries: dict[str, bytes]) -> list[str]:
+    """Read-only hints for operator uploads at a wrong path; never authorize them.
+
+    Probe a single source-hash-bound model at bounded, same-host alternate
+    prefixes. Correct publication still requires ALL three canonical URLs.
+    Network failures or unknown responses remain non-authoritative hints.
+    """
+    first = sorted(entries)[0]
+    check(first.startswith(PREFIX), "diagnosis requires admitted K-47 keys")
+    name, expected = first.removeprefix(PREFIX), entries[first]
+    roots = (
+        "star-adventures/environment/",
+        "k47-r2/",
+        "",
+        "star-adventures/",
+        "star-adventures/k47-r2/",
+        "star-adventures/environment/k47-r2/",
+        "star-adventures/environment/assets/",
+    )
+    opener = urllib.request.build_opener(NoRedirect)
+    base = CDN.removesuffix(PREFIX)
+    matching: list[str] = []
+    for prefix in roots:
+        url = base + prefix + name
+        req = urllib.request.Request(url, headers={
+            "Origin": ORIGIN, "User-Agent": "ShadowOps-K47-route-diagnostic/1",
+        })
+        try:
+            with opener.open(req, timeout=8) as resp:
+                if (resp.status == 200 and resp.geturl() == url
+                        and resp.read(len(expected) + 1) == expected):
+                    matching.append(prefix or "<bucket-root>")
+        except (urllib.error.URLError, OSError, ValueError):
+            continue
+    return matching
 
 
 def public_verify(entries: dict[str, bytes]) -> None:
@@ -265,7 +315,7 @@ def public_activation_evidence(source_sha: str, manifest: dict,
         "cdnPublicBytesVerified": True,
         "verifiedModelCount": len(entries),
         "models": [{
-            "url": "https://assets.chess-studio.shadowops.dpdns.org/" + key,
+            "url": CDN + key.removeprefix(PREFIX),
             "sha256": hashlib.sha256(blob).hexdigest(),
             "bytes": len(blob),
         } for key, blob in sorted(entries.items())],
@@ -304,13 +354,13 @@ def publish(source_sha: str, manifest: dict, entries: dict[str, bytes]):
         try:
             page = client.list_objects_v2(**kwargs)
         except Exception:
-            raise PublishError("cannot establish complete shared R2 inventory") from None
+            raise PublishError("cannot establish complete dedicated Star Adventures R2 inventory") from None
         check(isinstance(page, dict) and type(page.get("IsTruncated")) is bool,
               "incomplete R2 capacity evidence")
         for item in page.get("Contents", []):
             name, size = item.get("Key"), item.get("Size")
             check(isinstance(name, str) and name not in objects and
-                  type(size) is int and size >= 0, "bad shared bucket inventory")
+                  type(size) is int and size >= 0, "bad dedicated bucket inventory")
             objects[name] = size
         if not page["IsTruncated"]:
             break
@@ -319,12 +369,12 @@ def publish(source_sha: str, manifest: dict, entries: dict[str, bytes]):
               "ambiguous R2 inventory continuation")
         marker = new_marker
     else:
-        raise PublishError("shared R2 inventory exceeds bounded pages")
+        raise PublishError("dedicated R2 inventory exceeds bounded pages")
     additions = sum(len(blob) for key, blob in entries.items() if key not in objects)
     check(sum(objects.values()) + additions <= MAX_BUCKET and
           sum(size for key, size in objects.items() if key.startswith(PREFIX)) +
           additions <= MAX_PREFIX,
-          "R2 shared/K47 prefix free-tier budget exceeded")
+          "R2 Star Adventures bucket/K47 prefix budget exceeded")
     for key, blob in entries.items():
         if key in objects:
             check(objects[key] == len(blob), "immutable R2 key has different size")
@@ -391,6 +441,13 @@ def main() -> int:
                     "verified": len(entries) - len(missing),
                     "activationDone": False, "writes": 0,
                 }, sort_keys=True))
+                if len(missing) == len(entries):
+                    print("K47_PUBLIC_ROUTE_DIAGNOSTIC " + json.dumps({
+                        "exactByteMatchesAtOtherPrefixes":
+                            diagnose_public_paths(entries),
+                        "canonicalPrefixStillRequired": PREFIX,
+                        "writes": 0,
+                    }, sort_keys=True))
                 return 0
             evidence = public_activation_evidence(args.source_sha, manifest, entries)
             args.out.write_text(json.dumps(evidence, indent=2) + "\n")

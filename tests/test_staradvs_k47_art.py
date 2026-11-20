@@ -91,6 +91,28 @@ class VerifiedGlbReleaseTest(unittest.TestCase):
           for slot in art.SLOTS})
         self.assertTrue(all(art.PREFIX in key for key in entries))
 
+    def test_dedicated_bucket_and_old_chess_studio_origin_are_rejected(self):
+        self.assertEqual(art.BUCKET, "star-adventures")
+        self.assertEqual(art.PREFIX, "environment/")
+        self.assertEqual(art.CDN,
+            "https://pub-0e83bbe83562412182441ed82173d704.r2.dev/"
+            + art.PREFIX)
+
+        def old_origin(manifest, receipt, assets):
+            name = manifest["slots"][0]["asset"]["url"].rsplit("/", 1)[-1]
+            manifest["slots"][0]["asset"]["url"] = (
+                "https://assets.chess-studio.shadowops.dpdns.org/"
+                + art.PREFIX + name)
+        with self.assertRaisesRegex(art.PublishError, "immutable CDN path"):
+            art.verify_archive(make_bundle(mutate=old_origin), SOURCE)
+        def doubled_prefix(manifest, receipt, assets):
+            name = manifest["slots"][0]["asset"]["url"].rsplit("/", 1)[-1]
+            manifest["slots"][0]["asset"]["url"] = (
+                art.CDN.removesuffix(art.PREFIX)
+                + "star-adventures/environment/" + name)
+        with self.assertRaisesRegex(art.PublishError, "immutable CDN path"):
+            art.verify_archive(make_bundle(mutate=doubled_prefix), SOURCE)
+
     def test_wrong_sha_rejected_without_cloud(self):
         with self.assertRaisesRegex(art.PublishError, "source SHA"):
             art.verify_archive(make_bundle(), "main")
@@ -144,13 +166,16 @@ class VerifiedGlbReleaseTest(unittest.TestCase):
         _, entries = art.verify_archive(make_bundle(), SOURCE)
         class Response:
             status = 200
-            def __init__(self, request, payload, content_type="model/gltf-binary"):
+            def __init__(self, request, payload, content_type="model/gltf-binary",
+                         cache=art.CACHE, cors=art.ORIGIN):
                 self.request, self.payload = request, payload
                 from email.message import Message
                 self.headers = Message()
                 self.headers["Content-Type"] = content_type
-                self.headers["Cache-Control"] = art.CACHE
-                self.headers["Access-Control-Allow-Origin"] = art.ORIGIN
+                if cache:
+                    self.headers["Cache-Control"] = cache
+                if cors:
+                    self.headers["Access-Control-Allow-Origin"] = cors
             def geturl(self):
                 return self.request.full_url
             def read(self, length):
@@ -164,13 +189,16 @@ class VerifiedGlbReleaseTest(unittest.TestCase):
                 self.status = status
             def open(self, request, timeout):
                 key = request.full_url.removeprefix(
-                    "https://assets.chess-studio.shadowops.dpdns.org/")
+                    art.CDN.removesuffix(art.PREFIX))
                 payload = entries[key]
                 if self.status == "bad-bytes":
                     payload = payload[:-1] + b"X"
-                return Response(request, payload,
+                return Response(
+                    request, payload,
                     "application/octet-stream" if self.status == "bad-mime"
-                    else "model/gltf-binary")
+                    else "model/gltf-binary",
+                    cache="" if self.status == "bad-cache" else art.CACHE,
+                    cors="" if self.status == "bad-cors" else art.ORIGIN)
         with patch.object(art.urllib.request, "build_opener", return_value=MockCDN()):
             self.assertEqual(art.public_probe(entries), [])
             art.public_verify(entries)
@@ -178,8 +206,92 @@ class VerifiedGlbReleaseTest(unittest.TestCase):
             with self.assertRaisesRegex(art.PublishError, "SHA mismatch"):
                 art.public_probe(entries)
         with patch.object(art.urllib.request, "build_opener", return_value=MockCDN("bad-mime")):
-            with self.assertRaisesRegex(art.PublishError, "HTTP/CORS"):
+            with self.assertRaisesRegex(art.PublishError, "MIME mismatch"):
                 art.public_probe(entries)
+        with patch.object(art.urllib.request, "build_opener", return_value=MockCDN("bad-cache")), \
+             patch("builtins.print") as emit:
+            self.assertEqual(art.public_probe(entries), [])
+            art.public_verify(entries)
+            self.assertTrue(any(
+                "K47_PUBLIC_CACHE_ADVISORY" in str(call) for call in emit.call_args_list))
+        with patch.object(art.urllib.request, "build_opener", return_value=MockCDN("bad-cors")):
+            with self.assertRaisesRegex(art.PublishError, "staging CORS missing"):
+                art.public_probe(entries)
+
+
+    def test_probe_reports_all_bad_headers_without_approving_any_glb(self):
+        _, entries = art.verify_archive(make_bundle(), SOURCE)
+
+        class Response:
+            status = 200
+            def __init__(self, request, body):
+                self.request, self.body = request, body
+                from email.message import Message
+                self.headers = Message()
+                self.headers["Content-Type"] = "model/gltf-binary"
+                # Uploaded via dashboard without Cache-Control/CORS.
+            def geturl(self):
+                return self.request.full_url
+            def read(self, limit):
+                return self.body[:limit]
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+
+        class MissingMetadata:
+            def open(self, request, timeout):
+                key = request.full_url.removeprefix(
+                    art.CDN.removesuffix(art.PREFIX))
+                return Response(request, entries[key])
+
+        with patch.object(art.urllib.request, "build_opener",
+                          return_value=MissingMetadata()), \
+             patch("builtins.print") as emit:
+            with self.assertRaises(art.PublishError) as raised:
+                art.public_probe(entries)
+        reason = str(raised.exception)
+        for key in entries:
+            self.assertIn("staging CORS missing: " + key, reason)
+            self.assertNotIn("Cache-Control", reason)
+        self.assertTrue(any(
+            "K47_PUBLIC_CACHE_ADVISORY" in str(call) for call in emit.call_args_list))
+        self.assertNotIn("SHA mismatch", reason)
+
+    def test_readonly_route_diagnosis_never_accepts_mismatched_bytes(self):
+        _, entries = art.verify_archive(make_bundle(), SOURCE)
+        sample = sorted(entries)[0]
+        filename = sample.removeprefix(art.PREFIX)
+        alternative = art.CDN.removesuffix(art.PREFIX) + "star-adventures/environment/" + filename
+
+        class Response:
+            status = 200
+            def __init__(self, request, data):
+                self.request, self.data = request, data
+            def geturl(self):
+                return self.request.full_url
+            def read(self, limit):
+                return self.data[:limit]
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+
+        class Probe:
+            def __init__(self, mismatched=False):
+                self.mismatched = mismatched
+            def open(self, request, timeout):
+                if request.full_url != alternative:
+                    raise urllib.error.HTTPError(
+                        request.full_url, 404, "not found", {}, None)
+                body = entries[sample] if not self.mismatched else b"wrong"
+                return Response(request, body)
+
+        with patch.object(art.urllib.request, "build_opener", return_value=Probe()):
+            self.assertEqual(art.diagnose_public_paths(entries), ["star-adventures/environment/"])
+        with patch.object(art.urllib.request, "build_opener",
+                          return_value=Probe(mismatched=True)):
+            self.assertEqual(art.diagnose_public_paths(entries), [])
 
     def test_public_evidence_is_not_activation_approval(self):
         manifest, entries = art.verify_archive(make_bundle(), SOURCE)

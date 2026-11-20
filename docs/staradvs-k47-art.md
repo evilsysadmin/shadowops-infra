@@ -20,7 +20,7 @@ binary bytes* and 390/1280 real Chromium screenshots produced by the
    officer readability and full playable yard. Source CI proves correctness
    and screenshot existence, not artistic approval. Model geometry must be
    clearly closer to the approved mock, not merely different.
-4. Provision exact-bucket-scoped R2 S3 create/read credentials in the Infra
+4. Provision exact-`star-adventures`-bucket-scoped R2 S3 create/read credentials in the Infra
    `staging` environment as `STARADVS_R2_ACCESS_KEY_ID` and
    `STARADVS_R2_SECRET_ACCESS_KEY`. Existing Infra
    `CLOUDFLARE_ACCOUNT_ID` must refer to the correct account. These are
@@ -46,9 +46,9 @@ After visual inspection, run again with `action=publish`, the same current
 source main SHA, and `confirm_reviewed=K47-VISUAL-APPROVED`. The Infra
 `staging` environment review gate must be satisfied. Publication
 creates only missing immutable keys under
-`chess-studio-assets/star-adventures/environment/` using atomic
+`star-adventures/environment/` using atomic
 `IfNoneMatch: *`; it never deletes/repoints another game's asset or
-modifies DNS/Pages/OCI. A complete shared bucket inventory must fit the
+modifies DNS/Pages/OCI. A complete dedicated bucket inventory must fit the
 7 GB guard and K-47's 48 MiB prefix budget. Existing matching keys are
 byte-verified; mismatching keys fail closed. Public CDN GET must prove:
 HTTP 200, pinned HTTPS URL, correct model/gltf-binary MIME,
@@ -57,6 +57,72 @@ immutable cache headers, staging CORS, and SHA-256-equal actual bytes.
 Only then does the workflow emit
 `staradvs-k47-original-glb-public-verified-<sha>` receipt with
 `activationDone=false`.
+
+
+## Dedicated R2 public endpoint (2026-11-20)
+
+- **Bucket:** `star-adventures` (not `chess-studio-assets`).
+- **Exact object key prefix:** `environment/` **inside that bucket**. The bucket name is NOT part of each object key.
+- **Public base URL:** `https://pub-0e83bbe83562412182441ed82173d704.r2.dev/environment/`.
+- The three original SHA-addressed GLBs were manually uploaded by the operator. That is **not** proof of public readability, valid metadata or a passing integrity audit. The next read-only `probe` must verify the exact bytes and HTTP headers before any game manifest activation. The live read-only check found the first exact-byte model at `environment/`, confirming that the legacy shared-bucket prefix must not be retained.
+- Require `Content-Type: model/gltf-binary`, exact original model bytes, and the bucket CORS policy returning an `Access-Control-Allow-Origin` matching `https://staging.staradvs.shadowops.dpdns.org` (or `*`). The existing manual publisher's `publish` mode can only verify already uploaded matching objects; it must **never** overwrite a mismatching immutable object.
+- The `r2.dev` endpoint is an interim public origin with Cloudflare-managed rate limits; later move to a dedicated custom domain in a separately verified migration. No DNS or production change is part of this PR.
+
+## Operator: complete HTTP metadata for manually uploaded GLBs
+
+Read-only Infra audit on source SHA `981a8e23d0ca9a4e1b9dff9a4939cb01a9a42f26`
+confirmed all three exact original GLBs are publicly accessible under
+`star-adventures/environment/`? **No:** that is the old shared-bucket form.
+The **correct** bucket is `star-adventures`, object prefix `environment/`,
+and public URL starts with `https://pub-0e83bbe83562412182441ed82173d704.r2.dev/environment/`.
+The real audit reached all three files with valid MIME and SHA-matched bytes,
+but found that **all three initially lacked immutable Cache-Control and staging CORS**. Per operator decision, the cache header is now an **advisory only**; CORS, MIME and exact bytes are still mandatory.
+
+These are two different settings:
+
+1. **Bucket-level CORS.** Cloudflare dashboard → R2 → `star-adventures` →
+   Settings → CORS Policy → Add CORS policy → JSON. Use read-only origins and
+   methods (no PUT, POST or DELETE):
+
+   ```json
+   [
+     {
+       "AllowedOrigins": [
+         "https://staging.staradvs.shadowops.dpdns.org",
+         "https://staradvs.shadowops.dpdns.org"
+       ],
+       "AllowedMethods": ["GET", "HEAD"],
+       "AllowedHeaders": [],
+       "MaxAgeSeconds": 3600
+     }
+   ]
+   ```
+
+   CORS is not proven by a plain HEAD without an `Origin` header. The
+   existing Infra read-only probe sends the staging Origin and verifies
+   the effective public response.
+
+2. **Optional future optimisation: object HTTP metadata** for each of these existing exact objects:
+   `environment/east-utilities-shell-14f64c52b6e92574.glb`,
+   `environment/south-industrial-shell-903b06139f9f3881.glb`, and
+   `environment/west-archive-shell-6620dd38f67fc22a.glb`.
+   Keep `Content-Type: model/gltf-binary`. If desired later, set
+   `Cache-Control: public, max-age=31536000, immutable`; missing this
+   header produces only `K47_PUBLIC_CACHE_ADVISORY` and does not stop
+   a valid public-byte proof. Change HTTP
+   metadata with the R2 object controls if supported, or by an operator-
+   authorized metadata replacement using the S3-compatible API.
+   **Before any metadata rewrite, independently read and compare exact
+   object bytes/size/SHA-256 to the approved source manifest**; never
+   change model bytes or the content-addressed filenames.
+
+After the bucket CORS policy propagates (no cache change required), re-run only the failed job of
+`Star Adventures · manual K-47 original GLB publication` on the Infra PR
+(or run a fresh read-only `plan` on Infra `main` after merging).
+The output must be `K47_PUBLIC_CDN_BYTES_VERIFIED` (possibly preceded by non-blocking `K47_PUBLIC_CACHE_ADVISORY`), with a
+`k47-public-cdn-bytes-<sourceSha>` artifact; a 200 alone is insufficient.
+This is **not** authorization to activate the game until a separate
+visually reviewed Star Adventures manifest PR passes.
 
 ## Activation is a distinct source PR
 
@@ -81,10 +147,10 @@ the exact byte bodies and immutable keys from the admitted green
 `star-adventures` source-main artifact. It has no Cloudflare or R2 keys and
 cannot perform a write. A 404 is classified as `K47_PUBLIC_CDN_PENDING`
 (expected before the approved upload). Redirects, inaccessible CDN, incorrect
-MIME/CORS/cache headers, wrong lengths or wrong GLB bytes are NOT treated as
+MIME/CORS headers, wrong lengths or wrong GLB bytes are NOT treated as
 missing; the audit fails closed instead of claiming the art is published.
 
-When and only when **all three** objects return approved headers and identical
+When and only when **all three** objects return required HTTPS/MIME/CORS headers and identical
 model bytes, audit produces an artifact called
 `k47-public-cdn-bytes-<source-sha>` containing `public-proof.json`.
 The proof pins the current original-art source SHA, all three public HTTPS URLs,
