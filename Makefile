@@ -10,6 +10,7 @@ export CKA_OPERATOR_SSH_KEY
   oci-a1-ssh-check oci-a1-ssh \
   identity-prod-mongo-host-plan identity-prod-mongo-host-inspect identity-prod-mongo-host-start \
   identity-prod-mongo-material-plan identity-prod-mongo-material-verify \
+  identity-prod-mongo-pki-plan identity-prod-mongo-pki-generate \
   identity-prod-mongo-start-plan identity-prod-mongo-start-inspect \
   identity-prod-mongo-replica-plan identity-prod-mongo-replica-inspect identity-prod-mongo-replica-init \
   identity-prod-mongo-admin-plan identity-prod-mongo-admin-inspect identity-prod-mongo-admin-create \
@@ -40,6 +41,8 @@ help:
 	  '  make identity-prod-inspect    Read-only Mongo + origin preflights (fails if not ready)' \
 	  '  make identity-prod-mongo-host-plan | identity-prod-mongo-host-inspect' \
 	  '  make identity-prod-mongo-material-plan | identity-prod-mongo-material-verify' \
+	  '  make identity-prod-mongo-pki-plan | identity-prod-mongo-pki-generate' \
+	  '       Generate new private CA on a non-root L14 using MONGO_PKI_OUTPUT_DIR' \
 	  '       Root-only, read-only cryptographic TLS chain + replica key verification' \
 	  '  make identity-prod-mongo-host-start  Root+TTY, confirmation, new/empty Mongo only' \
 	  '  make identity-prod-mongo-replica-plan | identity-prod-mongo-replica-inspect' \
@@ -109,6 +112,13 @@ identity-prod-inspect:
 	@$(PYTHON) host/identity-production-origin.py inspect
 
 # Phase 0: isolated Mongo host candidate; never creates resources or starts Docker.
+# Local operator workstation only: never via sudo/SSH/CI.
+identity-prod-mongo-pki-plan:
+	@$(PYTHON) scripts/identity_production_mongo_pki_generate.py plan
+
+identity-prod-mongo-pki-generate:
+	@$(PYTHON) scripts/identity_production_mongo_pki_generate.py generate "$${MONGO_PKI_OUTPUT_DIR:?set MONGO_PKI_OUTPUT_DIR to a new absolute path}"
+
 identity-prod-mongo-host-plan:
 	@$(PYTHON) scripts/identity_production_mongo_host.py plan
 
