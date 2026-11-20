@@ -24,7 +24,7 @@ import staradvs_source_admission as source
 REPO = "evilsysadmin/star-adventures"
 WORKFLOW = "K-47 unified architecture · full-sector visual gate"
 BUCKET = "star-adventures"
-PREFIX = "star-adventures/environment/"
+PREFIX = "environment/"
 CDN = "https://pub-0e83bbe83562412182441ed82173d704.r2.dev/" + PREFIX
 ORIGIN = "https://staging.staradvs.shadowops.dpdns.org"
 CACHE = "public, max-age=31536000, immutable"
@@ -267,7 +267,7 @@ def diagnose_public_paths(entries: dict[str, bytes]) -> list[str]:
     check(first.startswith(PREFIX), "diagnosis requires admitted K-47 keys")
     name, expected = first.removeprefix(PREFIX), entries[first]
     roots = (
-        "environment/",
+        "star-adventures/environment/",
         "k47-r2/",
         "",
         "star-adventures/",
