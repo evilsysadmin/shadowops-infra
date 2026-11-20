@@ -46,7 +46,10 @@ inputs or chat. The auditor calls only
 `GET /accounts/{account_id}/access/apps` and the policies for the
 **exactly matched** application UUIDs. It rejects incomplete application
 pagination, unrecognized destinations, public-path overrides, duplicate
-scopes and bypass/Everyone policies. It logs only app-scope classifications,
+scopes and bypass/Everyone policies. An Access application spanning multiple hostnames is rejected, even if
+one of its destinations matches the expected Pages alias. Each app must
+protect exactly one authorized scope to avoid cross-game policy sharing.
+It logs only app-scope classifications,
 never application identifiers, rule text, emails, Access users or opaque
 Pages deployment addresses.
 
