@@ -188,7 +188,7 @@ class InstallerTests(unittest.TestCase):
 
     def test_make_target_separation(self):
         for action in ("plan", "inspect", "install"):
-            target = "identity-prod-mongo-pki-" + action
+            target = "identity-prod-mongo-pki-host-" + action
             p = subprocess.run(["make", "-n", "--no-print-directory", target],
                                cwd=ROOT, capture_output=True, text=True, timeout=10)
             self.assertEqual(p.returncode, 0, p.stderr)
