@@ -101,6 +101,12 @@ class DockerDouble:
 
 
 class StartOperatorTests(unittest.TestCase):
+    def setUp(self):
+        # Mocked unit tests are offline but the real operator remains CI-denied.
+        self.env = mock.patch.dict(os.environ, {"CI": "", "GITHUB_ACTIONS": ""})
+        self.env.start()
+        self.addCleanup(self.env.stop)
+
     def test_no_credentials_no_docker_plan(self):
         with mock.patch.object(op, "docker", side_effect=AssertionError("Docker used")):
             self.assertEqual(op.main(["plan"]), 0)
