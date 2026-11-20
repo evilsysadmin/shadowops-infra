@@ -32,7 +32,7 @@ def audit(client, *, probe=bootstrap.guest_status) -> dict:
         raise WatchdogBlocked("Cannot establish immutable deployed game source")
     inventory = readiness.inspect(client)
     if inventory["domain"] == "present" and inventory["dns"] == "present":
-        result = quarantine.audit(client, guest=probe, web=quarantine.https_probe)
+        result = quarantine.audit(client, guest=probe, web=quarantine.https_probe, allow_bound=True)
     else:
         result = bootstrap.postflight(client, sha, status=probe)
     if int(result["aliases"]) < 2:
