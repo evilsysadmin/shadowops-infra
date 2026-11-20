@@ -31,9 +31,12 @@ allowlisted project metadata or deployment inventory.
   REVIEW_ANONYMOUS_200, including a possible login shell. The response
   body and project secrets are never included in the log. A 401/403/404
   only establishes **guest denial**, not a working signed-in game.
-- Prints a small per-game summary with counts and up to 12 confirmed
-  exposed or unverified hostnames. This is an exposure inventory, not a
-  comprehensive account/session isolation certification.
+- Prints a small per-game summary with counts only. The Infra repository
+  and Actions logs are public; **never** print historical/immutable deployment
+  hostnames, even in sanitized partial examples. They would form an index of
+  paths that currently bypass Identity. Operators can inspect exact hostnames
+  in the owned Cloudflare Pages dashboard. This remains an exposure inventory,
+  not a comprehensive account/session isolation certification.
 
 The GH Actions workflow `Games · ShadowOps ID historical Pages alias exposure`
 runs offline contracts for PRs and the read-only Cloudflare+HTTPS inventory
