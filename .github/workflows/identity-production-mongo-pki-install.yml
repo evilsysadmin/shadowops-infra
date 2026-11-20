@@ -1,0 +1,50 @@
+name: Identity production Mongo PKI protected host installer (offline)
+on:
+  pull_request:
+    paths:
+      - Makefile
+      - host/identity-production-mongo-pki-install.py
+      - scripts/identity_production_mongo_material.py
+      - tests/test_identity_production_mongo_pki_install.py
+      - docs/identity-production-mongo-pki-install.md
+      - docs/identity-production-mongo-pki.md
+      - .github/workflows/identity-production-mongo-pki-install.yml
+  push:
+    branches: [main]
+    paths:
+      - Makefile
+      - host/identity-production-mongo-pki-install.py
+      - scripts/identity_production_mongo_material.py
+      - tests/test_identity_production_mongo_pki_install.py
+      - docs/identity-production-mongo-pki-install.md
+      - docs/identity-production-mongo-pki.md
+      - .github/workflows/identity-production-mongo-pki-install.yml
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Validate exact staging and no overwrites with real synthetic TLS
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check 'PyYAML==6.0.2'
+          python3 -m unittest discover -s tests -p test_identity_production_mongo_pki_install.py -v
+          python3 -m unittest discover -s tests -p test_identity_production_mongo_material.py -v
+          python3 -m py_compile host/identity-production-mongo-pki-install.py scripts/identity_production_mongo_material.py
+          make identity-prod-mongo-pki-host-plan
+          make --dry-run identity-prod-mongo-pki-host-inspect
+          make --dry-run identity-prod-mongo-pki-host-install
+          if python3 -I host/identity-production-mongo-pki-install.py install; then
+            echo 'ERROR: CI was able to install production Mongo PKI' >&2
+            exit 1
+          fi
