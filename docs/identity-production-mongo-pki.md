@@ -60,9 +60,14 @@ exclusivamente** `ca.pem`, `mongo.pem` y `replica.key` de
 `transfer-THREE-FILES-ONLY`, nunca la clave privada firmante
 de la CA ni el directorio padre.
 
-La instalación queda documentada en
+La transferencia ya dispone del operador L14
+`make identity-prod-mongo-pki-upload-check` /
+`make identity-prod-mongo-pki-upload`: reutiliza el SSH canónico de
+Cloudflare y selecciona **únicamente tres archivos**, sin copiar
+`offline-ca-KEEP-LOCAL`. Su destino debe existir previamente;
+el modo real de instalación queda documentado en
 [PKI installation: one-time A1 operator](identity-production-mongo-pki-install.md).
-El operador verifica propietarios, modos, nombres, certificados,
+El operador de A1 verifica propietarios, modos, nombres, certificados,
 clave de réplica y ausencia de recursos previos, sin SSH implícito.
 
 ```sh
