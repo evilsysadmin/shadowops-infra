@@ -169,7 +169,7 @@ def remote_stage_probe(ssh: str, cloudflared: str, host: str,
                           stderr=subprocess.DEVNULL, check=False, timeout=35)
     except (OSError, subprocess.TimeoutExpired):
         raise Refused("remote private staging not verified") from None
-    if response.returncode != 0 or response.stdout != b"EMPTY_PRIVATE_STAGE\\n":
+    if response.returncode != 0 or response.stdout.strip() != b"EMPTY_PRIVATE_STAGE":
         raise Refused("remote staging must be empty, private and owned by ubuntu")
 
 
