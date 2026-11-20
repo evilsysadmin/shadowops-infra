@@ -145,6 +145,55 @@ class AccessReadinessTests(unittest.TestCase):
                 result = a.inspect(cf)
                 self.assertEqual(result["state"], "ACCESS_REMEDIATION_REQUIRED")
 
+    def test_allow_rules_are_ored_and_each_must_name_one_operator(self):
+        legitimate = {"decision": "allow", "include": [
+            {"email": {"email": "operator@private.invalid"}},
+            {"email": {"email": "backup@private.invalid"}},
+        ]}
+        self.assertEqual(
+            a.inspect(Fake(policies={ident(1): [legitimate]}))["state"],
+            "CONFIGURED_FOR_GUEST_TEST"
+        )
+        broad = [
+            {"everyone": {}},
+            {"email_domain": {"domain": "example.com"}},
+            {"ip": {"ip": "0.0.0.0/0"}},
+            {"country": {"country": "ES"}},
+            {"group": {"id": ident(17)}},
+            {"any_valid_service_token": {}},
+            {"service_token": {"token_id": ident(2)}},
+            {"email": {"email": "*@example.com"}},
+            {"email": {"email": "not-an-email"}},
+            {"email": {"email": "operator@private.invalid", "domain": "example.com"}},
+            {"certificate": {}},
+            {"email_list": {"id": ident(19)}},
+            {},
+        ]
+        for extra in broad:
+            with self.subTest(rule=extra):
+                policy = {"decision": "allow", "include": [
+                    {"email": {"email": "operator@private.invalid"}}, extra
+                ]}
+                result = a.inspect(Fake(policies={ident(1): [policy]}))
+                self.assertEqual(result["state"], "ACCESS_REMEDIATION_REQUIRED")
+                row = result["projects"][0]["application_scopes"]
+                self.assertEqual(row["main"], "review-required")
+                self.assertNotIn("operator@private.invalid", json.dumps(result))
+
+    def test_deny_action_is_valid_but_deny_only_is_not_login_ready(self):
+        deny = {"decision": "deny", "include": [{"everyone": {}}]}
+        allow = {"decision": "allow", "include": [
+            {"email": {"email": "operator@private.invalid"}}
+        ]}
+        self.assertEqual(
+            a.inspect(Fake(policies={ident(1): [deny, allow]}))["state"],
+            "CONFIGURED_FOR_GUEST_TEST"
+        )
+        self.assertEqual(
+            a.inspect(Fake(policies={ident(1): [deny]}))["state"],
+            "ACCESS_REMEDIATION_REQUIRED"
+        )
+
     def test_incomplete_policy_inventory_never_conveys_safe_access(self):
         cf = Fake()
 
