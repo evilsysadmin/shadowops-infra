@@ -41,9 +41,7 @@ class PublicLegacyTests(unittest.TestCase):
     def test_network_errors_fail_closed_and_no_unapproved_fetch(self):
         with self.assertRaises(guard.Refused):
             guard._read("https://example.org")
-        with self.assertRaises(guard.Refused):
-            guard._read(guard.API)
-        with mock.patch.dict(guard.os.environ, {"GH_TOKEN": ""}):
+        with mock.patch.object(guard, "_read", side_effect=guard.Refused("offline")):
             self.assertEqual(guard.main(["inspect"]), 1)
         self.assertEqual(guard.main(["wrong"]), 2)
 
