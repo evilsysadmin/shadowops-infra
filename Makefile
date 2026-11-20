@@ -12,6 +12,7 @@ export CKA_OPERATOR_SSH_KEY
   identity-prod-mongo-start-plan identity-prod-mongo-start-inspect \
   identity-prod-mongo-replica-plan identity-prod-mongo-replica-inspect identity-prod-mongo-replica-init \
   identity-prod-mongo-admin-plan identity-prod-mongo-admin-inspect identity-prod-mongo-admin-create \
+  identity-prod-mongo-backup-user-plan identity-prod-mongo-backup-user-inspect identity-prod-mongo-backup-user-create \
   identity-prod-mongo-backup-plan identity-prod-mongo-backup-inspect \
   identity-prod-plan identity-prod-doctor identity-prod-inspect identity-prod-mongo-inspect identity-prod-mongo-apply \
   identity-prod-origin-inspect identity-prod-origin-start identity-prod-origin-stop \
@@ -42,6 +43,8 @@ help:
 	  '  make identity-prod-mongo-replica-init Root+TTY+ACK, exact running product Mongo only' \
 	  '  make identity-prod-mongo-admin-plan | identity-prod-mongo-admin-inspect' \
 	  '  make identity-prod-mongo-admin-create Root+TTY+ACK, passwordPrompt in mongosh' \
+	  '  make identity-prod-mongo-backup-user-plan | identity-prod-mongo-backup-user-inspect' \
+	  '  make identity-prod-mongo-backup-user-create Root+TTY+ACK, backup role only' \
 	  '  make identity-prod-mongo-backup-plan | identity-prod-mongo-backup-inspect' \
 	  '       Offline backup plan and local-only prerequisite check (never uploads)' \
 	  '       Validate isolated Mongo host Compose and private TLS file metadata (no deploy)' \
@@ -140,6 +143,16 @@ identity-prod-mongo-admin-inspect:
 
 identity-prod-mongo-admin-create:
 	@$(PYTHON) host/identity-production-mongo-admin.py create
+
+# First admin must already exist; only an explicitly approved operator creates backup user.
+identity-prod-mongo-backup-user-plan:
+	@$(PYTHON) host/identity-production-mongo-backup-user.py plan
+
+identity-prod-mongo-backup-user-inspect:
+	@$(PYTHON) host/identity-production-mongo-backup-user.py inspect
+
+identity-prod-mongo-backup-user-create:
+	@$(PYTHON) host/identity-production-mongo-backup-user.py create
 
 # Off-host encrypted backup is deliberately not a Make mutation target.
 identity-prod-mongo-backup-plan:
