@@ -17,7 +17,7 @@ import sys
 import urllib.parse
 
 import game_identity_exposure as exposure
-from staradvs_pages import CloudflareClient
+from staradvs_pages import AdmissionError, CloudflareClient
 
 PAGE_SIZE = 100
 MAX_PAGES = 3
@@ -133,6 +133,12 @@ def assess_one(client, game, request_status) -> dict:
     except InventoryError as exc:
         # This exception is generated only by our fixed, sanitized stage labels.
         result["reason"] = str(exc)
+        return result
+    except AdmissionError as exc:
+        # The shared Cloudflare client returns a fixed HTTP-status-only string
+        # on GET failures. Never print arbitrary SDK/provider response content.
+        match = re.fullmatch(r"Cloudflare GET failed \(HTTP ([45][0-9]{2})\)", str(exc))
+        result["reason"] = "provider-http-" + match.group(1) if match else "provider_request_unavailable"
         return result
     except Exception:
         # Never log Cloudflare SDK/HTTP exception content or secret values.
