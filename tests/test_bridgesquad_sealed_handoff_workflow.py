@@ -50,6 +50,30 @@ class SealedHandoffWorkflowTests(unittest.TestCase):
         self.assertIn("retention-days: 14", self.job)
         self.assertIn("persist-credentials: false", self.job)
 
+    def test_daily_reconciliation_is_read_only_and_uploads_only_once_per_sha_pair(self):
+        self.assertIn("  schedule:", self.text)
+        self.assertIn("cron: '19 7 * * *'", self.text)
+        self.assertIn("cancel-in-progress: false", self.text)
+        self.assertIn("github.event_name == 'schedule'", self.job)
+        self.assertIn("needs: contracts", self.job)
+        self.assertIn("id: duplicate", self.job)
+        self.assertIn("scripts/bridgesquad_sealed_candidate_dedupe.py check", self.job)
+        self.assertGreater(
+            self.job.index("scripts/bridgesquad_sealed_candidate_dedupe.py check"),
+            self.job.index("source.admit(reader, sha)"),
+        )
+        for title in (
+            "Download exact verified source artifact and reject tampering",
+            "Seal the exact HTML with Infra-owned fail-closed Identity Worker",
+            "Recheck unchanged game main before publishing private artifact",
+            "Archive private Infra candidate for later protected delivery",
+        ):
+            marker = "      - name: " + title + "\n        if: steps.duplicate.outputs.sealed_exists != 'true'"
+            with self.subTest(title=title):
+                self.assertIn(marker, self.job)
+        self.assertIn("scripts/bridgesquad_sealed_candidate_dedupe.py", self.text)
+        self.assertIn("tests/test_bridgesquad_sealed_candidate_dedupe.py", self.text)
+
     def test_no_pr_or_untrusted_fork_can_package_as_main(self):
         self.assertIn("github.repository == 'evilsysadmin/shadowops-infra'", self.job)
         self.assertIn("github.ref == 'refs/heads/main'", self.job)
