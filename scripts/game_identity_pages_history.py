@@ -130,9 +130,13 @@ def assess_one(client, game, request_status) -> dict:
     }
     try:
         hosts, completed = list_hosts(client, game)
+    except InventoryError as exc:
+        # This exception is generated only by our fixed, sanitized stage labels.
+        result["reason"] = str(exc)
+        return result
     except Exception:
-        # Never log an exception containing Cloudflare API errors or credentials.
-        result["reason"] = "provider_inventory_unavailable_or_unexpected"
+        # Never log Cloudflare SDK/HTTP exception content or secret values.
+        result["reason"] = "provider_request_unavailable"
         return result
     result["hosts_discovered"] = len(hosts)
     result["historic_inventory_complete"] = completed
