@@ -50,7 +50,6 @@ class MaterialTests(unittest.TestCase):
             base64.b64encode(os.urandom(384)) + b"\n"
         )
         self.patches = [
-            patch.object(m.host, "SECRET_DIR", self.private),
             patch.object(m.host, "inspect_private_files", return_value=None),
             patch.object(m, "CA", self.private / "ca.pem"),
             patch.object(m, "CERT_KEY", self.private / "mongo.pem"),
