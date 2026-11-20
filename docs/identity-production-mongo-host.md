@@ -25,7 +25,9 @@ una reserva garantizada. No hay swap y hay otros servicios de producción.
   `restart: no`. Cache WiredTiger acotada a 0,25 GiB.
 - Certificados/clave de réplica fuera de Git, bajo
   `/etc/shadowops/identity-production/mongo`, montados como solo lectura.
-  La ruta NO se crea automáticamente si falta.
+  La ruta NO se crea automáticamente si falta. Existe un
+  [generador local con CA offline](identity-production-mongo-pki.md);
+  transfiere **solo tres ficheros** y nunca la clave firmante de CA.
 - Perfil `production-mongo`: ningún `docker compose up` rutinario
   del repo levanta este servicio por accidente.
 
