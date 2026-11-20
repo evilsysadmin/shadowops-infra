@@ -75,7 +75,7 @@ class MakeEntrypointsTests(unittest.TestCase):
                        "bridgesquad-prod-release-plan"):
             with self.subTest(target=target):
                 cmd = dry_run(target)
-                self.assertNotRegex(cmd, r"(?m)^python3 .* (start-origin|start-tunnel|create|apply|bind|stop-origin|stop-tunnel)\\b")
+                self.assertNotRegex(cmd, r"(?m)^python3 .* (start-origin|start-tunnel|create|apply|bind|stop-origin|stop-tunnel)\b")
         plan = dry_run("identity-prod-plan")
         for required in (
             "identity_production_mongo_operator.py plan",
@@ -91,9 +91,9 @@ class MakeEntrypointsTests(unittest.TestCase):
 
     def test_account_and_proof_targets_require_explicit_nonsecret_identifiers(self):
         for target in ("identity-prod-account-inspect", "identity-prod-account-create"):
-            self.assertIn('$$IDENTITY_PRODUCTION_ACCOUNT', dry_run(target))
+            self.assertIn('$IDENTITY_PRODUCTION_ACCOUNT', dry_run(target))
         for target in ("bridgesquad-prod-proof-inspect", "bridgesquad-prod-proof-bind"):
-            self.assertIn('$$BRIDGESQUAD_PAGES_SHA', dry_run(target))
+            self.assertIn('$BRIDGESQUAD_PAGES_SHA', dry_run(target))
 
         # Actual make invocation must be refused *before* the operator is called.
         env = dict(os.environ)
