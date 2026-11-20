@@ -19,7 +19,7 @@ help:
 	  'Bridge Squad / ShadowOps ID production (run on the authorized production host):' \
 	  '  make identity-prod-plan       Safe plan; NO Docker, secrets, Cloudflare or Mongo changes' \
 	  '  make identity-prod-doctor     Local prerequisite inventory; no secrets printed or commands executed' \
-	  'make identity-prod-inspect    Read-only Mongo + origin preflights (fails if not ready)' \
+	  '  make identity-prod-inspect    Read-only Mongo + origin preflights (fails if not ready)' \
 	  '  make identity-prod-mongo-inspect | identity-prod-mongo-apply' \
 	  '  make identity-prod-origin-inspect | identity-prod-origin-start | identity-prod-origin-stop' \
 	  '  make identity-prod-tunnel-inspect | identity-prod-tunnel-start | identity-prod-tunnel-stop' \
