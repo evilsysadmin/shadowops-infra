@@ -4,6 +4,9 @@ on:
     paths:
       - '.github/workflows/bridgesquad-dns-quarantine.yml'
       - 'scripts/bridgesquad_dns_quarantine.py'
+      - 'scripts/bridgesquad_production_proof_bind.py'
+      - 'tests/test_bridgesquad_production_proof_bind.py'
+      - 'docs/bridgesquad-production-proof-operator.md'
       - 'scripts/bridgesquad_alias_watchdog.py'
       - 'tests/test_bridgesquad_dns_quarantine.py'
       - 'tests/test_bridgesquad_dns_quarantine_workflow.py'
@@ -14,6 +17,9 @@ on:
     paths:
       - '.github/workflows/bridgesquad-dns-quarantine.yml'
       - 'scripts/bridgesquad_dns_quarantine.py'
+      - 'scripts/bridgesquad_production_proof_bind.py'
+      - 'tests/test_bridgesquad_production_proof_bind.py'
+      - 'docs/bridgesquad-production-proof-operator.md'
       - 'scripts/bridgesquad_alias_watchdog.py'
       - 'tests/test_bridgesquad_dns_quarantine.py'
       - 'tests/test_bridgesquad_dns_quarantine_workflow.py'
@@ -46,13 +52,18 @@ jobs:
           python3 -m unittest discover -s tests -p test_bridgesquad_alias_bootstrap.py -v
           python3 -m unittest discover -s tests -p test_bridgesquad_alias_watchdog.py -v
           python3 -m unittest discover -s tests -p test_bridgesquad_alias_watchdog_workflow.py -v
+      - name: Validate opt-in production proof binding without Cloudflare writes
+        run: python3 -m unittest discover -s tests -p test_bridgesquad_production_proof_bind.py -v
       - name: Guard production-only mutation workflow and secret scope
         run: python3 -m unittest discover -s tests -p test_bridgesquad_dns_quarantine_workflow.py -v
-      - run: python3 -m py_compile scripts/bridgesquad_dns_quarantine.py scripts/bridgesquad_alias_watchdog.py
+      - run: python3 -m py_compile scripts/bridgesquad_dns_quarantine.py scripts/bridgesquad_alias_watchdog.py scripts/bridgesquad_production_proof_bind.py
   attach:
     name: Claim owned Pages hostname and protected CNAME; verify real HTTPS quarantine
     needs: contracts
+    # DNS cutover succeeded on 2026-11-19. Do not re-run this one-time
+    # mutator after production Identity is bound; watchdog stays active.
     if: >-
+      false &&
       github.repository == 'evilsysadmin/shadowops-infra' &&
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')

@@ -25,6 +25,7 @@ DOMAIN_PATH = "/domains/" + urllib.parse.quote(HOST, safe="")
 CHECK_PATHS = ("/", "/index.html", "/release.json",
                "/api/bridgesquad/session", "/_worker.js")
 PROOF_PATH = "/api/bridgesquad/session"
+PROOF_KEY = "SHADOWOPS_BRIDGESQUAD_SERVICE_CREDENTIAL"
 
 
 class QuarantineError(ValueError):
@@ -70,7 +71,22 @@ class Client(readiness.CloudflareClient):
         return response["result"]
 
 
-def project(client) -> tuple[dict, tuple[str, ...], str]:
+def _safe_env_vars(mode: str, settings: dict, *, allow_bound: bool) -> bool:
+    variables = settings.get("env_vars")
+    if variables is None:
+        variables = {}
+    if not isinstance(variables, dict):
+        return False
+    if not variables:
+        return True
+    # A single encrypted proof is permitted only AFTER an operator cutover,
+    # NEVER for the preview environment nor the DNS attach workflow.
+    return (mode == "production" and allow_bound and set(variables) == {PROOF_KEY}
+            and isinstance(variables[PROOF_KEY], dict)
+            and variables[PROOF_KEY].get("type") == "secret_text")
+
+
+def project(client, *, allow_bound: bool = False) -> tuple[dict, tuple[str, ...], str]:
     inv = readiness.inspect(client)
     if inv["project"] != "present" or inv["domain"] != inv["dns"]:
         # Partial cutovers must be resumed only by attach(), not accepted
@@ -93,7 +109,7 @@ def project(client) -> tuple[dict, tuple[str, ...], str]:
         if (not isinstance(settings, dict) or settings.get("fail_open") is not False
                 or "global_fetch_strictly_public" not in (settings.get("compatibility_flags") or [])
                 or "global_fetch_private_origin" in (settings.get("compatibility_flags") or [])
-                or settings.get("env_vars")):
+                or not _safe_env_vars(mode, settings, allow_bound=allow_bound)):
             raise QuarantineError("Identity proof must remain unbound in quarantine")
     canonical = cfg.get("canonical_deployment")
     trigger = canonical.get("deployment_trigger") if isinstance(canonical, dict) else None
@@ -208,11 +224,11 @@ def https_probe(path: str, method="GET") -> tuple[int, dict, bytes]:
         raise QuarantineError("Canonical HTTPS not yet reachable") from None
 
 
-def audit(client, *, guest=bootstrap.guest_status, web=https_probe) -> dict:
+def audit(client, *, guest=bootstrap.guest_status, web=https_probe, allow_bound=False) -> dict:
     state = readiness.inspect(client)
     if state["project"] != "present" or state["domain"] != "present" or state["dns"] != "present":
         raise QuarantineError("Pages host is not configured yet")
-    cfg, hosts, sha = project(client)
+    cfg, hosts, sha = project(client, allow_bound=allow_bound)
     prove_aliases(hosts, guest)
     # The real Cloudflare proxy and TLS certificate must resolve on the exact
     # canonical hostname; never accept a Pages alias or proxy redirect.
@@ -247,7 +263,11 @@ def audit(client, *, guest=bootstrap.guest_status, web=https_probe) -> dict:
     return {"host": HOST, "https": "401-login-shell",
             "assets": "denied", "aliases": str(len(hosts)),
             "dns": "present", "domain": "present",
-            "production_identity": "not-provisioned", "source_sha": sha}
+            "production_identity": (
+                "proof-bound-unverified"
+                if (cfg["deployment_configs"]["production"].get("env_vars") or {})
+                else "not-provisioned"
+            ), "source_sha": sha}
 
 
 def main(argv: list[str]) -> int:
