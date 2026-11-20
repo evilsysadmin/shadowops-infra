@@ -22,6 +22,8 @@ const (
  browserLogoutPath = "/api/identity/logout"
  browserTokenPath = "/api/identity/token"
  browserAssetPath = "/assets/login-production.js"
+ browserLogoutPagePath = "/logout"
+ browserLogoutAssetPath = "/assets/logout-production.js"
 )
 
 type productionLogin interface {
@@ -127,6 +129,9 @@ func (h *ProductionBrowserHandler) ServeHTTP(w http.ResponseWriter,r *http.Reque
  }
  if r.URL.Path=="/login" || r.URL.Path==browserAssetPath {
   serveProductionLogin(w,r);return
+ }
+ if r.URL.Path==browserLogoutPagePath || r.URL.Path==browserLogoutAssetPath {
+  serveProductionLogout(w,r);return
  }
  if r.URL.Path=="/readyz" || r.URL.Path=="/api/identity/register" ||
   r.URL.Path=="/api/identity/recover" || r.URL.Path=="/api/identity/refresh" {
@@ -299,4 +304,73 @@ func serveProductionLogin(w http.ResponseWriter,r *http.Request){
  if r.URL.RawQuery!=""{productionFailure(w,http.StatusBadRequest);return}
  w.Header().Set("Content-Type","text/javascript; charset=utf-8")
  _,_=io.WriteString(w,productionLoginJS)
+}
+
+
+ // A dedicated same-origin confirmation page is required. Logout is NEVER
+ // performed by GET: cross-site navigation to /logout cannot revoke a user.
+const productionLogoutHTML = `<!doctype html><html lang="es"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Salir de ShadowOps ID · Bridge Squad</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}
+body{margin:0;background:#101914;color:#f6eedb;font:16px system-ui;min-height:100vh;display:grid;place-items:center}
+main{width:min(94vw,440px);border:1px solid #536a52;background:#1b2b22;padding:2rem;border-radius:19px}
+h1{font-size:1.55rem}p{line-height:1.5;color:#c7d9cb}
+button,a{display:block;text-align:center;width:100%;margin-top:1rem;padding:13px;border-radius:8px;font:inherit;text-decoration:none}
+button{cursor:pointer;background:#dec48d;color:#152118;border:0;font-weight:650}
+a{color:#dec48d;border:1px solid #5b7258}
+button:focus-visible,a:focus-visible{outline:2px solid #dec48d;outline-offset:3px}
+</style><script src="/assets/logout-production.js" defer></script>
+</head><body data-return-url="` + Origin + `/">
+<main><small>SHADOWOPS ID · BRIDGE SQUAD</small>
+<h1>Cerrar sesión</h1>
+<p>Se revocará tu sesión de ShadowOps ID y los tokens asociados. El progreso guardado de Bridge Squad permanecerá separado por cuenta.</p>
+<form id="logout-form"><button id="logout-submit" type="submit">Cerrar mi sesión</button></form>
+<p id="logout-status" role="status" aria-live="polite"></p>
+<a class="return-link" href="` + Origin + `/">Volver al juego sin cerrar sesión</a>
+</main></body></html>`
+
+const productionLogoutJS = `'use strict';
+const form=document.querySelector('#logout-form');
+const status=document.querySelector('#logout-status');
+const submit=document.querySelector('#logout-submit');
+form.addEventListener('submit',async event=>{
+ event.preventDefault();
+ if(submit.disabled)return;
+ submit.disabled=true;status.textContent='Cerrando sesión…';
+ try{
+  const response=await fetch('/api/identity/logout',{
+   method:'POST',credentials:'same-origin',redirect:'error',
+   headers:{'Content-Type':'application/json'},body:'{}',
+   signal:AbortSignal.timeout(10000)
+  });
+  if(response.status!==204){
+   status.textContent='No se ha podido confirmar el cierre. Reinténtalo o contacta con el administrador.';
+   return;
+  }
+  location.replace(document.body.dataset.returnUrl);
+ }catch{
+  status.textContent='Sin conexión con ShadowOps ID. No se ha confirmado el cierre de sesión.';
+ }finally{submit.disabled=false}
+});`
+
+func serveProductionLogout(w http.ResponseWriter,r *http.Request){
+ if r.Method!=http.MethodGet{
+  w.Header().Set("Allow","GET")
+  productionFailure(w,http.StatusMethodNotAllowed);return
+ }
+ w.Header().Set("Content-Security-Policy",
+  "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; "+
+   "connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+ if r.URL.Path==browserLogoutPagePath{
+  if r.URL.RawQuery!="app=bridgesquad"{
+   productionFailure(w,http.StatusBadRequest);return
+  }
+  w.Header().Set("Content-Type","text/html; charset=utf-8")
+  _,_=io.WriteString(w,productionLogoutHTML);return
+ }
+ if r.URL.RawQuery!=""{productionFailure(w,http.StatusBadRequest);return}
+ w.Header().Set("Content-Type","text/javascript; charset=utf-8")
+ _,_=io.WriteString(w,productionLogoutJS)
 }
