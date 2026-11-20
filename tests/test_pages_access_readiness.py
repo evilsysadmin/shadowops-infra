@@ -104,6 +104,34 @@ class AccessReadinessTests(unittest.TestCase):
             {"behavior": "public", "path_pattern": "/*"}]
         self.assertEqual(a.inspect(Fake(apps))["state"], "ACCESS_REMEDIATION_REQUIRED")
 
+    def test_cross_game_or_cross_mode_multi_host_app_cannot_pass_review(self):
+        for foreign in ("chronicles-production.pages.dev",
+                        "*.chronicles-staging.pages.dev",
+                        "staging.chronicles.shadowops.dpdns.org"):
+            with self.subTest(foreign=foreign):
+                apps = full_apps()
+                apps[0]["destinations"].append({"type": "public", "uri": foreign})
+                domains, safe = a.app_destinations(apps[0])
+                self.assertFalse(safe)
+                self.assertEqual(len(domains), 2)
+                result = a.inspect(Fake(apps))
+                self.assertEqual(result["state"], "ACCESS_REMEDIATION_REQUIRED")
+                row = next(r for r in result["projects"]
+                           if r["project"] == "chronicles-staging")
+                self.assertEqual(row["application_scopes"]["main"], "missing")
+
+    def test_legacy_multiple_self_hosted_domains_are_untrusted(self):
+        value = {
+            "type": "self_hosted",
+            "self_hosted_domains": [
+                {"domain": "staradvs-staging.pages.dev"},
+                {"domain": "chronicles-production.pages.dev"},
+            ],
+        }
+        domains, safe = a.app_destinations(value)
+        self.assertFalse(safe)
+        self.assertEqual(len(domains), 2)
+
     def test_bypass_or_everyone_are_not_restricted_operator_access(self):
         for policy in (
             [{"action": "bypass", "include": [{"everyone": {}}]}],
