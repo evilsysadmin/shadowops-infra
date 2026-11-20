@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily encrypted ShadowOps Identity production Mongo off-host backup (opt-in)
+
+[Timer]
+OnCalendar=*-*-* 04:30:00 UTC
+RandomizedDelaySec=10min
+AccuracySec=1min
+Persistent=true
+Unit=identity-production-mongo-backup.service
+
+[Install]
+WantedBy=timers.target

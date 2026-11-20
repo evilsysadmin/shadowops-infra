@@ -40,7 +40,7 @@ La [definición de host y red privada](identity-production-mongo-host.md)
 añade un candidato ARM64 independiente con volumen exclusivo, TLS,
 keyFile, replica set de un nodo y límites de recursos, sin iniciar Docker.
 Antes de invocar el operador de roles/colecciones de esta página hay que
-validar backup cifrado externo, restauración y acceso desde Identity; el
+validar [backup cifrado externo](identity-production-mongo-backup.md), restauración y acceso desde Identity; el
 comando `apply` de abajo **no crea la instancia MongoDB**.
 
 ## Procedimiento manual (no ejecutar hasta validar infraestructura real)

@@ -70,7 +70,13 @@ sudo -n make -C /opt/shadowops-infra identity-prod-mongo-host-inspect
 
 Estos objetivos solo describen o inspeccionan la [configuración
 independiente](identity-production-mongo-host.md); no arrancan Mongo,
-no preparan secretos, no toman backup y no modifican el host. El
+no preparan secretos, no toman backup y no modifican el host.
+
+El [backup cifrado externo](identity-production-mongo-backup.md) tiene
+`make identity-prod-mongo-backup-plan` y
+`make identity-prod-mongo-backup-inspect`, exclusivamente no mutantes.
+La ejecución real solo se autoriza con un servicio/timer root-owned
+instalado manualmente y un simulacro de restauración positivo. El
 operador de roles/índices de la fase 1 sigue siendo separado.
 
 ## 1. Mongo production (recurso real + backup, no fixture CI)

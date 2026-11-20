@@ -1,0 +1,27 @@
+[Unit]
+Description=Operator-approved encrypted ShadowOps Identity production Mongo backup to OCI Object Storage
+Documentation=https://github.com/evilsysadmin/shadowops-infra/blob/main/docs/identity-production-mongo-backup.md
+Wants=network-online.target
+After=docker.service network-online.target
+ConditionPathExists=/etc/shadowops/identity-production/backup.env
+ConditionPathExists=/etc/shadowops/identity-production/backup-recipients.txt
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/shadowops-infra
+Environment=PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=/etc/shadowops/identity-production/backup.env
+ExecStart=/usr/bin/python3 -I /opt/shadowops-infra/scripts/identity_production_mongo_backup.py backup
+TimeoutStartSec=30min
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/shadowops-identity-production/backup-staging /run/lock
+ProtectControlGroups=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+LockPersonality=true
