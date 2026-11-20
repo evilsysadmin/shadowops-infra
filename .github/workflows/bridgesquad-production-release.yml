@@ -4,6 +4,8 @@ on:
     paths:
       - '.github/workflows/bridgesquad-production-release.yml'
       - 'scripts/bridgesquad_production_release.py'
+      - 'scripts/bridgesquad_legacy_pages_guard.py'
+      - 'tests/test_bridgesquad_legacy_pages_guard.py'
       - 'tests/test_bridgesquad_production_release.py'
       - 'tests/test_bridgesquad_production_release_workflow.py'
       - 'scripts/bridgesquad_production_proof_bind.py'
@@ -45,10 +47,11 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest discover -s tests -p test_bridgesquad_production_release.py -v
+          python3 -m unittest discover -s tests -p test_bridgesquad_legacy_pages_guard.py -v
           python3 -m unittest discover -s tests -p test_bridgesquad_production_proof_bind.py -v
           python3 -m unittest discover -s tests -p test_bridgesquad_dns_quarantine.py -v
           python3 -m unittest discover -s tests -p test_bridgesquad_production_release_workflow.py -v
-          python3 -m py_compile scripts/bridgesquad_production_release.py
+          python3 -m py_compile scripts/bridgesquad_production_release.py scripts/bridgesquad_legacy_pages_guard.py
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -177,6 +180,8 @@ jobs:
             "$RUNNER_TEMP/bridgesquad-protected" "$ARTIFACT_DIGEST" "$TARGET_SHA"
           python3 scripts/bridgesquad_source_admission.py check "$TARGET_SHA"
           test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+      - name: Refuse deployment if legacy public GitHub Pages is still enabled
+        run: python3 scripts/bridgesquad_legacy_pages_guard.py inspect
       - name: Enforce real production Identity, exact previous Pages SHA and guest 401 before upload
         id: before
         shell: bash
@@ -192,6 +197,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/bridgesquad_production_release.py preflight "$LIVE_SHA" "$TARGET_SHA" > /dev/null
+          python3 scripts/bridgesquad_legacy_pages_guard.py inspect
           python3 scripts/bridgesquad_source_admission.py check "$TARGET_SHA"
           test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
       - name: Upload only reviewed protected bundle to existing canonical Pages production
