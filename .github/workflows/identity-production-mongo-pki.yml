@@ -1,0 +1,46 @@
+name: Identity production Mongo offline workstation PKI generation
+on:
+  pull_request:
+    paths:
+      - Makefile
+      - scripts/identity_production_mongo_pki_generate.py
+      - tests/test_identity_production_mongo_pki_generate.py
+      - docs/identity-production-mongo-pki.md
+      - docs/identity-production-mongo-host.md
+      - .github/workflows/identity-production-mongo-pki.yml
+  push:
+    branches: [main]
+    paths:
+      - Makefile
+      - scripts/identity_production_mongo_pki_generate.py
+      - tests/test_identity_production_mongo_pki_generate.py
+      - docs/identity-production-mongo-pki.md
+      - docs/identity-production-mongo-host.md
+      - .github/workflows/identity-production-mongo-pki.yml
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Generate real synthetic local PKI, ensure no CA export and no CI operator
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p test_identity_production_mongo_pki_generate.py -v
+          python3 -m py_compile scripts/identity_production_mongo_pki_generate.py
+          make identity-prod-mongo-pki-plan
+          make --dry-run identity-prod-mongo-pki-generate
+          if MONGO_PKI_OUTPUT_DIR=/tmp/not-created python3 -I scripts/identity_production_mongo_pki_generate.py generate /tmp/not-created; then
+            echo 'ERROR: operator secret generation succeeded in CI' >&2
+            exit 1
+          fi
+          test ! -e /tmp/not-created
