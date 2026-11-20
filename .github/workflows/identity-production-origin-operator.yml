@@ -11,6 +11,7 @@ on:
       - 'scripts/identity_production_origin_probe.py'
       - 'compose.identity.production.yaml'
       - 'compose.identity.production-tunnel.yaml'
+      - 'compose.identity.production-origin.yaml'
   push:
     branches: [main]
     paths:
@@ -23,6 +24,7 @@ on:
       - 'scripts/identity_production_origin_probe.py'
       - 'compose.identity.production.yaml'
       - 'compose.identity.production-tunnel.yaml'
+      - 'compose.identity.production-origin.yaml'
 permissions:
   contents: read
 jobs:
@@ -65,20 +67,43 @@ jobs:
           IDENTITY_PRODUCTION_TUNNEL_ORIGIN_CA_FILE: /tmp/disposable-absent-tunnel-origin-ca
         run: |
           set -euo pipefail
+          # First-stage config must render with NO tunnel environment at all.
+          env -u IDENTITY_PRODUCTION_TUNNEL_DIGEST \
+            -u IDENTITY_PRODUCTION_TUNNEL_CONFIG_FILE \
+            -u IDENTITY_PRODUCTION_TUNNEL_CREDENTIALS_FILE \
+            -u IDENTITY_PRODUCTION_TUNNEL_ORIGIN_CA_FILE \
+            docker compose -f compose.identity.production.yaml \
+              -f compose.identity.production-origin.yaml --profile production \
+              config --format json > "$RUNNER_TEMP/identity-production-origin-only.json"
           docker compose -f compose.identity.production.yaml \
             -f compose.identity.production-tunnel.yaml \
             --profile production --profile production-tunnel \
             config --format json > "$RUNNER_TEMP/identity-production-operator-compose.json"
-          python3 - "$RUNNER_TEMP/identity-production-operator-compose.json" <<'PY'
+          python3 - "$RUNNER_TEMP/identity-production-operator-compose.json" \
+            "$RUNNER_TEMP/identity-production-origin-only.json" <<'PY'
           import importlib.util, pathlib, sys
           f=pathlib.Path("host/identity-production-origin.py").resolve()
           spec=importlib.util.spec_from_file_location("operator", f)
           op=importlib.util.module_from_spec(spec);spec.loader.exec_module(op)
           data=pathlib.Path(sys.argv[1]).read_text()
+          origin=pathlib.Path(sys.argv[2]).read_text()
+          op.check_origin_compose_config(
+            origin,
+            op.IMAGE+"sha256:"+"a"*64,
+          )
           op.check_compose_config(
             data,
             op.IMAGE+"sha256:"+"a"*64,
             "sha256:"+"b"*64,
           )
-          print("PRODUCTION_ORIGIN_OPERATOR_COMPOSE_OK render=real no-up no-pull no-secrets")
+          # A separately rendered full-tunnel config must preserve origin
+          # service exactly, so stage 2 never silently recreates stage 1.
+          import json
+          origin_json=json.loads(origin)
+          full_json=json.loads(data)
+          assert origin_json["services"][op.SERVICE] == full_json["services"][op.SERVICE]
+          for name in ("identity-origin","identity-mongo-egress"):
+              assert origin_json["networks"][name] == full_json["networks"][name]
+          print("PRODUCTION_ORIGIN_OPERATOR_COMPOSE_OK origin-only=no-tunnel-files "
+                "stage1-stage2=identical-render no-up no-pull no-secrets")
           PY

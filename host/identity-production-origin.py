@@ -34,6 +34,7 @@ CONFIRM_START = "START_LOOPBACK_PRODUCTION_IDENTITY_ONLY"
 CONFIRM_STOP = "STOP_LOOPBACK_PRODUCTION_IDENTITY_ONLY"
 BASE = ROOT / "compose.identity.production.yaml"
 OVERLAY = ROOT / "compose.identity.production-tunnel.yaml"
+ORIGIN_OVERLAY = ROOT / "compose.identity.production-origin.yaml"
 
 
 class Refused(ValueError):
@@ -64,6 +65,26 @@ def env_contract(environ=os.environ):
     return sha, IMAGE + digest
 
 
+def origin_env_contract(environ=os.environ):
+    """No Cloudflare materials at all are required to start the private origin."""
+    if environ.get("CI") or environ.get("GITHUB_ACTIONS"):
+        raise Refused("CI cannot access production operator actions")
+    digest = environ.get("IDENTITY_PRODUCTION_IMAGE_DIGEST", "")
+    sha = environ.get("IDENTITY_PRODUCTION_SOURCE_SHA", "")
+    if not SOURCE_SHA.fullmatch(sha):
+        raise Refused("immutable release source SHA required")
+    runtime.validate(digest, environ.get("IDENTITY_PRODUCTION_BUNDLE_FILE", ""))
+    origin.ca_file(environ.get(origin.CA_ENV, ""))
+    return sha, IMAGE + digest
+
+
+def origin_compose_args(*args):
+    return [
+        "docker", "compose", "-f", str(BASE), "-f", str(ORIGIN_OVERLAY),
+        "--profile", "production", *args,
+    ]
+
+
 def compose_args(*args):
     return [
         "docker", "compose", "-f", str(BASE), "-f", str(OVERLAY),
@@ -86,6 +107,34 @@ def run(args, *, runner=subprocess.run):
     return response.stdout.strip()
 
 
+def _check_origin_fields(origin_service, image, require):
+    require("origin-image", origin_service["image"] == image)
+    require("origin-command", origin_service["command"] == ["serve-ready"])
+    require("origin-user", origin_service["user"] == "65532:65532")
+    require("origin-isolation", (
+        origin_service.get("read_only") is True and
+        origin_service.get("privileged", False) is False and
+        origin_service["restart"] == "no" and
+        origin_service["cap_drop"] == ["ALL"] and
+        origin_service["security_opt"] == ["no-new-privileges:true"]
+    ))
+    require("loopback-port", origin_service["ports"] == [{
+        "mode": "ingress", "target": 9443, "published": "19443",
+        "host_ip": "127.0.0.1", "protocol": "tcp",
+    }])
+    require("origin-networks", set(origin_service["networks"]) ==
+            {"identity-origin", "identity-mongo-egress"})
+    require("origin-environment", origin_service["environment"] == {
+        "IDENTITY_PRODUCTION_CONFIG_FILE": "/run/secrets/identity-production.json",
+        "IDENTITY_INTERNAL_PORT": "9443",
+    })
+    require("origin-private-volume", (
+        len(origin_service["volumes"]) == 1 and
+        origin_service["volumes"][0]["target"] == "/run/secrets/identity-production.json" and
+        origin_service["volumes"][0]["read_only"] is True and
+        origin_service["volumes"][0].get("bind", {}).get("create_host_path", False) is False
+    ))
+
 def check_compose_config(raw: str, image: str, tunnel_digest: str) -> None:
     """Validate rendered Compose; errors expose only bounded fixed field names."""
     try:
@@ -99,32 +148,7 @@ def check_compose_config(raw: str, image: str, tunnel_digest: str) -> None:
         origin_service = obj["services"][SERVICE]
         proxy = obj["services"][TUNNEL]
 
-        require("origin-image", origin_service["image"] == image)
-        require("origin-command", origin_service["command"] == ["serve-ready"])
-        require("origin-user", origin_service["user"] == "65532:65532")
-        require("origin-isolation", (
-            origin_service.get("read_only") is True and
-            origin_service.get("privileged", False) is False and
-            origin_service["restart"] == "no" and
-            origin_service["cap_drop"] == ["ALL"] and
-            origin_service["security_opt"] == ["no-new-privileges:true"]
-        ))
-        require("loopback-port", origin_service["ports"] == [{
-            "mode": "ingress", "target": 9443, "published": "19443",
-            "host_ip": "127.0.0.1", "protocol": "tcp",
-        }])
-        require("origin-networks", set(origin_service["networks"]) ==
-                {"identity-origin", "identity-mongo-egress"})
-        require("origin-environment", origin_service["environment"] == {
-            "IDENTITY_PRODUCTION_CONFIG_FILE": "/run/secrets/identity-production.json",
-            "IDENTITY_INTERNAL_PORT": "9443",
-        })
-        require("origin-private-volume", (
-            len(origin_service["volumes"]) == 1 and
-            origin_service["volumes"][0]["target"] == "/run/secrets/identity-production.json" and
-            origin_service["volumes"][0]["read_only"] is True and
-            origin_service["volumes"][0].get("bind", {}).get("create_host_path", False) is False
-        ))
+        _check_origin_fields(origin_service, image, require)
         require("tunnel-image", proxy["image"] ==
                 "cloudflare/cloudflared@" + tunnel_digest)
         require("tunnel-disabled", proxy["restart"] == "no" and not proxy.get("ports"))
@@ -133,6 +157,31 @@ def check_compose_config(raw: str, image: str, tunnel_digest: str) -> None:
         require("private-origin-network", obj["networks"]["identity-origin"].get("internal") is True)
     except (TypeError, KeyError, json.JSONDecodeError) as exc:
         raise Refused("invalid production Compose structure") from None
+
+
+
+def check_origin_compose_config(raw: str, image: str) -> None:
+    """Origin-only stage has no tunnel service, credentials or public egress."""
+    try:
+        obj = json.loads(raw)
+        def require(label, ok):
+            if not ok:
+                raise Refused("origin-only Compose rejected: " + label)
+        require("project", obj["name"] == PROJECT)
+        require("only-origin-service", set(obj["services"]) == {SERVICE})
+        _check_origin_fields(obj["services"][SERVICE], image, require)
+        require("only-private-and-mongo-networks",
+                set(obj["networks"]) == {"identity-origin", "identity-mongo-egress"})
+        require("private-origin-network",
+                obj["networks"]["identity-origin"].get("internal") is True and
+                obj["networks"]["identity-origin"].get("name") ==
+                    "shadowops-identity-production-origin")
+        require("separate-mongo-egress",
+                obj["networks"]["identity-mongo-egress"].get("internal", False) is False and
+                obj["networks"]["identity-mongo-egress"].get("name") ==
+                    "shadowops-identity-production-mongo-egress")
+    except (TypeError, KeyError, json.JSONDecodeError):
+        raise Refused("invalid origin-only Compose structure") from None
 
 
 def parse_ps(raw: str) -> list[dict]:
@@ -155,6 +204,28 @@ def parse_ps(raw: str) -> list[dict]:
 
 def container_status(*, runner=subprocess.run):
     return parse_ps(run(compose_args("ps", "-a", "--format", "json"), runner=runner))
+
+
+def project_container_status(*, runner=subprocess.run):
+    """Enumerate ALL containers of our exact Compose project, including orphans.
+
+    A narrow origin-only Compose ps can hide a running tunnel as an orphan;
+    Docker's project label is used instead so a stop never misses it.
+    """
+    raw = run([
+        "docker", "ps", "--all",
+        "--filter", "label=com.docker.compose.project=" + PROJECT,
+        "--format", '{{.Label "com.docker.compose.service"}}|{{.State}}',
+    ], runner=runner)
+    rows = []
+    for line in raw.splitlines():
+        parts = line.split("|")
+        if (len(parts) != 2 or parts[0] not in {SERVICE, TUNNEL} or
+                parts[1] not in {"created", "running", "exited", "restarting", "paused", "dead"} or
+                any(x["Service"] == parts[0] for x in rows)):
+            raise Refused("ambiguous project-owned production container")
+        rows.append({"Service": parts[0], "State": parts[1], "Project": PROJECT})
+    return rows
 
 
 def image_revision(image: str, *, runner=subprocess.run):
@@ -201,6 +272,16 @@ def admission(*, runner=subprocess.run):
     return sha, image
 
 
+def origin_admission(*, runner=subprocess.run):
+    """Stage 1 checks only its own image/bundle/CA and rendered network model."""
+    sha, image = origin_env_contract()
+    normalized = run(origin_compose_args("config", "--format", "json"), runner=runner)
+    check_origin_compose_config(normalized, image)
+    if image_revision(image, runner=runner) != sha:
+        raise Refused("image digest does not match expected source commit")
+    return sha, image
+
+
 def require_manual(acknowledgement: str):
     if (os.geteuid() != 0 or os.environ.get("CI") or
             os.environ.get("GITHUB_ACTIONS") or not sys.stdin.isatty()):
@@ -212,18 +293,18 @@ def require_manual(acknowledgement: str):
 def start_origin(*, runner=subprocess.run, inspect=origin.inspect):
     require_manual(CONFIRM_START)
     with exclusive():
-        admission(runner=runner)
-        existing = container_status(runner=runner)
+        origin_admission(runner=runner)
+        existing = project_container_status(runner=runner)
         if existing or occupied():
             raise Refused("origin already present or reserved loopback port occupied")
         started = False
         try:
             started = True  # A failed up can leave an orphaned partial service.
-            run(compose_args(
+            run(origin_compose_args(
                 "up", "--detach", "--no-deps", "--no-build",
                 "--pull", "never", SERVICE,
             ), runner=runner)
-            after = container_status(runner=runner)
+            after = project_container_status(runner=runner)
             if (len(after) != 1 or after[0]["Service"] != SERVICE or
                     after[0].get("State", "").lower() != "running"):
                 raise Refused("unexpected service started instead of isolated origin")
@@ -242,7 +323,7 @@ def start_origin(*, runner=subprocess.run, inspect=origin.inspect):
         except Exception:
             if started:
                 try:
-                    run(compose_args("stop", "--timeout", "10", SERVICE), runner=runner)
+                    run(origin_compose_args("stop", "--timeout", "10", SERVICE), runner=runner)
                 except Refused:
                     raise Refused("origin unhealthy; scoped rollback ALSO failed") from None
             raise Refused("origin start refused; scoped service stopped") from None
@@ -251,15 +332,15 @@ def start_origin(*, runner=subprocess.run, inspect=origin.inspect):
 def stop_origin(*, runner=subprocess.run):
     require_manual(CONFIRM_STOP)
     with exclusive():
-        admission(runner=runner)
-        existing = container_status(runner=runner)
+        origin_admission(runner=runner)
+        existing = project_container_status(runner=runner)
         if any(row["Service"] == TUNNEL and row.get("State", "").lower() == "running"
                for row in existing):
             raise Refused("tunnel running: refusing to stop origin independently")
         targets = [x for x in existing if x["Service"] == SERVICE]
         if len(targets) != 1:
             raise Refused("expected one known production origin to stop")
-        run(compose_args("stop", "--timeout", "10", SERVICE), runner=runner)
+        run(origin_compose_args("stop", "--timeout", "10", SERVICE), runner=runner)
 
 
 def main(args: list[str]):
@@ -271,7 +352,7 @@ def main(args: list[str]):
         return 2
     try:
         if args == ["inspect"]:
-            admission()
+            origin_admission()
             print("IDENTITY_PRODUCTION_ORIGIN_ADMITTED image=sha-pinned policy=private ready=not-probed deploy=none")
         elif args == ["start-origin"]:
             start_origin()
