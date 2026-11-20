@@ -49,6 +49,15 @@ pagination, unrecognized destinations, public-path overrides, duplicate
 scopes and bypass/Everyone policies. An Access application spanning multiple hostnames is rejected, even if
 one of its destinations matches the expected Pages alias. Each app must
 protect exactly one authorized scope to avoid cross-game policy sharing.
+It also treats Cloudflare Access Include as an **OR**: every rule in
+every Allow policy must refer to one explicitly named operator email.
+Broader rules (Everyone, `email_domain`, open IP ranges, groups, reusable
+email lists, service tokens, certificates or non-identity policies)
+require separate operator review even if they are mixed with one exact
+email. A Deny-only application is not evidence that an authorized user
+can log in. These are intentionally conservative readiness criteria,
+not a requirement to delete existing organization-wide Access groups.
+
 It logs only app-scope classifications,
 never application identifiers, rule text, emails, Access users or opaque
 Pages deployment addresses.
