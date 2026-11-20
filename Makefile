@@ -11,6 +11,7 @@ export CKA_OPERATOR_SSH_KEY
   identity-prod-mongo-host-plan identity-prod-mongo-host-inspect identity-prod-mongo-host-start \
   identity-prod-mongo-material-plan identity-prod-mongo-material-verify \
   identity-prod-mongo-pki-plan identity-prod-mongo-pki-generate \
+  identity-prod-mongo-pki-host-plan identity-prod-mongo-pki-host-inspect identity-prod-mongo-pki-host-install \
   identity-prod-mongo-start-plan identity-prod-mongo-start-inspect \
   identity-prod-mongo-replica-plan identity-prod-mongo-replica-inspect identity-prod-mongo-replica-init \
   identity-prod-mongo-admin-plan identity-prod-mongo-admin-inspect identity-prod-mongo-admin-create \
@@ -42,6 +43,8 @@ help:
 	  '  make identity-prod-mongo-host-plan | identity-prod-mongo-host-inspect' \
 	  '  make identity-prod-mongo-material-plan | identity-prod-mongo-material-verify' \
 	  '  make identity-prod-mongo-pki-plan | identity-prod-mongo-pki-generate' \
+	  '  make identity-prod-mongo-pki-host-plan | identity-prod-mongo-pki-host-inspect' \
+	  '  make identity-prod-mongo-pki-host-install  Root+TTY+ACK: three files only on A1' \
 	  '       Generate new private CA on a non-root L14 using MONGO_PKI_OUTPUT_DIR' \
 	  '       Root-only, read-only cryptographic TLS chain + replica key verification' \
 	  '  make identity-prod-mongo-host-start  Root+TTY, confirmation, new/empty Mongo only' \
@@ -115,6 +118,16 @@ identity-prod-inspect:
 # Local operator workstation only: never via sudo/SSH/CI.
 identity-prod-mongo-pki-plan:
 	@$(PYTHON) scripts/identity_production_mongo_pki_generate.py plan
+
+# Explicit A1-only PKI installation from pinned ubuntu staging, never by CI.
+identity-prod-mongo-pki-host-plan:
+	@$(PYTHON) host/identity-production-mongo-pki-install.py plan
+
+identity-prod-mongo-pki-host-inspect:
+	@$(PYTHON) host/identity-production-mongo-pki-install.py inspect
+
+identity-prod-mongo-pki-host-install:
+	@$(PYTHON) host/identity-production-mongo-pki-install.py install
 
 identity-prod-mongo-pki-generate:
 	@$(PYTHON) scripts/identity_production_mongo_pki_generate.py generate "$${MONGO_PKI_OUTPUT_DIR:?set MONGO_PKI_OUTPUT_DIR to a new absolute path}"
