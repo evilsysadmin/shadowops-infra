@@ -6,6 +6,8 @@ on:
       - '.github/workflows/chronicles-staging-access-preview.yml'
       - 'scripts/chronicles_staging_access_preview.py'
       - 'tests/test_chronicles_staging_access_preview.py'
+      - 'scripts/chronicles_staging_access_guest.py'
+      - 'tests/test_chronicles_staging_access_guest.py'
       - 'docs/chronicles-staging-access-preview.md'
   push:
     branches: [main]
@@ -13,6 +15,8 @@ on:
       - '.github/workflows/chronicles-staging-access-preview.yml'
       - 'scripts/chronicles_staging_access_preview.py'
       - 'tests/test_chronicles_staging_access_preview.py'
+      - 'scripts/chronicles_staging_access_guest.py'
+      - 'tests/test_chronicles_staging_access_guest.py'
   workflow_dispatch:
     inputs:
       operation:
@@ -39,7 +43,8 @@ jobs:
         with:
           persist-credentials: false
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_staging_access_preview.py' -v
-      - run: python3 -m py_compile scripts/chronicles_staging_access_preview.py
+      - run: python3 -m py_compile scripts/chronicles_staging_access_preview.py scripts/chronicles_staging_access_guest.py
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_staging_access_guest.py' -v
 
   plan:
     name: Plan exact Chronicles staging previews (GET only)
@@ -134,3 +139,8 @@ jobs:
           done
           echo 'CHRONICLES_STAGING_PREVIEW_ACCESS_UNVERIFIED use manual read-only plan, no blind write retry' >&2
           exit 1
+      - name: Check anonymous guest sample on immutable previews (no complete coverage claim)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/chronicles_staging_access_guest.py verify-sample

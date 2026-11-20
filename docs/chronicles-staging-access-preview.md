@@ -55,16 +55,33 @@ No write token or operator email may be passed in `workflow_dispatch` inputs.
    1-hour Access session and a single `Allow` policy for the one operator
    email from the staging environment. It never updates or takes over a
    foreign Access app, and never modifies existing policies.
-5. The job re-reads the application/policy. On an ambiguous network or
+5. After the application-policy GET check, the manual apply job now runs
+   `python3 scripts/chronicles_staging_access_guest.py verify-sample`.
+   It enumerates the allowlisted Chronicles staging deployment history
+   directly from Cloudflare, excludes the `chronicles-staging.pages.dev`
+   root, and GETs `/` plus `/release.json` anonymously on each
+   discovered immutable preview. Each request must return 401/403 or
+   a strictly matched Cloudflare Access 302/303/307 login challenge.
+   HTTP 200/206 is an explicit failure. 404, arbitrary redirects, network
+   errors, zero previews, foreign targets, or an oversized census fail
+   closed as unverified. The operator workflow fails when this sample
+   does not pass; it never rolls back to an insecure bypass.
+   Logs contain **counts only**, not historical alias URLs or login
+   redirect locations. Even a clean sample is called
+   `GUEST_DENIAL_OBSERVED_SAMPLE_ONLY`: the Cloudflare history is only
+   a first page and signed-in gameplay, Access authenticity and the
+   separate Pages root/custom-domain protection are not proven.
+
+6. The job re-reads the application/policy. On an ambiguous network or
    provider failure, do not retry POST without another successful plan.
    After creation, inspect recent immutable preview aliases externally:
    they should challenge guests rather than serve application assets.
-6. Run the
+7. Run the
    [historical Pages audit](https://github.com/evilsysadmin/shadowops-infra/actions/workflows/game-identity-pages-history.yml).
    Inspect counts only; exact opaque deployment hostnames remain omitted
    from public logs. Verify the allowed operator can sign in, and that
    unrelated anonymous guests cannot fetch HTML/JS/manifest.
-7. **Still not complete:** `chronicles-staging.pages.dev` root is not
+8. **Still not complete:** `chronicles-staging.pages.dev` root is not
    protected by the preview wildcard, and neither is the canonical custom
    hostname. Protect their separate Access scopes using the documented
    dashboard method, then verify ShadowOps ID, game API isolation,
