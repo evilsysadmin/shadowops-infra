@@ -18,14 +18,32 @@ En la A1, como `ubuntu`, preparar un único staging dedicado:
 install -d -m 0700 "$HOME/shadowops-mongo-pki-stage"
 ```
 
-Desde L14, transferir **solo** `ca.pem`, `mongo.pem` y
-`replica.key` mediante el túnel SSH Cloudflare autorizado, a
-`ubuntu@chessbackend:/home/ubuntu/shadowops-mongo-pki-stage`.
-Usar `rsync` o `scp` con el proxy `cloudflared access ssh` y el
-host key SSH ya validado. No transferir el directorio padre.
-El staging debe quedar **exactamente** con tres archivos regulares
-0600 propiedad de UID 1001; su directorio 0700. No adjuntar archivos
-en conversaciones ni imprimir certificados con clave privada.
+Desde L14, usar el operador **local sin sudo** de transferencia
+exclusiva de la carpeta `transfer-THREE-FILES-ONLY`:
+
+```sh
+export MONGO_PKI_OUTPUT_DIR="$HOME/shadowops-identity-production-pki-v1"
+make identity-prod-mongo-pki-upload-plan
+make identity-prod-mongo-pki-upload-check
+
+# Solo tras aprobar la operación de transferencia:
+make identity-prod-mongo-pki-upload
+# Confirmación: UPLOAD_THREE_PRODUCTION_MONGO_PKI_FILES_ONLY
+```
+
+El operador usa `cloudflared access ssh`, el mismo destino canónico
+y las claves SSH locales de `make oci-a1-ssh`; admite
+`OCI_SSH_KEY` si se necesita una clave explícita. Comprueba TLS/SAN
+locales, no permite symlinks/hardlinks ni ficheros adicionales, y lanza
+`rsync` con **solo tres rutas exactas**, `--ignore-existing`,
+sin `--delete`, sin `sudo` ni comandos remotos. La carpeta
+de staging debe existir de antemano, como arriba.
+
+Un resultado de transferencia **no demuestra** que la A1 tenga ya
+material válido. El staging debe quedar exactamente con tres archivos
+regulares UID1001/0600 y directorio UID1001/0700; la comprobación
+definitiva es el `identity-prod-mongo-pki-host-inspect` en A1.
+No adjuntar archivos privados en chats, incidencias o logs.
 
 ## 2. Verificar en la A1 (sin instalar)
 
