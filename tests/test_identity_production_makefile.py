@@ -127,7 +127,12 @@ class MakeEntrypointsTests(unittest.TestCase):
         self.assertNotIn("docker compose", recipes)
         self.assertNotIn("gh workflow run", recipes)
         self.assertNotIn("curl ", recipes)
-        self.assertNotIn("ssh ", recipes)
+        # SSH is an intentional, manual operator feature under oci-a1-ssh.
+        # It must NEVER appear in a production Identity/Bridge Squad recipe.
+        for target in (*EXPECTED, "identity-prod-plan", "identity-prod-doctor",
+                       "identity-prod-inspect"):
+            with self.subTest(no_ssh_in_production_target=target):
+                self.assertNotIn("ssh ", dry_run(target))
         self.assertRegex(MAKEFILE, r"(?m)^identity-prod-origin-start:")
         self.assertRegex(MAKEFILE, r"(?m)^identity-prod-tunnel-start:")
 
