@@ -64,7 +64,7 @@ class MakeEntrypointsTests(unittest.TestCase):
                 self.assertNotIn("ssh ", command)
 
     def test_plan_and_inspect_do_not_start_or_bind_anything(self):
-        for target in ("identity-prod-plan", "identity-prod-inspect",
+        for target in ("identity-prod-plan", "identity-prod-doctor", "identity-prod-inspect",
                        "identity-prod-mongo-inspect", "identity-prod-origin-inspect",
                        "identity-prod-tunnel-inspect",
                        "identity-prod-account-inspect",
@@ -76,6 +76,12 @@ class MakeEntrypointsTests(unittest.TestCase):
             with self.subTest(target=target):
                 cmd = dry_run(target)
                 self.assertNotRegex(cmd, r"(?m)^python3 .* (start-origin|start-tunnel|create|apply|bind|stop-origin|stop-tunnel)\b")
+        doctor = dry_run("identity-prod-doctor")
+        self.assertIn("scripts/identity_production_doctor.py", doctor)
+        self.assertLess(
+            dry_run("identity-prod-inspect").index("scripts/identity_production_doctor.py"),
+            dry_run("identity-prod-inspect").index("identity_production_mongo_operator.py inspect"),
+        )
         plan = dry_run("identity-prod-plan")
         for required in (
             "identity_production_mongo_operator.py plan",
