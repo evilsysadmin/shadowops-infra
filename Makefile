@@ -11,6 +11,7 @@ export CKA_OPERATOR_SSH_KEY
   identity-prod-mongo-host-plan identity-prod-mongo-host-inspect identity-prod-mongo-host-start \
   identity-prod-mongo-material-plan identity-prod-mongo-material-verify \
   identity-prod-mongo-pki-plan identity-prod-mongo-pki-generate \
+  identity-prod-mongo-pki-upload-plan identity-prod-mongo-pki-upload-check identity-prod-mongo-pki-upload \
   identity-prod-mongo-pki-host-plan identity-prod-mongo-pki-host-inspect identity-prod-mongo-pki-host-install \
   identity-prod-mongo-start-plan identity-prod-mongo-start-inspect \
   identity-prod-mongo-replica-plan identity-prod-mongo-replica-inspect identity-prod-mongo-replica-init \
@@ -43,6 +44,8 @@ help:
 	  '  make identity-prod-mongo-host-plan | identity-prod-mongo-host-inspect' \
 	  '  make identity-prod-mongo-material-plan | identity-prod-mongo-material-verify' \
 	  '  make identity-prod-mongo-pki-plan | identity-prod-mongo-pki-generate' \
+	  '  make identity-prod-mongo-pki-upload-plan | identity-prod-mongo-pki-upload-check' \
+	  '  make identity-prod-mongo-pki-upload Rootless+TTY+ACK, only three files to A1' \
 	  '  make identity-prod-mongo-pki-host-plan | identity-prod-mongo-pki-host-inspect' \
 	  '  make identity-prod-mongo-pki-host-install  Root+TTY+ACK: three files only on A1' \
 	  '       Generate new private CA on a non-root L14 using MONGO_PKI_OUTPUT_DIR' \
@@ -116,6 +119,16 @@ identity-prod-inspect:
 
 # Phase 0: isolated Mongo host candidate; never creates resources or starts Docker.
 # Local operator workstation only: never via sudo/SSH/CI.
+# Local L14 only; upload requires TTY/ACK, pins Cloudflare SSH and never uploads CA private key.
+identity-prod-mongo-pki-upload-plan:
+	@$(PYTHON) scripts/identity_production_mongo_pki_upload.py plan
+
+identity-prod-mongo-pki-upload-check:
+	@$(PYTHON) scripts/identity_production_mongo_pki_upload.py check
+
+identity-prod-mongo-pki-upload:
+	@$(PYTHON) scripts/identity_production_mongo_pki_upload.py upload
+
 identity-prod-mongo-pki-plan:
 	@$(PYTHON) scripts/identity_production_mongo_pki_generate.py plan
 

@@ -1,0 +1,46 @@
+name: Identity production Mongo PKI exact Cloudflare transfer (offline)
+on:
+  pull_request:
+    paths:
+      - Makefile
+      - scripts/identity_production_mongo_pki_upload.py
+      - tests/test_identity_production_mongo_pki_upload.py
+      - docs/identity-production-mongo-pki-install.md
+      - docs/identity-production-mongo-pki.md
+      - .github/workflows/identity-production-mongo-pki-upload.yml
+  push:
+    branches: [main]
+    paths:
+      - Makefile
+      - scripts/identity_production_mongo_pki_upload.py
+      - tests/test_identity_production_mongo_pki_upload.py
+      - docs/identity-production-mongo-pki-install.md
+      - docs/identity-production-mongo-pki.md
+      - .github/workflows/identity-production-mongo-pki-upload.yml
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Verify exact SSH upload and never transfer CA private key
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p test_identity_production_mongo_pki_upload.py -v
+          python3 -m py_compile scripts/identity_production_mongo_pki_upload.py
+          make identity-prod-mongo-pki-upload-plan
+          make --dry-run identity-prod-mongo-pki-upload-check
+          make --dry-run identity-prod-mongo-pki-upload
+          if python3 -I scripts/identity_production_mongo_pki_upload.py upload; then
+            echo 'ERROR: CI could upload production PKI' >&2
+            exit 1
+          fi
