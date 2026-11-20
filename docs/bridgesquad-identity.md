@@ -138,3 +138,31 @@ HTTP + firma real del Worker sigue en
 El E2E real del host publicado, con autenticación productiva, despliegue Pages,
 revocación vía edge y prueba jugable, sigue siendo obligatorio antes de retirar
 el estado 401. Ver #611.
+
+## Entrega privada automática al actualizar Bridge Squad (sin despliegue)
+
+El pipeline **Bridge Squad · source release admission (read-only)** comprueba
+una vez al día (`07:19 UTC`) la rama `main` del juego y los
+checks reales de su candidato privado, además de reaccionar a cambios
+auditados en el propio Infra y permitir lanzamiento manual desde Infra main.
+El calendario no instala un token de cross-repo ni ejecuta un webhook externo.
+El permiso GitHub `actions: read` se usa exclusivamente para leer
+metadatos de CI y descargar el artefacto del juego **después de admitir**
+su SHA/digest y origen.
+
+Para no crear artefactos repetidos cada día, el workflow inspecciona en
+**solo lectura** los candidatos sellados del propio Infra y acepta
+una coincidencia únicamente si el nombre contiene exactamente los SHAs
+del juego y de Infra, el digest y el tamaño son válidos, el run pertenece
+a la rama main de Infra y **el workflow anterior ha terminado en verde**.
+Un run incompleto o fallido no cancela un nuevo intento; un metadato
+inconsistente bloquea la entrega, y un artifact caducado no cuenta.
+La política está probada con datos sintéticos en
+`tests/test_bridgesquad_sealed_candidate_dedupe.py`.
+
+Si hay un nuevo SHA verde del juego se vuelve a admitir la procedencia,
+verificar el ZIP por SHA-256, sellar sus bytes con el Worker auditable de
+Infra y publicar **solo** un artifact privado de GitHub Actions, sin
+enlazar DNS, sin subir a Cloudflare Pages y sin habilitar el dominio.
+Un `sealed-candidate` representa un candidato disponible para revisión,
+**nunca** un permiso de promoción ni una prueba de sesión real.

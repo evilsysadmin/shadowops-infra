@@ -3,7 +3,9 @@ on:
   pull_request:
     paths:
       - 'scripts/bridgesquad_source_admission.py'
+      - 'scripts/bridgesquad_sealed_candidate_dedupe.py'
       - 'tests/test_bridgesquad_source_admission.py'
+      - 'tests/test_bridgesquad_sealed_candidate_dedupe.py'
       - 'scripts/bridgesquad_release_package.py'
       - 'tests/test_bridgesquad_release_package.py'
       - 'tests/test_bridgesquad_sealed_handoff_workflow.py'
@@ -13,13 +15,22 @@ on:
     branches: [main]
     paths:
       - 'scripts/bridgesquad_source_admission.py'
+      - 'scripts/bridgesquad_sealed_candidate_dedupe.py'
       - 'tests/test_bridgesquad_source_admission.py'
+      - 'tests/test_bridgesquad_sealed_candidate_dedupe.py'
       - 'scripts/bridgesquad_release_package.py'
       - 'tests/test_bridgesquad_release_package.py'
       - 'tests/test_bridgesquad_sealed_handoff_workflow.py'
       - '.github/workflows/bridgesquad-source-admission.yml'
       - 'docs/bridgesquad-identity.md'
   workflow_dispatch:
+  # Daily source-to-Infra reconciliation: no credentials or production deploy.
+  # Main pushes still seal immediately after reviewed Infra changes.
+  schedule:
+    - cron: '19 7 * * *'
+concurrency:
+  group: bridgesquad-sealed-handoff-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'main' }}
+  cancel-in-progress: false
 permissions:
   contents: read
   actions: read
@@ -64,7 +75,7 @@ jobs:
     if: >-
       github.repository == 'evilsysadmin/shadowops-infra' &&
       github.ref == 'refs/heads/main' &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     permissions:
@@ -95,7 +106,16 @@ jobs:
                 +' artifact_id='+str(proof['artifact_id'])
                 +' digest='+proof['artifact_digest'])
           PY
+      - name: Avoid duplicate immutable sealed release on unchanged source and Infra SHAs
+        id: duplicate
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/bridgesquad_sealed_candidate_dedupe.py check "$SOURCE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
       - name: Download exact verified source artifact and reject tampering
+        if: steps.duplicate.outputs.sealed_exists != 'true'
         env:
           SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
           ARTIFACT_ID: ${{ steps.source.outputs.artifact_id }}
@@ -109,6 +129,7 @@ jobs:
           gh api "repos/evilsysadmin/matthias-bridge-squad/actions/artifacts/$ARTIFACT_ID/zip" > "$RUNNER_TEMP/bridgesquad-source.zip"
           python3 scripts/bridgesquad_source_admission.py verify-archive             "$RUNNER_TEMP/bridgesquad-source.zip" "$ARTIFACT_DIGEST" "$SOURCE_SHA"
       - name: Seal the exact HTML with Infra-owned fail-closed Identity Worker
+        if: steps.duplicate.outputs.sealed_exists != 'true'
         env:
           SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
           ARTIFACT_DIGEST: ${{ steps.source.outputs.artifact_digest }}
@@ -118,10 +139,12 @@ jobs:
           python3 scripts/bridgesquad_release_package.py prepare             "$RUNNER_TEMP/bridgesquad-source.zip" "$ARTIFACT_DIGEST"             "$SOURCE_SHA" "$RUNNER_TEMP/bridgesquad-sealed"
           python3 scripts/bridgesquad_release_package.py verify             "$RUNNER_TEMP/bridgesquad-sealed" "$ARTIFACT_DIGEST" "$SOURCE_SHA"
       - name: Recheck unchanged game main before publishing private artifact
+        if: steps.duplicate.outputs.sealed_exists != 'true'
         env:
           SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
         run: python3 scripts/bridgesquad_source_admission.py check "$SOURCE_SHA"
       - name: Archive private Infra candidate for later protected delivery
+        if: steps.duplicate.outputs.sealed_exists != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: bridgesquad-sealed-${{ steps.source.outputs.source_sha }}-${{ github.sha }}
