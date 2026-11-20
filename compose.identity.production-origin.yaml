@@ -10,4 +10,5 @@ networks:
     name: shadowops-identity-production-origin
     internal: true
   identity-mongo-egress:
+    external: true
     name: shadowops-identity-production-mongo-egress
