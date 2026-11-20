@@ -58,7 +58,7 @@ class FakeDocker:
                 rows.append({"Project":m.op.PROJECT,"Service":m.op.SERVICE,"State":"running"})
             if self.tunnel_running:
                 rows.append({"Project":m.op.PROJECT,"Service":m.op.TUNNEL,"State":"running"})
-            if self.add_rogue:
+            if self.add_rogue and self.tunnel_running:
                 rows.append({"Project":m.op.PROJECT,"Service":"rogue","State":"running"})
             return SimpleNamespace(returncode=0, stdout="\n".join(json.dumps(x) for x in rows))
         if "up" in args:
