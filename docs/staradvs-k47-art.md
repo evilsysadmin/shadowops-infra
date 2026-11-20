@@ -68,6 +68,60 @@ Only then does the workflow emit
 - Ensure every GLB has `Content-Type: model/gltf-binary` and `Cache-Control: public, max-age=31536000, immutable`, and the bucket CORS policy returns an `Access-Control-Allow-Origin` matching `https://staging.staradvs.shadowops.dpdns.org` (or `*`). The existing manual publisher's `publish` mode can only verify already uploaded matching objects; it must **never** overwrite a mismatching immutable object.
 - The `r2.dev` endpoint is an interim public origin with Cloudflare-managed rate limits; later move to a dedicated custom domain in a separately verified migration. No DNS or production change is part of this PR.
 
+## Operator: complete HTTP metadata for manually uploaded GLBs
+
+Read-only Infra audit on source SHA `981a8e23d0ca9a4e1b9dff9a4939cb01a9a42f26`
+confirmed all three exact original GLBs are publicly accessible under
+`star-adventures/environment/`? **No:** that is the old shared-bucket form.
+The **correct** bucket is `star-adventures`, object prefix `environment/`,
+and public URL starts with `https://pub-0e83bbe83562412182441ed82173d704.r2.dev/environment/`.
+The real audit reached all three files with valid MIME and SHA-matched bytes,
+but found that **all three lack immutable Cache-Control and staging CORS**.
+
+These are two different settings:
+
+1. **Bucket-level CORS.** Cloudflare dashboard → R2 → `star-adventures` →
+   Settings → CORS Policy → Add CORS policy → JSON. Use read-only origins and
+   methods (no PUT, POST or DELETE):
+
+   ```json
+   [
+     {
+       "AllowedOrigins": [
+         "https://staging.staradvs.shadowops.dpdns.org",
+         "https://staradvs.shadowops.dpdns.org"
+       ],
+       "AllowedMethods": ["GET", "HEAD"],
+       "AllowedHeaders": [],
+       "MaxAgeSeconds": 3600
+     }
+   ]
+   ```
+
+   CORS is not proven by a plain HEAD without an `Origin` header. The
+   existing Infra read-only probe sends the staging Origin and verifies
+   the effective public response.
+
+2. **Object HTTP metadata** for each of these existing exact objects:
+   `environment/east-utilities-shell-14f64c52b6e92574.glb`,
+   `environment/south-industrial-shell-903b06139f9f3881.glb`, and
+   `environment/west-archive-shell-6620dd38f67fc22a.glb`.
+   Keep `Content-Type: model/gltf-binary` and set
+   `Cache-Control: public, max-age=31536000, immutable`. Change HTTP
+   metadata with the R2 object controls if supported, or by an operator-
+   authorized metadata replacement using the S3-compatible API.
+   **Before any metadata rewrite, independently read and compare exact
+   object bytes/size/SHA-256 to the approved source manifest**; never
+   change model bytes or the content-addressed filenames.
+
+After the settings propagate, re-run only the failed job of
+`Star Adventures · manual K-47 original GLB publication` on the Infra PR
+(or run a fresh read-only `plan` on Infra `main` after merging).
+The output must be `K47_PUBLIC_CDN_BYTES_VERIFIED`, with a
+`k47-public-cdn-bytes-<sourceSha>` artifact; a 200 alone is insufficient.
+This is **not** authorization to activate the game until a separate
+visually reviewed Star Adventures manifest PR passes.
+
 ## Activation is a distinct source PR
 
 Use the **verified** receipt to update only the three
