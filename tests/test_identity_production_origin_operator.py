@@ -189,11 +189,24 @@ class OriginOperatorTests(unittest.TestCase):
                 elif bad == "private-network":
                     cfg["networks"]["identity-origin"]["internal"] = False
                 elif bad == "mongo-not-external":
-                    cfg["networks"]["identity-mongo-egress"].pop("external")
+                    cfg["networks"]["identity-mongo-egress"]["external"] = False
                 elif bad == "image":
                     o["image"] = "unreviewed/image:latest"
                 with self.assertRaises(op.Refused):
                     op.check_origin_compose_config(json.dumps(cfg), IMAGE)
+
+    def test_origin_overlay_requires_external_source_even_if_render_omits_it(self):
+        op.origin_overlay_mongo_external()
+        fake = {"networks": {"identity-mongo-egress": {"name": op.MONGO_NETWORK}}}
+        with mock.patch.object(op.tunnel, "strict_yaml", return_value=fake):
+            with self.assertRaises(op.Refused):
+                op.origin_overlay_mongo_external()
+        with mock.patch.object(op.tunnel, "strict_yaml", return_value={
+            "networks": {"identity-mongo-egress": {
+                "name": "shadowops-identity-staging-database", "external": True}}
+        }):
+            with self.assertRaises(op.Refused):
+                op.origin_overlay_mongo_external()
 
     def test_production_mongo_network_ownership_and_exact_participants(self):
         docker = DockerDouble()
