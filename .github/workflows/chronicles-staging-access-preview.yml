@@ -1,0 +1,136 @@
+name: Chronicles · staging immutable previews Access pilot (manual only)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/chronicles-staging-access-preview.yml'
+      - 'scripts/chronicles_staging_access_preview.py'
+      - 'tests/test_chronicles_staging_access_preview.py'
+      - 'docs/chronicles-staging-access-preview.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/chronicles-staging-access-preview.yml'
+      - 'scripts/chronicles_staging_access_preview.py'
+      - 'tests/test_chronicles_staging_access_preview.py'
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        options: [plan, apply]
+        default: plan
+        required: true
+        description: Inspect exact staging previews or create a restricted Access app
+      confirm:
+        type: string
+        required: false
+        description: For apply only — type CHRONICLES_STAGING_PREVIEW_ACCESS
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: Exact staging preview scope and no foreign mutations
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_staging_access_preview.py' -v
+      - run: python3 -m py_compile scripts/chronicles_staging_access_preview.py
+
+  plan:
+    name: Plan exact Chronicles staging previews (GET only)
+    needs: contracts
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.operation == 'plan' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: staging
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCESS_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_READ_TOKEN }}
+      CLOUDFLARE_ACCESS_OPERATOR_EMAIL: ${{ secrets.CLOUDFLARE_ACCESS_OPERATOR_EMAIL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read only exact Pages and Access applications
+        shell: bash
+        run: |
+          set -euo pipefail
+          rc=0
+          python3 scripts/chronicles_staging_access_preview.py plan || rc=$?
+          if [[ "$rc" == '10' ]]; then
+            echo 'CHRONICLES_STAGING_PREVIEW_ACCESS_PLAN creation-possible manual-confirmation-required'
+          elif [[ "$rc" != '0' ]]; then
+            exit "$rc"
+          fi
+
+  apply:
+    name: Create exact one-host private preview Access application
+    needs: contracts
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.operation == 'apply' &&
+      inputs.confirm == 'CHRONICLES_STAGING_PREVIEW_ACCESS' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: staging
+    concurrency:
+      group: shadowops-cloudflare-chronicles-pages-staging
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCESS_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_READ_TOKEN }}
+      CLOUDFLARE_ACCESS_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_WRITE_TOKEN }}
+      CLOUDFLARE_ACCESS_OPERATOR_EMAIL: ${{ secrets.CLOUDFLARE_ACCESS_OPERATOR_EMAIL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - id: preflight
+        name: Admit exact protected Infra main and read-only target
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_SHA" == "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" ]]
+          rc=0
+          python3 scripts/chronicles_staging_access_preview.py plan || rc=$?
+          if [[ "$rc" == '10' ]]; then
+            echo 'create=true' >> "$GITHUB_OUTPUT"
+          elif [[ "$rc" == '0' ]]; then
+            echo 'create=false' >> "$GITHUB_OUTPUT"
+          else
+            exit "$rc"
+          fi
+      - name: Create one exact restricted Access application (no Pages/DNS writes)
+        if: steps.preflight.outputs.create == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_SHA" == "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" ]]
+          python3 scripts/chronicles_staging_access_preview.py apply
+      - name: Confirm operator-only metadata without secret exposure
+        shell: bash
+        run: |
+          set -euo pipefail
+          for retry in 1 2 3 4 5; do
+            if python3 scripts/chronicles_staging_access_preview.py plan; then
+              echo 'CHRONICLES_STAGING_PREVIEW_ACCESS_CONFIGURED no-proof-of-live-guest-denial'
+              exit 0
+            fi
+            sleep 3
+          done
+          echo 'CHRONICLES_STAGING_PREVIEW_ACCESS_UNVERIFIED use manual read-only plan, no blind write retry' >&2
+          exit 1
