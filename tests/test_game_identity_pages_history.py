@@ -137,6 +137,30 @@ class PagesHistoryTests(unittest.TestCase):
                 self.assertIn(result["reason"], {"Foreign Pages source/project", "Unexpected Pages custom domains", "Unexpected Pages alias"})
                 self.assertEqual(result["state"], "NOT_FULLY_VERIFIED")
 
+    def test_cloudflare_status_is_safe_but_provider_text_stays_private(self):
+        g = audit.projects()[0]
+
+        class FailingProvider(FakeCloudflare):
+            def __init__(self, error):
+                super().__init__()
+                self.error = error
+
+            def request(self, method, path, data=None):
+                if "/deployments?" in path:
+                    raise self.error
+                return super().request(method, path, data)
+
+        for code in (400, 401, 403, 422, 429, 500, 503):
+            with self.subTest(code=code):
+                cf = FailingProvider(audit.AdmissionError(f"Cloudflare GET failed (HTTP {code})"))
+                report = audit.assess_one(cf, g, denied)
+                self.assertEqual(report["reason"], f"provider-http-{code}")
+                self.assertEqual(report["state"], "NOT_FULLY_VERIFIED")
+        cf = FailingProvider(audit.AdmissionError("secret-token=UNSAFE_TO_PRINT"))
+        report = audit.assess_one(cf, g, denied)
+        self.assertEqual(report["reason"], "provider_request_unavailable")
+        self.assertNotIn("UNSAFE", str(report))
+
     def test_new_workflow_runs_live_on_exact_main_only_and_no_writes(self):
         file = ROOT / ".github/workflows/game-identity-pages-history.yml"
         content = file.read_text()
