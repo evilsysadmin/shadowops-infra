@@ -1,10 +1,10 @@
 name: Star Adventures staging Pages
 on:
   pull_request:
-    paths: ['.github/workflows/staradvs-pages-staging.yml', 'config/staradvs-staging-hold.json', 'scripts/staradvs_staging_hold.py', 'tests/test_staradvs_staging_hold.py', 'scripts/staradvs_source_admission.py', 'scripts/staradvs_infra_revision.py', 'scripts/staradvs_pages.py', 'tests/test_staradvs_pages.py', 'tests/test_staradvs_infra_revision.py', 'tests/test_staradvs_source_admission.py', 'docs/staradvs-staging.md']
+    paths: ['.github/workflows/staradvs-pages-staging.yml', 'config/staradvs-staging-hold.json', 'scripts/staradvs_staging_hold.py', 'tests/test_staradvs_staging_hold.py', 'scripts/staradvs_source_admission.py', 'scripts/staradvs_infra_revision.py', 'scripts/staradvs_pages.py', 'tests/test_staradvs_pages.py', 'tests/test_staradvs_infra_revision.py', 'tests/test_staradvs_source_admission.py', 'docs/staradvs-staging.md', 'config/staradvs-protected-release.json', 'scripts/staradvs_protected_bundle.py', 'tests/test_staradvs_protected_bundle.py', 'edge/staradvs-identity-gate.mjs']
   push:
     branches: [main]
-    paths: ['.github/workflows/staradvs-pages-staging.yml', '.github/workflows/staradvs-rollback-inventory.yml', 'config/staradvs-staging-hold.json', 'scripts/staradvs_staging_hold.py', 'tests/test_staradvs_staging_hold.py', 'scripts/staradvs_source_admission.py', 'scripts/staradvs_infra_revision.py', 'scripts/staradvs_pages.py', 'scripts/staradvs_rollback_evidence.py', 'tests/test_staradvs_pages.py', 'tests/test_staradvs_infra_revision.py', 'tests/test_staradvs_source_admission.py']
+    paths: ['.github/workflows/staradvs-pages-staging.yml', '.github/workflows/staradvs-rollback-inventory.yml', 'config/staradvs-staging-hold.json', 'scripts/staradvs_staging_hold.py', 'tests/test_staradvs_staging_hold.py', 'scripts/staradvs_source_admission.py', 'scripts/staradvs_infra_revision.py', 'scripts/staradvs_pages.py', 'scripts/staradvs_rollback_evidence.py', 'tests/test_staradvs_pages.py', 'tests/test_staradvs_infra_revision.py', 'tests/test_staradvs_source_admission.py', 'config/staradvs-protected-release.json', 'scripts/staradvs_protected_bundle.py', 'tests/test_staradvs_protected_bundle.py', 'edge/staradvs-identity-gate.mjs']
   schedule:
     # Reconcile green game main even when optional cross-repo dispatch is missing.
     # An already-current release is a read-only no-op.
@@ -25,6 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: python3 -m unittest discover -s tests -p 'test_staradvs_pages.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_staradvs_protected_bundle.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_staradvs_source_admission.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_staradvs_infra_revision.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_staradvs_staging_hold.py' -v
@@ -49,7 +50,24 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - id: protection
+        name: Pause public static release until protected Identity cutover is verified
+        shell: bash
+        run: |
+          set -euo pipefail
+          code=0
+          python3 scripts/staradvs_protected_bundle.py gate || code=$?
+          if [[ "$code" == '10' ]]; then
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+            echo "STARADVS_PROTECTED_CUTOVER_PENDING no Cloudflare mutation"
+          elif [[ "$code" == '0' ]]; then
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo 'Invalid protected-release policy; no public upload permitted' >&2
+            exit "$code"
+          fi
       - id: hold
+        if: steps.protection.outputs.allowed == 'true'
         name: Check reviewed staging publication hold before source admission
         shell: bash
         run: |
@@ -142,6 +160,7 @@ jobs:
           test -s staradvs-source/frontend/dist/index.html
           test -n "$(find staradvs-source/frontend/dist/assets -maxdepth 1 -name '*.js' -print -quit)"
           python3 scripts/staradvs_pages.py manifest --sha "$SOURCE_SHA" --dist staradvs-source/frontend/dist
+          python3 scripts/staradvs_protected_bundle.py prepare --sha "$SOURCE_SHA" --dist staradvs-source/frontend/dist
       - name: Refuse superseded Infra and game source SHAs
         shell: bash
         run: |
@@ -186,6 +205,8 @@ jobs:
           python3 scripts/staradvs_infra_revision.py "$GITHUB_SHA" "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)"
           python3 scripts/staradvs_staging_hold.py
           [[ "$(gh api repos/evilsysadmin/star-adventures/commits/main --jq .sha)" == "$SOURCE_SHA" ]] || exit 1
+          python3 scripts/staradvs_protected_bundle.py gate
+          python3 scripts/staradvs_protected_bundle.py verify --sha "$SOURCE_SHA" --dist staradvs-source/frontend/dist
           npx --yes wrangler@4.127.1 pages deploy staradvs-source/frontend/dist --project-name staradvs-staging --branch main --commit-hash "$SOURCE_SHA" --commit-dirty=false
       - name: Associate only owned custom-domain and DNS
         run: python3 scripts/staradvs_pages.py domain
