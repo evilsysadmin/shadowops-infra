@@ -22,7 +22,8 @@ class RevisionError(Exception):
 
 def is_relevant(path: str) -> bool:
     return (
-        path.startswith(".github/workflows/staradvs-")
+        path == "edge/staradvs-identity-gate.mjs"
+        or path.startswith(".github/workflows/staradvs-")
         or path.startswith("scripts/staradvs_")
         or path.startswith("config/staradvs-")
         or path.startswith("tests/test_staradvs_")
