@@ -4,6 +4,8 @@ on:
     paths:
       - 'Makefile'
       - 'tests/test_identity_production_makefile.py'
+      - 'scripts/identity_production_doctor.py'
+      - 'tests/test_identity_production_doctor.py'
       - 'docs/identity-production-makefile.md'
       - 'host/identity-production-origin.py'
       - 'host/identity-production-native-account.py'
@@ -23,6 +25,8 @@ on:
     paths:
       - 'Makefile'
       - 'tests/test_identity_production_makefile.py'
+      - 'scripts/identity_production_doctor.py'
+      - 'tests/test_identity_production_doctor.py'
       - 'docs/identity-production-makefile.md'
       - 'host/identity-production-origin.py'
       - 'host/identity-production-native-account.py'
@@ -60,6 +64,9 @@ jobs:
           python3 -m unittest discover -s tests -p test_identity_production_origin_operator.py -v
           python3 -m unittest discover -s tests -p test_identity_production_native_account_operator.py -v
           python3 -m unittest discover -s tests -p test_identity_production_makefile.py -v
+          python3 -m unittest discover -s tests -p test_identity_production_doctor.py -v
+          python3 -m py_compile scripts/identity_production_doctor.py
+          make identity-prod-doctor
           make identity-prod-plan
           python3 -m py_compile host/identity-production-origin.py
           python3 -m py_compile host/identity-production-native-account.py
