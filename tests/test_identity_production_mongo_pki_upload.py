@@ -128,7 +128,10 @@ class UploadTests(unittest.TestCase):
 
     def test_upload_only_one_canonical_rsync_and_no_verified_remote_claim(self):
         files = [Path("/private/transfer-THREE-FILES-ONLY") / n for n in u.NAMES]
-        runner = mock.Mock(return_value=SimpleNamespace(returncode=0))
+        runner = mock.Mock(side_effect=[
+            SimpleNamespace(returncode=0, stdout=b"EMPTY_PRIVATE_STAGE" + bytes([10])),
+            SimpleNamespace(returncode=0),
+        ])
         with mock.patch.object(u, "require_workstation") as approval, \
              mock.patch.object(u, "local_package", return_value=files), \
              mock.patch.object(u, "check_crypto"), \
@@ -140,10 +143,33 @@ class UploadTests(unittest.TestCase):
              redirect_stdout(io.StringIO()) as out:
             self.assertEqual(u.main(["upload"], env=self.env, runner=runner), 0)
             approval.assert_called_once()
-            runner.assert_called_once()
-        self.assertIn("--ignore-existing", runner.call_args.args[0])
-        self.assertEqual(runner.call_args.kwargs["timeout"], 300)
+            self.assertEqual(runner.call_count, 2)
+        remote = runner.call_args_list[0].args[0]
+        self.assertEqual(remote[-2], "ubuntu@" + u.a1.SSH_HOST)
+        self.assertIn("python3 -I -c", remote[-1])
+        self.assertIn("EMPTY_PRIVATE_STAGE", remote[-1])
+        self.assertIn("--ignore-existing", runner.call_args_list[1].args[0])
+        self.assertEqual(runner.call_args_list[1].kwargs["timeout"], 300)
         self.assertIn("remote_state=requires-A1-inspect", out.getvalue())
+
+    def test_remote_stage_readonly_rejection_prevents_rsync(self):
+        for response in (
+            SimpleNamespace(returncode=21, stdout=b""),
+            SimpleNamespace(returncode=0, stdout=b"NOT_PRIVATE"),
+        ):
+            with self.subTest(response=response.stdout):
+                runner = mock.Mock(return_value=response)
+                with self.assertRaises(u.Refused):
+                    u.remote_stage_probe(
+                        "/usr/bin/ssh", "/usr/bin/cloudflared",
+                        u.a1.SSH_HOST, "ubuntu", "", runner=runner,
+                    )
+                runner.assert_called_once()
+                self.assertEqual(runner.call_args.kwargs["timeout"], 35)
+        self.assertIn("stat.S_IMODE(s.st_mode) == 0o700", u.REMOTE_PROBE)
+        self.assertIn("not os.listdir(p)", u.REMOTE_PROBE)
+        self.assertNotIn("os.mkdir", u.REMOTE_PROBE)
+        self.assertNotIn("os.chmod", u.REMOTE_PROBE)
 
     def test_synthetic_real_package_crypto_matches_local_generator(self):
         if not shutil.which("openssl"):
