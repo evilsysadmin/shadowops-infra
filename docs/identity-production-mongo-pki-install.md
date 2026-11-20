@@ -35,9 +35,12 @@ El operador usa `cloudflared access ssh`, el mismo destino canónico
 y las claves SSH locales de `make oci-a1-ssh`; admite
 `OCI_SSH_KEY` si se necesita una clave explícita. Comprueba TLS/SAN
 locales, no permite symlinks/hardlinks ni ficheros adicionales, y lanza
-`rsync` con **solo tres rutas exactas**, `--ignore-existing`,
-sin `--delete`, sin `sudo` ni comandos remotos. La carpeta
-de staging debe existir de antemano, como arriba.
+`rsync` con **solo tres rutas exactas** y `--ignore-existing`,
+sin `--delete` ni `sudo`. Primero ejecuta una única comprobación
+**remota y de solo lectura** por SSH (Python estándar): exige que el
+staging ya exista, UID1001, modo 0700, padre privado y contenido
+completamente vacío. Si falla, no inicia `rsync`. No crea directorios
+ni ejecuta operaciones administrativas remotas.
 
 Un resultado de transferencia **no demuestra** que la A1 tenga ya
 material válido. El staging debe quedar exactamente con tres archivos
