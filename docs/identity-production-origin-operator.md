@@ -15,6 +15,11 @@ para desplegar ni para retirar la cuarentena del juego.
 
 1. Aprovisionar previamente un Mongo productivo propio, con backups y rol
    mínimo auditado, credenciales en custodia privada y certificado TLS correcto.
+   La [red de Mongo productivo](identity-production-mongo-host.md) debe
+   existir **antes** de arrancar Identity; los overlays del origen y túnel
+   reutilizan esa red con `external: true`. La admisión inspecciona la
+   red Docker: puente interno, etiquetas del proyecto Mongo y ausencia
+   de conexiones de staging o contenedores ajenos.
    Revisar la atestación del candidato GHCR del SHA seleccionado, descargar el
    digest inmutable por una vía administrada y verificarlo.
 2. Preparar fuera de Git el bundle privado de Identity y la CA TLS del

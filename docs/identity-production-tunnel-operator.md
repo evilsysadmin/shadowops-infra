@@ -2,6 +2,9 @@
 
 El origen local debe estar desplegado por separado y haber superado su
 preflight con Mongo propio, TLS y la clave pública Ed25519 de producción.
+El operador exige además que la red Mongo sea la externa, ya creada por
+el Compose productivo, no una red creada accidentalmente por Identity;
+se rechaza una red de staging o con participantes ajenos.
 Esta herramienta solo organiza el **segundo paso**, sin automatizar DNS,
 Pages, Vault ni el acceso al juego.
 

@@ -131,7 +131,7 @@ def validate_overlay() -> None:
             tunnel.get("cpus") != 0.25 or
             networks != {
                 "identity-origin": {"name": "shadowops-identity-production-origin", "internal": True},
-                "identity-mongo-egress": {"name": "shadowops-identity-production-mongo-egress"},
+                "identity-mongo-egress": {"external": True, "name": "shadowops-identity-production-mongo-egress"},
                 "identity-tunnel-egress": {"name": "shadowops-identity-production-tunnel-egress"},
             }):
         raise Refused("production tunnel service or network contract changed")

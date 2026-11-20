@@ -25,6 +25,10 @@ import identity_production_tunnel_preflight as tunnel
 import identity_production_origin_probe as origin
 
 PROJECT = "shadowops-identity-production"
+MONGO_NETWORK = "shadowops-identity-production-mongo-egress"
+MONGO_OWNER = "shadowops-identity-production-mongo"
+MONGO_CONTAINER = "shadowops-identity-production-mongo-identity-production-mongo-1"
+ORIGIN_CONTAINER = "shadowops-identity-production-identity-production-1"
 SERVICE = "identity-production"
 TUNNEL = "identity-production-tunnel"
 LOCK = Path("/run/lock/shadowops-identity-production-origin.lock")
@@ -155,6 +159,10 @@ def check_compose_config(raw: str, image: str, tunnel_digest: str) -> None:
         require("tunnel-segregation",
                 set(proxy["networks"]) == {"identity-origin", "identity-tunnel-egress"})
         require("private-origin-network", obj["networks"]["identity-origin"].get("internal") is True)
+        mongo = obj["networks"].get("identity-mongo-egress")
+        require("mongo-named-network",
+                isinstance(mongo, dict) and mongo.get("name") == MONGO_NETWORK and
+                mongo.get("external") is not False and mongo.get("internal") is not True)
     except (TypeError, KeyError, json.JSONDecodeError) as exc:
         raise Refused("invalid production Compose structure") from None
 
@@ -176,10 +184,10 @@ def check_origin_compose_config(raw: str, image: str) -> None:
                 obj["networks"]["identity-origin"].get("internal") is True and
                 obj["networks"]["identity-origin"].get("name") ==
                     "shadowops-identity-production-origin")
-        require("separate-mongo-egress",
-                obj["networks"]["identity-mongo-egress"].get("internal", False) is False and
-                obj["networks"]["identity-mongo-egress"].get("name") ==
-                    "shadowops-identity-production-mongo-egress")
+        mongo = obj["networks"]["identity-mongo-egress"]
+        require("mongo-named-network",
+                isinstance(mongo, dict) and mongo.get("name") == MONGO_NETWORK and
+                mongo.get("external") is not False and mongo.get("internal") is not True)
     except (TypeError, KeyError, json.JSONDecodeError):
         raise Refused("invalid origin-only Compose structure") from None
 
@@ -228,6 +236,48 @@ def project_container_status(*, runner=subprocess.run):
     return rows
 
 
+def origin_overlay_mongo_external() -> None:
+    """Check the source YAML: Docker Compose may omit 'external' from config JSON."""
+    try:
+        obj = tunnel.strict_yaml(ORIGIN_OVERLAY.read_text(encoding="utf-8"))
+        if obj["networks"]["identity-mongo-egress"] != {
+            "name": MONGO_NETWORK, "external": True,
+        }:
+            raise Refused("origin may only join pre-existing production Mongo network")
+    except (OSError, ValueError, KeyError, TypeError):
+        raise Refused("unsafe origin Mongo network declaration") from None
+
+
+def mongo_network_admission(*, runner=subprocess.run) -> None:
+    """Read-only Docker inspection: reject staging, rogue network and attachments.
+
+    Identity must join the private network created by the dedicated Mongo
+    production Compose project. It must never create/adopt a same-name bridge.
+    """
+    raw = run([
+        "docker", "network", "inspect", "--format", "{{json .}}", MONGO_NETWORK
+    ], runner=runner)
+    try:
+        network = json.loads(raw)
+        if (not isinstance(network, dict) or
+                network.get("Name") != MONGO_NETWORK or
+                network.get("Driver") != "bridge" or
+                network.get("Internal") is not True or
+                not isinstance(network.get("Labels"), dict) or
+                network["Labels"].get("com.docker.compose.project") != MONGO_OWNER or
+                network["Labels"].get("com.docker.compose.network") != "identity-mongo-egress"):
+            raise Refused("untrusted production Mongo network")
+        attached = network["Containers"]
+        if not isinstance(attached, dict) or not attached:
+            raise Refused("production Mongo network has no owner")
+        names = [value.get("Name") for value in attached.values()]
+        if (len(names) != len(set(names)) or MONGO_CONTAINER not in names or
+                set(names) - {MONGO_CONTAINER, ORIGIN_CONTAINER}):
+            raise Refused("unexpected Mongo network participant")
+    except (json.JSONDecodeError, KeyError, TypeError, AttributeError):
+        raise Refused("invalid production Mongo network inventory") from None
+
+
 def image_revision(image: str, *, runner=subprocess.run):
     rev = run([
         "docker", "image", "inspect", image,
@@ -269,16 +319,19 @@ def admission(*, runner=subprocess.run):
     )
     if image_revision(image, runner=runner) != sha:
         raise Refused("image digest does not match expected source commit")
+    mongo_network_admission(runner=runner)
     return sha, image
 
 
 def origin_admission(*, runner=subprocess.run):
     """Stage 1 checks only its own image/bundle/CA and rendered network model."""
     sha, image = origin_env_contract()
+    origin_overlay_mongo_external()
     normalized = run(origin_compose_args("config", "--format", "json"), runner=runner)
     check_origin_compose_config(normalized, image)
     if image_revision(image, runner=runner) != sha:
         raise Refused("image digest does not match expected source commit")
+    mongo_network_admission(runner=runner)
     return sha, image
 
 

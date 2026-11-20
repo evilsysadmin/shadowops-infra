@@ -29,10 +29,12 @@ una reserva garantizada. No hay swap y hay otros servicios de producción.
 - Perfil `production-mongo`: ningún `docker compose up` rutinario
   del repo levanta este servicio por accidente.
 
-La red debe ser creada/propiedad del Compose de Mongo. El origen productivo
-actual todavía requiere **un ajuste separado a `external: true`** para
-unirse a esa red sin intentar adoptarla o recrearla; **no arrancar Identity
-productivo** hasta que CI y pruebas de ese handoff estén verdes.
+La red debe ser creada/propiedad del Compose de Mongo. Los overlays del
+origen productivo la declaran **`external: true`** y la inspección
+del operador exige que exista como red `bridge internal` propiedad
+del Compose Mongo correcto, con el Mongo productivo conectado y sin
+contenedores ajenos. **No arrancar Identity hasta provisionar realmente
+Mongo y demostrar backups/restore.**
 
 ## Inspección segura en A1
 
