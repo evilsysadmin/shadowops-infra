@@ -34,13 +34,13 @@ The workflow `Bridge Squad · production Pages inventory (read-only)` runs offli
 
 El verificador `scripts/bridgesquad_source_admission.py` valida con GitHub, solo en lectura, el `main` actual de `evilsysadmin/matthias-bridge-squad`, una ejecución exitosa de `push` asociada a exactamente ese SHA y el paso **verde** de los dos jobs: `smoke` (Chromium desktop/móvil y 12 niveles) y `package-private-candidate`. Exige un artefacto único llamado `bridgesquad-private-release-<SHA>`, no caducado, con digest SHA-256 y vinculado a esa misma ejecución. Recomprueba `main` antes de admitirlo para evitar elegir una revisión antigua.
 
-Para un ZIP descargado desde **ese ID exacto de artefacto**, `verify-archive ZIP sha256:DIGEST SHA` valida el digest del fichero comprimido y exclusivamente las dos entradas `index.html` y `release.json`, con límites de tamaño, sin symlinks ni ficheros adicionales. Comprueba el SHA-256 del HTML, la identidad del repositorio y el commit, `environment=production`, `audience=bridgesquad` y `authentication.required=true`. No extrae el ZIP ni incorpora un Worker proporcionado por el repositorio del juego. **Las etiquetas de autenticación de un manifiesto no proporcionan seguridad por sí mismas**.
+Para el ZIP **reconstruido de manera independiente por Infra a partir de los bytes públicos del commit exacto**, `verify-archive ZIP sha256:DIGEST SHA` valida el digest del fichero comprimido y exclusivamente las dos entradas `index.html` y `release.json`, con límites de tamaño, sin symlinks ni ficheros adicionales. El artefacto original de Actions sigue siendo evidencia de CI: su digest NO es el del ZIP reconstruido. Comprueba el SHA-256 del HTML, la identidad del repositorio y el commit, `environment=production`, `audience=bridgesquad` y `authentication.required=true`. No extrae el ZIP ni incorpora un Worker proporcionado por el repositorio del juego. **Las etiquetas de autenticación de un manifiesto no proporcionan seguridad por sí mismas**.
 
 El workflow `Bridge Squad · source release admission (read-only)` ejecuta todos los tests en PR y push. La tarea de inventario de GitHub para una versión actual se ejecuta **únicamente por dispatch manual desde Infra main**, y puede fallar por permisos de lectura entre repositorios. No escribe en Cloudflare, Identity, Vault ni DNS y no supone una publicación autorizada. El despliegue posterior deberá incluir el Worker auditado por Infra, verificar que el paquete descargado coincide con el recibo y probar acceso anónimo denegado y login/revocación reales. Seguimiento: #611.
 
 ## Paquete sellado por ShadowOps Infra (sin despliegue)
 
-Después de admitir el SHA exacto mediante `bridgesquad_source_admission.py` y verificar independientemente el ZIP contra su digest GitHub, el operador puede preparar un directorio **nuevo** mediante:
+Después de admitir el SHA exacto mediante `bridgesquad_source_admission.py`, `bridgesquad_source_snapshot.py snapshot SHA candidato.zip` descarga `index.html` del SHA inmutable en GitHub Raw y crea un ZIP privado con manifiesto Infra (sin token Actions ajeno). Tras verificar ese ZIP contra su **digest local**, el operador puede preparar un directorio **nuevo** mediante:
 
 ```sh
 python3 scripts/bridgesquad_release_package.py prepare candidato.zip sha256:<DIGEST_DEL_ZIP> <SHA_DEL_COMMIT> ./dist-sealed
@@ -56,11 +56,11 @@ El empaquetador preserva sin reconstruir los bytes de `index.html`, descarta el 
 El workflow `.github/workflows/bridgesquad-source-admission.yml` ahora prepara un artefacto **sin publicación** tras el paso de contratos, tanto en un `push` de Infra `main` como en un `workflow_dispatch` manual confiable. El job `sealed-candidate`:
 
 1. Comprueba mediante la API de GitHub el `main` actual del juego, su CI `push`, los dos jobs requeridos y el ID/digest de un único artefacto.
-2. Descarga ese **ID exacto** de GitHub Actions; verifica el SHA-256 del ZIP y el manifiesto de `index.html`.
+2. **No descarga ese artefacto privado del otro repositorio:** obtiene `index.html` desde GitHub Raw a la referencia SHA de ese mismo `main` y crea un ZIP privado con `release.json` generado por Infra, SHA-256 local y validación íntegra. El ID/digest original de Actions se conserva solo como prueba de CI verde, nunca se confunde con el nuevo ZIP.
 3. Introduce el Worker de autenticación auditado por Infra y genera `release.json` propio; verifica los tres archivos contra los hashes calculados.
 4. Revalida que el `main` del juego sigue siendo el mismo antes de archivar el paquete como `bridgesquad-sealed-<GAME_SHA>-<INFRA_SHA>` durante 14 días.
 
-La ejecución no utiliza Cloudflare, DNS, OCI ni Vault. No despliega nada. Los artefactos de GitHub Actions **no deben tratarse como almacén de secretos**: contienen solo HTML/JavaScript y metadatos públicos. Si la identidad del artefacto ha cambiado o las credenciales de lectura GitHub no son válidas, el job falla sin producir un paquete.
+La ejecución no utiliza Cloudflare, DNS, OCI ni Vault. No despliega nada. Los artefactos de GitHub Actions **no deben tratarse como almacén de secretos**: contienen solo HTML/JavaScript y metadatos públicos. Si la identidad del artefacto CI ha cambiado, la evidencia pública es inaccesible o el SHA del código descargado no cumple el contrato, el job falla sin producir un paquete.
 
 Para el futuro despliegue es obligatoria una nueva comprobación de vigencia del SHA, integridad del paquete, identidad del Worker y despliegue fail-closed en Pages con prueba de login real. Este workflow **no resuelve** el bloqueo de Identity de producción registrado en #611.
 
