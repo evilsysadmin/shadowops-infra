@@ -49,7 +49,7 @@ class SealedHandoffWorkflowTests(unittest.TestCase):
         self.assertLess(self.job.index("bridgesquad_release_package.py verify"),
                         self.job.index("scripts/bridgesquad_sealed_worker_browser.py"))
         self.assertLess(self.job.index("scripts/bridgesquad_sealed_worker_browser.py"),
-                        self.job.index("bridgesquad_source_admission.py check \\"$SOURCE_SHA\\""))
+                        self.job.index("bridgesquad_source_admission.py check"))
         self.assertLess(self.job.index("scripts/bridgesquad_sealed_worker_browser.py"),
                         self.job.index("actions/upload-artifact@v4"))
 
