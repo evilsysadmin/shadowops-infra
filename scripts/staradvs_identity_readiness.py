@@ -96,7 +96,8 @@ def pages_posture(project: dict) -> tuple[str, str]:
     protected = all(
         isinstance(configs.get(mode), dict) and
         configs[mode].get("fail_open") is False and
-        "global_fetch_strictly_public" in (configs[mode].get("compatibility_flags") or [])
+        isinstance(configs[mode].get("compatibility_flags"), list) and
+        "global_fetch_strictly_public" in configs[mode]["compatibility_flags"]
         for mode in ("production", "preview")
     )
     vars_ = (configs.get("production") or {}).get("env_vars") or {}
@@ -186,7 +187,7 @@ def main(argv: list[str]) -> int:
         return 64
     try:
         report = collect(pages.CloudflareClient(__import__("os").environ))
-    except (pages.AdmissionError, CutoverBlocked, KeyError, TypeError) as exc:
+    except Exception as exc:
         # No service secret, Cloudflare value or HTTP response content in logs.
         print("STARADVS_IDENTITY_READINESS_BLOCKED kind=" + type(exc).__name__,
               file=sys.stderr)
