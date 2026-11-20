@@ -1,0 +1,45 @@
+name: Identity production Mongo first-start operator (offline)
+on:
+  pull_request:
+    paths:
+      - Makefile
+      - host/identity-production-mongo-start.py
+      - tests/test_identity_production_mongo_start.py
+      - docs/identity-production-mongo-host.md
+      - .github/workflows/identity-production-mongo-start.yml
+  push:
+    branches: [main]
+    paths:
+      - Makefile
+      - host/identity-production-mongo-start.py
+      - tests/test_identity_production_mongo_start.py
+      - docs/identity-production-mongo-host.md
+      - .github/workflows/identity-production-mongo-start.yml
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Test exact first-start operator, no real Docker commands
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check 'PyYAML==6.0.2'
+          python3 -m unittest discover -s tests -p test_identity_production_mongo_start.py -v
+          python3 -m py_compile host/identity-production-mongo-start.py
+          make identity-prod-mongo-start-plan
+          make --dry-run identity-prod-mongo-start-inspect
+          make --dry-run identity-prod-mongo-host-start
+          if python3 host/identity-production-mongo-start.py start; then
+            echo 'ERROR: CI was able to start product Mongo' >&2
+            exit 1
+          fi
