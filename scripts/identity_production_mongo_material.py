@@ -87,7 +87,7 @@ def verify_material(*, euid=None, env=None, runner=subprocess.run) -> None:
 
     # A1 may hold only the server private key, never the signing CA key.
     for name in FORBIDDEN_CA_KEYS:
-        if (host.SECRET_DIR / name).exists() or (host.SECRET_DIR / name).is_symlink():
+        if (CA.parent / name).exists() or (CA.parent / name).is_symlink():
             raise Refused("offline signing CA key must not be installed on A1")
 
     # Verify the server certificate matches its own private key; opens in
