@@ -191,3 +191,55 @@ func TestProductionBrowserNegativeErrorsAndRateLimit(t *testing.T){
   t.Fatal("login guessing not throttled")
  }
 }
+
+
+func TestProductionLogoutPageIsExplicitUserActionAndNeverGetSideEffect(t *testing.T){
+ h,account,tokens,_:=setupBrowser()
+ page:=browserCall(h,requestBrowser("/logout?app=bridgesquad","GET","",""))
+ if page.Code!=200 || account.logouts!=0 || tokens.calls!=0 ||
+  page.Header().Get("Set-Cookie")!="" {
+  t.Fatalf("GET logout must render confirmation without revoking, status=%d",page.Code)
+ }
+ if !strings.Contains(page.Body.String(),`<form id="logout-form">`) ||
+  !strings.Contains(page.Body.String(),`data-return-url="`+Origin+`/"`) ||
+  !strings.Contains(page.Body.String(),`src="/assets/logout-production.js"`) ||
+  !strings.Contains(page.Body.String(),"Cerrar mi sesión") ||
+  !strings.Contains(page.Header().Get("Content-Security-Policy"),"form-action 'self'"){
+  t.Fatal("logout confirmation page missing exact safe return, CSP or explicit submit")
+ }
+ script:=browserCall(h,requestBrowser(browserLogoutAssetPath,"GET","",""))
+ if script.Code!=200 || account.logouts!=0 || script.Header().Get("Set-Cookie")!=""{
+  t.Fatal("logout script cannot log out via GET")
+ }
+ js:=script.Body.String()
+ for _,required:=range []string{
+  "form.addEventListener('submit'", "event.preventDefault()",
+  "fetch('/api/identity/logout'", "method:'POST'",
+  "credentials:'same-origin'", "redirect:'error'",
+  "headers:{'Content-Type':'application/json'}", "body:'{}'",
+  "if(response.status!==204)", "location.replace(document.body.dataset.returnUrl)",
+ } {
+  if !strings.Contains(js,required){t.Fatalf("logout script missing safe gate %q",required)}
+ }
+ if strings.Contains(js,"window.localStorage") || strings.Contains(js,"id-staging.") {
+  t.Fatal("logout must not access game saves or staging Identity")
+ }
+ for _,path:=range []string{
+  "/logout", "/logout?app=football",
+  "/logout?app=bridgesquad&next=https://evil.test",
+  "/logout?app=bridgesquad&app=bridgesquad",
+  "/assets/logout-production.js?foo=bar",
+ } {
+  if got:=browserCall(h,requestBrowser(path,"GET","",""));got.Code!=400 {
+   t.Fatalf("unsafe logout URL accepted: %s status %d",path,got.Code)
+  }
+ }
+ for _,path:=range []string{"/logout?app=bridgesquad","/assets/logout-production.js"} {
+  if got:=browserCall(h,requestBrowser(path,"POST",productionIssuer,"{}"));got.Code!=405{
+   t.Fatalf("POST must not treat logout page as mutating API, got %d",got.Code)
+  }
+ }
+ if account.logouts!=0 {
+  t.Fatal("GET or static asset unexpectedly revoked a session")
+ }
+}
