@@ -130,7 +130,9 @@ def app_destinations(app):
             if name is None:
                 return set(), False
             domains.add(name)
-        return domains, True
+        # Do not share one Access session/policy between multiple games,
+        # environments or canonical/preview surfaces.
+        return domains, len(domains) == 1
     # Legacy Access applications represent hostname scopes differently.
     domains = set()
     legacy = app.get("self_hosted_domains")
@@ -148,7 +150,8 @@ def app_destinations(app):
         name = normalized_destination(app.get("domain"))
         if name:
             domains.add(name)
-    return domains, bool(domains)
+    # Deprecation fallback must obey the same exact one-host boundary.
+    return domains, len(domains) == 1
 
 
 def policy_review(payload):
