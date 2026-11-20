@@ -227,11 +227,17 @@ def public_probe(entries: dict[str, bytes]) -> list[str]:
         })
         try:
             with opener.open(req, timeout=25) as resp:
-                check(resp.status == 200 and resp.geturl() == url and
-                      resp.headers.get_content_type() == "model/gltf-binary" and
-                      "immutable" in resp.headers.get("Cache-Control", "").lower() and
-                      resp.headers.get("Access-Control-Allow-Origin", "") in ("*", ORIGIN),
-                      "K-47 public GLB HTTP/CORS/immutability headers not verified")
+                check(resp.status == 200 and resp.geturl() == url,
+                      "K-47 public GLB HTTP status or redirect invalid: " + key)
+                mime = resp.headers.get_content_type()
+                check(mime == "model/gltf-binary",
+                      "K-47 public GLB MIME mismatch for " + key + ": " + mime)
+                cache = resp.headers.get("Cache-Control", "")
+                check("immutable" in cache.lower(),
+                      "K-47 public GLB immutable Cache-Control missing: " + key)
+                cors = resp.headers.get("Access-Control-Allow-Origin", "")
+                check(cors in ("*", ORIGIN),
+                      "K-47 public GLB staging CORS missing: " + key)
                 data = resp.read(len(blob) + 1)
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
