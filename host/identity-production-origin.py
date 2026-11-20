@@ -248,12 +248,9 @@ def mongo_network_admission(*, runner=subprocess.run) -> None:
                 network.get("Name") != MONGO_NETWORK or
                 network.get("Driver") != "bridge" or
                 network.get("Internal") is not True or
-                network.get("Labels") != {
-                    "com.docker.compose.project": MONGO_OWNER,
-                    "com.docker.compose.network": "identity-mongo-egress",
-                    "com.docker.compose.version": network.get("Labels", {}).get(
-                        "com.docker.compose.version"),
-                }):
+                not isinstance(network.get("Labels"), dict) or
+                network["Labels"].get("com.docker.compose.project") != MONGO_OWNER or
+                network["Labels"].get("com.docker.compose.network") != "identity-mongo-egress"):
             raise Refused("untrusted production Mongo network")
         attached = network["Containers"]
         if not isinstance(attached, dict) or not attached:
