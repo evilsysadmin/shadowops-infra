@@ -52,60 +52,34 @@ privados a GitHub, un chat, una incidencia, un servicio público ni
 la Library de artefactos. Proteger el portátil y almacenar una copia
 **cifrada** de la CA privada fuera de esa máquina.
 
-## 2. Transferencia manual únicamente de los tres archivos
+## 2. Transferencia manual e instalación protegida
 
-Conectar previamente a la A1 con `make oci-a1-ssh`; la copia desde
-L14 necesita el mismo túnel Cloudflare Access. En la **A1**, crear
-una carpeta temporal exclusiva de tu usuario con modo 0700, sin
-credenciales compartidas con staging. Después, desde **L14**, copiar
-**solo** `ca.pem`, `mongo.pem`, `replica.key` de la carpeta
-`transfer-THREE-FILES-ONLY` a ese destino utilizando `rsync`/SSH
-por Cloudflare Access. No usar `rsync -r` de toda la carpeta madre,
-ya que contiene la clave de firma de CA.
+Conectar previamente a la A1 con `make oci-a1-ssh`. La copia
+desde L14 utiliza el mismo túnel Cloudflare Access. **Transferir
+exclusivamente** `ca.pem`, `mongo.pem` y `replica.key` de
+`transfer-THREE-FILES-ONLY`, nunca la clave privada firmante
+de la CA ni el directorio padre.
 
-En A1, tras revisar la carpeta temporal y asegurarte de que **no**
-existe un despliegue/producto previo, instalar los tres ficheros en
-`/etc/shadowops/identity-production/mongo`:
+La instalación queda documentada en
+[PKI installation: one-time A1 operator](identity-production-mongo-pki-install.md).
+El operador verifica propietarios, modos, nombres, certificados,
+clave de réplica y ausencia de recursos previos, sin SSH implícito.
 
 ```sh
-# Ejemplo: solo tras copiar explícitamente los 3 archivos de L14.
-# El directorio TEMP debe ser 0700, del operador ubuntu, con esos 3 ficheros.
-set -euo pipefail
-temp="$HOME/shadowops-mongo-pki-stage"
-test -d "$temp" && test ! -L "$temp"
-test "$(stat -c %a "$temp")" = 700
-test "$(find "$temp" -mindepth 1 -maxdepth 1 | wc -l)" -eq 3
-for name in ca.pem mongo.pem replica.key; do
-    test -f "$temp/$name" && test ! -L "$temp/$name"
-done
-# No adoptar ni sobrescribir otro despliegue Mongo.
-if sudo -n test -e /etc/shadowops/identity-production/mongo; then
-    echo "Directorio Mongo ya existente: operación cancelada" >&2
-    exit 1
-fi
+# En A1, tras transferir los tres archivos al staging privado de ubuntu:
+sudo -n make -C /opt/shadowops-infra identity-prod-mongo-pki-host-plan
+sudo -n make -C /opt/shadowops-infra identity-prod-mongo-pki-host-inspect
 
-sudo -n install -d -o root -g root -m 0750 /etc/shadowops/identity-production
-sudo -n install -d -o root -g 999 -m 0750 /etc/shadowops/identity-production/mongo
+# Solo después de autorizar explícitamente el cambio:
+sudo make -C /opt/shadowops-infra identity-prod-mongo-pki-host-install
 
-for name in ca.pem mongo.pem replica.key; do
-    sudo -n install -o 999 -g 999 -m 0400       "$temp/$name" "/etc/shadowops/identity-production/mongo/$name"
-done
-
-sudo -n make -C /opt/shadowops-infra identity-prod-mongo-host-inspect
 sudo -n make -C /opt/shadowops-infra identity-prod-mongo-material-verify
 ```
 
-Estas instrucciones **no se han ejecutado** y son un procedimiento
-para el operador autorizado. En una ejecución real debe revisarse que
-la carpeta productiva esté vacía y no se haya provisionado ya
-algo antes de llamar a `install`. Tras un resultado satisfactorio,
-eliminar las copias temporales de A1 conforme a la política de
-gestión de secretos. **Nunca instalar `ca-private.key` en A1.**
-
-El verificador criptográfico en la A1 viene de la PR específica
-[Mongo material verification](identity-production-mongo-material.md);
-solo comprueba TLS/keyFile, no arranca ni valida un replica set, usuarios
-o backups. No continuar con `mongo-host-start` si no pasa.
+Los operadores rechazan sobrescrituras: si la instalación queda a medias,
+no reintentar automáticamente ni limpiar con un `rm -rf`. Ninguno
+arranca Mongo, crea usuarios o habilita backups. **La A1 no se ha
+modificado desde estos PR.**
 
 ## 3. Recuperación / rotación
 
