@@ -59,7 +59,7 @@ jobs:
           set -euo pipefail
           status=0
           python3 scripts/game_identity_pages_history.py audit > "$RUNNER_TEMP/identity-pages-history.json" || status=$?
-          cat "$RUNNER_TEMP/identity-pages-history.json" >> "$GITHUB_STEP_SUMMARY"
+          tee -a "$GITHUB_STEP_SUMMARY" < "$RUNNER_TEMP/identity-pages-history.json"
           if [[ "$status" == '1' ]]; then
             echo 'GAME_IDENTITY_PAGES_HISTORICAL_EXPOSURE observed public legacy Pages deployment'
             exit 1
