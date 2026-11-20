@@ -36,9 +36,10 @@ class FakeCloudflare:
                "domains": [alias],
                "canonical_deployment": {"url": "https://current." + alias},
                "latest_deployment": {"url": "https://current." + alias}}
-        if "/deployments?" not in path:
+        if "/deployments" not in path:
             return 200, self.inject or obj
-        page = int(path.split("page=")[1].split("&")[0])
+        page = 1
+        assert "?" not in path, "Cloudflare Pages deployment GET must not send per_page"
         if self.history_count >= audit.PAGE_SIZE:
             quantity = min(audit.PAGE_SIZE, max(0, self.history_count - (page-1)*audit.PAGE_SIZE))
         else:
@@ -68,7 +69,7 @@ class PagesHistoryTests(unittest.TestCase):
         cf = FakeCloudflare(history_count=2)
         g = audit.projects()[0]
         hosts, complete = audit.list_hosts(cf, g)
-        self.assertTrue(complete)
+        self.assertFalse(complete)
         self.assertEqual(hosts[0], g.pages_project + ".pages.dev")
         self.assertIn("current." + g.pages_project + ".pages.dev", hosts)
         self.assertIn("d0." + g.pages_project + ".pages.dev", hosts)
@@ -85,14 +86,14 @@ class PagesHistoryTests(unittest.TestCase):
         self.assertEqual(report["hosts_discovered"], 4)
 
     def test_incomplete_history_or_host_budget_never_yields_green(self):
-        cf = FakeCloudflare(history_count=audit.PAGE_SIZE * audit.MAX_PAGES)
+        cf = FakeCloudflare(history_count=audit.PAGE_SIZE * 3)
         g = audit.projects()[0]
         report = audit.assess_one(cf, g, denied)
         self.assertEqual(report["state"], "NOT_FULLY_VERIFIED")
         self.assertFalse(report["historic_inventory_complete"])
         self.assertEqual(report["hosts_probed"], audit.MAX_HOSTS_PER_PROJECT)
         self.assertGreater(report["skipped_hosts"], 0)
-        self.assertEqual(len([x for x in cf.calls if "/deployments?" in x[1]]), audit.MAX_PAGES)
+        self.assertEqual(len([x for x in cf.calls if "/deployments" in x[1]]), 1)
 
     def test_fail_closed_when_provider_missing_or_cannot_reach_https(self):
         cf = FakeCloudflare(present=False)
@@ -100,7 +101,7 @@ class PagesHistoryTests(unittest.TestCase):
         cf = FakeCloudflare()
         self.assertEqual(audit.assess_one(cf, audit.projects()[0], lambda url, method: 0)["state"],
                          "NOT_FULLY_VERIFIED")
-        self.assertEqual(audit.audit(cf, lambda url, method: 404)["state"], "GUEST_DENIAL_OBSERVED")
+        self.assertEqual(audit.audit(cf, lambda url, method: 404)["state"], "NOT_FULLY_VERIFIED")
 
     def test_alias_origin_validation_rejects_redirects_and_foreign_hosts(self):
         alias = "staradvs-staging.pages.dev"
@@ -146,7 +147,7 @@ class PagesHistoryTests(unittest.TestCase):
                 self.error = error
 
             def request(self, method, path, data=None):
-                if "/deployments?" in path:
+                if "/deployments" in path:
                     raise self.error
                 return super().request(method, path, data)
 
