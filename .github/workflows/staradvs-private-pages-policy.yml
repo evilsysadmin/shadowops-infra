@@ -91,6 +91,10 @@ jobs:
           [[ "$GITHUB_SHA" == "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" ]]
           python3 scripts/staradvs_private_pages_policy.py plan
       - name: Apply only fail_open=false and strict public Identity fetch flags
-        run: python3 scripts/staradvs_private_pages_policy.py apply
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_SHA" == "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" ]]
+          python3 scripts/staradvs_private_pages_policy.py apply
       - name: Re-check idempotent protected policy
         run: python3 scripts/staradvs_private_pages_policy.py plan
