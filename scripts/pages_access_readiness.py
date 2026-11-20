@@ -157,6 +157,41 @@ def app_destinations(app):
     return domains, len(domains) == 1
 
 
+def raw_access_scope_overlap(app, expected):
+    """Conservatively detect a potentially overlapping Access destination.
+
+    This check is separate from app_destinations(): that strict parser
+    intentionally rejects an entire app if one destination is malformed.
+    Ignoring such an app would leave a false green for another Access app
+    protecting the same hostname.
+    """
+    if not isinstance(app, dict):
+        return False
+    values = [app.get("domain")]
+    for key, field in (("destinations", "uri"),
+                       ("self_hosted_domains", "domain")):
+        entries = app.get(key)
+        if not isinstance(entries, list):
+            continue
+        for item in entries:
+            values.append(item.get(field) if isinstance(item, dict) else item)
+    witness = expected.replace("*.", "sample.", 1)
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        host = value.strip().lower()
+        if host.startswith("https://"):
+            host = host[len("https://"):]
+        host = host.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+        if (host == expected or host == witness or
+                (expected.startswith("*.") and host.endswith(expected[1:])) or
+                (host.startswith("*.") and (
+                    witness.endswith(host[1:]) or
+                    (expected.startswith("*.") and expected[1:].endswith(host[1:]))))):
+            return True
+    return False
+
+
 def policy_review(payload):
     if not isinstance(payload, dict):
         return "not-verified"
@@ -215,15 +250,20 @@ def inspect(client):
             "custom_companion": custom,
         }
         matches = {k: [] for k in wanted}
+        conflicts = {k: 0 for k in wanted}
         for app in apps:
             domains, safe = app_destinations(app)
-            if not safe:
-                continue
             for k, domain in wanted.items():
-                if domain in domains:
+                if raw_access_scope_overlap(app, domain) and (
+                        not safe or domains != {domain}):
+                    conflicts[k] += 1
+                if safe and domains == {domain}:
                     matches[k].append(app)
         status = {}
         for scope, candidates in matches.items():
+            if conflicts[scope]:
+                status[scope] = "ambiguous"
+                continue
             if len(candidates) != 1:
                 status[scope] = "missing" if not candidates else "ambiguous"
                 continue
