@@ -1,0 +1,155 @@
+"""Historical Pages alias enumeration: no mutation and no false protected verdict."""
+from __future__ import annotations
+
+import importlib.util
+import pathlib
+import sys
+import unittest
+from unittest.mock import patch
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+import game_identity_pages_history as audit
+
+SHA = "a" * 40
+
+
+class FakeCloudflare:
+    account = "f" * 32
+
+    def __init__(self, *, present=True, history_count=2, inject=None):
+        self.present = present
+        self.history_count = history_count
+        self.inject = inject
+        self.calls = []
+
+    def request(self, method, path, data=None):
+        self.calls.append((method, path, data))
+        if method != "GET" or data is not None:
+            raise AssertionError("Cloudflare mutations are forbidden")
+        name = path.split("/pages/projects/")[1].split("/")[0]
+        alias = name + ".pages.dev"
+        if not self.present:
+            return 404, None
+        obj = {"name": name, "subdomain": alias,
+               "production_branch": "main", "source": None,
+               "domains": [alias],
+               "canonical_deployment": {"url": "https://current." + alias},
+               "latest_deployment": {"url": "https://current." + alias}}
+        if "/deployments?" not in path:
+            return 200, self.inject or obj
+        page = int(path.split("page=")[1].split("&")[0])
+        if self.history_count >= audit.PAGE_SIZE:
+            quantity = min(audit.PAGE_SIZE, max(0, self.history_count - (page-1)*audit.PAGE_SIZE))
+        else:
+            quantity = self.history_count if page == 1 else 0
+        return 200, [
+            {"project_name": name, "url": f"https://d{(page-1)*audit.PAGE_SIZE+n}.{alias}"}
+            for n in range(quantity)
+        ]
+
+
+def denied(url, method):
+    assert url.startswith("https://")
+    assert ".pages.dev" in url and "?" not in url
+    assert method == "GET"
+    return 404
+
+
+class PagesHistoryTests(unittest.TestCase):
+    def test_every_known_pages_game_is_in_inventory(self):
+        expected = {(g.slug, g.environment, g.pages_project)
+                    for g in audit.exposure.GAMES if g.pages_project}
+        self.assertEqual({(g.slug, g.environment, g.pages_project)
+                          for g in audit.projects()}, expected)
+        self.assertEqual(len(audit.projects()), 7)
+
+    def test_bounded_history_returns_main_current_and_old_aliases(self):
+        cf = FakeCloudflare(history_count=2)
+        g = audit.projects()[0]
+        hosts, complete = audit.list_hosts(cf, g)
+        self.assertTrue(complete)
+        self.assertEqual(hosts[0], g.pages_project + ".pages.dev")
+        self.assertIn("current." + g.pages_project + ".pages.dev", hosts)
+        self.assertIn("d0." + g.pages_project + ".pages.dev", hosts)
+        self.assertEqual({m for m, _, _ in cf.calls}, {"GET"})
+
+    def test_historic_anonymous_200_blocks_success_even_if_main_is_404(self):
+        cf = FakeCloudflare()
+        g = next(g for g in audit.projects() if g.slug == "star-adventures")
+        def old_static(url, method):
+            return 200 if "/release.json" in url and "d1." in url else 404
+        report = audit.assess_one(cf, g, old_static)
+        self.assertEqual(report["state"], "REVIEW_ANONYMOUS_200")
+        self.assertIn("d1.staradvs-staging.pages.dev", report["exposed_hosts"])
+        self.assertEqual(report["hosts_discovered"], 4)
+
+    def test_incomplete_history_or_host_budget_never_yields_green(self):
+        cf = FakeCloudflare(history_count=audit.PAGE_SIZE * audit.MAX_PAGES)
+        g = audit.projects()[0]
+        report = audit.assess_one(cf, g, denied)
+        self.assertEqual(report["state"], "NOT_FULLY_VERIFIED")
+        self.assertFalse(report["historic_inventory_complete"])
+        self.assertEqual(report["hosts_probed"], audit.MAX_HOSTS_PER_PROJECT)
+        self.assertGreater(report["skipped_hosts"], 0)
+        self.assertEqual(len([x for x in cf.calls if "/deployments?" in x[1]]), audit.MAX_PAGES)
+
+    def test_fail_closed_when_provider_missing_or_cannot_reach_https(self):
+        cf = FakeCloudflare(present=False)
+        self.assertEqual(audit.assess_one(cf, audit.projects()[0], denied)["state"], "NOT_FULLY_VERIFIED")
+        cf = FakeCloudflare()
+        self.assertEqual(audit.assess_one(cf, audit.projects()[0], lambda url, method: 0)["state"],
+                         "NOT_FULLY_VERIFIED")
+        self.assertEqual(audit.audit(cf, lambda url, method: 404)["state"], "GUEST_DENIAL_OBSERVED")
+
+    def test_alias_origin_validation_rejects_redirects_and_foreign_hosts(self):
+        alias = "staradvs-staging.pages.dev"
+        self.assertEqual(audit.deployment_host("https://abc." + alias, alias), "abc." + alias)
+        for url in ("http://abc." + alias, "https://abc." + alias + "/game",
+                    "https://abc." + alias + "?x=1", "https://abc." + alias + ".example.org",
+                    "https://abc.other.pages.dev", "https://a.b." + alias,
+                    "https://u:p@abc." + alias, "https://abc." + alias + ":443"):
+            with self.subTest(url=url), self.assertRaises(audit.InventoryError):
+                audit.deployment_host(url, alias)
+        with self.assertRaises(audit.InventoryError):
+            audit.main_alias("staradvs-staging", "evil.pages.dev")
+
+    def test_foreign_project_or_source_does_not_trigger_http_probe(self):
+        for issue in ("source", "domain", "branch", "alias"):
+            with self.subTest(issue=issue):
+                g = audit.projects()[0]
+                name = g.pages_project
+                obj = {"name": name, "subdomain": name + ".pages.dev",
+                       "production_branch": "main", "source": None,
+                       "domains": [g.hostname]}
+                if issue == "source":
+                    obj["source"] = {"type": "github"}
+                elif issue == "domain":
+                    obj["domains"] = ["foreign.invalid"]
+                elif issue == "branch":
+                    obj["production_branch"] = "dev"
+                else:
+                    obj["subdomain"] = "wrong.pages.dev"
+                cf = FakeCloudflare(inject=obj)
+                def fail(_url, _method):
+                    raise AssertionError("Unsafe project should not be probed")
+                result = audit.assess_one(cf, g, fail)
+                self.assertEqual(result["reason"], "provider_inventory_unavailable_or_unexpected")
+                self.assertEqual(result["state"], "NOT_FULLY_VERIFIED")
+
+    def test_new_workflow_runs_live_on_exact_main_only_and_no_writes(self):
+        file = ROOT / ".github/workflows/game-identity-pages-history.yml"
+        content = file.read_text()
+        self.assertIn("game_identity_pages_history.py audit", content)
+        self.assertIn("github.event_name == 'push'", content)
+        self.assertIn("github.ref == 'refs/heads/main'", content)
+        self.assertIn("environment: staging", content)
+        self.assertIn("test_game_identity_pages_history.py", content)
+        self.assertNotIn("pages deploy", content)
+        self.assertNotIn("wrangler", content)
+        self.assertNotIn("workflow_dispatch.inputs", content)
+        self.assertNotIn("secrets.OCI", content)
+
+
+if __name__ == "__main__":
+    unittest.main()
