@@ -20,7 +20,6 @@ import game_identity_exposure as exposure
 from staradvs_pages import AdmissionError, CloudflareClient
 
 PAGE_SIZE = 100
-MAX_PAGES = 3
 MAX_HOSTS_PER_PROJECT = 28
 PATHS = ("/", "/release.json")
 WORKERS = 12
@@ -94,25 +93,21 @@ def list_hosts(client, game) -> tuple[list[str], bool]:
             if candidate not in hosts:
                 hosts.append(candidate)
 
-    # Each request is an exact allowlisted project GET with bounded pagination.
-    # Cloudflare result_info is not exposed by the existing client, so a page
-    # shorter than PAGE_SIZE is the only supported end-of-history certificate.
-    completed = False
-    for page in range(1, MAX_PAGES + 1):
-        status, rows = client.request("GET", path + "/deployments?" +
-                                      urllib.parse.urlencode({"page": page, "per_page": PAGE_SIZE}))
-        if status != 200 or not isinstance(rows, list) or len(rows) > PAGE_SIZE:
-            raise InventoryError("Unreadable Pages deployment history")
-        for row in rows:
-            if not isinstance(row, dict) or row.get("project_name") not in (None, project):
-                raise InventoryError("Foreign Pages history record")
-            candidate = deployment_host(row.get("url"), alias)
-            if candidate not in hosts:
-                hosts.append(candidate)
-        if len(rows) < PAGE_SIZE:
-            completed = True
-            break
-    return hosts, completed
+    # The Cloudflare Pages live endpoint returned HTTP 400 to the explicit
+    # page=1&per_page=100 query across six known owned projects. Request only
+    # the documented bare GET endpoint (also used by our rollback inventory).
+    # The existing client discards result_info: it cannot prove that this is
+    # the final page. Deliberately NEVER certify complete historical coverage.
+    status, rows = client.request("GET", path + "/deployments")
+    if status != 200 or not isinstance(rows, list) or len(rows) > PAGE_SIZE:
+        raise InventoryError("Unreadable Pages deployment history")
+    for row in rows:
+        if not isinstance(row, dict) or row.get("project_name") not in (None, project):
+            raise InventoryError("Foreign Pages history record")
+        candidate = deployment_host(row.get("url"), alias)
+        if candidate not in hosts:
+            hosts.append(candidate)
+    return hosts, False
 
 
 def assess_one(client, game, request_status) -> dict:

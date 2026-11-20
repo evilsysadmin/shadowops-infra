@@ -18,12 +18,15 @@ allowlisted project metadata or deployment inventory.
   public HTTPS GETs to each discovered main, current or historic hostname
   at `/` and `/release.json`. There are no browser cookies, redirects,
   Identity tokens, TLS exceptions, provider writes, or deploys.
-- Reads at most three 100-entry Cloudflare deployment pages per project
-  and probes at most 28 hostnames per project, concurrently with a small
-  request pool. Those limits avoid unbounded runner time/cost. Any missing
-  history page, foreign/malformed URL, more hosts than the budget, absent
-  project, network failure or unexpected HTTP status makes the result
-  NOT_FULLY_VERIFIED, **never protected**.
+- Uses the bare Cloudflare `GET /deployments` endpoint for each
+  allowlisted project, matching the existing rollback inventory. The previous
+  explicit `page=1&per_page=100` returned HTTP 400 across six live Pages
+  projects. This initial compatibility pass inspects only the returned
+  deployment page and probes at most 28 hostnames per project.
+  **Historic coverage always stays NOT_FULLY_VERIFIED** until a separately
+  verified pagination scheme with Cloudflare's real result_info is added.
+  Missing/foreign records, limits and network errors likewise never count
+  as protected.
 - Any tested historical hostname returning HTTP 200 or 206 is flagged as
   REVIEW_ANONYMOUS_200, including a possible login shell. The response
   body and project secrets are never included in the log. A 401/403/404
