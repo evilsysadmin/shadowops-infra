@@ -171,6 +171,47 @@ class UploadTests(unittest.TestCase):
         self.assertNotIn("os.mkdir", u.REMOTE_PROBE)
         self.assertNotIn("os.chmod", u.REMOTE_PROBE)
 
+    def test_prepare_stage_only_exact_remote_mkdir_and_no_ca_transfer(self):
+        self.assertIn("os.mkdir(p, 0o700)", u.REMOTE_PREPARE)
+        self.assertIn("os.geteuid() == 1001", u.REMOTE_PREPARE)
+        self.assertIn("root.st_uid == 0", u.REMOTE_PREPARE)
+        self.assertIn("not os.listdir(p)", u.REMOTE_PREPARE)
+        for forbidden in ("sudo", "rsync", "shutil", "subprocess", "os.chmod",
+                          "os.remove", "os.rmdir", "os.system", "ca-private.key"):
+            self.assertNotIn(forbidden, u.REMOTE_PREPARE)
+        runner = mock.Mock(return_value=SimpleNamespace(
+            returncode=0, stdout=b"EMPTY_PRIVATE_STAGE_READY\\n"))
+        with mock.patch.object(u, "require_workstation") as approval, \\
+             mock.patch.object(u, "local_package") as local, \\
+             mock.patch.object(u.a1, "operator_settings",
+                               return_value=(u.a1.SSH_HOST, "ubuntu", "")), \\
+             mock.patch.object(u.shutil, "which",
+                               side_effect=lambda name: None if name == "rsync" else "/usr/bin/" + name), \\
+             mock.patch.object(u.a1, "check_edge_tls"), \\
+             redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(u.main(["prepare-stage"], env=self.env, runner=runner), 0)
+            approval.assert_called_once_with(self.env, ack=u.STAGE_ACK)
+            local.assert_not_called()
+        self.assertEqual(runner.call_count, 1)
+        argv = runner.call_args.args[0]
+        self.assertEqual(argv[-2], "ubuntu@" + u.a1.SSH_HOST)
+        self.assertIn("python3 -I -c", argv[-1])
+        self.assertIn("EMPTY_PRIVATE_STAGE_READY", argv[-1])
+        self.assertNotIn("rsync", str(argv))
+        self.assertEqual(runner.call_args.kwargs["timeout"], 35)
+        self.assertIn("secrets=not-transferred", out.getvalue())
+
+    def test_prepare_stage_rejects_remote_bad_state_and_ci(self):
+        for bad in (SimpleNamespace(returncode=21, stdout=b""),
+                    SimpleNamespace(returncode=0, stdout=b"UNVERIFIED")):
+            with self.subTest(bad=bad.stdout), self.assertRaises(u.Refused):
+                u.remote_stage_prepare("/usr/bin/ssh", "/usr/bin/cloudflared",
+                                       u.a1.SSH_HOST, "ubuntu", "",
+                                       runner=mock.Mock(return_value=bad))
+        with redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(u.main(["prepare-stage"], env={"CI": "true"}), 1)
+        self.assertIn("UPLOAD_REFUSED", err.getvalue())
+
     def test_synthetic_real_package_crypto_matches_local_generator(self):
         if not shutil.which("openssl"):
             self.skipTest("OpenSSL not available")
@@ -187,6 +228,7 @@ class UploadTests(unittest.TestCase):
     def test_make_targets_and_ci_rejection(self):
         for target, action in (("identity-prod-mongo-pki-upload-plan", "plan"),
                                ("identity-prod-mongo-pki-upload-check", "check"),
+                               ("identity-prod-mongo-pki-stage-prepare", "prepare-stage"),
                                ("identity-prod-mongo-pki-upload", "upload")):
             p = subprocess.run(["make", "--no-print-directory", "-n", target],
                                cwd=ROOT, capture_output=True, text=True, timeout=10)

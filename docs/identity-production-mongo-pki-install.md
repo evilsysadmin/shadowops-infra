@@ -14,11 +14,23 @@ carpeta transferible es `transfer-THREE-FILES-ONLY`. Conserva
 Su contraseña de desbloqueo debe quedar guardada y recuperable en un vault
 privado separado; jamás se transfiere al servidor.
 
-En la A1, como `ubuntu`, preparar un único staging dedicado:
+Desde L14, el operador recomendado crea/verifica exclusivamente el staging
+privado y **vacío** en el destino SSH canónico. Requiere usuario no-root,
+TTY, Cloudflare Access, SSH conocido y confirmación literal; **no transfiere
+archivos, no ejecuta sudo ni cambia Docker/Identity**:
 
 ```sh
-install -d -m 0700 "$HOME/shadowops-mongo-pki-stage"
+make identity-prod-mongo-pki-stage-prepare
+# ACK: PREPARE_EMPTY_PRODUCTION_MONGO_PKI_STAGE_ONLY
 ```
+
+Este comando rehúsa propietarios ajenos, permisos demasiado amplios,
+enlaces simbólicos, rutas inesperadas y directorios no vacíos. Si el
+directorio existe correctamente vacío, lo verifica sin modificarlo;
+en caso contrario no lo repara, borra ni sobrescribe. Como alternativa
+manual, en A1 como `ubuntu`, el equivalente es
+`install -d -m 0700 "$HOME/shadowops-mongo-pki-stage"`, seguido de
+verificación del estado antes de usar el operador de transferencia.
 
 Desde L14, usar el operador **local sin sudo** de transferencia
 exclusiva de la carpeta `transfer-THREE-FILES-ONLY`:
