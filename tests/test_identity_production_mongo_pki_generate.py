@@ -115,6 +115,32 @@ class PKIGenerationTests(unittest.TestCase):
             m.create_local_bundle(target)
         self.assertFalse(target.exists())
 
+    def test_ca_passphrase_uses_stdin_only_and_failed_openssl_is_refused(self):
+        secret = b"synthetic-secret-only-for-CI-test-more-than-32-bytes"
+        with mock.patch.object(m.subprocess, "run",
+                               return_value=SimpleNamespace(returncode=0)) as run:
+            m.run_openssl_secret(
+                "genpkey", "-aes-256-cbc", "-pass", "stdin",
+                ca_passphrase=secret,
+            )
+        args, kwargs = run.call_args
+        self.assertEqual(args[0][:2], ["openssl", "genpkey"])
+        self.assertNotIn(secret.decode(), " ".join(args[0]))
+        self.assertEqual(kwargs["input"], secret + bytes([10]))
+        self.assertNotIn("env", kwargs)
+        self.assertIs(kwargs["stdout"], subprocess.DEVNULL)
+        self.assertIs(kwargs["stderr"], subprocess.DEVNULL)
+        with mock.patch.object(m.subprocess, "run",
+                               return_value=SimpleNamespace(returncode=1)), \
+             self.assertRaises(m.Refused):
+            m.run_openssl_secret("genpkey", "-pass", "stdin",
+                                 ca_passphrase=secret)
+        for invalid in (b"weak", b"bad" + bytes([10]) + b"Z" * 40):
+            with mock.patch.object(m.subprocess, "run") as run, \
+                 self.assertRaises(m.Refused):
+                m.run_openssl_secret("genpkey", ca_passphrase=invalid)
+            run.assert_not_called()
+
     def test_root_ci_tty_and_confirmation_gates(self):
         tty = SimpleNamespace(isatty=lambda: True)
         bad = SimpleNamespace(isatty=lambda: False)
