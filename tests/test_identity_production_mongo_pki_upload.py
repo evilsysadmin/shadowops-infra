@@ -180,14 +180,14 @@ class UploadTests(unittest.TestCase):
                           "os.remove", "os.rmdir", "os.system", "ca-private.key"):
             self.assertNotIn(forbidden, u.REMOTE_PREPARE)
         runner = mock.Mock(return_value=SimpleNamespace(
-            returncode=0, stdout=b"EMPTY_PRIVATE_STAGE_READY\\n"))
-        with mock.patch.object(u, "require_workstation") as approval, \\
-             mock.patch.object(u, "local_package") as local, \\
+            returncode=0, stdout=b"EMPTY_PRIVATE_STAGE_READY\n"))
+        with mock.patch.object(u, "require_workstation") as approval, \
+             mock.patch.object(u, "local_package") as local, \
              mock.patch.object(u.a1, "operator_settings",
-                               return_value=(u.a1.SSH_HOST, "ubuntu", "")), \\
+                               return_value=(u.a1.SSH_HOST, "ubuntu", "")), \
              mock.patch.object(u.shutil, "which",
-                               side_effect=lambda name: None if name == "rsync" else "/usr/bin/" + name), \\
-             mock.patch.object(u.a1, "check_edge_tls"), \\
+                               side_effect=lambda name: None if name == "rsync" else "/usr/bin/" + name), \
+             mock.patch.object(u.a1, "check_edge_tls"), \
              redirect_stdout(io.StringIO()) as out:
             self.assertEqual(u.main(["prepare-stage"], env=self.env, runner=runner), 0)
             approval.assert_called_once_with(self.env, ack=u.STAGE_ACK)
