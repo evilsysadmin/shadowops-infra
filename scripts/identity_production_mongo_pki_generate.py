@@ -49,7 +49,7 @@ def passphrase_from_tty(*, prompt=getpass.getpass) -> bytes:
     except UnicodeError:
         raise Refused("invalid CA passphrase") from None
     if (not 32 <= len(raw) <= 512 or
-            b"\\x00" in raw or b"\\r" in raw or b"\\n" in raw):
+            b"\x00" in raw or b"\r" in raw or b"\n" in raw):
         raise Refused("CA passphrase must be strong and one line")
     return raw
 
@@ -63,12 +63,12 @@ def run_openssl_secret(*args: str, ca_passphrase: bytes, timeout=30) -> None:
     """
     if (not isinstance(ca_passphrase, bytes) or
             not 32 <= len(ca_passphrase) <= 512 or
-            b"\\n" in ca_passphrase or b"\\r" in ca_passphrase or
-            b"\\x00" in ca_passphrase):
+            b"\n" in ca_passphrase or b"\r" in ca_passphrase or
+            b"\x00" in ca_passphrase):
         raise Refused("unapproved CA passphrase")
     try:
         p = subprocess.run(
-            ["openssl", *args], input=ca_passphrase + b"\\n",
+            ["openssl", *args], input=ca_passphrase + b"\n",
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             timeout=timeout, check=False,
         )
