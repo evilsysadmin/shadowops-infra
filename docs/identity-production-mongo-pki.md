@@ -44,8 +44,9 @@ shadowops-identity-production-pki-v1/
     replica.key                # clave aleatoria para Mongo replica set
 ```
 
-- CA ECDSA P-256 independiente, vigencia 1.825 días. Conservar y
-  respaldar **cifrada fuera de A1** su clave privada para renovación.
+- CA ECDSA P-256 independiente, vigencia 1.825 días. La clave privada
+  firmante queda cifrada en PKCS#8 con AES-256 desde el primer instante;
+  respaldar **el fichero cifrado y su contraseña por separado** fuera de A1.
 - Certificado de servidor P-256 firmado por dicha CA, 365 días,
   `serverAuth`, SAN exactos
   `identity-mongo-production`, `localhost` y `127.0.0.1`.
