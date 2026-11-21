@@ -106,7 +106,7 @@ class PKIGenerationTests(unittest.TestCase):
         secret = "strong-private-CA-only-passphrase-2026-signature"
         self.assertEqual(m.passphrase_from_tty(prompt=lambda _: secret), secret.encode())
         for pair in (("mismatch-password-A-32-characters", "mismatch-password-B-32-characters"),
-                     ("weak", "weak"), ("bad\\nnewline" * 5, "bad\\nnewline" * 5)):
+                     ("weak", "weak"), ("bad\nnewline" * 5, "bad\nnewline" * 5)):
             answers = iter(pair)
             with self.subTest(pair=pair), self.assertRaises(m.Refused):
                 m.passphrase_from_tty(prompt=lambda _: next(answers))
