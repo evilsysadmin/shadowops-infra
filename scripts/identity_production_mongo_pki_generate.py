@@ -8,6 +8,7 @@ Never connects to A1, Docker, OCI, cloud, SSH or GitHub. Never overwrites.
 from __future__ import annotations
 
 import base64
+import getpass
 import os
 from pathlib import Path
 import secrets
@@ -35,6 +36,46 @@ def run_openssl(*args: str, timeout=30) -> None:
         raise Refused("native OpenSSL operation unavailable") from None
     if p.returncode != 0:
         raise Refused("native OpenSSL operation failed")
+
+
+def passphrase_from_tty(*, prompt=getpass.getpass) -> bytes:
+    """Two masked prompts, returned only to OpenSSL through anonymous stdin."""
+    first = prompt("New OFFLINE CA encryption passphrase (>=32 bytes): ")
+    repeated = prompt("Repeat OFFLINE CA encryption passphrase: ")
+    if first != repeated or not isinstance(first, str):
+        raise Refused("CA passphrase mismatch")
+    try:
+        raw = first.encode("utf-8")
+    except UnicodeError:
+        raise Refused("invalid CA passphrase") from None
+    if (not 32 <= len(raw) <= 512 or
+            b"\x00" in raw or b"\r" in raw or b"\n" in raw):
+        raise Refused("CA passphrase must be strong and one line")
+    return raw
+
+
+def run_openssl_secret(*args: str, ca_passphrase: bytes, timeout=30) -> None:
+    """Pass CA unlock/encryption phrase only through OpenSSL's stdin pipe.
+
+    No password on argv, environment, disk, stdout or stderr. The CA key
+    itself is generated directly as encrypted PKCS#8 without a plaintext
+    intermediate key file.
+    """
+    if (not isinstance(ca_passphrase, bytes) or
+            not 32 <= len(ca_passphrase) <= 512 or
+            b"\n" in ca_passphrase or b"\r" in ca_passphrase or
+            b"\x00" in ca_passphrase):
+        raise Refused("unapproved CA passphrase")
+    try:
+        p = subprocess.run(
+            ["openssl", *args], input=ca_passphrase + b"\n",
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=timeout, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        raise Refused("native encrypted OpenSSL unavailable") from None
+    if p.returncode != 0:
+        raise Refused("native encrypted OpenSSL operation failed")
 
 
 def authorization(*, env=None, euid=None, stdin=None, stdout=None, prompt=input):
@@ -71,12 +112,14 @@ def output_path(raw: str, *, home=None, euid=None) -> Path:
     return parent / path.name
 
 
-def create_local_bundle(directory: Path) -> None:
+def create_local_bundle(directory: Path, *, ca_passphrase: bytes) -> None:
     """Synthetic CI may call this in a disposable private directory.
 
     Actual CLI requires operator authorization *before* invoking this
     function, and is always denied in CI.
     """
+    if not isinstance(ca_passphrase, bytes) or not 32 <= len(ca_passphrase) <= 512:
+        raise Refused("strong CA encryption passphrase required")
     old_umask = os.umask(0o077)
     try:
         try:
@@ -99,14 +142,18 @@ def create_local_bundle(directory: Path) -> None:
 
         # Key material created by native OpenSSL under umask 077; no output
         # containing a key is sent to a terminal or log.
-        run_openssl("genpkey", "-algorithm", "EC", "-pkeyopt",
-                    "ec_paramgen_curve:P-256", "-out", str(ca_key))
-        run_openssl("req", "-new", "-x509", "-key", str(ca_key),
-                    "-days", "1825", "-sha256",
+        run_openssl_secret(
+            "genpkey", "-algorithm", "EC", "-pkeyopt",
+            "ec_paramgen_curve:P-256", "-aes-256-cbc", "-pass", "stdin",
+            "-out", str(ca_key), ca_passphrase=ca_passphrase,
+        )
+        run_openssl_secret(
+            "req", "-new", "-x509", "-key", str(ca_key),
+            "-passin", "stdin", "-days", "1825", "-sha256",
                     "-subj", "/CN=ShadowOps Identity Production Mongo CA",
                     "-addext", "basicConstraints=critical,CA:TRUE",
                     "-addext", "keyUsage=critical,keyCertSign,cRLSign",
-                    "-out", str(ca_cert))
+                    "-out", str(ca_cert), ca_passphrase=ca_passphrase)
         run_openssl("genpkey", "-algorithm", "EC", "-pkeyopt",
                     "ec_paramgen_curve:P-256", "-out", str(server_key))
         run_openssl("req", "-new", "-key", str(server_key),
@@ -117,11 +164,12 @@ def create_local_bundle(directory: Path) -> None:
             "extendedKeyUsage=serverAuth\n"
             "subjectAltName=DNS:identity-mongo-production,DNS:localhost,IP:127.0.0.1\n"
         )
-        run_openssl("x509", "-req", "-in", str(csr),
-                    "-CA", str(ca_cert), "-CAkey", str(ca_key),
-                    "-set_serial", "0x" + secrets.token_hex(16),
+        run_openssl_secret(
+            "x509", "-req", "-in", str(csr),
+            "-CA", str(ca_cert), "-CAkey", str(ca_key),
+            "-passin", "stdin", "-set_serial", "0x" + secrets.token_hex(16),
                     "-days", "365", "-sha256", "-extfile", str(ext),
-                    "-out", str(server_cert))
+                    "-out", str(server_cert), ca_passphrase=ca_passphrase)
 
         # Certificate chain then matching private key, in the single Mongo
         # --tlsCertificateKeyFile. Exclusive file creation and mode 0600.
@@ -151,6 +199,10 @@ def create_local_bundle(directory: Path) -> None:
             if not stat.S_ISREG(st.st_mode) or stat.S_IMODE(st.st_mode) != 0o600:
                 raise Refused("new private material has wrong mode")
 
+        # The signing CA key must never exist in plaintext even temporarily.
+        if not ca_key.read_bytes().startswith(b"-----BEGIN ENCRYPTED PRIVATE KEY-----"):
+            raise Refused("offline signing CA is not encrypted PKCS#8")
+
         # Remove redundant ephemeral server material after the combined PEM
         # is successfully verified. CA private key remains in OFFLINE ONLY.
         for p in (server_key, csr, server_cert, ext):
@@ -167,7 +219,7 @@ def main(argv: list[str]) -> int:
     if argv == ["plan"]:
         print("IDENTITY_PRODUCTION_MONGO_PKI_PLAN"
               " destination=local-private-home"
-              " ca_private=offline-only ca_duration=1825d"
+              " ca_private=encrypted-offline-only ca_duration=1825d"
               " leaf_duration=365d dns=production+localhost ip=127.0.0.1"
               " transfer=ca.pem+mongo.pem+replica.key"
               " overwrite=no remote=no root=no ci=no")
@@ -179,13 +231,14 @@ def main(argv: list[str]) -> int:
     try:
         authorization()
         dest = output_path(argv[1])
-        create_local_bundle(dest)
+        ca_passphrase = passphrase_from_tty()
+        create_local_bundle(dest, ca_passphrase=ca_passphrase)
     except Exception:
         print("IDENTITY_PRODUCTION_MONGO_PKI_REFUSED"
               " if-partial=inspect-private-local-directory", file=sys.stderr)
         return 1
     print("IDENTITY_PRODUCTION_MONGO_PKI_CREATED"
-          " ca_private=offline-only transfer=three-private-files"
+          " ca_private=aes256-encrypted-offline-only transfer=three-private-files"
           " target=operator-selected-directory remote=none")
     return 0
 

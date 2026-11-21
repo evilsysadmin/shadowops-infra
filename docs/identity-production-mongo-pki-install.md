@@ -11,6 +11,8 @@ Tras la generación local descrita en
 [PKI de Mongo producción](identity-production-mongo-pki.md), la única
 carpeta transferible es `transfer-THREE-FILES-ONLY`. Conserva
 `offline-ca-KEEP-LOCAL/ca-private.key` cifrada y **fuera de la A1**.
+Su contraseña de desbloqueo debe quedar guardada y recuperable en un vault
+privado separado; jamás se transfiere al servidor.
 
 En la A1, como `ubuntu`, preparar un único staging dedicado:
 

@@ -95,7 +95,7 @@ class InstallerTests(unittest.TestCase):
         generator = importlib.util.module_from_spec(gen_spec)
         gen_spec.loader.exec_module(generator)
         work = self.base / "synthetic-offline"
-        generator.create_local_bundle(work)
+        generator.create_local_bundle(work, ca_passphrase=b'test_only_43_char_offline_CA_passphrase_for_CI_2026')
         src = work / "transfer-THREE-FILES-ONLY"
         for name in op.NAMES:
             shutil.copyfile(src / name, self.stage / name)

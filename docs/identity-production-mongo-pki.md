@@ -17,6 +17,14 @@ make identity-prod-mongo-pki-generate
 # Escribir exactamente la confirmación que solicita el programa
 ```
 
+Además de la confirmación del operador, el generador solicita **dos veces**,
+con entrada oculta, una contraseña de cifrado de CA de al menos 32 bytes.
+Guárdala en tu vault privado con copia de recuperación verificada: **sin
+ella no podrás renovar ni recuperar certificados firmados por esa CA**.
+No introduzcas la contraseña en argv, variables de entorno ni archivos
+de texto. La clave de firma de la CA se genera **directamente cifrada
+AES-256 (PKCS#8)**, sin ningún archivo intermedio en claro.
+
 El directorio seleccionado **no debe existir previamente**. El
 programa exige un directorio padre dentro del HOME, de propiedad del
 usuario y sin escritura por grupo/otros. Crea el destino con 0700
@@ -29,15 +37,16 @@ Genera dos subdirectorios privados:
 ```text
 shadowops-identity-production-pki-v1/
   offline-ca-KEEP-LOCAL/
-    ca-private.key             # ¡NO transferir a la A1!
+    ca-private.key             # PKCS#8 cifrada; ¡NO transferir a la A1!
   transfer-THREE-FILES-ONLY/
     ca.pem                     # CA pública exclusiva de producción
     mongo.pem                  # certificado de servidor + su clave privada
     replica.key                # clave aleatoria para Mongo replica set
 ```
 
-- CA ECDSA P-256 independiente, vigencia 1.825 días. Conservar y
-  respaldar **cifrada fuera de A1** su clave privada para renovación.
+- CA ECDSA P-256 independiente, vigencia 1.825 días. La clave privada
+  firmante queda cifrada en PKCS#8 con AES-256 desde el primer instante;
+  respaldar **el fichero cifrado y su contraseña por separado** fuera de A1.
 - Certificado de servidor P-256 firmado por dicha CA, 365 días,
   `serverAuth`, SAN exactos
   `identity-mongo-production`, `localhost` y `127.0.0.1`.
@@ -46,7 +55,7 @@ shadowops-identity-production-pki-v1/
   **antes** de mostrar el resultado. Los intermedios temporales
   de firma del servidor se eliminan tras comprobar el PEM combinado.
 
-La CA privada queda en `offline-ca-KEEP-LOCAL` sin mezclarse con
+La CA privada **cifrada** queda en `offline-ca-KEEP-LOCAL` sin mezclarse con
 `transfer-THREE-FILES-ONLY`. No subir ninguno de los ficheros
 privados a GitHub, un chat, una incidencia, un servicio público ni
 la Library de artefactos. Proteger el portátil y almacenar una copia
