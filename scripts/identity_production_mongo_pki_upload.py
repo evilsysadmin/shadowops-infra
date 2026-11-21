@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """L14-only exact three-file Mongo production PKI upload over Cloudflare SSH.
 
-This never transfers offline-ca-KEEP-LOCAL or a signing CA key. No remote
-commands, sudo, deletion, stage creation, Docker, OCI or Identity activation.
+This never transfers offline-ca-KEEP-LOCAL or a signing CA key. No sudo, deletion, Docker, OCI or Identity activation. The separate
+operator-approved stage-preparation action creates only an empty private folder.
 The A1 root-only host installer remains authoritative after transfer.
 """
 from __future__ import annotations
@@ -33,6 +33,7 @@ TRANSFER = "transfer-THREE-FILES-ONLY"
 OFFLINE = "offline-ca-KEEP-LOCAL"
 DEST = "/home/ubuntu/shadowops-mongo-pki-stage/"
 ACK = "UPLOAD_THREE_PRODUCTION_MONGO_PKI_FILES_ONLY"
+STAGE_ACK = "PREPARE_EMPTY_PRODUCTION_MONGO_PKI_STAGE_ONLY"
 # Read-only, static remote probe. Do NOT allow rsync to create a world-
 # traversable directory if the authorized ubuntu staging was never created.
 REMOTE_PROBE = """import os, stat, sys
@@ -46,6 +47,29 @@ if not (stat.S_ISDIR(parent.st_mode) and parent.st_uid == 1001 and
         not os.listdir(p)):
     sys.exit(21)
 print('EMPTY_PRIVATE_STAGE')
+"""
+# The only permitted remote mutation: create an empty 0700 directory under
+# the checked canonical ubuntu home. Never chmod, overwrite or remove.
+REMOTE_PREPARE = """import os, stat, sys
+p = '/home/ubuntu/shadowops-mongo-pki-stage'
+root = os.lstat('/home')
+parent = os.lstat('/home/ubuntu')
+if not (os.geteuid() == 1001 and
+        stat.S_ISDIR(root.st_mode) and root.st_uid == 0 and
+        stat.S_IMODE(root.st_mode) & 0o022 == 0 and
+        stat.S_ISDIR(parent.st_mode) and parent.st_uid == 1001 and
+        stat.S_IMODE(parent.st_mode) & 0o022 == 0):
+    sys.exit(21)
+os.umask(0o077)
+try:
+    os.mkdir(p, 0o700)
+except FileExistsError:
+    pass
+s = os.lstat(p)
+if not (stat.S_ISDIR(s.st_mode) and s.st_uid == 1001 and
+        stat.S_IMODE(s.st_mode) == 0o700 and not os.listdir(p)):
+    sys.exit(21)
+print('EMPTY_PRIVATE_STAGE_READY')
 """
 MAX_BYTES = {"ca.pem": 131072, "mongo.pem": 131072, "replica.key": 2048}
 
@@ -173,8 +197,22 @@ def remote_stage_probe(ssh: str, cloudflared: str, host: str,
         raise Refused("remote staging must be empty, private and owned by ubuntu")
 
 
+def remote_stage_prepare(ssh: str, cloudflared: str, host: str,
+                         user: str, key: str, *, runner=subprocess.run) -> None:
+    args = a1.command(cloudflared, ssh, host, user, key) + [
+        "python3 -I -c " + shlex.quote(REMOTE_PREPARE)
+    ]
+    try:
+        response = runner(args, stdin=None, stdout=subprocess.PIPE,
+                          stderr=subprocess.DEVNULL, check=False, timeout=35)
+    except (OSError, subprocess.TimeoutExpired):
+        raise Refused("private A1 staging preparation failed") from None
+    if response.returncode != 0 or response.stdout.strip() != b"EMPTY_PRIVATE_STAGE_READY":
+        raise Refused("A1 staging not verified private and empty")
+
+
 def require_workstation(env: dict[str, str], *, euid=None,
-                        stdin=None, stdout=None, prompt=input) -> None:
+                        stdin=None, stdout=None, prompt=input, ack=ACK) -> None:
     euid = os.geteuid() if euid is None else euid
     stdin = sys.stdin if stdin is None else stdin
     stdout = sys.stdout if stdout is None else stdout
@@ -182,7 +220,7 @@ def require_workstation(env: dict[str, str], *, euid=None,
             platform.machine() not in ("x86_64", "aarch64") or
             not stdin.isatty() or not stdout.isatty()):
         raise Refused("interactive non-root workstation required")
-    if prompt("Approve upload of exactly three Mongo PKI files: ").strip() != ACK:
+    if prompt("Approve exact Mongo PKI operation: ").strip() != ack:
         raise Refused("operator declined PKI upload")
 
 
@@ -192,27 +230,34 @@ def main(argv: list[str], *, env=None, runner=subprocess.run) -> int:
               " source=private-L14-transfer-only"
               " target=canonical-Cloudflare-A1"
               " files=three-exact ca-private=never"
-              " overwrite=deny stage=must-preexist"
+              " overwrite=deny stage=manual-or-stage-prepare"
               " manual=rootless-tty-ack")
         return 0
-    if argv not in (["check"], ["upload"]):
-        print("Usage: identity_production_mongo_pki_upload.py plan|check|upload",
+    if argv not in (["check"], ["upload"], ["prepare-stage"]):
+        print("Usage: identity_production_mongo_pki_upload.py plan|check|prepare-stage|upload",
               file=sys.stderr)
         return 2
     env = os.environ if env is None else env
     try:
         if env.get("CI") or env.get("GITHUB_ACTIONS"):
             raise Refused("CI is prohibited")
-        if argv == ["upload"]:
-            require_workstation(env)
-        files = local_package(env)
-        check_crypto(files)
+        if argv in (["upload"], ["prepare-stage"]):
+            require_workstation(env, ack=STAGE_ACK if argv == ["prepare-stage"] else ACK)
+        if argv != ["prepare-stage"]:
+            files = local_package(env)
+            check_crypto(files)
         host, user, key = a1.operator_settings(env)
         cloudflared, ssh, rsync = (shutil.which(name) for name in
                                   ("cloudflared", "ssh", "rsync"))
-        if not cloudflared or not ssh or not rsync:
-            raise Refused("local cloudflared/ssh/rsync required")
+        if not cloudflared or not ssh or (argv != ["prepare-stage"] and not rsync):
+            raise Refused("local Cloudflare SSH tools required")
         a1.check_edge_tls(host)
+        if argv == ["prepare-stage"]:
+            remote_stage_prepare(ssh, cloudflared, host, user, key, runner=runner)
+            print("IDENTITY_PRODUCTION_MONGO_PKI_STAGE_READY"
+                  " path=fixed-private-empty"
+                  " docker=untouched secrets=not-transferred")
+            return 0
         if argv == ["check"]:
             print("IDENTITY_PRODUCTION_MONGO_PKI_UPLOAD_CHECK_OK"
                   " local=valid edge=tls"

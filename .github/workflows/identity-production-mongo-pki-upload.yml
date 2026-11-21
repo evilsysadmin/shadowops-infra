@@ -39,7 +39,12 @@ jobs:
           python3 -m py_compile scripts/identity_production_mongo_pki_upload.py
           make identity-prod-mongo-pki-upload-plan
           make --dry-run identity-prod-mongo-pki-upload-check
+          make --dry-run identity-prod-mongo-pki-stage-prepare
           make --dry-run identity-prod-mongo-pki-upload
+          if python3 -I scripts/identity_production_mongo_pki_upload.py prepare-stage; then
+            echo 'ERROR: CI could prepare production PKI staging' >&2
+            exit 1
+          fi
           if python3 -I scripts/identity_production_mongo_pki_upload.py upload; then
             echo 'ERROR: CI could upload production PKI' >&2
             exit 1
