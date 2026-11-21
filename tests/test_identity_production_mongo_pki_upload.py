@@ -179,7 +179,7 @@ class UploadTests(unittest.TestCase):
         g = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(g)
         work = self.home / "created-offline"
-        g.create_local_bundle(work)
+        g.create_local_bundle(work, ca_passphrase=b'test_only_43_char_offline_CA_passphrase_for_CI_2026')
         env = {"MONGO_PKI_OUTPUT_DIR": str(work)}
         files = u.local_package(env, uid=os.geteuid(), home=self.home)
         u.check_crypto(files)
