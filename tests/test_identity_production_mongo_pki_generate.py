@@ -39,13 +39,13 @@ class PKIGenerationTests(unittest.TestCase):
         good = subprocess.run(
             ["openssl", "pkey", "-in", str(offline / "ca-private.key"),
              "-passin", "stdin", "-noout"],
-            input=b'test_only_43_char_offline_CA_passphrase_for_CI_2026' + b"\\n", capture_output=True, timeout=10,
+            input=b'test_only_43_char_offline_CA_passphrase_for_CI_2026' + b"\n", capture_output=True, timeout=10,
         )
         self.assertEqual(good.returncode, 0)
         wrong = subprocess.run(
             ["openssl", "pkey", "-in", str(offline / "ca-private.key"),
              "-passin", "stdin", "-noout"],
-            input=b"incorrect-secrets-must-never-pass" + b"\\n",
+            input=b"incorrect-secrets-must-never-pass" + b"\n",
             capture_output=True, timeout=10,
         )
         self.assertNotEqual(wrong.returncode, 0)
