@@ -30,10 +30,25 @@ class PKIGenerationTests(unittest.TestCase):
 
     def test_real_offline_generation_crypto_and_separation(self):
         destination = self.home / "private-production-mongo"
-        m.create_local_bundle(destination)
+        m.create_local_bundle(destination, ca_passphrase=b'test_only_43_char_offline_CA_passphrase_for_CI_2026')
         offline = destination / "offline-ca-KEEP-LOCAL"
         transfer = destination / "transfer-THREE-FILES-ONLY"
         self.assertTrue((offline / "ca-private.key").is_file())
+        self.assertTrue((offline / "ca-private.key").read_bytes().startswith(
+            b"-----BEGIN ENCRYPTED PRIVATE KEY-----"))
+        good = subprocess.run(
+            ["openssl", "pkey", "-in", str(offline / "ca-private.key"),
+             "-passin", "stdin", "-noout"],
+            input=b'test_only_43_char_offline_CA_passphrase_for_CI_2026' + b"\\n", capture_output=True, timeout=10,
+        )
+        self.assertEqual(good.returncode, 0)
+        wrong = subprocess.run(
+            ["openssl", "pkey", "-in", str(offline / "ca-private.key"),
+             "-passin", "stdin", "-noout"],
+            input=b"incorrect-secrets-must-never-pass" + b"\\n",
+            capture_output=True, timeout=10,
+        )
+        self.assertNotEqual(wrong.returncode, 0)
         self.assertEqual({p.name for p in offline.iterdir()}, {"ca-private.key"})
         self.assertEqual({p.name for p in transfer.iterdir()}, set(m.NAMES))
         self.assertNotIn("ca-private.key", {p.name for p in transfer.iterdir()})
@@ -60,10 +75,10 @@ class PKIGenerationTests(unittest.TestCase):
 
     def test_new_bundle_is_never_overwritten(self):
         target = self.home / "bundle"
-        m.create_local_bundle(target)
+        m.create_local_bundle(target, ca_passphrase=b'test_only_43_char_offline_CA_passphrase_for_CI_2026')
         before = (target / "offline-ca-KEEP-LOCAL" / "ca-private.key").read_bytes()
         with self.assertRaises(m.Refused):
-            m.create_local_bundle(target)
+            m.create_local_bundle(target, ca_passphrase=b'test_only_43_char_offline_CA_passphrase_for_CI_2026')
         after = (target / "offline-ca-KEEP-LOCAL" / "ca-private.key").read_bytes()
         self.assertEqual(before, after)
 
@@ -86,6 +101,19 @@ class PKIGenerationTests(unittest.TestCase):
         with self.assertRaises(m.Refused):
             m.output_path(str(self.home / "nested" / "missing"),
                           home=self.home, euid=os.geteuid())
+
+    def test_passphrase_is_masked_double_entered_and_required(self):
+        secret = "strong-private-CA-only-passphrase-2026-signature"
+        self.assertEqual(m.passphrase_from_tty(prompt=lambda _: secret), secret.encode())
+        for pair in (("mismatch-password-A-32-characters", "mismatch-password-B-32-characters"),
+                     ("weak", "weak"), ("bad\\nnewline" * 5, "bad\\nnewline" * 5)):
+            answers = iter(pair)
+            with self.subTest(pair=pair), self.assertRaises(m.Refused):
+                m.passphrase_from_tty(prompt=lambda _: next(answers))
+        target = self.home / "must-not-exist-without-passphrase"
+        with self.assertRaises(TypeError):
+            m.create_local_bundle(target)
+        self.assertFalse(target.exists())
 
     def test_root_ci_tty_and_confirmation_gates(self):
         tty = SimpleNamespace(isatty=lambda: True)
@@ -116,7 +144,7 @@ class PKIGenerationTests(unittest.TestCase):
             "plan"], capture_output=True, text=True, timeout=10,
             env={"CI": "true", "PATH": os.environ.get("PATH", "/usr/bin:/bin")})
         self.assertEqual(plan.returncode, 0, plan.stderr)
-        self.assertIn("ca_private=offline-only", plan.stdout)
+        self.assertIn("ca_private=encrypted-offline-only", plan.stdout)
         self.assertIn("overwrite=no remote=no", plan.stdout)
 
     def test_make_targets_cannot_run_generate_automatically(self):
