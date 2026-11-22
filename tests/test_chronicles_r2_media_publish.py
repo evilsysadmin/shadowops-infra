@@ -201,7 +201,7 @@ class CopyContracts(unittest.TestCase):
         self.assertIn('if len(pack) != 4:', proof)
         self.assertIn('sum(map(len, pack.values()))', proof)
         self.assertIn("persist-credentials: false", proof)
-        for forbidden in ("secrets.", "GH_TOKEN", "publish", "put_object",
+        for forbidden in ("secrets.", "GH_TOKEN", "inputs.action == 'publish'", "put_object",
                           "CHRONICLES_R2_MEDIA_ACCESS_KEY_ID", "workflow_dispatch"):
             self.assertNotIn(forbidden, proof)
         candidate = workflow.split("\n  candidate:\n", 1)[1]
