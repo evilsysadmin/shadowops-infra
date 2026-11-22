@@ -43,9 +43,14 @@ class Client:
         self.instance = instance if instance is not None else project()
         self.missing = missing
         self.calls = []
+        self.result_info = None
         self.deployments = [{"project_name": "staradvs-staging",
                              "url": "https://old123." + ALIAS,
                              "aliases": ["https://old-branch." + ALIAS]}]
+
+    def request_with_info(self, path):
+        status, rows = self.request("GET", path)
+        return status, rows, copy.deepcopy(self.result_info)
 
     def request(self, method, path, data=None):
         self.calls.append((method, path, data))
@@ -171,8 +176,8 @@ class CutoverReadinessTests(unittest.TestCase):
         cf.deployments = [{"project_name": r.pages.PROJECT,
                            "url": f"https://history{i}.{ALIAS}", "aliases": []}
                           for i in range(51)]
-        hosts, count = r.historical_alias_hosts(cf, ready_project())
-        self.assertEqual((len(hosts), count), (51, 51))
+        hosts, count, total = r.historical_alias_hosts(cf, ready_project())
+        self.assertEqual((len(hosts), count, total), (51, 51, None))
         self.assertEqual(
             [path for method, path, _ in cf.calls if "/deployments" in path],
             [f"/accounts/{cf.account}/pages/projects/{r.pages.PROJECT}/deployments"])
@@ -182,8 +187,36 @@ class CutoverReadinessTests(unittest.TestCase):
         with self.assertRaisesRegex(r.CutoverBlocked, "bounded probe"):
             r.historical_alias_hosts(cf, ready_project())
         cf.deployments = []
-        self.assertEqual(r.historical_alias_hosts(cf, ready_project()), ([], 0))
+        self.assertEqual(r.historical_alias_hosts(cf, ready_project()), ([], 0, None))
         self.assertFalse(r.collect(cf, public)["next_gate_ready"])
+
+    def test_cloudflare_total_count_is_observable_but_not_release_authorization(self):
+        cf = Client(ready_project())
+        cf.result_info = {"page": 1, "per_page": 25, "count": 1, "total_count": 137}
+        hosts, count, total = r.historical_alias_hosts(cf, ready_project())
+        self.assertEqual((len(hosts), count, total), (2, 1, 137))
+        report = r.collect(cf, public)
+        self.assertEqual(report["historical_deployments_reported_total"], 137)
+        self.assertEqual(report["historical_deployments_scanned"], 1)
+        self.assertFalse(report["historical_inventory_complete"])
+        self.assertFalse(report["next_gate_ready"])
+        cf.result_info["total_count"] = 1
+        self.assertFalse(r.collect(cf, public)["next_gate_ready"])
+
+    def test_malformed_provider_pagination_rejected_without_secret_output(self):
+        cf = Client(ready_project())
+        for meta in ([], {"total_count": -1},
+                     {"total_count": True, "page": 1, "count": 1, "per_page": 25},
+                     {"total_count": 0, "page": 1, "count": 1, "per_page": 25},
+                     {"total_count": 1, "page": 2, "count": 1, "per_page": 25},
+                     {"total_count": 1, "page": 1, "count": 2, "per_page": 25},
+                     {"total_count": 1, "page": 1, "count": 1, "per_page": 0}):
+            with self.subTest(meta=meta):
+                cf.result_info = meta
+                with self.assertRaises(r.CutoverBlocked):
+                    r.historical_alias_hosts(cf, ready_project())
+        cf.result_info = {"page": 1, "count": 1, "per_page": 25}
+        self.assertIsNone(r.collect(cf, public)["historical_deployments_reported_total"])
 
     def test_deployment_list_permission_denial_is_pending_not_green_or_a_ci_crash(self):
         class DeniedListClient(Client):
