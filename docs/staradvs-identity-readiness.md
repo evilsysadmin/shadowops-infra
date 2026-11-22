@@ -56,8 +56,9 @@ Malformed/foreign hosts, provider errors, incomplete pagination, and inventories
 above the bounded 64-host probe limit fail closed (no cutover authorization).
 The audit uses the documented **bare GET /deployments** endpoint only.
 The explicit `page/per_page` query returned HTTP 400 across six owned Pages
-projects in the shared audit; this client does not expose Cloudflare's
-`result_info`. Therefore only the returned first page is sampled, **never**
+projects in the shared audit. The client now retains optional
+`result_info` for the first page, but cannot enumerate later pages. Only the
+returned first page is sampled, **never**
 the complete historical inventory. `historical_inventory_complete=false`
 is invariant until a separately tested pagination contract is implemented.
 Even unanimous 404 responses are reported as `sample-denied-404`, never
