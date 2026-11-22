@@ -43,6 +43,33 @@ jobs:
           persist-credentials: false
       - run: python3 -S -m unittest discover -s tests -p 'test_chronicles_r2_media_publish.py' -v
 
+
+  source-proof:
+    name: Chronicles media R2 · legacy public source SHA proof
+    needs: contracts
+    # Read-only and secretless on relevant PRs/main changes. No publish path.
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Fetch only four pinned original public files, SHA-256 verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -S - <<'PY'
+          import sys
+          sys.path.insert(0, "scripts")
+          from chronicles_r2_media_publish import prepare
+          pack = prepare()
+          if len(pack) != 4:
+              raise SystemExit("Unexpected number of pinned legacy source objects")
+          print("CHRONICLES_MEDIA_LEGACY_SHA_OK objects={} bytes={}".format(
+              len(pack), sum(map(len, pack.values()))))
+          PY
+
   candidate:
     name: Chronicles media R2 · manual source-admitted plan/publish
     needs: contracts

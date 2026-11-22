@@ -190,6 +190,24 @@ class CopyContracts(unittest.TestCase):
             with self.assertRaises(p.PublicationError):
                 p.publish(Race(self.pack), self.pack, SOURCE_SHA, "token")
 
+    def test_ci_proves_legacy_public_media_without_secrets_or_mutation(self):
+        workflow = (Path(__file__).resolve().parents[1] /
+                    ".github/workflows/chronicles-r2-media-copy.yml").read_text()
+        proof = workflow.split("\n  source-proof:\n", 1)[1].split("\n  candidate:\n", 1)[0]
+        self.assertIn("needs: contracts", proof)
+        self.assertIn("github.event_name == 'pull_request'", proof)
+        self.assertIn("github.event_name == 'push'", proof)
+        self.assertIn("from chronicles_r2_media_publish import prepare", proof)
+        self.assertIn('if len(pack) != 4:', proof)
+        self.assertIn('sum(map(len, pack.values()))', proof)
+        self.assertIn("persist-credentials: false", proof)
+        for forbidden in ("secrets.", "GH_TOKEN", "inputs.action == 'publish'", "put_object",
+                          "CHRONICLES_R2_MEDIA_ACCESS_KEY_ID", "workflow_dispatch"):
+            self.assertNotIn(forbidden, proof)
+        candidate = workflow.split("\n  candidate:\n", 1)[1]
+        self.assertIn("github.event_name == 'workflow_dispatch'", candidate)
+        self.assertIn("inputs.action == 'publish'", candidate)
+
     def test_s3_keys_are_dedicated_and_no_destructive_operations(self):
         code = Path(p.__file__).read_text(encoding="utf-8")
         self.assertIn('IfNoneMatch="*"', code)
