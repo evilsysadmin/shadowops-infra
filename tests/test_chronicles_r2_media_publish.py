@@ -134,11 +134,30 @@ class CopyContracts(unittest.TestCase):
             self.assertEqual(edge.call_count, 4)
             self.assertEqual(set(self.s3.data), {a.key for a in self.pack})
         receipt = p.candidate(self.pack)
-        self.assertEqual(receipt["activation"], "manual-pr-required")
-        self.assertEqual(set(receipt["assets"]), set(p.PINS_BY_ID))
+        # Artifact must be directly usable as the frontend manifest AFTER
+        # a separate reviewed source PR, with every content pin preserved.
+        expected = build_manifest(self.manifest)
+        expected["baseUrl"] = "https://" + p.media.HOST
         for logical, asset in p.PINS_BY_ID.items():
-            self.assertEqual(receipt["assets"][logical]["url"],
-                             p.url(p.media.HOST, asset.key))
+            expected["assets"][logical]["url"] = p.url(p.media.HOST, asset.key)
+        self.assertEqual(receipt, expected)
+        self.assertEqual(set(receipt), {"assets", "baseUrl", "version"})
+        self.assertEqual(receipt["version"], 1)
+
+    def test_candidate_is_fail_closed_for_partial_or_wrong_size_pack(self):
+        first = next(iter(self.pack))
+        without = dict(self.pack)
+        del without[first]
+        with self.assertRaisesRegex(p.PublicationError, "all four"):
+            p.candidate(without)
+        wrong_length = dict(self.pack)
+        wrong_length[first] = wrong_length[first][:-1]
+        with self.assertRaisesRegex(p.PublicationError, "length differs"):
+            p.candidate(wrong_length)
+        extra = dict(self.pack)
+        extra["unexpected"] = b"extra"
+        with self.assertRaisesRegex(p.PublicationError, "all four"):
+            p.candidate(extra)
 
     def test_conflicting_existing_bytes_block_all_new_writes(self):
         asset = next(iter(self.pack))
