@@ -212,9 +212,16 @@ def collect(client, probe=read_public) -> dict:
             raise CutoverBlocked("Malformed Pages project")
         report["pages_private_policy"], report["pages_app_proof"] = pages_posture(project)
         aliases = alias_hosts(project)
-        history, count = historical_alias_hosts(client, project)
-        report["historical_deployments_scanned"] = count
-        report["historical_aliases_scanned"] = len(history)
+        try:
+            history, count = historical_alias_hosts(client, project)
+            report["historical_deployments_scanned"] = count
+            report["historical_aliases_scanned"] = len(history)
+        except pages.AdmissionError:
+            # A read-only token may lack the separate deployment-list scope.
+            # Treat that as pending, never as empty/verified history; do not
+            # expose token details or downgrade unsafe ownership errors.
+            history = []
+            report["pages_historical_guest"] = "inventory-unavailable"
     else:
         aliases = []
         history = []
@@ -250,7 +257,8 @@ def collect(client, probe=read_public) -> dict:
         else:
             report["pages_alias_guest"] = "unverified-or-unavailable"
 
-    report["pages_historical_guest"] = history_guest_status(history, probe)
+    if history:
+        report["pages_historical_guest"] = history_guest_status(history, probe)
 
     # These conditions only admit a *subsequent real signed-in E2E*. Never an
     # automatic DNS/Pages/Identity cutover or production rollout.
