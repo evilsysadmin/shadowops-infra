@@ -40,7 +40,8 @@ are pinned by full SHA-256 hashes and lengths in the game manifest. Total:
    The publisher does **not** commit or activate it.
 8. Download that exact candidate artifact only from a verified successful
    publish workflow run. Independently review its full diff against the source
-   manifest: only the five hostname values may change (four URLs and baseUrl).
+   manifest: only five fields may change (four URLs and baseUrl), with
+   percent-encoding of spaces in URLs normalized without changing object keys.
    Apply it in a SEPARATE Chronicles source PR. Verify actual MP3 playback,
    mute, transitions and the Tactics GLB in a browser before approving.
    A green publication workflow is not evidence of gameplay compatibility.
