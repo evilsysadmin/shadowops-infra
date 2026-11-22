@@ -27,6 +27,7 @@ for(const width of [360,390,430,1440]){
     await expect(page.locator('#atlas-viewport')).toHaveAttribute('data-desk-still-life','folios-3-inkwell-quill');
     await expect(page.locator('#atlas-viewport')).toHaveAttribute('data-ceiling-rafters','4');
     await expect(page.locator('#atlas-viewport')).toHaveAttribute('data-rear-buttress','right-ashlar-arch');
+    await expect(page.locator('#atlas-viewport')).toHaveAttribute('data-arch-voussoirs','14');
     if(process.env.REQUIRE_BLENDER_ART==='1'){
       await expect(page.locator('#atlas-viewport')).toHaveAttribute('data-atlas-knight','loaded',{timeout:15000});
     }else{
