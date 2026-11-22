@@ -136,8 +136,9 @@ class CopyContracts(unittest.TestCase):
         receipt = p.candidate(self.pack)
         self.assertEqual(receipt["activation"], "manual-pr-required")
         self.assertEqual(set(receipt["assets"]), set(p.PINS_BY_ID))
-        self.assertTrue(all("assets.chronicles.shadowops.dpdns.org" in row["url"]
-                            for row in receipt["assets"].values()))
+        for logical, asset in p.PINS_BY_ID.items():
+            self.assertEqual(receipt["assets"][logical]["url"],
+                             p.url(p.media.HOST, asset.key))
 
     def test_conflicting_existing_bytes_block_all_new_writes(self):
         asset = next(iter(self.pack))
