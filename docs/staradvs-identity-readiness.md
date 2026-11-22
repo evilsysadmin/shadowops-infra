@@ -56,8 +56,9 @@ Malformed/foreign hosts, provider errors, incomplete pagination, and inventories
 above the bounded 64-host probe limit fail closed (no cutover authorization).
 The audit uses the documented **bare GET /deployments** endpoint only.
 The explicit `page/per_page` query returned HTTP 400 across six owned Pages
-projects in the shared audit; this client does not expose Cloudflare's
-`result_info`. Therefore only the returned first page is sampled, **never**
+projects in the shared audit. The client now retains optional
+`result_info` for the first page, but cannot enumerate later pages. Only the
+returned first page is sampled, **never**
 the complete historical inventory. `historical_inventory_complete=false`
 is invariant until a separately tested pagination contract is implemented.
 Even unanimous 404 responses are reported as `sample-denied-404`, never
@@ -74,3 +75,18 @@ reports `pages_historical_guest: inventory-unavailable` and `next_gate_ready:
 false` rather than treating inaccessible history as empty or green. The audit
 workflow remains diagnostically successful/pending, with no mutation. A
 malformed or foreign deployment record continues to raise an error.
+
+## Cloudflare-reported total (observability only)
+
+The Pages client now preserves optional `result_info` on the existing bare
+GET request. If Cloudflare reports consistent `page`, `per_page`, `count`
+and `total_count`, the sanitized report includes
+`historical_deployments_reported_total` (otherwise `null`). This count
+can reveal that 25 sampled deployments were only the first of many, but it
+is never interpreted as proof of complete alias enumeration: several releases
+may share one hostname, old aliases may exist outside the sample and a
+single reported page is not an authenticated security check.
+
+`historical_inventory_complete` stays false, including when reported
+`total_count` equals the observed count. Invalid pagination metadata fails
+closed; no secret, deployment URL or response body is logged.
