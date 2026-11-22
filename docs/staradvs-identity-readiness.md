@@ -44,3 +44,17 @@ probe covers current project aliases found via project metadata, not all
 historic deployment IDs. Older aliases require a separately scoped
 Cloudflare deployment inventory and an enforceable quarantine before
 claiming universal protection.
+
+## Historical Pages aliases (read-only)
+
+The cutover inventory now pages through the Cloudflare Pages deployment API,
+including historical immutable and branch aliases, not merely the latest two
+project pointers. Each validated Pages hostname is probed anonymously at `/`
+and `/release.json` using GET; only universal 404 qualifies as historical
+alias denial. Results include sanitized counts and `pages_historical_guest`.
+Malformed/foreign hosts, missing pages, incomplete pagination, and inventories
+above the bounded 64-host probe limit fail closed (no cutover authorization).
+The audit uses a bounded eight-worker read-only probe pool; it never changes
+DNS, Pages deployments, or Identity credentials. Cloudflare's canonical
+project hostname is checked separately; this check does not establish a signed-in
+user journey and cannot itself authorize a protected release.
