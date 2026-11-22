@@ -82,18 +82,17 @@ def alias_hosts(project: dict) -> list[str]:
 
 
 
-def historical_alias_hosts(client, project: dict, *, max_hosts: int = 64) -> tuple[list[str], int]:
+def historical_alias_hosts(client, project: dict, *, max_hosts: int = 64) -> tuple[list[str], int, int | None]:
     """Probe the *observed* first Pages history page. Never certify full history.
 
     Cloudflare's live API has returned HTTP 400 for explicit page/per_page
     parameters on multiple owned projects; the bare GET is independently
-    exercised by the shared games history audit. The current Cloudflare client
-    strips result_info, so a successful response is always a PARTIAL sample,
-    including an empty one. No caller can infer complete coverage from it.
+    exercised by the shared games history audit. Record provider result_info
+    only as a count hint, not proof of complete history (even on empty samples).
     """
     alias = project["subdomain"]
     path = f"/accounts/{client.account}/pages/projects/{pages.PROJECT}/deployments"
-    status, deployments = client.request("GET", path)
+    status, deployments, metadata = client.request_with_info(path)
     if status != 200 or not isinstance(deployments, list) or len(deployments) > 100:
         raise CutoverBlocked("Pages historical deployment sample unavailable")
     hosts: set[str] = set()
@@ -122,7 +121,19 @@ def historical_alias_hosts(client, project: dict, *, max_hosts: int = 64) -> tup
                 hosts.add(host)
             if len(hosts) > max_hosts:
                 raise CutoverBlocked("Pages alias sample exceeds bounded probe capacity")
-    return sorted(hosts), len(deployments)
+    total = None
+    if metadata is not None:
+        if not isinstance(metadata, dict):
+            raise CutoverBlocked("Malformed Pages pagination metadata")
+        if "total_count" in metadata:
+            total = metadata["total_count"]
+            if (type(total) is not int or total < len(deployments) or
+                    type(metadata.get("page")) is not int or metadata["page"] != 1 or
+                    type(metadata.get("count")) is not int or metadata["count"] != len(deployments) or
+                    type(metadata.get("per_page")) is not int or
+                    metadata["per_page"] < len(deployments)):
+                raise CutoverBlocked("Contradictory Pages pagination metadata")
+    return sorted(hosts), len(deployments), total
 
 
 def history_guest_status(hosts: list[str], probe=read_public) -> str:
@@ -186,6 +197,7 @@ def collect(client, probe=read_public) -> dict:
         "pages_historical_guest": "not-verified",
         "historical_inventory_complete": False,
         "historical_deployments_scanned": 0,
+        "historical_deployments_reported_total": None,
         "historical_aliases_scanned": 0,
         "signed_in_e2e": "not-performed",
         "can_activate": False,
@@ -200,7 +212,8 @@ def collect(client, probe=read_public) -> dict:
         report["pages_private_policy"], report["pages_app_proof"] = pages_posture(project)
         aliases = alias_hosts(project)
         try:
-            history, count = historical_alias_hosts(client, project)
+            history, count, total = historical_alias_hosts(client, project)
+            report["historical_deployments_reported_total"] = total
             report["historical_deployments_scanned"] = count
             report["historical_aliases_scanned"] = len(history)
         except pages.AdmissionError:
