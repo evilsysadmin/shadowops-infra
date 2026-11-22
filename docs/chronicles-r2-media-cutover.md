@@ -31,10 +31,19 @@ are pinned by full SHA-256 hashes and lengths in the game manifest. Total:
    policy. Readback from R2 and full public CDN SHA-256 must match. Uncertain
    uploads stop; do not blindly retry. Idempotent future runs reuse only exact
    copies. No deletions or overwrites are implemented.
-7. A successful publish generates a candidate manifest artifact for a
-   SEPARATE Chronicles source PR. Verify actual MP3 playback, mute, transitions
-   and the Tactics GLB in a browser before approving that source PR. Do not
-   replace the game URLs based only on workflow creation.
+7. Only after all four target objects pass the public CDN SHA proof, a
+   successful publish uploads `chronicles-media-r2-candidate.json` as a
+   **candidate artifact**. Its exact JSON shape matches
+   `frontend/src/assets/r2-assets-manifest.json` in Chronicles: the same
+   four logical IDs, keys, sizes, SHA-256 and MIME types, with the four URLs
+   and `baseUrl` switched together to the dedicated Chronicles R2 hostname.
+   The publisher does **not** commit or activate it.
+8. Download that exact candidate artifact only from a verified successful
+   publish workflow run. Independently review its full diff against the source
+   manifest: only the five hostname values may change (four URLs and baseUrl).
+   Apply it in a SEPARATE Chronicles source PR. Verify actual MP3 playback,
+   mute, transitions and the Tactics GLB in a browser before approving.
+   A green publication workflow is not evidence of gameplay compatibility.
 
 ## Safety and scope
 
