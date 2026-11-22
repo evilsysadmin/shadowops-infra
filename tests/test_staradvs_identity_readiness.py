@@ -56,12 +56,8 @@ class Client:
         if "/dns_records?" in path:
             return 200, [{"name": r.pages.HOST, "type": "CNAME",
                           "content": r.pages.TARGET, "proxied": True}]
-        if "/pages/projects/" + r.pages.PROJECT + "/deployments?" in path:
-            from urllib.parse import parse_qs, urlsplit
-            args = parse_qs(urlsplit(path).query)
-            page = int(args["page"][0])
-            size = int(args["per_page"][0])
-            return 200, copy.deepcopy(self.deployments[(page - 1) * size:page * size])
+        if path.endswith("/pages/projects/" + r.pages.PROJECT + "/deployments"):
+            return 200, copy.deepcopy(self.deployments)
         if path.endswith("/pages/projects/" + r.pages.PROJECT):
             return (404, None) if self.missing else (200, copy.deepcopy(self.instance))
         if path.endswith("/domains/" + r.pages.HOST):
@@ -81,16 +77,17 @@ def public(url, method):
 
 
 class CutoverReadinessTests(unittest.TestCase):
-    def test_fully_prepared_environment_only_admits_future_signed_in_e2e(self):
+    def test_prepared_current_hosts_never_certify_incomplete_history(self):
         cf = Client(ready_project())
         result = r.collect(cf, public)
-        self.assertTrue(result["next_gate_ready"])
+        self.assertFalse(result["next_gate_ready"])
+        self.assertIs(result["historical_inventory_complete"], False)
         self.assertIs(result["can_activate"], False)
         self.assertEqual(result["signed_in_e2e"], "not-performed")
         self.assertEqual(result["pages_app_proof"], "bound")
         self.assertEqual(result["identity_login"], "audience-recognized")
         self.assertEqual(result["pages_alias_guest"], "denied-404")
-        self.assertEqual(result["pages_historical_guest"], "denied-404")
+        self.assertEqual(result["pages_historical_guest"], "sample-denied-404")
         self.assertEqual(result["historical_deployments_scanned"], 1)
         self.assertEqual(result["historical_aliases_scanned"], 2)
         self.assertNotIn("MUST_NOT_PRINT", json.dumps(result))
@@ -169,32 +166,36 @@ class CutoverReadinessTests(unittest.TestCase):
         self.assertEqual(state["pages_alias_guest"], "denied-404")
         self.assertEqual(state["pages_historical_guest"], "anonymous-content-observed")
 
-    def test_historical_inventory_checks_multiple_pages_without_silent_truncation(self):
+    def test_historical_sample_uses_known_working_bare_get_and_never_claims_complete(self):
         cf = Client(ready_project())
         cf.deployments = [{"project_name": r.pages.PROJECT,
                            "url": f"https://history{i}.{ALIAS}", "aliases": []}
                           for i in range(51)]
-        hosts, count = r.historical_alias_hosts(cf, ready_project(), per_page=50)
-        self.assertEqual(count, 51)
-        self.assertEqual(len(hosts), 51)
-        self.assertTrue(any("page=2" in path for _, path, _ in cf.calls))
+        hosts, count = r.historical_alias_hosts(cf, ready_project())
+        self.assertEqual((len(hosts), count), (51, 51))
+        self.assertEqual(
+            [path for method, path, _ in cf.calls if "/deployments" in path],
+            [f"/accounts/{cf.account}/pages/projects/{r.pages.PROJECT}/deployments"])
         cf.deployments += [{"project_name": r.pages.PROJECT,
                             "url": f"https://history{i}.{ALIAS}", "aliases": []}
                            for i in range(51, 70)]
         with self.assertRaisesRegex(r.CutoverBlocked, "bounded probe"):
-            r.historical_alias_hosts(cf, ready_project(), per_page=50)
-
+            r.historical_alias_hosts(cf, ready_project())
+        cf.deployments = []
+        self.assertEqual(r.historical_alias_hosts(cf, ready_project()), ([], 0))
+        self.assertFalse(r.collect(cf, public)["next_gate_ready"])
 
     def test_deployment_list_permission_denial_is_pending_not_green_or_a_ci_crash(self):
         class DeniedListClient(Client):
             def request(self, method, path, data=None):
-                if "/deployments?" in path:
+                if path.endswith("/deployments"):
                     raise r.pages.AdmissionError("Cloudflare GET failed (HTTP 403)")
                 return super().request(method, path, data)
         state = r.collect(DeniedListClient(ready_project()), public)
         self.assertFalse(state["next_gate_ready"])
         self.assertIs(state["can_activate"], False)
         self.assertEqual(state["pages_historical_guest"], "inventory-unavailable")
+        self.assertFalse(state["historical_inventory_complete"])
         self.assertEqual(state["historical_aliases_scanned"], 0)
 
     def test_historical_inventory_foreign_alias_and_unreachable_are_not_ready(self):
