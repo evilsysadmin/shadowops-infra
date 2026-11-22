@@ -250,11 +250,28 @@ def publish(client, pack, source_sha, token):
 
 
 def candidate(pack):
-    return {"schema": 1, "activation": "manual-pr-required", "assets": {
-        logical: {"url": url(media.HOST, asset.key), "key": asset.key,
-                  "bytes": asset.size, "sha256": asset.sha256, "contentType": asset.mime}
-        for logical, asset in PINS_BY_ID.items() if asset in pack
-    }}
+    """Exact Chronicles frontend manifest shape for a separately reviewed PR.
+
+    Generated only after R2 readback and independent public edge proof in main().
+    Never change the running game, a GitHub ref, or a pointer here.
+    """
+    if not isinstance(pack, dict) or set(pack) != set(media.PINS):
+        raise PublicationError("Candidate requires all four pinned media objects")
+    if any(not isinstance(pack[asset], bytes) or len(pack[asset]) != asset.size
+           for asset in media.PINS):
+        raise PublicationError("Candidate source object length differs from pin")
+    return {
+        "assets": {
+            logical: {
+                "bytes": asset.size, "contentType": asset.mime,
+                "key": asset.key, "sha256": asset.sha256,
+                "url": url(media.HOST, asset.key),
+            }
+            for logical, asset in PINS_BY_ID.items()
+        },
+        "baseUrl": "https://" + media.HOST,
+        "version": 1,
+    }
 
 
 def main(argv=None, environ=None):
