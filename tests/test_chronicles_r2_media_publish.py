@@ -97,12 +97,12 @@ class CopyContracts(unittest.TestCase):
             p.prepare(fetch=lambda url, size: b"not original media")
 
     def test_read_only_plan_never_requests_s3_or_cloudflare_credentials(self):
-        with patch.object(p, "prepare", return_value=self.pack), \
+        with patch.object(p, "SOURCE_MANIFEST", self.manifest), \
+             patch.object(p, "prepare", return_value=self.pack), \
              patch.object(p, "create_client") as client, \
              patch.object(p, "verify_domain") as domain, \
              patch.object(p, "admit") as admission:
-            self.assertEqual(p.main(["plan", "--manifest", str(self.manifest),
-                                     "--source-sha", SOURCE_SHA], {}), 0)
+            self.assertEqual(p.main(["plan", "--source-sha", SOURCE_SHA], {}), 0)
             client.assert_not_called()
             domain.assert_not_called()
             admission.assert_not_called()
@@ -111,8 +111,7 @@ class CopyContracts(unittest.TestCase):
         with patch.object(p, "prepare", return_value=self.pack), \
              patch.object(p, "create_client") as client, \
              patch.object(p, "verify_domain") as domain:
-            self.assertEqual(p.main(["publish", "--manifest", str(self.manifest),
-                                     "--source-sha", SOURCE_SHA], {}), 1)
+            self.assertEqual(p.main(["publish", "--source-sha", SOURCE_SHA], {}), 1)
             client.assert_not_called()
             domain.assert_not_called()
 
@@ -197,6 +196,9 @@ class CopyContracts(unittest.TestCase):
         self.assertNotIn("delete_object(", code)
         self.assertNotIn("copy_object(", code)
         self.assertNotIn("CHRONICLES_R2_PORTRAIT_ACCESS_KEY_ID", code)
+        self.assertNotIn('parser.add_argument("--manifest"', code)
+        self.assertNotIn('parser.add_argument("--candidate"', code)
+        self.assertIn('CANDIDATE_FILE.open("x"', code)
         self.assertEqual(p.PREFIX, "chronicles/")
         self.assertEqual(p.BUCKET, "chronicles")
 
