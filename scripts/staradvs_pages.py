@@ -47,6 +47,17 @@ class CloudflareClient:
             raise AdmissionError("Malformed Cloudflare account ID")
 
     def request(self, method: str, path: str, data: dict | None = None):
+        status, envelope = self._request_envelope(method, path, data)
+        return status, None if envelope is None else envelope.get("result")
+
+    def request_with_info(self, path: str):
+        """GET the provider envelope, including optional pagination metadata."""
+        status, envelope = self._request_envelope("GET", path)
+        if envelope is None:
+            return status, None, None
+        return status, envelope.get("result"), envelope.get("result_info")
+
+    def _request_envelope(self, method: str, path: str, data: dict | None = None):
         if not path.startswith("/") or ".." in path or "://" in path:
             raise AdmissionError("Unsafe Cloudflare endpoint")
         body = None if data is None else json.dumps(data).encode("utf-8")
@@ -70,7 +81,7 @@ class CloudflareClient:
             raise AdmissionError("Malformed Cloudflare response") from None
         if not isinstance(payload, dict) or payload.get("success") is not True:
             raise AdmissionError("Cloudflare denied operation")
-        return status, payload.get("result")
+        return status, payload
 
 
 def paths(account: str, zone: str) -> dict[str, str]:
