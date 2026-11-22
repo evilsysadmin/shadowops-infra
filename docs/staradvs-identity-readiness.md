@@ -48,19 +48,28 @@ claiming universal protection.
 ## Historical Pages aliases (read-only)
 
 The cutover inventory now pages through the Cloudflare Pages deployment API,
-including historical immutable and branch aliases, not merely the latest two
-project pointers. Each validated Pages hostname is probed anonymously at `/`
+including historical immutable and branch aliases seen on the first returned
+page, not merely the latest two project pointers. Each validated Pages hostname is probed anonymously at `/`
 and `/release.json` using GET; only universal 404 qualifies as historical
 alias denial. Results include sanitized counts and `pages_historical_guest`.
-Malformed/foreign hosts, missing pages, incomplete pagination, and inventories
+Malformed/foreign hosts, provider errors, incomplete pagination, and inventories
 above the bounded 64-host probe limit fail closed (no cutover authorization).
+The audit uses the documented **bare GET /deployments** endpoint only.
+The explicit `page/per_page` query returned HTTP 400 across six owned Pages
+projects in the shared audit; this client does not expose Cloudflare's
+`result_info`. Therefore only the returned first page is sampled, **never**
+the complete historical inventory. `historical_inventory_complete=false`
+is invariant until a separately tested pagination contract is implemented.
+Even unanimous 404 responses are reported as `sample-denied-404`, never
+full guest-denial certification. An empty list is not verification. The live
+cutover gate stays blocked regardless of this sample.
+
 The audit uses a bounded eight-worker read-only probe pool; it never changes
 DNS, Pages deployments, or Identity credentials. Cloudflare's canonical
 project hostname is checked separately; this check does not establish a signed-in
 user journey and cannot itself authorize a protected release.
 
-If Cloudflare denies the separate GET deployment-list API (for example a
-restricted token without Pages deployment inventory permission), readiness
+If Cloudflare denies even the bare GET deployment-list API, readiness
 reports `pages_historical_guest: inventory-unavailable` and `next_gate_ready:
 false` rather than treating inaccessible history as empty or green. The audit
 workflow remains diagnostically successful/pending, with no mutation. A
