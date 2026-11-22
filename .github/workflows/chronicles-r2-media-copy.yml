@@ -1,0 +1,113 @@
+name: Chronicles · controlled R2 media copy
+on:
+  pull_request:
+    paths:
+      - .github/workflows/chronicles-r2-media-copy.yml
+      - scripts/chronicles_r2_media_publish.py
+      - tests/test_chronicles_r2_media_publish.py
+      - scripts/chronicles_r2_media_probe.py
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/chronicles-r2-media-copy.yml
+      - scripts/chronicles_r2_media_publish.py
+      - tests/test_chronicles_r2_media_publish.py
+      - scripts/chronicles_r2_media_probe.py
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Plan verifies legacy public bytes; publish conditionally writes four fixed files"
+        type: choice
+        required: true
+        default: plan
+        options: [plan, publish]
+      source_sha:
+        description: "Exact protected Chronicles main SHA with three required workflows green"
+        type: string
+        required: true
+      confirm_bucket:
+        description: "For publish only, type exactly chronicles"
+        type: string
+        required: false
+permissions:
+  contents: read
+  actions: read
+jobs:
+  contracts:
+    name: Chronicles media R2 copy · offline security contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -S -m unittest discover -s tests -p 'test_chronicles_r2_media_publish.py' -v
+
+  candidate:
+    name: Chronicles media R2 · manual source-admitted plan/publish
+    needs: contracts
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      (inputs.action == 'plan' ||
+       (inputs.action == 'publish' && inputs.confirm_bucket == 'chronicles'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    concurrency:
+      group: shadowops-chronicles-r2-media-copy
+      cancel-in-progress: false
+    environment:
+      name: staging
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Gate source and Infrastructure main before touching assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ && "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+          test "$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)" = "$SOURCE_SHA"
+          test "$(python3 scripts/chronicles_source_ci.py "$SOURCE_SHA")" = ready
+      - uses: actions/checkout@v4
+        with:
+          repository: evilsysadmin/chronicles-of-matthias
+          ref: ${{ inputs.source_sha }}
+          path: chronicles-source
+          persist-credentials: false
+      - name: Public legacy source SHA verification (read-only plan)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C chronicles-source rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 -S scripts/chronicles_r2_media_publish.py plan --manifest chronicles-source/frontend/src/assets/r2-assets-manifest.json --source-sha "$SOURCE_SHA"
+      - name: Install dedicated S3 client only when publishing
+        if: inputs.action == 'publish'
+        run: python3 -m pip install --disable-pip-version-check --no-cache-dir 'boto3==1.40.44'
+      - name: Recheck protected main and green CI, then conditional publish
+        if: inputs.action == 'publish'
+        shell: bash
+        env:
+          CHRONICLES_R2_ACCOUNT_ID: ${{ secrets.CHRONICLES_R2_ACCOUNT_ID }}
+          CHRONICLES_R2_READ_TOKEN: ${{ secrets.CHRONICLES_R2_READ_TOKEN }}
+          CHRONICLES_R2_MEDIA_ACCESS_KEY_ID: ${{ secrets.CHRONICLES_R2_MEDIA_ACCESS_KEY_ID }}
+          CHRONICLES_R2_MEDIA_SECRET_ACCESS_KEY: ${{ secrets.CHRONICLES_R2_MEDIA_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
+          test "$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)" = "$SOURCE_SHA"
+          test "$(python3 scripts/chronicles_source_ci.py "$SOURCE_SHA")" = ready
+          python3 scripts/chronicles_r2_media_publish.py publish --manifest chronicles-source/frontend/src/assets/r2-assets-manifest.json --source-sha "$SOURCE_SHA" --confirm-bucket chronicles --candidate chronicles-media-r2-candidate.json
+      - name: Retain candidate manifest for independent source activation PR
+        if: inputs.action == 'publish'
+        uses: actions/upload-artifact@v4
+        with:
+          name: chronicles-media-r2-candidate-${{ inputs.source_sha }}
+          retention-days: 14
+          if-no-files-found: error
+          path: chronicles-media-r2-candidate.json
