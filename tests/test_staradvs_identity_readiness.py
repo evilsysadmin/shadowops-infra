@@ -43,6 +43,9 @@ class Client:
         self.instance = instance if instance is not None else project()
         self.missing = missing
         self.calls = []
+        self.deployments = [{"project_name": "staradvs-staging",
+                             "url": "https://old123." + ALIAS,
+                             "aliases": ["https://old-branch." + ALIAS]}]
 
     def request(self, method, path, data=None):
         self.calls.append((method, path, data))
@@ -53,6 +56,12 @@ class Client:
         if "/dns_records?" in path:
             return 200, [{"name": r.pages.HOST, "type": "CNAME",
                           "content": r.pages.TARGET, "proxied": True}]
+        if "/pages/projects/" + r.pages.PROJECT + "/deployments?" in path:
+            from urllib.parse import parse_qs, urlsplit
+            args = parse_qs(urlsplit(path).query)
+            page = int(args["page"][0])
+            size = int(args["per_page"][0])
+            return 200, copy.deepcopy(self.deployments[(page - 1) * size:page * size])
         if path.endswith("/pages/projects/" + r.pages.PROJECT):
             return (404, None) if self.missing else (200, copy.deepcopy(self.instance))
         if path.endswith("/domains/" + r.pages.HOST):
@@ -81,6 +90,9 @@ class CutoverReadinessTests(unittest.TestCase):
         self.assertEqual(result["pages_app_proof"], "bound")
         self.assertEqual(result["identity_login"], "audience-recognized")
         self.assertEqual(result["pages_alias_guest"], "denied-404")
+        self.assertEqual(result["pages_historical_guest"], "denied-404")
+        self.assertEqual(result["historical_deployments_scanned"], 1)
+        self.assertEqual(result["historical_aliases_scanned"], 2)
         self.assertNotIn("MUST_NOT_PRINT", json.dumps(result))
         self.assertTrue(all(method == "GET" and data is None for method, _, data in cf.calls))
 
@@ -96,6 +108,7 @@ class CutoverReadinessTests(unittest.TestCase):
         self.assertFalse(state["next_gate_ready"])
         self.assertEqual(state["canonical_guest"], "anonymous-content-observed")
         self.assertEqual(state["pages_alias_guest"], "anonymous-content-observed")
+        self.assertEqual(state["pages_historical_guest"], "anonymous-content-observed")
 
     def test_missing_proof_policy_or_login_never_approves_cutover(self):
         variations = [
@@ -140,6 +153,46 @@ class CutoverReadinessTests(unittest.TestCase):
                     prod["env_vars"]["FOREIGN_SECRET"] = {"type": "secret_text"}
                 state = r.collect(Client(p), public)
                 self.assertFalse(state["next_gate_ready"])
+
+
+    def test_historical_alias_exposure_blocks_even_when_current_alias_is_closed(self):
+        cf = Client(ready_project())
+        def guest(url, method):
+            if url.startswith(r.ISSUER):
+                return 200, RETURN
+            if "old123." + ALIAS in url:
+                return 200, b"old public build"
+            return public(url, method)
+        state = r.collect(cf, guest)
+        self.assertFalse(state["next_gate_ready"])
+        self.assertEqual(state["canonical_guest"], "denied-401")
+        self.assertEqual(state["pages_alias_guest"], "denied-404")
+        self.assertEqual(state["pages_historical_guest"], "anonymous-content-observed")
+
+    def test_historical_inventory_checks_multiple_pages_without_silent_truncation(self):
+        cf = Client(ready_project())
+        cf.deployments = [{"project_name": r.pages.PROJECT,
+                           "url": f"https://history{i}.{ALIAS}", "aliases": []}
+                          for i in range(51)]
+        hosts, count = r.historical_alias_hosts(cf, ready_project(), per_page=50)
+        self.assertEqual(count, 51)
+        self.assertEqual(len(hosts), 51)
+        self.assertTrue(any("page=2" in path for _, path, _ in cf.calls))
+        cf.deployments += [{"project_name": r.pages.PROJECT,
+                            "url": f"https://history{i}.{ALIAS}", "aliases": []}
+                           for i in range(51, 70)]
+        with self.assertRaisesRegex(r.CutoverBlocked, "bounded probe"):
+            r.historical_alias_hosts(cf, ready_project(), per_page=50)
+
+    def test_historical_inventory_foreign_alias_and_unreachable_are_not_ready(self):
+        cf = Client(ready_project())
+        cf.deployments[0]["aliases"] = ["https://evil.example"]
+        with self.assertRaises(r.CutoverBlocked):
+            r.historical_alias_hosts(cf, ready_project())
+        cf.deployments[0]["aliases"] = ["https://old-branch." + ALIAS]
+        self.assertEqual(r.history_guest_status(["old123." + ALIAS],
+                         lambda url, method: (503, b"")), "unverified-or-unavailable")
+        self.assertEqual(r.history_guest_status([]), "not-verified")
 
     def test_workflow_is_read_only_never_admits_a_cloud_write(self):
         path = ROOT / ".github/workflows/staradvs-identity-readiness.yml"
