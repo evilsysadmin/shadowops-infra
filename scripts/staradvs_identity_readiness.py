@@ -82,61 +82,47 @@ def alias_hosts(project: dict) -> list[str]:
 
 
 
-def historical_alias_hosts(client, project: dict, *,
-                           per_page: int = 50, max_pages: int = 5,
-                           max_hosts: int = 64) -> tuple[list[str], int]:
-    """Enumerate *all* current and historic Pages deployment URLs, GET-only.
+def historical_alias_hosts(client, project: dict, *, max_hosts: int = 64) -> tuple[list[str], int]:
+    """Probe the *observed* first Pages history page. Never certify full history.
 
-    Pages deployment aliases remain live after a newer main deployment. Never
-    infer historical privacy from the canonical host or latest deployment.
-    Excessive/malformed/foreign inventories fail closed rather than returning
-    an incomplete green report.
+    Cloudflare's live API has returned HTTP 400 for explicit page/per_page
+    parameters on multiple owned projects; the bare GET is independently
+    exercised by the shared games history audit. The current Cloudflare client
+    strips result_info, so a successful response is always a PARTIAL sample,
+    including an empty one. No caller can infer complete coverage from it.
     """
     alias = project["subdomain"]
+    path = f"/accounts/{client.account}/pages/projects/{pages.PROJECT}/deployments"
+    status, deployments = client.request("GET", path)
+    if status != 200 or not isinstance(deployments, list) or len(deployments) > 100:
+        raise CutoverBlocked("Pages historical deployment sample unavailable")
     hosts: set[str] = set()
-    inspected = 0
-    for page in range(1, max_pages + 2):
-        path = (f"/accounts/{client.account}/pages/projects/{pages.PROJECT}"
-                f"/deployments?page={page}&per_page={per_page}")
-        status, deployments = client.request("GET", path)
-        if status != 200 or not isinstance(deployments, list) or len(deployments) > per_page:
-            raise CutoverBlocked("Pages historical deployment inventory unavailable")
-        if page > max_pages:
-            if deployments:
-                raise CutoverBlocked("Pages history exceeds bounded page inventory")
-            break
-        for deployment in deployments:
-            if not isinstance(deployment, dict) or deployment.get("project_name") != pages.PROJECT:
-                raise CutoverBlocked("Foreign or malformed Pages deployment")
-            aliases = deployment.get("aliases") or []
-            if not isinstance(aliases, list) or any(not isinstance(x, str) for x in aliases):
-                raise CutoverBlocked("Malformed historical alias list")
-            urls = [deployment.get("url"), *aliases]
-            for value in urls:
-                if not isinstance(value, str) or not value:
-                    raise CutoverBlocked("Pages history missing URL")
-                # Cloudflare documents aliases as HTTPS URLs. Treat naked
-                # hostnames as malformed rather than silently correcting them.
-                try:
-                    parsed = urllib.parse.urlsplit(value)
-                    port = parsed.port
-                except ValueError:
-                    raise CutoverBlocked("Malformed historical deployment URL") from None
-                host = parsed.hostname
-                if (parsed.scheme != "https" or parsed.username or parsed.password or
-                        port is not None or parsed.path not in ("", "/") or
-                        parsed.query or parsed.fragment or not host or
-                        not (host == alias or host.endswith("." + alias) or
-                             host == pages.HOST)):
-                    raise CutoverBlocked("Foreign historical Pages alias")
-                if host != pages.HOST:  # Canonical host has its own stronger probes.
-                    hosts.add(host)
-                if len(hosts) > max_hosts:
-                    raise CutoverBlocked("Pages alias inventory exceeds bounded probe capacity")
-            inspected += 1
-        if len(deployments) < per_page:
-            break
-    return sorted(hosts), inspected
+    for deployment in deployments:
+        if not isinstance(deployment, dict) or deployment.get("project_name") not in (None, pages.PROJECT):
+            raise CutoverBlocked("Foreign or malformed Pages deployment")
+        aliases = deployment.get("aliases") or []
+        if not isinstance(aliases, list) or any(not isinstance(x, str) for x in aliases):
+            raise CutoverBlocked("Malformed historical alias list")
+        for value in [deployment.get("url"), *aliases]:
+            if not isinstance(value, str) or not value:
+                raise CutoverBlocked("Pages history missing URL")
+            try:
+                parsed = urllib.parse.urlsplit(value)
+                port = parsed.port
+            except ValueError:
+                raise CutoverBlocked("Malformed historical deployment URL") from None
+            host = parsed.hostname
+            if (parsed.scheme != "https" or parsed.username or parsed.password or
+                    port is not None or parsed.path not in ("", "/") or
+                    parsed.query or parsed.fragment or not host or
+                    not (host == alias or host.endswith("." + alias) or
+                         host == pages.HOST)):
+                raise CutoverBlocked("Foreign historical Pages alias")
+            if host != pages.HOST:  # Canonical host is checked separately.
+                hosts.add(host)
+            if len(hosts) > max_hosts:
+                raise CutoverBlocked("Pages alias sample exceeds bounded probe capacity")
+    return sorted(hosts), len(deployments)
 
 
 def history_guest_status(hosts: list[str], probe=read_public) -> str:
@@ -198,6 +184,7 @@ def collect(client, probe=read_public) -> dict:
         "canonical_guest": "not-verified",
         "pages_alias_guest": "not-verified",
         "pages_historical_guest": "not-verified",
+        "historical_inventory_complete": False,
         "historical_deployments_scanned": 0,
         "historical_aliases_scanned": 0,
         "signed_in_e2e": "not-performed",
@@ -217,9 +204,9 @@ def collect(client, probe=read_public) -> dict:
             report["historical_deployments_scanned"] = count
             report["historical_aliases_scanned"] = len(history)
         except pages.AdmissionError:
-            # A read-only token may lack the separate deployment-list scope.
-            # Treat that as pending, never as empty/verified history; do not
-            # expose token details or downgrade unsafe ownership errors.
+            # The provider can reject even the bare GET. Pending means neither
+            # missing permission nor complete/empty history can be inferred.
+            # Never expose provider bodies or downgrade malformed URL errors.
             history = []
             report["pages_historical_guest"] = "inventory-unavailable"
     else:
@@ -258,7 +245,11 @@ def collect(client, probe=read_public) -> dict:
             report["pages_alias_guest"] = "unverified-or-unavailable"
 
     if history:
-        report["pages_historical_guest"] = history_guest_status(history, probe)
+        status = history_guest_status(history, probe)
+        # A 404 from sampled hosts is useful evidence, NOT full coverage.
+        report["pages_historical_guest"] = (
+            "sample-denied-404" if status == "denied-404" else status
+        )
 
     # These conditions only admit a *subsequent real signed-in E2E*. Never an
     # automatic DNS/Pages/Identity cutover or production rollout.
@@ -269,6 +260,7 @@ def collect(client, probe=read_public) -> dict:
         report["pages_app_proof"] == "bound",
         report["canonical_guest"] == "denied-401",
         report["pages_alias_guest"] == "denied-404",
+        report["historical_inventory_complete"] is True,
         report["pages_historical_guest"] == "denied-404",
     ))
     return report
