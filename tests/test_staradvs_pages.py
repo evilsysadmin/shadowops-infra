@@ -66,6 +66,36 @@ class FakeCloudflare:
 
 
 class StagingPagesTests(unittest.TestCase):
+    def test_cloudflare_get_envelope_returns_metadata_without_exposing_secret(self):
+        class Response:
+            status = 200
+            def __init__(self, body):
+                self.body = body
+            def read(self, amount):
+                return self.body
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+        data = {"success": True, "result": [{"id": "fake"}],
+                "result_info": {"count": 1, "page": 1, "per_page": 25,
+                                "total_count": 137}}
+        calls = []
+        def urlopen(req, timeout):
+            calls.append((req.get_method(), req.full_url))
+            return Response(json.dumps(data).encode())
+        with patch("urllib.request.urlopen", side_effect=urlopen):
+            cf = s.CloudflareClient({
+                "CLOUDFLARE_API_TOKEN": "private-unit-test",
+                "CLOUDFLARE_ACCOUNT_ID": "f" * 32})
+            path = "/accounts/" + cf.account + "/pages/projects/staradvs-staging/deployments"
+            status, items, info = cf.request_with_info(path)
+            self.assertEqual((status, len(items), info["total_count"]), (200, 1, 137))
+            self.assertEqual(cf.request("GET", path), (200, items))
+        self.assertEqual([x[0] for x in calls], ["GET", "GET"])
+        self.assertNotIn("private-unit-test", str(calls))
+
+
     def test_preflight_is_read_only_and_fixed_to_expected_identity(self):
         cf = FakeCloudflare()
         zone, statuses = s.inspect(cf)
