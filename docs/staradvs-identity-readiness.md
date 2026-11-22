@@ -58,3 +58,10 @@ The audit uses a bounded eight-worker read-only probe pool; it never changes
 DNS, Pages deployments, or Identity credentials. Cloudflare's canonical
 project hostname is checked separately; this check does not establish a signed-in
 user journey and cannot itself authorize a protected release.
+
+If Cloudflare denies the separate GET deployment-list API (for example a
+restricted token without Pages deployment inventory permission), readiness
+reports `pages_historical_guest: inventory-unavailable` and `next_gate_ready:
+false` rather than treating inaccessible history as empty or green. The audit
+workflow remains diagnostically successful/pending, with no mutation. A
+malformed or foreign deployment record continues to raise an error.
