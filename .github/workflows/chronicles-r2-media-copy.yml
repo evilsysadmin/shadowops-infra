@@ -85,7 +85,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git -C chronicles-source rev-parse HEAD)" = "$SOURCE_SHA"
-          python3 -S scripts/chronicles_r2_media_publish.py plan --manifest chronicles-source/frontend/src/assets/r2-assets-manifest.json --source-sha "$SOURCE_SHA"
+          python3 -S scripts/chronicles_r2_media_publish.py plan --source-sha "$SOURCE_SHA"
       - name: Install dedicated S3 client only when publishing
         if: inputs.action == 'publish'
         run: python3 -m pip install --disable-pip-version-check --no-cache-dir 'boto3==1.40.44'
@@ -102,7 +102,7 @@ jobs:
           test "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" = "$GITHUB_SHA"
           test "$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)" = "$SOURCE_SHA"
           test "$(python3 scripts/chronicles_source_ci.py "$SOURCE_SHA")" = ready
-          python3 scripts/chronicles_r2_media_publish.py publish --manifest chronicles-source/frontend/src/assets/r2-assets-manifest.json --source-sha "$SOURCE_SHA" --confirm-bucket chronicles --candidate chronicles-media-r2-candidate.json
+          python3 scripts/chronicles_r2_media_publish.py publish --source-sha "$SOURCE_SHA" --confirm-bucket chronicles
       - name: Retain candidate manifest for independent source activation PR
         if: inputs.action == 'publish'
         uses: actions/upload-artifact@v4
