@@ -1,0 +1,39 @@
+name: Chronicles · media R2 public cutover proof
+# Proof only. No R2 credentials or writes, no automatic manifest activation.
+on:
+  pull_request:
+    paths:
+      - .github/workflows/chronicles-r2-media-proof.yml
+      - scripts/chronicles_r2_media_probe.py
+      - tests/test_chronicles_r2_media_probe.py
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/chronicles-r2-media-proof.yml
+      - scripts/chronicles_r2_media_probe.py
+      - tests/test_chronicles_r2_media_probe.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contracts:
+    name: Chronicles media R2 · offline contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -S -m unittest discover -s tests -p 'test_chronicles_r2_media_probe.py' -v
+  live:
+    name: Chronicles media R2 · manual public read-only proof
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify four fixed Chronicles media objects against public CDN
+        run: python3 -S scripts/chronicles_r2_media_probe.py
