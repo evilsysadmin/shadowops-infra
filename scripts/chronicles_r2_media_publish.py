@@ -24,6 +24,8 @@ from chronicles_r2_private_inventory import (
 BUCKET = "chronicles"
 PREFIX = "chronicles/"
 LEGACY_HOST = "assets.chess-studio.shadowops.dpdns.org"
+SOURCE_MANIFEST = Path("chronicles-source/frontend/src/assets/r2-assets-manifest.json")
+CANDIDATE_FILE = Path("chronicles-media-r2-candidate.json")
 S3_KEYS = ("CHRONICLES_R2_MEDIA_ACCESS_KEY_ID", "CHRONICLES_R2_MEDIA_SECRET_ACCESS_KEY")
 MAX_PREFIX_BYTES = 24_000_000
 PINS_BY_ID = dict(zip(
@@ -258,14 +260,12 @@ def candidate(pack):
 def main(argv=None, environ=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=("plan", "publish"))
-    parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--confirm-bucket", default="")
-    parser.add_argument("--candidate", type=Path)
     opts = parser.parse_args(argv)
     environ = os.environ if environ is None else environ
     try:
-        validate_manifest(opts.manifest)
+        validate_manifest(SOURCE_MANIFEST)
         if not source.SHA.fullmatch(opts.source_sha):
             raise PublicationError("Exact 40-digit source SHA required")
         pack = prepare()
@@ -281,8 +281,9 @@ def main(argv=None, environ=None):
         client = create_client(environ)
         result = publish(client, pack, opts.source_sha, environ.get("GH_TOKEN", ""))
         media.probe()  # All four target URLs still need CDN integrity proof.
-        if opts.candidate:
-            opts.candidate.write_text(json.dumps(candidate(pack), indent=2) + "\n")
+        # Exclusive create: no user-controlled output path or symlink overwrite.
+        with CANDIDATE_FILE.open("x", encoding="utf-8") as stream:
+            stream.write(json.dumps(candidate(pack), indent=2) + "\n")
         print("CHRONICLES_MEDIA_COPY_VERIFIED " + json.dumps(result, sort_keys=True))
         return 0
     except (PublicationError, InventoryError, media.ProbeError, OSError) as exc:
