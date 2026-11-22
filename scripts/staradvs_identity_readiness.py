@@ -6,6 +6,7 @@ treats anonymous denial as proof of authenticated gameplay.
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import json
 import re
 import ssl
@@ -80,6 +81,80 @@ def alias_hosts(project: dict) -> list[str]:
     return sorted(hosts)
 
 
+
+def historical_alias_hosts(client, project: dict, *,
+                           per_page: int = 50, max_pages: int = 5,
+                           max_hosts: int = 64) -> tuple[list[str], int]:
+    """Enumerate *all* current and historic Pages deployment URLs, GET-only.
+
+    Pages deployment aliases remain live after a newer main deployment. Never
+    infer historical privacy from the canonical host or latest deployment.
+    Excessive/malformed/foreign inventories fail closed rather than returning
+    an incomplete green report.
+    """
+    alias = project["subdomain"]
+    hosts: set[str] = set()
+    inspected = 0
+    for page in range(1, max_pages + 2):
+        path = (f"/accounts/{client.account}/pages/projects/{pages.PROJECT}"
+                f"/deployments?page={page}&per_page={per_page}")
+        status, deployments = client.request("GET", path)
+        if status != 200 or not isinstance(deployments, list) or len(deployments) > per_page:
+            raise CutoverBlocked("Pages historical deployment inventory unavailable")
+        if page > max_pages:
+            if deployments:
+                raise CutoverBlocked("Pages history exceeds bounded page inventory")
+            break
+        for deployment in deployments:
+            if not isinstance(deployment, dict) or deployment.get("project_name") != pages.PROJECT:
+                raise CutoverBlocked("Foreign or malformed Pages deployment")
+            aliases = deployment.get("aliases") or []
+            if not isinstance(aliases, list) or any(not isinstance(x, str) for x in aliases):
+                raise CutoverBlocked("Malformed historical alias list")
+            urls = [deployment.get("url"), *aliases]
+            for value in urls:
+                if not isinstance(value, str) or not value:
+                    raise CutoverBlocked("Pages history missing URL")
+                # Cloudflare documents aliases as HTTPS URLs. Treat naked
+                # hostnames as malformed rather than silently correcting them.
+                try:
+                    parsed = urllib.parse.urlsplit(value)
+                    port = parsed.port
+                except ValueError:
+                    raise CutoverBlocked("Malformed historical deployment URL") from None
+                host = parsed.hostname
+                if (parsed.scheme != "https" or parsed.username or parsed.password or
+                        port is not None or parsed.path not in ("", "/") or
+                        parsed.query or parsed.fragment or not host or
+                        not (host == alias or host.endswith("." + alias) or
+                             host == pages.HOST)):
+                    raise CutoverBlocked("Foreign historical Pages alias")
+                if host != pages.HOST:  # Canonical host has its own stronger probes.
+                    hosts.add(host)
+                if len(hosts) > max_hosts:
+                    raise CutoverBlocked("Pages alias inventory exceeds bounded probe capacity")
+            inspected += 1
+        if len(deployments) < per_page:
+            break
+    return sorted(hosts), inspected
+
+
+def history_guest_status(hosts: list[str], probe=read_public) -> str:
+    """Require anonymous GET denial on both root and immutable release URL."""
+    if not hosts:
+        return "not-verified"
+    checks = [("https://" + host + path, "GET")
+              for host in hosts for path in ("/", "/release.json")]
+    # Keep the total audit bounded even when many old links are unreachable.
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        codes = list(pool.map(lambda check: probe(*check)[0], checks))
+    if all(code == 404 for code in codes):
+        return "denied-404"
+    if any(code in (200, 206) for code in codes):
+        return "anonymous-content-observed"
+    return "unverified-or-unavailable"
+
+
 def pages_posture(project: dict) -> tuple[str, str]:
     if (project.get("name") != pages.PROJECT or project.get("production_branch") != "main" or
             project.get("source")):
@@ -122,6 +197,9 @@ def collect(client, probe=read_public) -> dict:
         "pages_app_proof": "not-verified",
         "canonical_guest": "not-verified",
         "pages_alias_guest": "not-verified",
+        "pages_historical_guest": "not-verified",
+        "historical_deployments_scanned": 0,
+        "historical_aliases_scanned": 0,
         "signed_in_e2e": "not-performed",
         "can_activate": False,
     }
@@ -134,8 +212,12 @@ def collect(client, probe=read_public) -> dict:
             raise CutoverBlocked("Malformed Pages project")
         report["pages_private_policy"], report["pages_app_proof"] = pages_posture(project)
         aliases = alias_hosts(project)
+        history, count = historical_alias_hosts(client, project)
+        report["historical_deployments_scanned"] = count
+        report["historical_aliases_scanned"] = len(history)
     else:
         aliases = []
+        history = []
 
     code, body = probe(ISSUER + "/login?app=staradvs", "GET")
     if (code == 200 and 0 < len(body) <= 65536 and
@@ -168,6 +250,8 @@ def collect(client, probe=read_public) -> dict:
         else:
             report["pages_alias_guest"] = "unverified-or-unavailable"
 
+    report["pages_historical_guest"] = history_guest_status(history, probe)
+
     # These conditions only admit a *subsequent real signed-in E2E*. Never an
     # automatic DNS/Pages/Identity cutover or production rollout.
     report["next_gate_ready"] = all((
@@ -177,6 +261,7 @@ def collect(client, probe=read_public) -> dict:
         report["pages_app_proof"] == "bound",
         report["canonical_guest"] == "denied-401",
         report["pages_alias_guest"] == "denied-404",
+        report["pages_historical_guest"] == "denied-404",
     ))
     return report
 
