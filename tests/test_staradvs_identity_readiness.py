@@ -184,6 +184,19 @@ class CutoverReadinessTests(unittest.TestCase):
         with self.assertRaisesRegex(r.CutoverBlocked, "bounded probe"):
             r.historical_alias_hosts(cf, ready_project(), per_page=50)
 
+
+    def test_deployment_list_permission_denial_is_pending_not_green_or_a_ci_crash(self):
+        class DeniedListClient(Client):
+            def request(self, method, path, data=None):
+                if "/deployments?" in path:
+                    raise r.pages.AdmissionError("Cloudflare GET failed (HTTP 403)")
+                return super().request(method, path, data)
+        state = r.collect(DeniedListClient(ready_project()), public)
+        self.assertFalse(state["next_gate_ready"])
+        self.assertIs(state["can_activate"], False)
+        self.assertEqual(state["pages_historical_guest"], "inventory-unavailable")
+        self.assertEqual(state["historical_aliases_scanned"], 0)
+
     def test_historical_inventory_foreign_alias_and_unreachable_are_not_ready(self):
         cf = Client(ready_project())
         cf.deployments[0]["aliases"] = ["https://evil.example"]
