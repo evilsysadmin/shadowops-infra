@@ -39,17 +39,20 @@ jobs:
       - run: node --check edge/staradvs-identity-gate.mjs
       - run: node --test tests/staradvs-identity-gate.test.mjs
 
-  candidate:
-    name: Build exact green game SHA with Infra-owned protected Worker
+  admit:
+    name: Independently admit current green Star Adventures SHA (no source execution)
     needs: contracts
     if: >-
       github.repository == 'evilsysadmin/shadowops-infra' &&
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
-    timeout-minutes: 17
+    timeout-minutes: 6
+    permissions:
+      contents: read
+      actions: read
     outputs:
-      source_sha: ${{ steps.source.outputs.sha }}
+      sha: ${{ steps.source.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -66,18 +69,37 @@ jobs:
           python3 scripts/staradvs_source_admission.py "$sha"
           python3 scripts/staradvs_infra_revision.py "$GITHUB_SHA"             "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+  candidate:
+    name: Compile isolated protected bundle without GitHub or Cloudflare credentials
+    needs: [contracts, admit]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 17
+    permissions:
+      contents: read
+    steps:
       - uses: actions/checkout@v4
         with:
-          repository: evilsysadmin/star-adventures
-          ref: ${{ steps.source.outputs.sha }}
-          path: staradvs-source
           persist-credentials: false
+      - name: Fetch immutable public game source without passing any GitHub credentials
+        env:
+          SOURCE_SHA: ${{ needs.admit.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          mkdir staradvs-source
+          git -C staradvs-source init -q
+          git -C staradvs-source remote add origin https://github.com/evilsysadmin/star-adventures.git
+          GIT_TERMINAL_PROMPT=0 git -C staradvs-source -c credential.helper= fetch -q --depth=1 origin "$SOURCE_SHA"
+          git -C staradvs-source checkout -q --detach FETCH_HEAD
+          [[ "$(git -C staradvs-source rev-parse HEAD)" == "$SOURCE_SHA" ]]
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - name: Build exact game source, manifest and protected advanced-mode Worker
         env:
-          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          SOURCE_SHA: ${{ needs.admit.outputs.sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -89,28 +111,25 @@ jobs:
           python3 scripts/staradvs_protected_bundle.py prepare --sha "$SOURCE_SHA" --dist staradvs-source/frontend/dist
           python3 scripts/staradvs_protected_bundle.py verify --sha "$SOURCE_SHA" --dist staradvs-source/frontend/dist
           test -s staradvs-source/frontend/dist/_worker.js
-      - name: Recheck game main, CI and Infra policy before retaining candidate
+      - name: Verify exact offline package after compilation (no API token)
         env:
-          GH_TOKEN: ${{ github.token }}
-          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          SOURCE_SHA: ${{ needs.admit.outputs.sha }}
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$(gh api repos/evilsysadmin/star-adventures/commits/main --jq .sha)" == "$SOURCE_SHA" ]]
-          python3 scripts/staradvs_source_admission.py "$SOURCE_SHA"
-          python3 scripts/staradvs_infra_revision.py "$GITHUB_SHA"             "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)"
+          [[ "$(git -C staradvs-source rev-parse HEAD)" == "$SOURCE_SHA" ]]
           python3 scripts/staradvs_protected_bundle.py verify --sha "$SOURCE_SHA" --dist staradvs-source/frontend/dist
           echo "STARADVS_PROTECTED_CANDIDATE_VERIFIED source_sha=$SOURCE_SHA deployment=not-attempted"
       - name: Retain exact protected candidate for separately approved cutover
         uses: actions/upload-artifact@v4
         with:
-          name: staradvs-protected-candidate-${{ steps.source.outputs.sha }}
+          name: staradvs-protected-candidate-${{ needs.admit.outputs.sha }}
           path: staradvs-source/frontend/dist/
           if-no-files-found: error
           retention-days: 7
       - name: Explicit no-deploy attestation
         env:
-          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          SOURCE_SHA: ${{ needs.admit.outputs.sha }}
         shell: bash
         run: |
           set -euo pipefail
