@@ -42,8 +42,24 @@ class AccessWriter:
 
     def post(self, path, body):
         endpoint = f"/accounts/{self.account}/access/apps"
-        if path != endpoint or not isinstance(body, dict) or body.get("type") != "self_hosted":
+        if path != endpoint or not isinstance(body, dict):
             raise QuarantineError("Foreign Access write blocked")
+        # This HTTP client must refuse unrelated apps, widened destinations,
+        # non-email allows or injected extra provider configuration even if a
+        # future caller bypasses payload_for().
+        try:
+            destinations = body["destinations"]
+            policies = body["policies"]
+            if len(destinations) != 1 or len(policies) != 1:
+                raise ValueError("Unexpected Access application cardinality")
+            host = destinations[0]["uri"]
+            scope = next(key for key, expected in SCOPES if expected == host)
+            operator = policies[0]["include"][0]["email"]["email"]
+            canonical = payload_for(scope, host, operator)
+        except (KeyError, IndexError, TypeError, ValueError, StopIteration):
+            raise QuarantineError("Unapproved Access policy payload") from None
+        if body != canonical:
+            raise QuarantineError("Unapproved Access policy payload")
         req = urllib.request.Request(
             access.API + endpoint, data=json.dumps(body).encode(),
             method="POST", headers={
@@ -161,6 +177,38 @@ def apply(client, pages_client, operator, *, confirmation):
     return created, states
 
 
+def judge_guest_quarantine(report):
+    """Proof of no public app bytes is not proof of Access login enforcement.
+
+    Fail closed on incomplete API enumeration, redirects, timeouts, or
+    inconsistent responses. Neither a 302 nor a generic 403 certifies Access.
+    """
+    if not isinstance(report, dict):
+        return "inventory-unverified"
+    values = tuple(report.get(key) for key in (
+        "historical_aliases_scanned", "historical_aliases_exposed",
+        "historical_aliases_denied", "historical_aliases_unverified",
+        "historical_deployments_scanned",
+        "historical_deployments_reported_total",
+    ))
+    if any(type(n) is not int or n < 0 for n in values):
+        return "inventory-unverified"
+    hosts, exposed, denied, unknown, scanned, total = values
+    if (not hosts or not total or scanned != total or
+            report.get("historical_enumeration_status") != "reported-total-observed" or
+            exposed + denied + unknown != hosts):
+        return "inventory-unverified"
+    if (exposed or report.get("pages_alias_guest") == "anonymous-content-observed" or
+            report.get("canonical_guest") == "anonymous-content-observed"):
+        return "guest-content-still-exposed"
+    if (unknown or denied != hosts or
+            report.get("pages_historical_guest") != "sample-denied-404" or
+            report.get("pages_alias_guest") != "denied-404" or
+            report.get("canonical_guest") != "denied-401"):
+        return "guest-denial-unverified"
+    return "all-observed-guest-paths-denied"
+
+
 def main(argv):
     if argv not in (["plan"], ["apply"]):
         print("Usage: staradvs_access_quarantine.py plan|apply", file=sys.stderr)
@@ -178,19 +226,24 @@ def main(argv):
             confirmation=os.environ.get("STARADVS_ACCESS_CONFIRM", ""),
         )
         guest = readiness.collect(owner, access_client=writer)
-        seen = guest["historical_aliases_scanned"]
-        exposed = guest["historical_aliases_exposed"]
+        verdict = judge_guest_quarantine(guest)
         print(json.dumps({
             "operation": "apply", "project": PROJECT,
             "created": created, "scopes": states,
-            "historical_aliases_scanned": seen,
-            "historical_aliases_exposed": exposed,
-            "can_activate": False,
+            "historical_aliases_scanned": guest["historical_aliases_scanned"],
+            "historical_aliases_exposed": guest["historical_aliases_exposed"],
+            "historical_aliases_denied": guest["historical_aliases_denied"],
+            "historical_aliases_unverified": guest["historical_aliases_unverified"],
+            "historical_deployments_reported_total":
+                guest["historical_deployments_reported_total"],
+            "historical_deployments_scanned":
+                guest["historical_deployments_scanned"],
+            "guest_verdict": verdict, "can_activate": False,
         }, sort_keys=True))
-        if not seen or exposed:
-            print("STARADVS_QUARANTINE_PENDING guest exposure or incomplete inventory")
+        if verdict != "all-observed-guest-paths-denied":
+            print("STARADVS_QUARANTINE_PENDING reason=" + verdict)
             return 10
-        print("STARADVS_QUARANTINE_NO_GUEST_200 further signed-in E2E required")
+        print("STARADVS_QUARANTINE_OBSERVED_GUEST_DENIAL signed-in E2E still required")
         return 0
     except Exception as exc:
         # No Access/Pages data, operator emails or credentials in logs.
