@@ -19,15 +19,21 @@ builds a genuine runnable candidate from the **exact current, already-green**
 3. Adds the **exact Infra-owned** Pages advanced-mode `_worker.js`, which
    requires the dedicated `staradvs` audience, Ed25519 JWT verification,
    live Identity freshness/revocation and an app-only proof binding.
-4. Re-verifies Worker bytes, manifest, entrypoint integrity, exact current
-   game main, exact green game CI and Infra staging policy.
+4. Re-verifies Worker bytes, manifest, entrypoint integrity and that
+   the compiled repository HEAD still equals the admitted source SHA.
+   The source-main/green CI admission happens in an **independent job**,
+   before executing any game-source code. The compilation job does not
+   receive a GitHub API token or Cloudflare credentials.
 5. Uploads a **7-day** GitHub Actions artifact named
    `staradvs-protected-candidate-<source-sha>`. It contains a frontend
    build and public Worker code, **never** a credential or user token.
 
 No Cloudflare access token, Pages API token, OCI credentials, production
 secrets, staging environment approval or mutating command is available to
-this workflow. PRs execute **offline tests only**, and do not build or
+this workflow. An admitted source SHA can become superseded by a newer game
+main during compilation; the artifact remains an explicitly pinned candidate
+for that SHA, **not** proof that it matches the latest main at publication
+time. The later protected publisher must recheck game and Infra head SHAs. PRs execute **offline tests only**, and do not build or
 upload source code; only a trusted Infra main push or explicitly requested
 main workflow dispatch creates a candidate.
 
