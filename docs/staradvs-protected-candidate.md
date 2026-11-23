@@ -34,8 +34,11 @@ this workflow. An admitted source SHA can become superseded by a newer game
 main during compilation; the artifact remains an explicitly pinned candidate
 for that SHA, **not** proof that it matches the latest main at publication
 time. The later protected publisher must recheck game and Infra head SHAs. PRs execute **offline tests only**, and do not build or
-upload source code; only a trusted Infra main push or explicitly requested
-main workflow dispatch creates a candidate.
+upload source code. Trusted Infra main push, an explicit main workflow
+dispatch, or the **daily 05:17 UTC reconciliation** may create a candidate.
+The daily path renews the 7-day artifact even when game-to-Infra notification
+is missing; it runs the same exact-green-main and protected-policy admission
+and **never deploys Pages or touches Cloudflare**.
 
 ## What this does NOT do
 
