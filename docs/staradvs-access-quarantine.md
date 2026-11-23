@@ -31,6 +31,13 @@ Cloudflare Access operator sign-in email and confirmation:
 
     STARADVS_QUARANTINE_ACCESS
 
+The operator request itself is validated by the first contracts job, before
+Cloudflare credentials or provider API calls. An `apply` with a missing,
+incorrect or empty confirmation/email now **fails the entire Actions run**
+instead of silently skipping `apply` while leaving a green result. A `plan`
+with an unexpected apply confirmation also fails. The validation uses the
+existing strict individual-email policy and never logs the email value.
+
 The apply job is protected by the existing GitHub staging environment,
 the exact current main SHA and the same staging publisher concurrency
 group. It creates *only missing* individually restricted Access apps,
