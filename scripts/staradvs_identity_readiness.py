@@ -180,6 +180,11 @@ def history_guest_status(hosts: list[str], probe=read_public) -> str:
 
 
 def pages_posture(project: dict) -> tuple[str, str]:
+    """GET-only, strict posture used by the protected publisher admission.
+
+    Checking fail_open and one good flag is insufficient: preview bindings
+    and a conflicting private-origin routing flag must fail closed as well.
+    """
     if (project.get("name") != pages.PROJECT or project.get("production_branch") != "main" or
             project.get("source")):
         raise CutoverBlocked("Unexpected Pages project owner/branch")
@@ -192,22 +197,43 @@ def pages_posture(project: dict) -> tuple[str, str]:
     configs = project.get("deployment_configs") or {}
     if not isinstance(configs, dict):
         raise CutoverBlocked("Malformed Pages deployment policy")
-    protected = all(
-        isinstance(configs.get(mode), dict) and
-        configs[mode].get("fail_open") is False and
-        isinstance(configs[mode].get("compatibility_flags"), list) and
-        "global_fetch_strictly_public" in configs[mode]["compatibility_flags"]
-        for mode in ("production", "preview")
-    )
-    vars_ = (configs.get("production") or {}).get("env_vars") or {}
-    if not isinstance(vars_, dict):
-        raise CutoverBlocked("Malformed Pages binding metadata")
-    binding = vars_.get(BINDING)
-    proof = (set(vars_) == {BINDING} and isinstance(binding, dict) and
-             binding.get("type") == "secret_text")
-    return ("configured" if protected else "not-configured",
-            "bound" if proof else "not-bound")
 
+    protected = True
+    vars_by_mode = {}
+    for mode in ("production", "preview"):
+        cfg = configs.get(mode)
+        if not isinstance(cfg, dict):
+            protected = False
+            vars_by_mode[mode] = {}
+            continue
+        flags = cfg.get("compatibility_flags")
+        if (cfg.get("fail_open") is not False or
+                not isinstance(flags, list) or
+                any(not isinstance(flag, str) for flag in flags) or
+                "global_fetch_strictly_public" not in flags or
+                "global_fetch_private_origin" in flags):
+            protected = False
+        vars_ = cfg.get("env_vars")
+        if vars_ is None:
+            vars_ = {}
+        if not isinstance(vars_, dict):
+            raise CutoverBlocked("Malformed Pages binding metadata")
+        vars_by_mode[mode] = vars_
+        if mode == "preview" and vars_:
+            # Preview deployments must never carry a service proof, nor any
+            # unrelated secret that could become accessible on public aliases.
+            protected = False
+        if mode == "production" and set(vars_) - {BINDING}:
+            protected = False
+
+    production = vars_by_mode["production"]
+    binding = production.get(BINDING)
+    proof = (set(production) == {BINDING} and isinstance(binding, dict) and
+             binding.get("type") == "secret_text")
+    if binding is not None and not proof:
+        protected = False
+    return ("configured" if protected else "not-configured",
+            "bound" if proof and protected else "not-bound")
 
 def collect(client, probe=read_public, *, access_client=None) -> dict:
     # The existing ownership inspector makes GET-only calls.
