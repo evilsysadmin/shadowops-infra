@@ -70,7 +70,7 @@ class ProtectedCandidateWorkflowTests(unittest.TestCase):
         upload = flow.index("actions/upload-artifact@v4")
         self.assertLess(first_verify, upload)
         self.assertIn("retention-days: 7", flow)
-        self.assertIn("name: staradvs-protected-candidate-${{ steps.source.outputs.sha }}", flow)
+        self.assertIn("name: staradvs-protected-candidate-${{ needs.admit.outputs.sha }}", flow)
         self.assertIn("path: staradvs-source", flow)
         self.assertIn("if-no-files-found: error", flow)
 
