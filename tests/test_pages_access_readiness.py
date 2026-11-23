@@ -77,6 +77,21 @@ class AccessReadinessTests(unittest.TestCase):
         self.assertNotIn("operator@private.invalid", json.dumps(result))
         self.assertNotIn(ident(1), json.dumps(result))
 
+    def test_staradvs_scoped_inspection_ignores_unrelated_games_not_overlaps(self):
+        cf = Fake()
+        report = a.inspect(cf, project_filter="staradvs-staging")
+        self.assertEqual([r["project"] for r in report["projects"]], ["staradvs-staging"])
+        self.assertEqual(report["state"], "CONFIGURED_FOR_GUEST_TEST")
+        self.assertEqual(len(cf.paths), 4)  # one app census, 3 policy GETs
+        self.assertTrue(all("/access/apps" in path for path in cf.paths))
+        with self.assertRaises(a.ReadinessError):
+            a.inspect(cf, project_filter="foreign-project")
+        cf.apps.append(app("old.staradvs-staging.pages.dev", 77))
+        scoped = a.inspect(cf, project_filter="staradvs-staging")
+        self.assertEqual(scoped["projects"][0]["application_scopes"]["immutable"],
+                         "ambiguous")
+        self.assertFalse(scoped["can_activate"])
+
     def test_previews_app_does_not_cover_main_alias(self):
         apps = [x for x in full_apps()
                 if x["destinations"][0]["uri"] != "staradvs-staging.pages.dev"]
