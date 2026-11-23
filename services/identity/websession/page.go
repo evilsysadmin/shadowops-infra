@@ -12,11 +12,14 @@ import (
 var assets embed.FS
 
 var loginTemplate = template.Must(template.ParseFS(assets, "assets/login.html"))
+var staradvsLogoutTemplate = template.Must(template.ParseFS(assets, "assets/staradvs-logout.html"))
 
 func (h *Handler) page(w http.ResponseWriter, r *http.Request) bool {
 	var asset, contentType string
 	switch r.URL.Path {
-	case "/login":
+	case "/login", "/logout":
+	case "/assets/staradvs-logout.js":
+		asset, contentType = "assets/staradvs-logout.js", "text/javascript; charset=utf-8"
 	case "/assets/login.js":
 		asset, contentType = "assets/login.js", "text/javascript; charset=utf-8"
 	case "/assets/login.css":
@@ -38,6 +41,20 @@ func (h *Handler) page(w http.ResponseWriter, r *http.Request) bool {
 		}
 		w.Header().Set("Content-Type", contentType)
 		_, _ = w.Write(data)
+		return true
+	}
+	// GET-only confirmation: never revoke a session through navigation.
+	// Only an explicitly enabled Star Adventures staging consumer may use
+	// this return route. No query-supplied return URL or wildcard audience.
+	if r.URL.Path == "/logout" {
+		if r.URL.RawQuery != "app=staradvs" || h.enabled == nil || !h.enabled[issuance.StarAdventures] {
+			http.Error(w, "application denied", http.StatusBadRequest)
+			return true
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = staradvsLogoutTemplate.Execute(w, struct{ ReturnURL string }{
+			ReturnURL: "https://staging.staradvs.shadowops.dpdns.org/",
+		})
 		return true
 	}
 	query := r.URL.Query()
