@@ -23,6 +23,8 @@ BINDING = "SHADOWOPS_STARADVS_SERVICE_CREDENTIAL"
 EXPECTED_ALIAS = re.compile(r"staradvs-staging(?:-[a-z0-9]+)?\.pages\.dev\Z")
 ROUTES = ("/", "/index.html", "/bridge", "/release.json")
 METHODS = ("GET", "HEAD")
+MAX_HISTORY_PAGES = 8
+MAX_HISTORY_ALIASES = 192
 
 
 class CutoverBlocked(Exception):
@@ -84,21 +86,21 @@ def alias_hosts(project: dict) -> list[str]:
 
 def historical_alias_hosts(client, project: dict, *, max_hosts: int = 64,
                            page: int = 1) -> tuple[list[str], int, int | None]:
-    """Probe the *observed* first Pages history page. Never certify full history.
+    """Read one bounded Pages history page. Never certify full history.
 
     Cloudflare's live API has returned HTTP 400 for explicit page/per_page
     parameters on multiple owned projects; the bare GET is independently
     exercised by the shared games history audit. Record provider result_info
     only as a count hint, not proof of complete history (even on empty samples).
     """
-    if page not in (1, 2) or type(page) is not int:
+    if type(page) is not int or page < 1 or page > MAX_HISTORY_PAGES:
         raise CutoverBlocked("Unapproved Pages history probe page")
     alias = project["subdomain"]
     path = f"/accounts/{client.account}/pages/projects/{pages.PROJECT}/deployments"
-    # The bare endpoint is proven operational; only test the documented page=2
-    # parameter without the per_page combination previously rejected with 400.
-    if page == 2:
-        path += "?page=2"
+    # The bare first page and page=2 alone were proven against Cloudflare;
+    # keep per_page out of requests (that combination returned HTTP 400).
+    if page > 1:
+        path += f"?page={page}"
     status, deployments, metadata = client.request_with_info(path)
     if status != 200 or not isinstance(deployments, list) or len(deployments) > 100:
         raise CutoverBlocked("Pages historical deployment sample unavailable")
@@ -150,7 +152,7 @@ def history_guest_status(hosts: list[str], probe=read_public) -> str:
     checks = [("https://" + host + path, "GET")
               for host in hosts for path in ("/", "/release.json")]
     # Keep the total audit bounded even when many old links are unreachable.
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=12) as pool:
         codes = list(pool.map(lambda check: probe(*check)[0], checks))
     if all(code == 404 for code in codes):
         return "denied-404"
@@ -204,6 +206,8 @@ def collect(client, probe=read_public) -> dict:
         "pages_historical_guest": "not-verified",
         "historical_inventory_complete": False,
         "historical_deployments_scanned": 0,
+        "historical_pages_scanned": 0,
+        "historical_enumeration_status": "not-attempted",
         "historical_deployments_reported_total": None,
         "historical_page2_status": "not-requested",
         "historical_page2_deployments_indexed": 0,
@@ -226,28 +230,61 @@ def collect(client, probe=read_public) -> dict:
             report["historical_deployments_reported_total"] = total
             report["historical_deployments_scanned"] = count
             report["historical_aliases_scanned"] = len(history)
-            # Read-only canary: check whether Cloudflare supports page=2 alone.
-            # Do not probe these URLs, expose hostnames or claim full history.
+            # Query only this verified, owned Pages project. Keep the first
+            # successful page even when later pages fail; never print hosts.
+            seen = set(history)
+            signatures = {tuple(history)}
+            pages_seen = 1
+            scanned = count
+            report["historical_pages_scanned"] = 1
+            report["historical_enumeration_status"] = "partial-or-unverified"
             if total is not None and total > count:
-                try:
-                    second_hosts, second_count, second_total = historical_alias_hosts(
-                        client, project, page=2
+                for page_number in range(2, MAX_HISTORY_PAGES + 1):
+                    try:
+                        hosts, n, reported = historical_alias_hosts(
+                            client, project, max_hosts=MAX_HISTORY_ALIASES,
+                            page=page_number
+                        )
+                    except pages.AdmissionError:
+                        if page_number == 2:
+                            report["historical_page2_status"] = "provider-unavailable"
+                        report["historical_enumeration_status"] = "provider-unavailable"
+                        break
+                    if page_number == 2:
+                        report["historical_page2_deployments_indexed"] = n
+                        report["historical_page2_aliases_indexed"] = len(hosts)
+                    signature = tuple(hosts)
+                    problem = (
+                        "total-drift-or-unknown" if reported != total else
+                        "unexpected-empty" if n == 0 else
+                        "count-inconsistent" if n > total - scanned else
+                        "repeated-first-page" if signature in signatures else
+                        "alias-cap-exceeded" if len(seen | set(hosts)) > MAX_HISTORY_ALIASES else
+                        None
                     )
-                except pages.AdmissionError:
-                    report["historical_page2_status"] = "provider-unavailable"
-                else:
-                    report["historical_page2_deployments_indexed"] = second_count
-                    report["historical_page2_aliases_indexed"] = len(second_hosts)
-                    if second_total != total:
-                        report["historical_page2_status"] = "total-drift-or-unknown"
-                    elif second_count == 0:
-                        report["historical_page2_status"] = "unexpected-empty"
-                    elif second_count > total - count:
-                        report["historical_page2_status"] = "count-inconsistent"
-                    elif second_count == count and set(second_hosts) == set(history):
-                        report["historical_page2_status"] = "repeated-first-page"
-                    else:
+                    if problem:
+                        if page_number == 2:
+                            report["historical_page2_status"] = problem
+                        report["historical_enumeration_status"] = problem
+                        break
+                    if page_number == 2:
                         report["historical_page2_status"] = "distinct-page-observed"
+                    signatures.add(signature)
+                    seen.update(hosts)
+                    scanned += n
+                    pages_seen += 1
+                    report["historical_pages_scanned"] = pages_seen
+                    report["historical_deployments_scanned"] = scanned
+                    report["historical_aliases_scanned"] = len(seen)
+                    if scanned == total:
+                        report["historical_enumeration_status"] = "reported-total-observed"
+                        break
+                else:
+                    report["historical_enumeration_status"] = "page-limit-reached"
+            history = sorted(seen)
+            # Deliberate safety invariant: matching provider total is NOT
+            # proof that unlisted historical URLs or Access policies are safe.
+            # The future activation gate requires independent confirmation.
         except pages.AdmissionError:
             # The provider can reject even the bare GET. Pending means neither
             # missing permission nor complete/empty history can be inferred.

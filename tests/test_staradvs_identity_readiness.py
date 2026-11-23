@@ -46,16 +46,21 @@ class Client:
         self.result_info = None
         self.second_deployments = None
         self.second_info = None
+        self.extra_pages = {}
         self.deployments = [{"project_name": "staradvs-staging",
                              "url": "https://old123." + ALIAS,
                              "aliases": ["https://old-branch." + ALIAS]}]
 
     def request_with_info(self, path):
-        if path.endswith("/deployments?page=2"):
+        if "/deployments?page=" in path:
             self.calls.append(("GET", path, None))
-            if self.second_deployments is None:
-                raise r.pages.AdmissionError("Cloudflare GET failed (HTTP 400)")
-            return 200, copy.deepcopy(self.second_deployments), copy.deepcopy(self.second_info)
+            page = int(path.rsplit("=", 1)[-1])
+            if page == 2 and self.second_deployments is not None:
+                return 200, copy.deepcopy(self.second_deployments), copy.deepcopy(self.second_info)
+            if page in self.extra_pages:
+                rows, meta = self.extra_pages[page]
+                return 200, copy.deepcopy(rows), copy.deepcopy(meta)
+            raise r.pages.AdmissionError("Cloudflare GET failed (HTTP 400)")
         status, rows = self.request("GET", path)
         return status, rows, copy.deepcopy(self.result_info)
 
@@ -235,7 +240,8 @@ class CutoverReadinessTests(unittest.TestCase):
         self.assertEqual(state["historical_page2_status"], "distinct-page-observed")
         self.assertEqual(state["historical_page2_deployments_indexed"], 1)
         self.assertEqual(state["historical_page2_aliases_indexed"], 1)
-        self.assertEqual(state["historical_deployments_scanned"], 1)
+        self.assertEqual(state["historical_deployments_scanned"], 2)
+        self.assertEqual(state["historical_pages_scanned"], 2)
         self.assertFalse(state["historical_inventory_complete"])
         self.assertFalse(state["next_gate_ready"])
         self.assertTrue(any(path.endswith("/deployments?page=2")
@@ -262,7 +268,79 @@ class CutoverReadinessTests(unittest.TestCase):
         with self.assertRaisesRegex(r.CutoverBlocked, "Foreign historical"):
             r.collect(cf, public)
         with self.assertRaisesRegex(r.CutoverBlocked, "Unapproved"):
-            r.historical_alias_hosts(cf, ready_project(), page=3)
+            r.historical_alias_hosts(cf, ready_project(), page=9)
+
+    def test_all_reported_pages_can_be_probed_without_certifying_access(self):
+        cf = Client(ready_project())
+        cf.deployments = [
+            {"project_name": r.pages.PROJECT,
+             "url": f"https://first{i}.{ALIAS}", "aliases": []}
+            for i in range(25)
+        ]
+        cf.result_info = {"page": 1, "count": 25, "per_page": 25, "total_count": 64}
+        cf.second_deployments = [
+            {"project_name": r.pages.PROJECT,
+             "url": f"https://second{i}.{ALIAS}", "aliases": []}
+            for i in range(25)
+        ]
+        cf.second_info = {"page": 2, "count": 25, "per_page": 25, "total_count": 64}
+        cf.extra_pages[3] = ([
+            {"project_name": r.pages.PROJECT,
+             "url": f"https://third{i}.{ALIAS}", "aliases": []}
+            for i in range(14)
+        ], {"page": 3, "count": 14, "per_page": 25, "total_count": 64})
+        observed = []
+        def probe(url, method):
+            # Login, canonical and alias response mocks; do not fetch real pages.
+            observed.append((url, method))
+            return public(url, method)
+        result = r.collect(cf, probe)
+        self.assertEqual(result["historical_deployments_scanned"], 64)
+        self.assertEqual(result["historical_aliases_scanned"], 64)
+        self.assertEqual(result["historical_pages_scanned"], 3)
+        self.assertEqual(result["historical_enumeration_status"], "reported-total-observed")
+        self.assertFalse(result["historical_inventory_complete"])
+        self.assertFalse(result["next_gate_ready"])
+        self.assertEqual(result["pages_historical_guest"], "sample-denied-404")
+        self.assertTrue(any("third0." in url for url, _ in observed))
+        self.assertTrue(all(method == "GET" for method, _, _ in cf.calls))
+        self.assertFalse(any("per_page=" in path for _, path, _ in cf.calls
+                             if "/deployments" in path))
+
+    def test_interrupted_later_page_preserves_previously_verified_exposure(self):
+        cf = Client(ready_project())
+        cf.result_info = {"page": 1, "count": 1, "per_page": 25, "total_count": 114}
+        cf.second_deployments = [{"project_name": r.pages.PROJECT,
+                                  "url": "https://second." + ALIAS, "aliases": []}]
+        cf.second_info = {"page": 2, "count": 1, "per_page": 25, "total_count": 114}
+        def exposed(url, method):
+            if url.startswith(r.ISSUER):
+                return 200, RETURN
+            if "second." + ALIAS in url:
+                return 200, b"old game"
+            return public(url, method)
+        state = r.collect(cf, exposed)
+        self.assertEqual(state["historical_enumeration_status"], "provider-unavailable")
+        self.assertEqual(state["historical_deployments_scanned"], 2)
+        self.assertEqual(state["pages_historical_guest"], "anonymous-content-observed")
+        self.assertFalse(state["historical_inventory_complete"])
+
+    def test_full_enumerator_rejects_repeated_or_foreign_later_pages(self):
+        cf = Client(ready_project())
+        cf.result_info = {"page": 1, "count": 1, "per_page": 25, "total_count": 5}
+        cf.second_deployments = [{"project_name": r.pages.PROJECT,
+                                  "url": "https://second." + ALIAS, "aliases": []}]
+        cf.second_info = {"page": 2, "count": 1, "per_page": 25, "total_count": 5}
+        cf.extra_pages[3] = (copy.deepcopy(cf.deployments),
+                             {"page": 3, "count": 1, "per_page": 25, "total_count": 5})
+        state = r.collect(cf, public)
+        self.assertEqual(state["historical_enumeration_status"], "repeated-first-page")
+        self.assertFalse(state["next_gate_ready"])
+        cf.extra_pages[3] = ([{"project_name": r.pages.PROJECT,
+                              "url": "https://foreign.example", "aliases": []}],
+                             {"page": 3, "count": 1, "per_page": 25, "total_count": 5})
+        with self.assertRaisesRegex(r.CutoverBlocked, "Foreign historical"):
+            r.collect(cf, public)
 
     def test_deployment_list_permission_denial_is_pending_not_green_or_a_ci_crash(self):
         class DeniedListClient(Client):
