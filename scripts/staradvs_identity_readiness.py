@@ -86,7 +86,7 @@ def alias_hosts(project: dict) -> list[str]:
 
 def historical_alias_hosts(client, project: dict, *, max_hosts: int = 64,
                            page: int = 1) -> tuple[list[str], int, int | None]:
-    """Probe the *observed* first Pages history page. Never certify full history.
+    """Read one bounded Pages history page. Never certify full history.
 
     Cloudflare's live API has returned HTTP 400 for explicit page/per_page
     parameters on multiple owned projects; the bare GET is independently
