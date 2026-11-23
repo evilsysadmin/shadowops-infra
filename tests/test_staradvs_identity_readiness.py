@@ -396,6 +396,52 @@ class CutoverReadinessTests(unittest.TestCase):
                          state["historical_aliases_scanned"])
         self.assertFalse(state["next_gate_ready"])
 
+    def test_access_readonly_metadata_is_separate_from_guest_and_signin(self):
+        class FakeAccess:
+            account = "f" * 32
+            def __init__(self, missing=None, fail=False):
+                self.missing = missing
+                self.fail = fail
+                self.calls = []
+            def get(self, path):
+                self.calls.append(path)
+                if self.fail:
+                    raise r.access.ReadinessError("Sensitive provider message")
+                hosts = ["staradvs-staging.pages.dev", "*.staradvs-staging.pages.dev",
+                         "staging.staradvs.shadowops.dpdns.org"]
+                apps = [
+                    {"id": f"00000000-0000-4000-8000-{i:012d}", "type": "self_hosted",
+                     "destinations": [{"type": "public", "uri": host}]}
+                    for i, host in enumerate(hosts, 1) if host != self.missing
+                ]
+                if path.endswith("/access/apps"):
+                    return {"result": apps, "result_info": {"page": 1,
+                        "count": len(apps), "total_count": len(apps), "total_pages": 1}}
+                if path.endswith("/policies"):
+                    policies = [{"decision": "allow", "include": [
+                        {"email": {"email": "operator@private.invalid"}}]}]
+                    return {"result": policies, "result_info": {"page": 1,
+                        "count": 1, "total_count": 1, "total_pages": 1}}
+                raise AssertionError("Unexpected Access endpoint")
+        client = FakeAccess()
+        configured = r.collect(Client(ready_project()), public, access_client=client)
+        self.assertEqual(configured["cloudflare_access"], "restricted-policy-candidate")
+        self.assertEqual(len(client.calls), 4)
+        self.assertTrue(all(v == "restricted-policy-candidate"
+                            for v in configured["cloudflare_access_scopes"].values()))
+        self.assertFalse(configured["next_gate_ready"])
+        self.assertFalse(configured["can_activate"])
+        self.assertNotIn("operator@private.invalid", json.dumps(configured))
+        missing = r.collect(Client(ready_project()), public,
+                            access_client=FakeAccess(missing="staradvs-staging.pages.dev"))
+        self.assertEqual(missing["cloudflare_access"], "remediation-required")
+        self.assertEqual(missing["cloudflare_access_scopes"]["main"], "missing")
+        error = r.collect(Client(ready_project()), public,
+                          access_client=FakeAccess(fail=True))
+        self.assertEqual(error["cloudflare_access"], "inventory-unavailable")
+        self.assertFalse(error["next_gate_ready"])
+        self.assertNotIn("Sensitive provider message", json.dumps(error))
+
     def test_workflow_is_read_only_never_admits_a_cloud_write(self):
         path = ROOT / ".github/workflows/staradvs-identity-readiness.yml"
         flow = path.read_text()
@@ -404,6 +450,8 @@ class CutoverReadinessTests(unittest.TestCase):
         self.assertIn("github.ref == 'refs/heads/main'", flow)
         self.assertIn("environment:", flow)
         self.assertIn("test_staradvs_identity_readiness.py", flow)
+        self.assertIn("CLOUDFLARE_ACCESS_READ_TOKEN", flow)
+        self.assertNotIn("CLOUDFLARE_ACCESS_WRITE_TOKEN", flow)
         self.assertNotIn("pages deploy", flow)
         self.assertNotIn("wrangler", flow)
         self.assertNotIn("secrets.SOC", flow)

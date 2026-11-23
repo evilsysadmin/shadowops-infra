@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 import json
+import os
 import re
 import ssl
 import sys
@@ -16,6 +17,7 @@ import urllib.parse
 import urllib.request
 
 import staradvs_pages as pages
+import pages_access_readiness as access
 
 ISSUER = "https://id-staging.shadowops.dpdns.org"
 CONSUMER = "staradvs"
@@ -23,6 +25,7 @@ BINDING = "SHADOWOPS_STARADVS_SERVICE_CREDENTIAL"
 EXPECTED_ALIAS = re.compile(r"staradvs-staging(?:-[a-z0-9]+)?\.pages\.dev\Z")
 ROUTES = ("/", "/index.html", "/bridge", "/release.json")
 METHODS = ("GET", "HEAD")
+ACCESS_SCOPES = ("main", "immutable", "custom_companion")
 MAX_HISTORY_PAGES = 8
 MAX_HISTORY_ALIASES = 192
 
@@ -206,7 +209,7 @@ def pages_posture(project: dict) -> tuple[str, str]:
             "bound" if proof else "not-bound")
 
 
-def collect(client, probe=read_public) -> dict:
+def collect(client, probe=read_public, *, access_client=None) -> dict:
     # The existing ownership inspector makes GET-only calls.
     zone, owner = pages.inspect(client)
     del zone
@@ -216,6 +219,8 @@ def collect(client, probe=read_public) -> dict:
         "pages_project": owner["project"],
         "pages_private_policy": "not-verified",
         "pages_app_proof": "not-verified",
+        "cloudflare_access": "not-verified",
+        "cloudflare_access_scopes": {k: "not-verified" for k in ACCESS_SCOPES},
         "canonical_guest": "not-verified",
         "pages_alias_guest": "not-verified",
         "pages_historical_guest": "not-verified",
@@ -354,6 +359,23 @@ def collect(client, probe=read_public) -> dict:
             "sample-denied-404" if status == "denied-404" else status
         )
 
+    # Independent Access read-only token, never Pages write token.
+    # Inspect only Star Adventures policy details, retaining account-wide
+    # application overlap detection so a foreign policy cannot hide a bypass.
+    if access_client is not None:
+        try:
+            access_report = access.inspect(access_client, project_filter=pages.PROJECT)
+        except access.ReadinessError:
+            report["cloudflare_access"] = "inventory-unavailable"
+        else:
+            scopes = access_report["projects"][0]["application_scopes"]
+            report["cloudflare_access_scopes"] = scopes
+            report["cloudflare_access"] = (
+                "restricted-policy-candidate"
+                if all(scopes[name] == "restricted-policy-candidate" for name in ACCESS_SCOPES)
+                else "remediation-required"
+            )
+
     # These conditions only admit a *subsequent real signed-in E2E*. Never an
     # automatic DNS/Pages/Identity cutover or production rollout.
     report["next_gate_ready"] = all((
@@ -361,6 +383,7 @@ def collect(client, probe=read_public) -> dict:
         report["identity_login"] == "audience-recognized",
         report["pages_private_policy"] == "configured",
         report["pages_app_proof"] == "bound",
+        report["cloudflare_access"] == "restricted-policy-candidate",
         report["canonical_guest"] == "denied-401",
         report["pages_alias_guest"] == "denied-404",
         report["historical_inventory_complete"] is True,
@@ -374,7 +397,15 @@ def main(argv: list[str]) -> int:
         print("Usage: staradvs_identity_readiness.py inspect", file=sys.stderr)
         return 64
     try:
-        report = collect(pages.CloudflareClient(__import__("os").environ))
+        # Missing Access-read credential cannot turn metadata into a green gate.
+        try:
+            access_client = access.AccessClient(os.environ)
+        except access.ReadinessError:
+            access_client = None
+        report = collect(pages.CloudflareClient(os.environ),
+                         access_client=access_client)
+        if access_client is None:
+            report["cloudflare_access"] = "read-token-unconfigured"
     except Exception as exc:
         # No service secret, Cloudflare value or HTTP response content in logs.
         print("STARADVS_IDENTITY_READINESS_BLOCKED kind=" + type(exc).__name__,
