@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - '.github/workflows/staradvs-protected-candidate.yml'
+      - '.github/workflows/staradvs-protected-publish.yml'
+      - 'scripts/staradvs_protected_publish.py'
+      - 'tests/test_staradvs_protected_publish.py'
       - 'tests/test_staradvs_protected_candidate_workflow.py'
       - 'docs/staradvs-protected-candidate.md'
       - 'scripts/staradvs_protected_bundle.py'
@@ -12,6 +15,9 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/staradvs-protected-candidate.yml'
+      - '.github/workflows/staradvs-protected-publish.yml'
+      - 'scripts/staradvs_protected_publish.py'
+      - 'tests/test_staradvs_protected_publish.py'
       - 'tests/test_staradvs_protected_candidate_workflow.py'
       - 'scripts/staradvs_protected_bundle.py'
       - 'edge/staradvs-identity-gate.mjs'
