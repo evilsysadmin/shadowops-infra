@@ -25,6 +25,40 @@ node --check edge/staradvs-identity-gate.mjs
 The unit tests use synthetic signed tokens and mock identity freshness; they
 do NOT prove a live login or current public Pages denial.
 
+## Real central logout and account switching (source only)
+
+The staging Worker now serves a read-only navigation route
+`GET /_shadowops/logout`, redirecting **only** to the pinned
+`https://id-staging.shadowops.dpdns.org/logout?app=staradvs`.
+The canonical login shell also offers the route for account switching.
+This is a redirect to the Identity confirmation page, **not a mutation**.
+The Worker rejects non-HTTPS origins and unexpected ports as well as
+unexpected hostnames, even when a valid JWT cookie is presented.
+
+The Identity staging service serves a GET-only confirmation for exactly the
+provisioned `staradvs` consumer. The page is hosted by the IdP with strict
+CSP and an exact Star Adventures return URL. The user must explicitly click
+"Confirmar cierre de sesión"; the IdP's own script then performs same-origin
+`POST /api/identity/logout` with JSON `{}`, and returns to Star Adventures
+**only after HTTP 204**. Its existing server endpoint commits central
+session deletion, revoking associated game tokens at their next freshness
+check. If the call fails, the page does not claim success or redirect.
+
+The legacy `POST /api/staradvs/logout` clears **only the local game
+cookie**; its JSON now explicitly reports
+`identity_session_revoked=false` and supplies the pinned central logout URL.
+A local cookie clear alone is **not** a real SSO logout because silent
+bootstrap may obtain a new game session from an active Identity cookie.
+Never advertise the local endpoint as global sign-out. A future in-game
+"Salir/cambiar cuenta" control should navigate to
+`/_shadowops/logout` rather than using only the local endpoint.
+
+These routes are checked with Go/Node synthetic tests. They do **not**
+mean staging Identity has the `staradvs` consumer provisioned, that any
+historical Pages alias is protected, or that a real browser sign-out has
+passed. Both the Identity deployment and the separate approved Pages
+publisher remain gated by the existing cutover process.
+
 ## Strict activation prerequisites
 
 1. Merge separately reviewed `staradvs` staging audience source and deploy the

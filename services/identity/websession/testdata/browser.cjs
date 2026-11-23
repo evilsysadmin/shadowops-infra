@@ -9,6 +9,7 @@ const origins = {
   chronicles: 'https://staging.chronicles.shadowops.dpdns.org',
   'chess-studio': 'https://staging.chess-studio.shadowops.dpdns.org',
   'cka-simulator': 'https://staging.cka.shadowops.dpdns.org',
+  staradvs: 'https://staging.staradvs.shadowops.dpdns.org',
 };
 const check = (condition, message) => { if (!condition) throw new Error(message); };
 let browser;
@@ -63,11 +64,36 @@ let browser;
       subject = claims.sub;
     }
     check(!(await context.cookies(origins.chronicles)).some(c => c.name === cookie.name), 'central cookie leaked to product domain');
-    const logout = await page.evaluate(url => fetch(`${url}/api/identity/logout`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.status), identity);
-    check(logout === 204, 'browser logout failed');
+    // Full user-confirmed logout on the Identity origin: GET is inert,
+    // cancelling preserves the SSO cookie, and only a confirmed POST revokes.
+    await page.goto(`${identity}/logout?app=staradvs`);
+    await page.getByRole('heading', { name: 'Cerrar sesión' }).waitFor();
+    check((await context.cookies(identity)).some(c => c.name === cookie.name),
+      'GET /logout unexpectedly cleared central Identity');
+    check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+      'Star Adventures logout confirmation overflows viewport');
+    if (artifacts) await page.screenshot({ path: path.join(artifacts, `identity-staradvs-logout-${name}.png`), fullPage: true });
+    await page.getByRole('link', { name: 'Volver a Star Adventures sin cerrar sesión' }).click();
+    await page.waitForURL(`${origins.staradvs}/`);
+    await page.waitForSelector('body[data-done="true"]');
+    check(await page.evaluate(() => window.fixtureStatus) === 200,
+      'cancelling Star Adventures logout revoked the active account');
+    await page.goto(`${identity}/logout?app=staradvs`);
+    const committed = page.waitForResponse(response =>
+      response.url() === identity + '/api/identity/logout' &&
+      response.request().method() === 'POST');
+    await page.getByRole('button', { name: 'Confirmar cierre de sesión' }).click();
+    check((await committed).status() === 204, 'Identity did not commit global logout');
+    await page.waitForURL(`${origins.staradvs}/`);
+    await page.waitForSelector('body[data-done="true"]');
+    check(!(await context.cookies(identity)).some(c => c.name === cookie.name),
+      'Identity SSO cookie remained after confirmed logout');
+    check(await page.evaluate(() => window.fixtureStatus) === 401,
+      'Star Adventures could silently reauthenticate after central logout');
     await page.goto(origins.chronicles);
     await page.waitForSelector('body[data-done="true"]');
-    check(await page.evaluate(() => window.fixtureStatus) === 401, 'product exchange survived central logout');
+    check(await page.evaluate(() => window.fixtureStatus) === 401,
+      'cross-game session survived central Star Adventures logout');
     await page.goto(`${identity}/login?app=chronicles`);
     await page.getByRole('button', { name: 'Recuperar', exact: true }).click();
     await page.getByLabel('Usuario ShadowOps').fill(username);
@@ -85,6 +111,6 @@ let browser;
     check(await page.evaluate(() => window.fixtureStatus) === 200, 'recovered account could not enter synthetic consumer');
     check(errors.length === 0, 'browser JavaScript errors');
     await context.close();
-    console.log(`${name}: real registration/login/recovery, TLS cookies, CORS for four synthetic consumers, JWT signatures and logout passed`);
+    console.log(`${name}: real registration/login/recovery, TLS cookies, CORS for five synthetic consumers, JWT signatures and confirmed Star Adventures logout passed`);
   }
 })().catch(error => { console.error(error.message); process.exitCode = 1; }).finally(async () => { if (browser) await browser.close(); });

@@ -109,7 +109,13 @@ by an origin and cannot prove real ShadowOps ID authentication. It
 remains mandatory to test an authorized user through Cloudflare Access
 and ShadowOps ID, /bridge navigation, F5, assets, logout, revocation,
 expired tokens, wrong audience, and existing old aliases. Verify the
-published SHA and Worker from an authenticated browser. The old static
+published SHA and Worker from an authenticated browser. The logout
+journey must use the new GET-only `/_shadowops/logout` navigation to the
+IdP's `/logout?app=staradvs` confirmation page and explicitly confirm the
+same-origin central `POST /api/identity/logout` returns 204. Verify that the
+previously authenticated game JWT can no longer fetch assets, even if its
+nominal expiry remains in the future. The game's local cookie-clear endpoint
+alone does not revoke SSO or prevent silent re-login. The old static
 publisher stays blocked and no production promotion is triggered.
 
 The protected release workflow emits no `STARADVS_STAGING_PUBLIC_READY`

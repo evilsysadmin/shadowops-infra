@@ -55,6 +55,54 @@ test('only 401 login/bootstrap is accessible to unauthenticated custom host',asy
  assert.ok(html.includes(ISSUER+'/login?app=staradvs'));
  assert.ok(!html.includes('token='));
 });
+test('global logout navigates to IdP confirmation; local logout never claims SSO revocation',async()=>{
+ let assets=0;
+ const stub=env(()=>assets++);
+ const link=await handle(url('/_shadowops/logout'),stub);
+ assert.equal(link.status,303);
+ assert.equal(link.headers.get('Location'),ISSUER+'/logout?app=staradvs');
+ assert.equal(link.headers.get('Cache-Control'),'no-store');
+ assert.equal(link.headers.get('Set-Cookie'),null,'GET navigation cannot mutate cookies');
+ const guestShell=await (await handle(url('/'),stub)).text();
+ assert.ok(guestShell.includes('href="/_shadowops/logout"'));
+ const local=await handle(url('/api/staradvs/logout',{
+  method:'POST',headers:{Origin:base},
+ }),stub);
+ assert.equal(local.status,200);
+ assert.deepEqual(await local.json(),{
+  local_cookie_cleared:true,identity_session_revoked:false,
+  central_logout_url:ISSUER+'/logout?app=staradvs',
+ });
+ assert.match(local.headers.get('Set-Cookie'),/Max-Age=0/);
+ assert.match(local.headers.get('Set-Cookie'),/HttpOnly/);
+ for(const request of [
+  url('/_shadowops/logout?next=https://evil.invalid'),
+  url('/_shadowops/logout',{method:'POST'}),
+  url('/api/staradvs/logout',{method:'POST',headers:{Origin:'https://evil.invalid'}}),
+ ]) {
+  const response=await handle(request,stub);
+  assert.notEqual(response.status,303,'untrusted logout navigation must not redirect');
+  assert.equal(response.headers.get('Set-Cookie'),null,'untrusted logout cannot mutate cookies');
+ }
+ assert.equal(assets,0,'logout and confirmation navigation cannot read game assets');
+});
+
+test('HTTPS canonical host and exact port are required even with signed session',async()=>{
+ const f=await signed();
+ let assets=0;
+ for(const target of [
+  'http://'+HOST+'/assets/game.js',
+  'https://'+HOST+':8443/assets/game.js',
+  'https://'+HOST+'.evil.test/assets/game.js',
+ ]) {
+  const response=await handle(new Request(target,{
+   headers:{Cookie:COOKIE+'='+f.jwt},
+  }),env(()=>assets++),f.options);
+  assert.equal(response.status,404,target);
+ }
+ assert.equal(assets,0);
+});
+
 test('wrong-origin token exchange is rejected before any SSO authorization',async()=>{
  for(const origin of ['https://staging.football.shadowops.dpdns.org','http://'+HOST]){
   const res=await handle(url('/api/staradvs/session',{method:'POST',
