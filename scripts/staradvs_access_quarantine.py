@@ -8,6 +8,7 @@ import sys
 import urllib.error
 import urllib.request
 import pages_access_readiness as access
+import staradvs_access_challenge as challenge
 import staradvs_pages as pages
 import staradvs_identity_readiness as readiness
 
@@ -177,7 +178,7 @@ def apply(client, pages_client, operator, *, confirmation):
     return created, states
 
 
-def judge_guest_quarantine(report):
+def judge_guest_quarantine(report, evidence=None):
     """Proof of no public app bytes is not proof of Access login enforcement.
 
     Fail closed on incomplete API enumeration, redirects, timeouts, or
@@ -201,12 +202,37 @@ def judge_guest_quarantine(report):
     if (exposed or report.get("pages_alias_guest") == "anonymous-content-observed" or
             report.get("canonical_guest") == "anonymous-content-observed"):
         return "guest-content-still-exposed"
-    if (unknown or denied != hosts or
-            report.get("pages_historical_guest") != "sample-denied-404" or
-            report.get("pages_alias_guest") != "denied-404" or
-            report.get("canonical_guest") != "denied-401"):
+    if (not unknown and denied == hosts and
+            report.get("pages_historical_guest") == "sample-denied-404" and
+            report.get("pages_alias_guest") == "denied-404" and
+            report.get("canonical_guest") == "denied-401"):
+        return "all-observed-guest-paths-denied"
+    # Cloudflare Access's documented default guest response is HTTP 302.
+    # A team-domain login challenge on both paths of every owned alias is
+    # only candidate evidence, tied to independently restrictive Access apps.
+    if report.get("cloudflare_access") != "restricted-policy-candidate":
         return "guest-denial-unverified"
-    return "all-observed-guest-paths-denied"
+    if not isinstance(evidence, dict) or evidence.get("can_activate") is not False:
+        return "guest-denial-unverified"
+    historical = evidence.get("historical")
+    current = evidence.get("current_pages")
+    canonical = evidence.get("canonical")
+    if not all(isinstance(row, dict) for row in (historical, current, canonical)):
+        return "guest-denial-unverified"
+    if (historical.get("hosts") != hosts or
+            type(current.get("hosts")) is not int or current["hosts"] < 1 or
+            canonical.get("hosts") != 1):
+        return "guest-denial-unverified"
+    for row in (historical, current, canonical):
+        vals = [row.get(k) for k in ("hosts", "denied", "challenged", "exposed", "unverified")]
+        if (any(type(v) is not int or v < 0 for v in vals) or
+                sum(vals[1:]) != vals[0] or vals[3] or vals[4]):
+            return "guest-denial-unverified"
+    if (historical["challenged"] + historical["denied"] != hosts or
+            current["challenged"] + current["denied"] != current["hosts"] or
+            canonical["challenged"] != 1):
+        return "guest-denial-unverified"
+    return "access-login-challenge-candidate"
 
 
 def main(argv):
@@ -226,7 +252,16 @@ def main(argv):
             confirmation=os.environ.get("STARADVS_ACCESS_CONFIRM", ""),
         )
         guest = readiness.collect(owner, access_client=writer)
-        verdict = judge_guest_quarantine(guest)
+        evidence = None
+        if (guest["historical_aliases_exposed"] == 0 and
+                guest["cloudflare_access"] == "restricted-policy-candidate"):
+            try:
+                evidence = challenge.collect(owner, guest)
+            except (challenge.ChallengeError, readiness.CutoverBlocked,
+                    pages.AdmissionError):
+                # Never log provider URLs or partially verified redirects.
+                evidence = None
+        verdict = judge_guest_quarantine(guest, evidence)
         print(json.dumps({
             "operation": "apply", "project": PROJECT,
             "created": created, "scopes": states,
@@ -238,12 +273,14 @@ def main(argv):
                 guest["historical_deployments_reported_total"],
             "historical_deployments_scanned":
                 guest["historical_deployments_scanned"],
-            "guest_verdict": verdict, "can_activate": False,
+            "guest_verdict": verdict,
+            "access_challenge_evidence": evidence,
+            "can_activate": False,
         }, sort_keys=True))
         if verdict != "all-observed-guest-paths-denied":
             print("STARADVS_QUARANTINE_PENDING reason=" + verdict)
             return 10
-        print("STARADVS_QUARANTINE_OBSERVED_GUEST_DENIAL signed-in E2E still required")
+        print("STARADVS_QUARANTINE_GUEST_CANDIDATE signed-in E2E still required")
         return 0
     except Exception as exc:
         # No Access/Pages data, operator emails or credentials in logs.
