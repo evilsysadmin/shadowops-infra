@@ -104,3 +104,32 @@ The Access write client itself now enforces exactly one approved hostname
 and one narrowly scoped individual-email Allow policy, even if called
 directly with an unexpected payload; extra settings or broad selectors
 cannot reach the external POST endpoint.
+
+## Cloudflare's normal 302 Access challenge
+
+Cloudflare documentation says unauthenticated web clients typically receive a
+302 to `https://<team>.cloudflareaccess.com/cdn-cgi/access/login/<host>`.
+The previous all-404 criterion was useful for a deployed Worker but made
+a **normally protected Pages deployment** perpetually pending.
+
+The quarantine postflight now conducts an additional bounded, GET-only,
+**no-redirect** inspection of every currently reported historical alias,
+the current Pages aliases and the custom hostname. It recognizes a 302 only
+if the exact request hostname appears in the Cloudflare team-domain Access
+login path, on **both** `/` and `/release.json`. Non-HTTPS Locations,
+wrong hosts, arbitrary redirects, foreign team hosts, timeouts, mixed
+responses, changed provider history or anonymous 200/206 fail closed.
+No redirect targets, opaque aliases or team identifiers are logged.
+
+If all hosts are independently denied (404) or present exact Cloudflare
+Access login challenges and all three **independently read-back** Access
+policies are restricted, the workflow reports
+`access-login-challenge-candidate`. This is a **quarantine candidate**,
+not cryptographic proof of Cloudflare policy enforcement: an origin could
+imitate a redirect. It never changes `can_activate=false`, bypasses
+`pending-identity`, publishes Pages, or replaces an actual signed-in
+gameplay and revocation E2E.
+
+Sources:
+- https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/session-management/
+- https://developers.cloudflare.com/pages/configuration/debugging-pages/
