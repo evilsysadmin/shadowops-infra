@@ -114,6 +114,9 @@ class Tests(unittest.TestCase):
             account = "a" * 32
         client = Client()
         with (patch.object(p.bundle, "policy_status", return_value="pending-identity"),
+              patch.object(p.pages, "inspect", return_value=(
+                  "zone", {"dns": "owned", "domain": "owned", "project": "owned"}
+              )),
               patch.object(p.readiness, "collect", return_value=report) as audit,
               patch.object(p.challenge, "collect", return_value=evidence) as second,
               patch.object(p.quarantine, "judge_guest_quarantine",
