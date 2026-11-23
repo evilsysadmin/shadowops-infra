@@ -121,9 +121,38 @@ class PagesPrivatePolicyTests(unittest.TestCase):
                     policy.apply(cf)
                 self.assertFalse(any(method == "PATCH" for method, _, _ in cf.calls))
 
+    def test_operator_intent_refuses_false_green_and_never_touches_cloudflare(self):
+        from unittest.mock import patch
+        cases = (
+            ("plan", "", True),
+            ("plan", policy.CONFIRM, False),
+            ("apply", policy.CONFIRM, True),
+            ("apply", "", False),
+            ("apply", "wrong", False),
+            ("unknown", policy.CONFIRM, False),
+        )
+        for operation, confirm, valid in cases:
+            with self.subTest(operation=operation, confirm=confirm):
+                with patch.dict("os.environ", {
+                    "STARADVS_POLICY_OPERATION": operation,
+                    "STARADVS_POLICY_CONFIRM": confirm,
+                }, clear=True), patch.object(policy.pages, "CloudflareClient",
+                                             side_effect=AssertionError("No Cloudflare client")):
+                    self.assertEqual(policy.main(["validate-intent"]),
+                                     0 if valid else 64)
+                if valid:
+                    self.assertEqual(policy.validate_dispatch_intent(operation, confirm),
+                                     operation)
+                else:
+                    with self.assertRaises(policy.PrivatePolicyError):
+                        policy.validate_dispatch_intent(operation, confirm)
+
     def test_workflow_requires_trusted_main_manual_apply_and_exact_confirmation(self):
         f = (ROOT / ".github/workflows/staradvs-private-pages-policy.yml").read_text()
         self.assertIn("workflow_dispatch:", f)
+        self.assertIn("staradvs_private_pages_policy.py validate-intent", f)
+        self.assertIn("STARADVS_POLICY_OPERATION: ${{ inputs.operation }}", f)
+        self.assertIn("STARADVS_POLICY_CONFIRM: ${{ inputs.confirm }}", f)
         self.assertIn("STARADVS_PRIVATE_PAGES_POLICY", f)
         self.assertIn("inputs.operation == 'apply'", f)
         self.assertIn("inputs.confirm == 'STARADVS_PRIVATE_PAGES_POLICY'", f)

@@ -11,6 +11,11 @@ A separate, **manual-only** workflow_dispatch `apply`, after typing
 `STARADVS_PRIVATE_PAGES_POLICY`, requires the protected staging environment,
 exact Infra main SHA and the shared staging publisher concurrency group.
 No push, schedule or PR can run `apply`.
+On manual requests the contracts job now checks operation and confirmation
+**before any Cloudflare client or API call**. An `apply` without the exact
+confirmation fails the entire workflow (rather than silently skipping the
+apply job and returning green); `plan` rejects unexpected apply confirmation.
+A successful contract job on push or PR still means **offline tests only**.
 
 The preflight refuses missing/foreign DNS, project, branch, domain, Pages alias,
 a GitHub-attached foreign source, incompatible mode types, unsafe Cloudflare

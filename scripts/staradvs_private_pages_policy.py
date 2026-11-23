@@ -95,7 +95,34 @@ def apply(client) -> str:
     return "updated-private"
 
 
+CONFIRM = "STARADVS_PRIVATE_PAGES_POLICY"
+
+
+def validate_dispatch_intent(operation: str, confirmation: str) -> str:
+    """Fail invalid manual requests before loading Cloudflare credentials."""
+    if operation == "plan":
+        if confirmation:
+            raise PrivatePolicyError("Read-only plan must not carry apply confirmation")
+        return "plan"
+    if operation == "apply":
+        if confirmation != CONFIRM:
+            raise PrivatePolicyError("Exact protected apply confirmation required")
+        return "apply"
+    raise PrivatePolicyError("Unrecognized private Pages policy operation")
+
+
 def main(argv: list[str]) -> int:
+    if argv == ["validate-intent"]:
+        try:
+            validate_dispatch_intent(
+                os.environ.get("STARADVS_POLICY_OPERATION", ""),
+                os.environ.get("STARADVS_POLICY_CONFIRM", ""),
+            )
+        except PrivatePolicyError:
+            print("STARADVS_PRIVATE_PAGES_OPERATOR_INTENT_BLOCKED", file=sys.stderr)
+            return 64
+        print("STARADVS_PRIVATE_PAGES_OPERATOR_INTENT_VALIDATED no-cloudflare-operation")
+        return 0
     if argv not in (["plan"], ["apply"]):
         print("Usage: staradvs_private_pages_policy.py plan|apply", file=sys.stderr)
         return 64
