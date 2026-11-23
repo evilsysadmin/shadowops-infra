@@ -167,9 +167,35 @@ class Tests(unittest.TestCase):
             "pages_historical_guest": "sample-denied-404",
             "pages_alias_guest": "denied-404",
             "canonical_guest": "denied-401",
+            "cloudflare_access": "restricted-policy-candidate",
         }
-        self.assertEqual(q.judge_guest_quarantine(base),
+        independently_denied = {
+            "historical": {"hosts": 114, "denied": 114, "challenged": 0,
+                           "exposed": 0, "unverified": 0},
+            "current_pages": {"hosts": 2, "denied": 2, "challenged": 0,
+                              "exposed": 0, "unverified": 0},
+            "canonical": {"hosts": 1, "denied": 1, "challenged": 0,
+                          "exposed": 0, "unverified": 0},
+            "can_activate": False,
+        }
+        # Even exact first-pass 404/401 evidence cannot bypass the
+        # independent full-route audit.
+        self.assertEqual(q.judge_guest_quarantine(base), "guest-denial-unverified")
+        self.assertEqual(q.judge_guest_quarantine(base, independently_denied),
                          "all-observed-guest-paths-denied")
+        self.assertEqual(q.judge_guest_quarantine(
+            dict(base, cloudflare_access="read-token-unconfigured"), independently_denied),
+            "guest-denial-unverified")
+        exposed_bridge = copy.deepcopy(independently_denied)
+        exposed_bridge["historical"]["exposed"] = 1
+        exposed_bridge["historical"]["denied"] = 113
+        self.assertEqual(q.judge_guest_quarantine(base, exposed_bridge),
+                         "guest-content-still-exposed")
+        inconsistent = copy.deepcopy(independently_denied)
+        inconsistent["historical"]["challenged"] = 1
+        inconsistent["historical"]["denied"] = 113
+        self.assertEqual(q.judge_guest_quarantine(base, inconsistent),
+                         "guest-denial-unverified")
         variants = [
             ({"historical_aliases_unverified": 114, "historical_aliases_denied": 0,
               "pages_historical_guest": "unverified-or-unavailable"},

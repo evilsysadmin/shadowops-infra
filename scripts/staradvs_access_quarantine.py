@@ -179,10 +179,11 @@ def apply(client, pages_client, operator, *, confirmation):
 
 
 def judge_guest_quarantine(report, evidence=None):
-    """Proof of no public app bytes is not proof of Access login enforcement.
+    """Accept guest denial only when independent full-route probes agree.
 
-    Fail closed on incomplete API enumeration, redirects, timeouts, or
-    inconsistent responses. Neither a 302 nor a generic 403 certifies Access.
+    A first-pass 404 on / and /release.json is not enough: /index.html,
+    /bridge, or another immutable alias might still expose app content.
+    Neither a 302 nor a generic 401 alone proves authenticated gameplay.
     """
     if not isinstance(report, dict):
         return "inventory-unverified"
@@ -202,16 +203,11 @@ def judge_guest_quarantine(report, evidence=None):
     if (exposed or report.get("pages_alias_guest") == "anonymous-content-observed" or
             report.get("canonical_guest") == "anonymous-content-observed"):
         return "guest-content-still-exposed"
-    if (not unknown and denied == hosts and
-            report.get("pages_historical_guest") == "sample-denied-404" and
-            report.get("pages_alias_guest") == "denied-404" and
-            report.get("canonical_guest") == "denied-401"):
-        return "all-observed-guest-paths-denied"
-    # Cloudflare Access's documented default guest response is HTTP 302.
-    # A team-domain login challenge on both paths of every owned alias is
-    # only candidate evidence, tied to independently restrictive Access apps.
     if report.get("cloudflare_access") != "restricted-policy-candidate":
         return "guest-denial-unverified"
+
+    # Mandatory for BOTH all-404 and Access-challenge candidate outcomes.
+    # The old all-404 shortcut bypassed this independent second pass.
     if not isinstance(evidence, dict) or evidence.get("can_activate") is not False:
         return "guest-denial-unverified"
     historical = evidence.get("historical")
@@ -226,14 +222,33 @@ def judge_guest_quarantine(report, evidence=None):
     for row in (historical, current, canonical):
         vals = [row.get(k) for k in ("hosts", "denied", "challenged", "exposed", "unverified")]
         if (any(type(v) is not int or v < 0 for v in vals) or
-                sum(vals[1:]) != vals[0] or vals[3] or vals[4]):
+                sum(vals[1:]) != vals[0]):
             return "guest-denial-unverified"
-    if (historical["challenged"] + historical["denied"] != hosts or
-            current["challenged"] + current["denied"] != current["hosts"] or
-            canonical["challenged"] != 1):
+    if any(row["exposed"] for row in (historical, current, canonical)):
+        return "guest-content-still-exposed"
+    if any(row["unverified"] for row in (historical, current, canonical)):
         return "guest-denial-unverified"
-    return "access-login-challenge-candidate"
 
+    all_observed_denied = (
+        not unknown and denied == hosts and
+        report.get("pages_historical_guest") == "sample-denied-404" and
+        report.get("pages_alias_guest") == "denied-404" and
+        report.get("canonical_guest") == "denied-401"
+    )
+    if all_observed_denied:
+        if (historical["denied"] == hosts and
+                current["denied"] == current["hosts"] and
+                canonical["denied"] == 1):
+            return "all-observed-guest-paths-denied"
+        return "guest-denial-unverified"
+
+    # With a non-404 initial probe, a team-domain Access 302 on all
+    # canonical paths is only a candidate, backed by API policy metadata.
+    if (historical["challenged"] + historical["denied"] == hosts and
+            current["challenged"] + current["denied"] == current["hosts"] and
+            canonical["challenged"] == 1):
+        return "access-login-challenge-candidate"
+    return "guest-denial-unverified"
 
 def validate_dispatch_intent(operation, confirmation, operator_email):
     """Validate an operator request before Cloudflare credentials are loaded.

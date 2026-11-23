@@ -69,21 +69,29 @@ def public_response(url):
         return 0, None
 
 
+# Probe actual SPA entry points, not only the root and release manifest.
+# Immutable historical deployments can expose /index.html or /bridge while
+# serving a 404 at /, so a narrow two-path inspection is insufficient.
+GUEST_PATHS = ("/", "/index.html", "/bridge", "/release.json")
+
+
 def classify(host, path, response):
     """One of: denied, access-challenge, exposed, unverified; with team."""
-    if path not in ("/", "/release.json"):
+    if path not in GUEST_PATHS:
         raise ChallengeError("Unapproved guest path")
     status, location = response
     if status in (200, 206):
         return "exposed", None
-    if status == 404:
+    # A 401 is an actual guest refusal from the game Worker, but does not by
+    # itself prove genuine Cloudflare Access or a usable ShadowOps ID login.
+    if status in (401, 404):
         return "denied", None
     team = access_team(host, status, location)
     return ("access-challenge", team) if team else ("unverified", None)
 
 
 def assess(hosts, probe=public_response):
-    """Both tested paths must agree per host; no URL or team appears in output."""
+    """All inspected routes must agree per host; report no URLs or team IDs."""
     if not isinstance(hosts, list) or not hosts or len(hosts) > MAX_ALIAS:
         raise ChallengeError("Guest host inventory unavailable or too large")
     if len(set(hosts)) != len(hosts):
@@ -95,34 +103,36 @@ def assess(hosts, probe=public_response):
             not host.endswith("." + pages.TARGET)
         ) or host != host.lower() or len(host) > 253:
             raise ChallengeError("Foreign guest host")
-    requests = [(host, path) for host in hosts for path in ("/", "/release.json")]
-    with ThreadPoolExecutor(max_workers=12) as pool:
+    requests = [(host, path) for host in hosts for path in GUEST_PATHS]
+    # Preserve the existing 10s/request bound without causing a 6min read
+    # timeout when probing four routes per historical immutable alias.
+    with ThreadPoolExecutor(max_workers=24) as pool:
         responses = list(pool.map(
             lambda item: probe("https://" + item[0] + item[1]), requests
         ))
     counts = {"hosts": len(hosts), "denied": 0, "challenged": 0,
               "exposed": 0, "unverified": 0}
     teams = set()
+    routes = len(GUEST_PATHS)
     for i, host in enumerate(hosts):
-        pairs = [classify(host, path, responses[2 * i + pos])
-                 for pos, path in enumerate(("/", "/release.json"))]
-        statuses = {pair[0] for pair in pairs}
+        states = [classify(host, path, responses[i * routes + pos])
+                  for pos, path in enumerate(GUEST_PATHS)]
+        statuses = {state[0] for state in states}
         if "exposed" in statuses:
             counts["exposed"] += 1
         elif statuses == {"denied"}:
             counts["denied"] += 1
-        elif statuses == {"access-challenge"} and pairs[0][1] == pairs[1][1]:
+        elif statuses == {"access-challenge"} and len({state[1] for state in states}) == 1:
             counts["challenged"] += 1
-            teams.add(pairs[0][1])
+            teams.add(states[0][1])
         else:
+            # Mixed 401/404/challenge/timeout, or different Access teams for
+            # one host, is insufficient to certify a protected deployment.
             counts["unverified"] += 1
-    # All Access challenges in the same Cloudflare account should use one
-    # team hostname. Reject mixed teams without printing those hostnames.
     if len(teams) > 1:
         counts["unverified"] += counts["challenged"]
         counts["challenged"] = 0
     return counts
-
 
 def enumerate_historical(client, project, reported_total, expected_aliases):
     """Independently enumerate the same owned bounded history; never log URLs."""

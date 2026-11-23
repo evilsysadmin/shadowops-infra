@@ -58,9 +58,11 @@ No automated rollback can reopen a public bypass.
 
 The apply job uses a separate GET for each newly created app's
 restricted policy and then probes the current provider-reported
-historical aliases anonymously on / and /release.json. It fails if
-any tested alias still returns anonymous 200/206 or the inventory is
-empty. A successful result means **no anonymous 200 was observed**,
+historical aliases anonymously on / and /release.json in the initial
+inventory. A mandatory independent second pass verifies /, /index.html,
+/bridge and /release.json on every historical/current alias and the custom
+hostname. It fails if any tested URL returns anonymous 200/206, if the
+inventory is empty, or if the two passes disagree. A successful result means **no anonymous 200 was observed**,
 NOT that user authentication or all historical hosts are verified.
 
 Cloudflare Pages officially documents a special Enable access policy
@@ -98,9 +100,11 @@ every URL returned an unverified redirect, timeout or generic denial merely
 because it saw zero HTTP 200. This has been fixed.
 
 The operator action now returns success only when the API enumeration is
-complete against the reported deployment total and *every sampled historical
-alias* has verified 404s on both guest endpoints, with current Pages aliases
-denied-404 and canonical guest routes denied-401. Any 200/206, incomplete
+complete against the reported deployment total and the independent
+four-route scan agrees with the initial denied-404/denied-401 assessment.
+The previous success shortcut for initial 404s has been removed: there is no
+successful quarantine receipt without a second pass and restricted Access
+policy metadata. Any 200/206, incomplete
 pagination, inconsistent counts, 302, 403, timeout or unknown Access
 challenge remains **PENDING** and requires explicit browser/Access evidence
 review. A pending result does not automatically roll back restricted Access
@@ -123,15 +127,18 @@ The quarantine postflight now conducts an additional bounded, GET-only,
 **no-redirect** inspection of every currently reported historical alias,
 the current Pages aliases and the custom hostname. It recognizes a 302 only
 if the exact request hostname appears in the Cloudflare team-domain Access
-login path, on **both** `/` and `/release.json`. Non-HTTPS Locations,
+login path, on **all four** /, /index.html, /bridge and /release.json. Non-HTTPS Locations,
 wrong hosts, arbitrary redirects, foreign team hosts, timeouts, mixed
 responses, changed provider history or anonymous 200/206 fail closed.
 No redirect targets, opaque aliases or team identifiers are logged.
 
-If all hosts are independently denied (404) or present exact Cloudflare
-Access login challenges and all three **independently read-back** Access
-policies are restricted, the workflow reports
-`access-login-challenge-candidate`. This is a **quarantine candidate**,
+If all hosts independently return consistent 401/404 denial matching the
+initial denied result, the workflow reports all-observed-guest-paths-denied.
+If the independent result is a consistent, exact Cloudflare Access login
+challenge and all three independently read-back Access policies are
+restricted, it reports access-login-challenge-candidate. Any /index.html or
+/bridge 200/206, mixed response, or missing second-pass evidence blocks
+both success paths. This is a **quarantine candidate**,
 not cryptographic proof of Cloudflare policy enforcement: an origin could
 imitate a redirect. It never changes `can_activate=false`, bypasses
 `pending-identity`, publishes Pages, or replaces an actual signed-in

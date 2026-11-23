@@ -63,6 +63,29 @@ class Tests(unittest.TestCase):
                          (200, None) if path == "/release.json" else login(host))
         self.assertEqual(exposed["exposed"], 1)
 
+    def test_each_history_entrypoint_is_required_for_guest_quarantine(self):
+        self.assertEqual(challenge.GUEST_PATHS,
+                         ("/", "/index.html", "/bridge", "/release.json"))
+        for exposed_path in challenge.GUEST_PATHS:
+            with self.subTest(exposed_path=exposed_path):
+                visited = []
+                def probe(host, path):
+                    visited.append(path)
+                    return (200, None) if path == exposed_path else login(host)
+                evidence = sample([PAGES], probe)
+                self.assertEqual(visited, list(challenge.GUEST_PATHS))
+                self.assertEqual(evidence["exposed"], 1)
+                self.assertEqual(evidence["challenged"], 0)
+
+    def test_independent_check_accepts_plain_401_denial_but_not_generic_403(self):
+        self.assertEqual(sample([CUSTOM], lambda h, p: (401, None))["denied"], 1)
+        self.assertEqual(sample([CURRENT], lambda h, p: (403, None))["unverified"], 1)
+        for escape in ("/index.html", "/bridge"):
+            with self.subTest(escape=escape):
+                result = sample([PAGES], lambda host, path:
+                    (401, None) if path == escape else login(host))
+                self.assertEqual(result["unverified"], 1)
+
     def test_stray_location_and_mismatched_challenge_fail(self):
         def mismatched(host, path):
             if path == "/":
