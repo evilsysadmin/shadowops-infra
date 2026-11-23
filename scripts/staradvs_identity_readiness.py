@@ -145,20 +145,35 @@ def historical_alias_hosts(client, project: dict, *, max_hosts: int = 64,
     return sorted(hosts), len(deployments), total
 
 
-def history_guest_status(hosts: list[str], probe=read_public) -> str:
-    """Require anonymous GET denial on both root and immutable release URL."""
+def history_guest_assessment(hosts: list[str], probe=read_public) -> tuple[str, dict]:
+    """Aggregate per-host guest results without disclosing historical URLs."""
+    counts = {"exposed": 0, "denied": 0, "unverified": 0}
     if not hosts:
-        return "not-verified"
+        return "not-verified", counts
     checks = [("https://" + host + path, "GET")
               for host in hosts for path in ("/", "/release.json")]
-    # Keep the total audit bounded even when many old links are unreachable.
     with ThreadPoolExecutor(max_workers=12) as pool:
         codes = list(pool.map(lambda check: probe(*check)[0], checks))
-    if all(code == 404 for code in codes):
-        return "denied-404"
-    if any(code in (200, 206) for code in codes):
-        return "anonymous-content-observed"
-    return "unverified-or-unavailable"
+    for index in range(0, len(codes), 2):
+        pair = codes[index:index + 2]
+        if any(code in (200, 206) for code in pair):
+            counts["exposed"] += 1
+        elif all(code == 404 for code in pair):
+            counts["denied"] += 1
+        else:
+            # Includes network failures, redirects, and inconsistent denial.
+            counts["unverified"] += 1
+    state = (
+        "anonymous-content-observed" if counts["exposed"] else
+        "denied-404" if counts["denied"] == len(hosts) else
+        "unverified-or-unavailable"
+    )
+    return state, counts
+
+
+def history_guest_status(hosts: list[str], probe=read_public) -> str:
+    """Backwards-compatible status facade for the historical probe."""
+    return history_guest_assessment(hosts, probe)[0]
 
 
 def pages_posture(project: dict) -> tuple[str, str]:
@@ -213,6 +228,9 @@ def collect(client, probe=read_public) -> dict:
         "historical_page2_deployments_indexed": 0,
         "historical_page2_aliases_indexed": 0,
         "historical_aliases_scanned": 0,
+        "historical_aliases_exposed": 0,
+        "historical_aliases_denied": 0,
+        "historical_aliases_unverified": 0,
         "signed_in_e2e": "not-performed",
         "can_activate": False,
     }
@@ -327,7 +345,10 @@ def collect(client, probe=read_public) -> dict:
             report["pages_alias_guest"] = "unverified-or-unavailable"
 
     if history:
-        status = history_guest_status(history, probe)
+        status, counts = history_guest_assessment(history, probe)
+        report["historical_aliases_exposed"] = counts["exposed"]
+        report["historical_aliases_denied"] = counts["denied"]
+        report["historical_aliases_unverified"] = counts["unverified"]
         # A 404 from sampled hosts is useful evidence, NOT full coverage.
         report["pages_historical_guest"] = (
             "sample-denied-404" if status == "denied-404" else status
