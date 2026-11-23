@@ -20,6 +20,7 @@ import staradvs_access_quarantine as quarantine
 import staradvs_identity_readiness as readiness
 import staradvs_pages as pages
 import staradvs_protected_bundle as bundle
+import staradvs_infra_revision as revision
 import staradvs_source_admission as source
 
 INFRA_REPO = "evilsysadmin/shadowops-infra"
@@ -44,10 +45,15 @@ class GitHub:
 
     def get(self, path):
         prefix = "/repos/" + INFRA_REPO + "/actions/runs/"
-        if not path.startswith(prefix) or not re.fullmatch(
+        actions = re.fullmatch(
             r"/repos/evilsysadmin/shadowops-infra/actions/runs/[1-9][0-9]{0,14}(?:/artifacts\?per_page=100)?",
             path
-        ):
+        )
+        trees = re.fullmatch(
+            r"/repos/evilsysadmin/shadowops-infra/git/trees/[a-f0-9]{40}\?recursive=1",
+            path
+        )
+        if not path.startswith("/repos/" + INFRA_REPO + "/") or not (actions or trees):
             raise ReleaseBlocked("Unapproved GitHub endpoint")
         req = urllib.request.Request(
             "https://api.github.com" + path, headers={
@@ -60,10 +66,10 @@ class GitHub:
             with urllib.request.urlopen(req, timeout=20) as response:
                 if response.status != 200:
                     raise ReleaseBlocked("GitHub artifact evidence unavailable")
-                raw = response.read(1_000_001)
+                raw = response.read(6_000_001 if trees else 1_000_001)
         except (urllib.error.URLError, OSError, TimeoutError):
             raise ReleaseBlocked("GitHub artifact API unavailable") from None
-        if len(raw) > 1_000_000:
+        if len(raw) > (6_000_000 if trees else 1_000_000):
             raise ReleaseBlocked("Artifact metadata oversized")
         try:
             return json.loads(raw)
@@ -87,13 +93,32 @@ def admit_candidate(reader, run_id, game_sha, infra_sha, *, game_reader):
         run.get("conclusion") != "success" or
         run.get("event") not in ("push", "workflow_dispatch") or
         run.get("head_branch") != "main" or
-        run.get("head_sha") != infra_sha or
+        not isinstance(run.get("head_sha"), str) or
+        not SHA.fullmatch(run["head_sha"]) or
         not isinstance(run.get("repository"), dict) or
         run["repository"].get("full_name") != INFRA_REPO or
         not isinstance(run.get("path"), str) or
         run["path"].split("@", 1)[0] != WORKFLOW
     ):
         raise ReleaseBlocked("Candidate is not exact successful Infra-main workflow")
+    # A Chronicles/Football-only Infra merge cannot invalidate identical
+    # Star Adventures release policy. Independently compare immutable git
+    # blob IDs of every staging-relevant path, not commit dates or names.
+    # Truncated trees, deleted files, changed code/Workers/workflows, or an
+    # unrecognized provider response all fail closed.
+    pinned = run["head_sha"]
+    if pinned != infra_sha:
+        try:
+            stable, changed = revision.compare(
+                pinned, infra_sha,
+                lambda sha: reader.get(
+                    f"/repos/{INFRA_REPO}/git/trees/{sha}?recursive=1"
+                ),
+            )
+        except revision.RevisionError:
+            raise ReleaseBlocked("Protected Infra revision evidence unavailable") from None
+        if not stable:
+            raise ReleaseBlocked("Staging-owned Infra paths changed")
     data = reader.get(path + "/artifacts?per_page=100")
     if not isinstance(data, dict) or not isinstance(data.get("artifacts"), list):
         raise ReleaseBlocked("Candidate artifacts unavailable")
@@ -112,7 +137,7 @@ def admit_candidate(reader, run_id, game_sha, infra_sha, *, game_reader):
             not 1024 <= artifact["size_in_bytes"] <= 200_000_000 or
             not isinstance(artifact.get("workflow_run"), dict) or
             artifact["workflow_run"].get("id") != int(run_id) or
-            artifact["workflow_run"].get("head_sha") != infra_sha):
+            artifact["workflow_run"].get("head_sha") != pinned):
         raise ReleaseBlocked("Artifact unavailable, expired or not from the admitted run")
     return wanted
 
