@@ -12,6 +12,14 @@ The manual workflow defaults to this plan. It does not read Vault on plan
 and does not claim that a pre-existing binding matches the current secret
 value.
 
+Before any provider credential is loaded, the first Actions job validates
+the manual intent. An invalid `bind` confirmation now **fails the entire
+workflow** instead of merely skipping the binding job and reporting green.
+A `plan` with an unexpected confirmation also fails. As defense in depth,
+the `bind` CLI itself requires the same confirmation in its protected
+environment; a direct, unconfirmed invocation cannot reach Cloudflare or OCI.
+This does not turn an offline green CI into a successful binding receipt.
+
 The protected, explicitly confirmed `bind` action:
 1. Requires GitHub Infra `main` SHA unchanged, environment `staging`
    approval and the dedicated publisher concurrency group.

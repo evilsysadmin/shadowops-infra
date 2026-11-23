@@ -121,9 +121,45 @@ class IdentityBindingTests(unittest.TestCase):
                     binding.bind(cf, OWN_PROOF)
                 self.assertFalse(any(method == "PATCH" for method, _, _ in cf.calls))
 
+    def test_invalid_operator_request_and_direct_cli_bind_never_load_providers(self):
+        from unittest.mock import patch
+        cases = (
+            ("plan", "", True),
+            ("plan", binding.CONFIRM, False),
+            ("bind", binding.CONFIRM, True),
+            ("bind", "wrong", False),
+            ("bind", "", False),
+            ("other", binding.CONFIRM, False),
+        )
+        for operation, confirm, accepted in cases:
+            with self.subTest(operation=operation, confirm=confirm):
+                with patch.dict("os.environ", {
+                    "STARADVS_BIND_OPERATION": operation,
+                    "STARADVS_BIND_CONFIRM": confirm,
+                }, clear=True), patch.object(
+                    binding.pages, "CloudflareClient",
+                    side_effect=AssertionError("Cloudflare must remain untouched"),
+                ):
+                    self.assertEqual(binding.main(["validate-intent"]),
+                                     0 if accepted else 64)
+                if accepted:
+                    self.assertEqual(binding.validate_dispatch_intent(operation, confirm),
+                                     operation)
+                else:
+                    with self.assertRaises(binding.BindingError):
+                        binding.validate_dispatch_intent(operation, confirm)
+        with patch.dict("os.environ", {}, clear=True), patch.object(
+            binding.pages, "CloudflareClient",
+            side_effect=AssertionError("Unconfirmed direct bind cannot access provider"),
+        ):
+            self.assertEqual(binding.main(["bind"]), 64)
+
     def test_manual_operator_is_the_only_binding_write_path(self):
         flow = (ROOT / ".github/workflows/staradvs-identity-binding.yml").read_text()
         self.assertIn("workflow_dispatch:", flow)
+        self.assertIn("staradvs_identity_binding.py validate-intent", flow)
+        self.assertIn("STARADVS_BIND_OPERATION: ${{ inputs.operation }}", flow)
+        self.assertIn("STARADVS_BIND_CONFIRM: ${{ inputs.confirm }}", flow)
         self.assertIn("inputs.operation == 'bind'", flow)
         self.assertIn("inputs.confirm == 'STARADVS_BIND_ISOLATED_IDENTITY'", flow)
         self.assertIn("github.event_name == 'workflow_dispatch'", flow)

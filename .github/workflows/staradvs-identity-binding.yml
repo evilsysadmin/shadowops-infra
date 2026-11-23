@@ -38,6 +38,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Reject wrong or missing binding confirmation, not a green skipped job
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          STARADVS_BIND_OPERATION: ${{ inputs.operation }}
+          STARADVS_BIND_CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          python3 scripts/staradvs_identity_binding.py validate-intent
       - run: python3 -m unittest discover -s tests -p 'test_staradvs_identity_binding.py' -v
       - run: python3 -m py_compile scripts/staradvs_identity_binding.py
 
@@ -85,6 +94,7 @@ jobs:
       OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
       OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
       OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+      STARADVS_BIND_CONFIRM: ${{ inputs.confirm }}
     steps:
       - uses: actions/checkout@v4
         with:
