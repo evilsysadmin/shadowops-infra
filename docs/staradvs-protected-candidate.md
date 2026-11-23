@@ -40,6 +40,18 @@ The daily path renews the 7-day artifact even when game-to-Infra notification
 is missing; it runs the same exact-green-main and protected-policy admission
 and **never deploys Pages or touches Cloudflare**.
 
+The push trigger also covers **every path protected by
+`scripts/staradvs_infra_revision.py:is_relevant`**: dedicated workflows,
+scripts, tests, policy configuration, and the Identity edge gate. This closes
+a confirmed 2026-11-23 race: game CI #45155371779 and the post-CI
+notification #45157333938 passed, but dispatched candidate #45157355681
+ran on Infra SHA `a2f6f16` after a Pages-policy merge had changed protected
+paths. Its admission correctly rejected the stale policy. The candidate
+workflow previously did not trigger on that Pages-policy push, so no immediate
+replacement was guaranteed. A matching Infra-main push now rebuilds the
+candidate automatically while retaining the strict stale-policy rejection.
+It is still not a deployed game.
+
 ## What this does NOT do
 
 **A build artifact is not a deployed game.** In particular it does not
