@@ -22,6 +22,10 @@ on:
       - 'scripts/staradvs_protected_bundle.py'
       - 'edge/staradvs-identity-gate.mjs'
   workflow_dispatch:
+  schedule:
+    # Recover an expiring seven-day protected candidate even if cross-repo
+    # notification fails. This workflow has no Cloudflare deployment access.
+    - cron: '17 5 * * *'
 
 permissions:
   contents: read
@@ -51,7 +55,7 @@ jobs:
     if: >-
       github.repository == 'evilsysadmin/shadowops-infra' &&
       github.ref == 'refs/heads/main' &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
     runs-on: ubuntu-24.04
     timeout-minutes: 6
     permissions:
