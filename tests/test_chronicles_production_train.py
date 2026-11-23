@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import urllib.error
 from unittest.mock import patch
 import yaml
 
@@ -364,6 +365,68 @@ class ReleaseTrainTests(unittest.TestCase):
             train.wait_run("api", 42, TOKEN,
                            call=lambda *a: {**payload, "status": "in_progress"},
                            sleep=lambda _: None, attempts=1)
+
+    def test_child_run_eventual_visibility_retries_same_id_without_redispatch(self):
+        payload = {"id": 42, "path": ".github/workflows/" + train.API_WORKFLOW,
+                   "event": "workflow_dispatch", "head_branch": "main",
+                   "repository": {"full_name": train.INFRA},
+                   "status": "completed", "conclusion": "success"}
+        missing = urllib.error.HTTPError(
+            "https://api.github.com/actions/runs/42", 404, "Not Found", None, None)
+        polls, sleeps = [], []
+        def call(method, path, token):
+            polls.append((method, path, token))
+            if len(polls) <= 2:
+                raise missing
+            return payload
+        train.wait_run("api", 42, TOKEN, call=call,
+                       sleep=sleeps.append, attempts=4)
+        self.assertEqual(len(polls), 3)
+        self.assertEqual(len(set(polls)), 1)
+        self.assertEqual(sleeps, [10, 10])
+
+    def test_child_run_visibility_grace_is_bounded_and_fail_closed(self):
+        def missing(code):
+            return urllib.error.HTTPError(
+                "https://api.github.com/actions/runs/42", code,
+                "Unavailable", None, None)
+        polls, sleeps = [], []
+        def never_visible(method, path, token):
+            polls.append(path)
+            raise missing(404)
+        with self.assertRaisesRegex(train.TrainError, "http=404"):
+            train.wait_run("api", 42, TOKEN, call=never_visible,
+                           sleep=sleeps.append, attempts=40)
+        self.assertEqual(len(polls), 12)
+        self.assertEqual(sleeps, [10] * 11)
+        # Auth failures are not eventual-consistency 404s.
+        for code in (401, 403, 429, 500):
+            with self.subTest(code=code):
+                sleeps = []
+                with self.assertRaisesRegex(train.TrainError, f"http={code}"):
+                    train.wait_run("api", 42, TOKEN,
+                                   call=lambda *_: (_ for _ in ()).throw(missing(code)),
+                                   sleep=sleeps.append, attempts=40)
+                self.assertEqual(sleeps, [])
+
+    def test_child_run_cannot_disappear_after_identity_verified(self):
+        ok = {"id": 42, "path": ".github/workflows/" + train.API_WORKFLOW,
+              "event": "workflow_dispatch", "head_branch": "main",
+              "repository": {"full_name": train.INFRA},
+              "status": "in_progress", "conclusion": None}
+        polls, sleeps = [], []
+        def vanishes(*_):
+            polls.append(1)
+            if len(polls) == 1:
+                return ok
+            raise urllib.error.HTTPError(
+                "https://api.github.com/actions/runs/42", 404,
+                "Not Found", None, None)
+        with self.assertRaisesRegex(train.TrainError, "http=404"):
+            train.wait_run("api", 42, TOKEN, call=vanishes,
+                           sleep=sleeps.append, attempts=40)
+        self.assertEqual(len(polls), 2)
+        self.assertEqual(sleeps, [10])
 
     def test_same_sha_is_idempotent_no_dispatch(self):
         data = train.run(TOKEN, select=lambda *_: SHA, current=lambda *_: True,
