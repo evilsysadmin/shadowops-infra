@@ -2,24 +2,28 @@ name: Star Adventures · protected ShadowOps ID bundle candidate (no deploy)
 
 on:
   pull_request:
+    # Match the entire fail-closed protected revision contract, not a small
+    # hand-picked subset. PRs still run OFFLINE contracts only.
     paths:
-      - '.github/workflows/staradvs-protected-candidate.yml'
-      - '.github/workflows/staradvs-protected-publish.yml'
-      - 'scripts/staradvs_protected_publish.py'
-      - 'tests/test_staradvs_protected_publish.py'
-      - 'tests/test_staradvs_protected_candidate_workflow.py'
-      - 'docs/staradvs-protected-candidate.md'
-      - 'scripts/staradvs_protected_bundle.py'
+      - '.github/workflows/staradvs-*'
+      - 'scripts/staradvs_*'
+      - 'config/staradvs-*'
+      - 'tests/test_staradvs_*'
+      - 'tests/staradvs-*'
       - 'edge/staradvs-identity-gate.mjs'
+      - 'docs/staradvs-protected-candidate.md'
   push:
     branches: [main]
+    # Every path that staradvs_infra_revision.is_relevant() treats as
+    # security-significant must rebuild the credential-free candidate.
+    # Otherwise a legitimate Infra policy merge can invalidate the
+    # game-to-Infra dispatch without scheduling a replacement build.
     paths:
-      - '.github/workflows/staradvs-protected-candidate.yml'
-      - '.github/workflows/staradvs-protected-publish.yml'
-      - 'scripts/staradvs_protected_publish.py'
-      - 'tests/test_staradvs_protected_publish.py'
-      - 'tests/test_staradvs_protected_candidate_workflow.py'
-      - 'scripts/staradvs_protected_bundle.py'
+      - '.github/workflows/staradvs-*'
+      - 'scripts/staradvs_*'
+      - 'config/staradvs-*'
+      - 'tests/test_staradvs_*'
+      - 'tests/staradvs-*'
       - 'edge/staradvs-identity-gate.mjs'
   workflow_dispatch:
   schedule:
