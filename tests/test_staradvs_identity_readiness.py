@@ -365,6 +365,37 @@ class CutoverReadinessTests(unittest.TestCase):
                          lambda url, method: (503, b"")), "unverified-or-unavailable")
         self.assertEqual(r.history_guest_status([]), "not-verified")
 
+    def test_guest_counts_per_host_without_exposing_aliases(self):
+        hosts = ["first." + ALIAS, "second." + ALIAS, "third." + ALIAS]
+        def probe(url, method):
+            if "first." in url:
+                return (200 if url.endswith("/") else 404), b""
+            if "second." in url:
+                return 404, b""
+            return 302, b""
+        status, counts = r.history_guest_assessment(hosts, probe)
+        self.assertEqual(status, "anonymous-content-observed")
+        self.assertEqual(counts, {"exposed": 1, "denied": 1, "unverified": 1})
+        self.assertNotIn(ALIAS, json.dumps(counts))
+        self.assertEqual(r.history_guest_status(hosts, probe), status)
+        self.assertEqual(r.history_guest_assessment([]), ("not-verified",
+                         {"exposed": 0, "denied": 0, "unverified": 0}))
+
+    def test_readiness_reports_count_totals_for_real_sample_paths(self):
+        cf = Client(ready_project())
+        def probe(url, method):
+            if "old123." + ALIAS in url:
+                return 200, b"old public game"
+            return public(url, method)
+        state = r.collect(cf, probe)
+        self.assertEqual(state["historical_aliases_exposed"], 1)
+        self.assertEqual(state["historical_aliases_denied"], 1)
+        self.assertEqual(state["historical_aliases_unverified"], 0)
+        self.assertEqual(sum(state["historical_aliases_" + suffix]
+                             for suffix in ("exposed", "denied", "unverified")),
+                         state["historical_aliases_scanned"])
+        self.assertFalse(state["next_gate_ready"])
+
     def test_workflow_is_read_only_never_admits_a_cloud_write(self):
         path = ROOT / ".github/workflows/staradvs-identity-readiness.yml"
         flow = path.read_text()
