@@ -195,6 +195,37 @@ class Tests(unittest.TestCase):
                 self.assertEqual(q.judge_guest_quarantine(dict(base, **update)), expected)
         self.assertEqual(q.judge_guest_quarantine({}), "inventory-unverified")
 
+    def test_operator_intent_fails_closed_before_cloudflare_clients(self):
+        cases = (
+            ("plan", "", "", True),
+            ("plan", "", "operator@private.invalid", True),
+            ("plan", q.CONFIRM, "", False),
+            ("apply", q.CONFIRM, "operator@private.invalid", True),
+            ("apply", "wrong", "operator@private.invalid", False),
+            ("apply", "", "operator@private.invalid", False),
+            ("apply", q.CONFIRM, "", False),
+            ("apply", q.CONFIRM, "   ", False),
+            ("apply", q.CONFIRM, "*@private.invalid", False),
+            ("unknown", q.CONFIRM, "operator@private.invalid", False),
+        )
+        for operation, confirm, email, allowed in cases:
+            with self.subTest(operation=operation, confirmation=confirm, allowed=allowed):
+                env = {
+                    "STARADVS_OPERATION": operation,
+                    "STARADVS_ACCESS_CONFIRM": confirm,
+                    "STARADVS_OPERATOR_EMAIL": email,
+                }
+                with patch.dict("os.environ", env, clear=True):
+                    with patch.object(q, "AccessWriter", side_effect=AssertionError(
+                            "Never create a Cloudflare client while validating intent")):
+                        self.assertEqual(q.main(["validate-intent"]), 0 if allowed else 64)
+                if allowed:
+                    self.assertEqual(q.validate_dispatch_intent(operation, confirm, email),
+                                     operation)
+                else:
+                    with self.assertRaises(q.QuarantineError):
+                        q.validate_dispatch_intent(operation, confirm, email)
+
     def test_workflow_never_writes_unattended(self):
         flow = (ROOT / ".github/workflows/staradvs-access-quarantine.yml").read_text()
         for text in ("workflow_dispatch:", "STARADVS_QUARANTINE_ACCESS",
