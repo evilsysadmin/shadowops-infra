@@ -235,7 +235,38 @@ def judge_guest_quarantine(report, evidence=None):
     return "access-login-challenge-candidate"
 
 
+def validate_dispatch_intent(operation, confirmation, operator_email):
+    """Validate an operator request before Cloudflare credentials are loaded.
+
+    Invalid apply confirmation must fail the entire Actions run, rather than
+    silently skipping the apply job after a green contracts job.
+    """
+    if operation == "plan":
+        if confirmation:
+            raise QuarantineError("Plan must not include apply confirmation")
+        return "plan"
+    if operation == "apply":
+        if confirmation != CONFIRM:
+            raise QuarantineError("Apply confirmation missing or incorrect")
+        # Reuse the strict single-user email guard before any external API.
+        payload_for(*SCOPES[0], operator_email)
+        return "apply"
+    raise QuarantineError("Unrecognized Access quarantine operation")
+
+
 def main(argv):
+    if argv == ["validate-intent"]:
+        try:
+            validate_dispatch_intent(
+                os.environ.get("STARADVS_OPERATION", ""),
+                os.environ.get("STARADVS_ACCESS_CONFIRM", ""),
+                os.environ.get("STARADVS_OPERATOR_EMAIL", ""),
+            )
+        except QuarantineError:
+            print("STARADVS_ACCESS_OPERATOR_INTENT_BLOCKED", file=sys.stderr)
+            return 64
+        print("STARADVS_ACCESS_OPERATOR_INTENT_VALIDATED no-cloudflare-operation")
+        return 0
     if argv not in (["plan"], ["apply"]):
         print("Usage: staradvs_access_quarantine.py plan|apply", file=sys.stderr)
         return 64
