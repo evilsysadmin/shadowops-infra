@@ -5,6 +5,7 @@ export const HOST='staging.staradvs.shadowops.dpdns.org';
 export const ISSUER='https://id-staging.shadowops.dpdns.org';
 export const AUDIENCE='staradvs';
 const COOKIE='__Host-staradvs_staging';
+const CENTRAL_LOGOUT=ISSUER+'/logout?app=staradvs';
 // workerd requires the native global receiver; Node accepts detached fetch.
 const publicRequest=(...args)=>globalThis.fetch(...args);
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -75,13 +76,17 @@ const bootstrap=`const status=document.querySelector('[role=status]');
  if(!session.ok)throw Error();location.replace('/');
 }catch{status.textContent='El acceso con ShadowOps ID aún no está disponible. Vuelve a intentarlo en unos minutos.';}})();`;
 function login(status=401){
- const body=`<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Star Adventures · ShadowOps ID</title><style>body{margin:0;background:#08130d;color:#f4e9d1;font:18px system-ui;min-height:100vh;display:grid;place-items:center}main{max-width:34rem;margin:1rem;padding:2rem;border:1px solid #52634c;border-radius:18px}a,button{display:inline-block;padding:14px 18px;background:#d6c18b;color:#132115;border:0;border-radius:9px;font:inherit;text-decoration:none}p{line-height:1.6}small{color:#b8c8ad}a:focus-visible,button:focus-visible{outline:3px solid #9ef4b1;outline-offset:4px}</style><main><small>STAR ADVENTURES</small><h1>Tu cuenta ShadowOps ID</h1><p role="status">Comprobando tu sesión…</p><a href="${ISSUER}/login?app=staradvs">Entrar con ShadowOps ID</a><p><small>Un universo protegido con ShadowOps ID.</small></p></main><script src="/_shadowops/session.js" defer></script></html>`;
+ const body=`<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Star Adventures · ShadowOps ID</title><style>body{margin:0;background:#08130d;color:#f4e9d1;font:18px system-ui;min-height:100vh;display:grid;place-items:center}main{max-width:34rem;margin:1rem;padding:2rem;border:1px solid #52634c;border-radius:18px}a,button{display:inline-block;padding:14px 18px;background:#d6c18b;color:#132115;border:0;border-radius:9px;font:inherit;text-decoration:none}p{line-height:1.6}small{color:#b8c8ad}a:focus-visible,button:focus-visible{outline:3px solid #9ef4b1;outline-offset:4px}</style><main><small>STAR ADVENTURES</small><h1>Tu cuenta ShadowOps ID</h1><p role="status">Comprobando tu sesión…</p><a href="${ISSUER}/login?app=staradvs">Entrar con ShadowOps ID</a><p><a href="/_shadowops/logout">Cerrar sesión o cambiar de cuenta</a></p><p><small>Un universo protegido con ShadowOps ID.</small></p></main><script src="/_shadowops/session.js" defer></script></html>`;
  return new Response(body,{status,headers:{...headers,'Content-Type':'text/html; charset=utf-8',
   'Content-Security-Policy':`default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self' ${ISSUER}; base-uri 'none'; frame-ancestors 'none'; form-action ${ISSUER}`}});
 }
 export async function handle(request,env,options={}){
  const url=new URL(request.url);
- if(url.hostname!==HOST)return new Response('Not found',{status:404,headers});
+ if(url.protocol!=='https:'||url.host!==HOST)return new Response('Not found',{status:404,headers});
+ // Navigating to the IdP logout confirmation never mutates a session.
+ // Only the IdP itself can revoke the shared ShadowOps ID cookie.
+ if(url.pathname==='/_shadowops/logout'&&request.method==='GET'&&!url.search)
+  return new Response(null,{status:303,headers:{...headers,Location:CENTRAL_LOGOUT}});
  if(url.pathname==='/_shadowops/session.js'&&request.method==='GET')return new Response(bootstrap,{headers:{...headers,'Content-Type':'text/javascript; charset=utf-8'}});
  try{
   if(url.pathname==='/api/staradvs/session'&&request.method==='POST'){
@@ -94,7 +99,7 @@ export async function handle(request,env,options={}){
   }
   if(url.pathname==='/api/staradvs/logout'&&request.method==='POST'){
    if(url.search||request.headers.get('Origin')!=='https://'+HOST)throw new Denied(403);
-   return json({signed_out:true},200,{'Set-Cookie':`${COOKIE}=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0`});
+   return json({local_cookie_cleared:true,identity_session_revoked:false,central_logout_url:CENTRAL_LOGOUT},200,{'Set-Cookie':`${COOKIE}=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0`});
   }
   if(!['GET','HEAD'].includes(request.method))throw new Denied(405);
   const claims=await authorize(cookie(request),env,options);
