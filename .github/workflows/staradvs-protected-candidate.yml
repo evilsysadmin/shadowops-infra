@@ -50,14 +50,14 @@ jobs:
     timeout-minutes: 17
     outputs:
       source_sha: ${{ steps.source.outputs.sha }}
-    env:
-      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
       - name: Admit exact Star Adventures green main and pinned Infra policy
         id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -75,8 +75,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
-          cache-dependency-path: staradvs-source/frontend/package-lock.json
       - name: Build exact game source, manifest and protected advanced-mode Worker
         env:
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
@@ -93,6 +91,7 @@ jobs:
           test -s staradvs-source/frontend/dist/_worker.js
       - name: Recheck game main, CI and Infra policy before retaining candidate
         env:
+          GH_TOKEN: ${{ github.token }}
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
         shell: bash
         run: |
