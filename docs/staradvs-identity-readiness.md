@@ -109,3 +109,25 @@ foreign/malformed data fails closed. The historical coverage flag remains
 false and the release cannot be authorized by this probe. Only after a
 successful live canary should a separately reviewed full-enumeration PR
 attempt all pages and perform anonymous guest probes.
+
+## Multi-page historical exposure inventory
+
+After confirming real `page=2` on the owned staging Pages project, the
+read-only audit now requests subsequent pages using only `?page=N` (no
+`per_page` override). It stops at the provider-reported total or at eight
+pages / 192 unique aliases, whichever comes first. Each response must use
+the expected project, approved hostname, page index and original total; an
+empty, repeated, inconsistent, oversized or unavailable response is marked
+as an incomplete audit. Hostnames are never printed. Existing first-page
+results are retained when a later page is unavailable; malformed foreign
+URLs block the audit instead of silently disappearing.
+
+Guest HTTPS GET is performed for `/` and `/release.json` on **all accepted
+sampled aliases**, not only the first page. The safe summary includes
+`historical_pages_scanned`, `historical_enumeration_status`, cumulative
+`historical_deployments_scanned` and `historical_aliases_scanned`. Even
+`reported-total-observed` only means that the present API inventory rows
+were sampled; `historical_inventory_complete` remains `false` because
+Cloudflare metadata and temporary alias coverage cannot certify universal
+historical isolation. Anonymous content or unproven Identity still blocks
+all release/cutover paths, regardless of CI status.
