@@ -277,7 +277,10 @@ def main(argv):
             "access_challenge_evidence": evidence,
             "can_activate": False,
         }, sort_keys=True))
-        if verdict != "all-observed-guest-paths-denied":
+        if verdict not in (
+                "all-observed-guest-paths-denied",
+                "access-login-challenge-candidate"):
+
             print("STARADVS_QUARANTINE_PENDING reason=" + verdict)
             return 10
         print("STARADVS_QUARANTINE_GUEST_CANDIDATE signed-in E2E still required")
