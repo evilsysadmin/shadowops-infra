@@ -66,8 +66,11 @@ Its second job makes GET-only Cloudflare/Identity checks and requires:
   DNS name and custom domain.
 - All three exact Cloudflare Access scopes with narrow policies.
 - Provider-reported historical Pages inventory fully enumerated; a
-  **second independent HTTPS probe** of both paths of every historical
-  alias with exact login challenge/denial, no anonymous content.
+  **mandatory independent HTTPS probe** on /, /index.html, /bridge and
+  /release.json for every historical/current alias and the canonical host.
+  The second scan must agree with the initial 404/401 denial verdict or
+  independently verify the exact Access login challenge. No anonymous
+  content, inconsistent route response or absent second scan is accepted.
 - The live Identity `staradvs` login audience, fail-closed Pages policy
   and the dedicated isolated Pages secret-text binding.
 
