@@ -1,0 +1,107 @@
+name: Star Adventures · quarantine historical Pages aliases via Access (manual only)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/staradvs-access-quarantine.yml'
+      - 'scripts/staradvs_access_quarantine.py'
+      - 'tests/test_staradvs_access_quarantine.py'
+      - 'docs/staradvs-access-quarantine.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/staradvs-access-quarantine.yml'
+      - 'scripts/staradvs_access_quarantine.py'
+      - 'tests/test_staradvs_access_quarantine.py'
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "plan is GET-only; apply creates three exact operator-only Access applications"
+        type: choice
+        options: [plan, apply]
+        default: plan
+        required: true
+      operator_email:
+        description: "Individual operator Access email (apply only)"
+        type: string
+        required: false
+      confirm:
+        description: "For apply only, type STARADVS_QUARANTINE_ACCESS"
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: Star Adventures Access quarantine safety contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_staradvs_access_quarantine.py' -v
+      - run: python3 -m py_compile scripts/staradvs_access_quarantine.py
+
+  plan:
+    name: Read-only Pages/Access ownership plan
+    needs: contracts
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.operation == 'plan' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    environment: staging
+    env:
+      CLOUDFLARE_ACCESS_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_WRITE_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 scripts/staradvs_access_quarantine.py plan
+
+  apply:
+    name: Confirmed Access quarantine + historic guest probes
+    needs: contracts
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.operation == 'apply' &&
+      inputs.confirm == 'STARADVS_QUARANTINE_ACCESS' &&
+      inputs.operator_email != '' &&
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: staging
+    concurrency:
+      group: shadowops-staradvs-staging-pages
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_ACCESS_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_WRITE_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      STARADVS_OPERATOR_EMAIL: ${{ inputs.operator_email }}
+      STARADVS_ACCESS_CONFIRM: ${{ inputs.confirm }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Refuse stale main SHA before any external Access write
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_SHA" == "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" ]]
+          python3 scripts/staradvs_access_quarantine.py plan
+      - name: Create only missing Star Adventures operator apps and verify guest denial
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_SHA" == "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" ]]
+          python3 scripts/staradvs_access_quarantine.py apply
