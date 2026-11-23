@@ -90,3 +90,22 @@ single reported page is not an authenticated security check.
 `historical_inventory_complete` stays false, including when reported
 `total_count` equals the observed count. Invalid pagination metadata fails
 closed; no secret, deployment URL or response body is logged.
+
+## Cloudflare page-2 read-only canary
+
+Cloudflare documents the optional `page` query parameter, but previous
+operational requests using `page=1&per_page=100` returned HTTP 400. When
+its first response indicates more deployments than were sampled, the auditor
+now issues **only** `GET /deployments?page=2` against the owned Pages
+project, keeping the working first-page GET unchanged. It checks the second
+page's record shapes, exact project hostnames, pagination metadata, total
+consistency and whether the result merely repeats the first page. Results
+are sanitized: `historical_page2_status`,
+`historical_page2_deployments_indexed` and
+`historical_page2_aliases_indexed`. No second-page hostname is printed
+or publicly probed in this canary. An HTTP error becomes
+`provider-unavailable` while retaining the first-page exposure report;
+foreign/malformed data fails closed. The historical coverage flag remains
+false and the release cannot be authorized by this probe. Only after a
+successful live canary should a separately reviewed full-enumeration PR
+attempt all pages and perform anonymous guest probes.
