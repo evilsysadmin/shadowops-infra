@@ -134,6 +134,67 @@ class Tests(unittest.TestCase):
             q.payload_for("chronicles-production", "chronicles-production.pages.dev",
                           "operator@private.invalid")
 
+    def test_post_http_client_rejects_foreign_or_broad_apps_before_network(self):
+        writer = q.AccessWriter({"CLOUDFLARE_ACCOUNT_ID": "a" * 32,
+                                 "CLOUDFLARE_ACCESS_WRITE_TOKEN": "unit-test"})
+        endpoint = f"/accounts/{writer.account}/access/apps"
+        good = q.payload_for(*q.SCOPES[0], "operator@private.invalid")
+        invalid = [
+            dict(good, destinations=[{"type": "public", "uri": "*.pages.dev"}]),
+            dict(good, destinations=[{"type": "public", "uri": q.SCOPES[0][1]},
+                                     {"type": "public", "uri": q.SCOPES[1][1]}]),
+            dict(good, policies=[{"decision": "bypass", "include": [{"everyone": {}}]}]),
+            dict(good, session_duration="30d"),
+            dict(good, extra="unreviewed-override"),
+            dict(good, policies=[]),
+        ]
+        with patch("urllib.request.build_opener",
+                   side_effect=AssertionError("No external writes allowed in unit tests")):
+            for payload in invalid:
+                with self.subTest(payload=payload):
+                    with self.assertRaises(q.QuarantineError):
+                        writer.post(endpoint, payload)
+
+    def test_guest_quarantine_requires_full_and_unambiguous_denial(self):
+        base = {
+            "historical_aliases_scanned": 114,
+            "historical_aliases_exposed": 0,
+            "historical_aliases_denied": 114,
+            "historical_aliases_unverified": 0,
+            "historical_deployments_scanned": 114,
+            "historical_deployments_reported_total": 114,
+            "historical_enumeration_status": "reported-total-observed",
+            "pages_historical_guest": "sample-denied-404",
+            "pages_alias_guest": "denied-404",
+            "canonical_guest": "denied-401",
+        }
+        self.assertEqual(q.judge_guest_quarantine(base),
+                         "all-observed-guest-paths-denied")
+        variants = [
+            ({"historical_aliases_unverified": 114, "historical_aliases_denied": 0,
+              "pages_historical_guest": "unverified-or-unavailable"},
+             "guest-denial-unverified"),
+            ({"historical_aliases_exposed": 1, "historical_aliases_denied": 113,
+              "pages_historical_guest": "anonymous-content-observed"},
+             "guest-content-still-exposed"),
+            ({"historical_deployments_scanned": 25},
+             "inventory-unverified"),
+            ({"historical_enumeration_status": "provider-unavailable"},
+             "inventory-unverified"),
+            ({"historical_aliases_unverified": 1, "historical_aliases_denied": 114},
+             "inventory-unverified"),
+            ({"pages_alias_guest": "unverified-or-unavailable"},
+             "guest-denial-unverified"),
+            ({"canonical_guest": "anonymous-content-observed"},
+             "guest-content-still-exposed"),
+            ({"historical_deployments_reported_total": None},
+             "inventory-unverified"),
+        ]
+        for update, expected in variants:
+            with self.subTest(update=update):
+                self.assertEqual(q.judge_guest_quarantine(dict(base, **update)), expected)
+        self.assertEqual(q.judge_guest_quarantine({}), "inventory-unverified")
+
     def test_workflow_never_writes_unattended(self):
         flow = (ROOT / ".github/workflows/staradvs-access-quarantine.yml").read_text()
         for text in ("workflow_dispatch:", "STARADVS_QUARANTINE_ACCESS",

@@ -81,3 +81,26 @@ config/staradvs-protected-release.json change from pending-identity.
 
 This workflow is manual-only. PR CI green does not mean Cloudflare
 was changed; running plan does not mutate anything.
+
+
+## Fail-closed guest evidence (postflight)
+
+A Cloudflare Access login normally redirects guests. **A redirect is not
+proof of protection.** The earlier quarantine postflight could succeed when
+every URL returned an unverified redirect, timeout or generic denial merely
+because it saw zero HTTP 200. This has been fixed.
+
+The operator action now returns success only when the API enumeration is
+complete against the reported deployment total and *every sampled historical
+alias* has verified 404s on both guest endpoints, with current Pages aliases
+denied-404 and canonical guest routes denied-401. Any 200/206, incomplete
+pagination, inconsistent counts, 302, 403, timeout or unknown Access
+challenge remains **PENDING** and requires explicit browser/Access evidence
+review. A pending result does not automatically roll back restricted Access
+policies or authorize a deployment. Successful postflight still does not
+override `pending-identity` or replace signed-in E2E.
+
+The Access write client itself now enforces exactly one approved hostname
+and one narrowly scoped individual-email Allow policy, even if called
+directly with an unexpected payload; extra settings or broad selectors
+cannot reach the external POST endpoint.
