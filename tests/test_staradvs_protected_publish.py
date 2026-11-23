@@ -259,7 +259,7 @@ class Tests(unittest.TestCase):
             "scripts/staradvs_protected_publish.py postflight",
             "scripts/staradvs_protected_bundle.py verify",
             "actions/download-artifact@v4",
-            "npx --yes wrangler@4.127.1 pages deploy protected-dist",
+            '"$RUNNER_TEMP/staradvs-wrangler/node_modules/.bin/wrangler" pages deploy protected-dist',
             "github-token: DOLLAR{{ github.token }}",
             "github.repository == 'evilsysadmin/shadowops-infra'",
         ):
@@ -273,15 +273,35 @@ class Tests(unittest.TestCase):
         ):
             self.assertNotIn(banned.replace("DOLLAR", "$"), flow)
         self.assertIn("pending-identity", flow)
+        # A publish request without the exact confirmation must fail the
+        # whole workflow at admission, not silently skip the publish job.
+        admission = flow.split("\n  admit:\n", 1)[1].split("\n  preflight:\n", 1)[0]
+        self.assertIn('REQUESTED_OPERATION: DOLLAR{{ inputs.operation }}'.replace("DOLLAR", "$"), admission)
+        self.assertIn('PUBLISH_CONFIRM: DOLLAR{{ inputs.confirm }}'.replace("DOLLAR", "$"), admission)
+        self.assertIn('if [[ "$PUBLISH_CONFIRM" != "STARADVS_PUBLISH_PROTECTED_WORKER" ]]', admission)
+        self.assertIn('exit 64', admission)
+        self.assertIn('if [[ -n "$PUBLISH_CONFIRM" ]]', admission)
         publish = flow.split("\n  publish:\n", 1)[1]
         self.assertIn("needs: [contracts, admit, preflight]", publish)
         self.assertIn("inputs.confirm == 'STARADVS_PUBLISH_PROTECTED_WORKER'", publish)
+        install = publish.split(
+            "- name: Install exact reviewed Wrangler version WITHOUT Cloudflare or GitHub tokens", 1
+        )[1].split("- name: Publish exact Infra-owned advanced-mode Worker", 1)[0]
+        self.assertIn('npm install --prefix "$RUNNER_TEMP/staradvs-wrangler"', install)
+        self.assertIn("wrangler@4.127.1", install)
+        self.assertNotIn("CLOUDFLARE_API_TOKEN", install)
+        self.assertNotIn("CLOUDFLARE_ACCOUNT_ID", install)
+        self.assertNotIn("GH_TOKEN", install)
+        deploy = publish.split("- name: Publish exact Infra-owned advanced-mode Worker", 1)[1]
+        deploy_step = deploy.split("- name: Fail closed if Access/quarantine/Identity", 1)[0]
+        self.assertNotIn("npx ", deploy_step)
+        self.assertNotIn("npm ", deploy_step)
         self.assertLess(publish.index("scripts/staradvs_protected_bundle.py verify"),
-                        publish.index("npx --yes wrangler@"))
+                        publish.index('"$RUNNER_TEMP/staradvs-wrangler/node_modules/.bin/wrangler" pages deploy'))
         self.assertLess(publish.index("scripts/staradvs_protected_publish.py preflight"),
-                        publish.index("npx --yes wrangler@"))
+                        publish.index('"$RUNNER_TEMP/staradvs-wrangler/node_modules/.bin/wrangler" pages deploy'))
         self.assertGreater(publish.index("scripts/staradvs_protected_publish.py postflight"),
-                           publish.index("npx --yes wrangler@"))
+                           publish.index('"$RUNNER_TEMP/staradvs-wrangler/node_modules/.bin/wrangler" pages deploy'))
 
 
 if __name__ == "__main__":

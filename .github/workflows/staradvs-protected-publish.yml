@@ -78,9 +78,28 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          REQUESTED_OPERATION: ${{ inputs.operation }}
+          PUBLISH_CONFIRM: ${{ inputs.confirm }}
         shell: bash
         run: |
           set -euo pipefail
+          # Reject accidental green on publish with a wrong/missing confirmation:
+          # the previous job condition only skipped the publisher, leaving an
+          # apparently successful preflight run. Wrong intent must FAIL.
+          if [[ "$REQUESTED_OPERATION" == "publish" ]]; then
+            if [[ "$PUBLISH_CONFIRM" != "STARADVS_PUBLISH_PROTECTED_WORKER" ]]; then
+              echo "STARADVS_PUBLISH_BLOCKED operator confirmation missing or incorrect" >&2
+              exit 64
+            fi
+          elif [[ "$REQUESTED_OPERATION" == "preflight" ]]; then
+            if [[ -n "$PUBLISH_CONFIRM" ]]; then
+              echo "STARADVS_PREFLIGHT_BLOCKED unexpected confirmation" >&2
+              exit 64
+            fi
+          else
+            echo "STARADVS_PUBLISH_BLOCKED unrecognized operation" >&2
+            exit 64
+          fi
           [[ "$CANDIDATE_RUN_ID" =~ ^[1-9][0-9]{0,14}$ ]]
           infra_head="$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)"
           [[ "$GITHUB_SHA" == "$infra_head" ]]
@@ -181,6 +200,16 @@ jobs:
           [[ "$GITHUB_SHA" == "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" ]]
           [[ "$SOURCE_SHA" == "$(gh api repos/evilsysadmin/star-adventures/commits/main --jq .sha)" ]]
           python3 scripts/staradvs_source_admission.py "$SOURCE_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install exact reviewed Wrangler version WITHOUT Cloudflare or GitHub tokens
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/staradvs-wrangler"
+          npm install --prefix "$RUNNER_TEMP/staradvs-wrangler" --no-save --no-audit --no-fund wrangler@4.127.1
+          "$RUNNER_TEMP/staradvs-wrangler/node_modules/.bin/wrangler" --version
       - name: Publish exact Infra-owned advanced-mode Worker and pinned game to one Pages project
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -190,7 +219,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/staradvs_protected_bundle.py verify --sha "$SOURCE_SHA" --dist protected-dist
-          npx --yes wrangler@4.127.1 pages deploy protected-dist --project-name staradvs-staging --branch main --commit-hash "$SOURCE_SHA" --commit-dirty=false
+          test -x "$RUNNER_TEMP/staradvs-wrangler/node_modules/.bin/wrangler"
+          "$RUNNER_TEMP/staradvs-wrangler/node_modules/.bin/wrangler" pages deploy protected-dist --project-name staradvs-staging --branch main --commit-hash "$SOURCE_SHA" --commit-dirty=false
       - name: Fail closed if Access/quarantine/Identity no longer pass after live Pages upload
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
