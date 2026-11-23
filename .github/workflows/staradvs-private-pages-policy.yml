@@ -38,6 +38,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Fail invalid manual apply intent instead of skipping publication policy
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          STARADVS_POLICY_OPERATION: ${{ inputs.operation }}
+          STARADVS_POLICY_CONFIRM: ${{ inputs.confirm }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/staradvs_private_pages_policy.py validate-intent
       - run: python3 -m unittest discover -s tests -p 'test_staradvs_private_pages_policy.py' -v
       - run: python3 -m py_compile scripts/staradvs_private_pages_policy.py
 
