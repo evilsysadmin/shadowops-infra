@@ -171,6 +171,16 @@ jobs:
           set -euo pipefail
           python3 scripts/staradvs_protected_bundle.py verify --sha "$SOURCE_SHA" --dist protected-dist
           python3 scripts/staradvs_protected_publish.py preflight
+      - name: Revalidate unchanged reviewed Infra main and current game SHA immediately before Pages mutation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.admit.outputs.game_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_SHA" == "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" ]]
+          [[ "$SOURCE_SHA" == "$(gh api repos/evilsysadmin/star-adventures/commits/main --jq .sha)" ]]
+          python3 scripts/staradvs_source_admission.py "$SOURCE_SHA"
       - name: Publish exact Infra-owned advanced-mode Worker and pinned game to one Pages project
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
