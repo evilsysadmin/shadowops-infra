@@ -240,10 +240,15 @@ def policy_review(payload):
     return "restricted-policy-candidate" if has_restricted_allow else "review-required"
 
 
-def inspect(client):
+def inspect(client, *, project_filter=None):
+    """Check Access for all games or one allowlisted project; no writes."""
+    if project_filter is not None and project_filter not in HOSTS:
+        raise ReadinessError("Access project is not allowlisted")
     apps = parse_apps(client.get("/accounts/" + client.account + "/access/apps"))
     project_rows = []
     for project, custom in HOSTS.items():
+        if project_filter is not None and project != project_filter:
+            continue
         wanted = {
             "main": project + ".pages.dev",
             "immutable": "*." + project + ".pages.dev",
