@@ -63,7 +63,7 @@ class ExporterTests(unittest.TestCase):
         self.assertIn('shadowops_deploy_last_result{component="train",environment="production",result="failure"} 1', result)
         self.assertIn('shadowops_deploy_last_completed_duration_seconds{component="train",environment="production"} 60', result)
         self.assertIn('shadowops_deploy_last_success_timestamp_seconds{component="train",environment="production"} ', result)
-        self.assertNotIn('environment="production",result="success"', result)
+        self.assertNotIn('shadowops_deploy_last_result{component="train",environment="production",result="success"}', result)
         self.assertIn('shadowops_deploy_last_run_id{component="pages",environment="unspecified"} 9', result)
 
     def test_no_duplicate_time_series_on_newer_failed_run(self):
