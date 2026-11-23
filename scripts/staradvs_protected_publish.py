@@ -123,6 +123,9 @@ def verify_posture(pages_client, access_client):
         raise ReleaseBlocked("Cloudflare account mismatch")
     if bundle.policy_status() != "pending-identity":
         raise ReleaseBlocked("Unreviewed public publisher activation")
+    _, ownership = pages.inspect(pages_client)
+    if ownership != {"dns": "owned", "domain": "owned", "project": "owned"}:
+        raise ReleaseBlocked("Pages DNS or custom domain not owned")
     report = readiness.collect(pages_client, access_client=access_client)
     if (report.get("pages_project") != "owned" or
             report.get("identity_login") != "audience-recognized" or
