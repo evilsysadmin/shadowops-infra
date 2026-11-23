@@ -1,0 +1,125 @@
+name: Star Adventures · protected ShadowOps ID bundle candidate (no deploy)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/staradvs-protected-candidate.yml'
+      - 'tests/test_staradvs_protected_candidate_workflow.py'
+      - 'docs/staradvs-protected-candidate.md'
+      - 'scripts/staradvs_protected_bundle.py'
+      - 'edge/staradvs-identity-gate.mjs'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/staradvs-protected-candidate.yml'
+      - 'tests/test_staradvs_protected_candidate_workflow.py'
+      - 'scripts/staradvs_protected_bundle.py'
+      - 'edge/staradvs-identity-gate.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  contracts:
+    name: Candidate package and Identity Worker contracts (offline)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python3 -m unittest discover -s tests -p 'test_staradvs_protected_bundle.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_staradvs_protected_candidate_workflow.py' -v
+      - run: python3 -m py_compile scripts/staradvs_protected_bundle.py
+      - run: node --check edge/staradvs-identity-gate.mjs
+      - run: node --test tests/staradvs-identity-gate.test.mjs
+
+  candidate:
+    name: Build exact green game SHA with Infra-owned protected Worker
+    needs: contracts
+    if: >-
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 17
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: staradvs-source/frontend/package-lock.json
+      - name: Admit exact Star Adventures green main and pinned Infra policy
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(gh api repos/evilsysadmin/star-adventures/commits/main --jq .sha)"
+          [[ "$sha" =~ ^[a-f0-9]{40}$ ]]
+          python3 scripts/staradvs_source_admission.py "$sha"
+          python3 scripts/staradvs_infra_revision.py "$GITHUB_SHA"             "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: evilsysadmin/star-adventures
+          ref: ${{ steps.source.outputs.sha }}
+          path: staradvs-source
+          persist-credentials: false
+      - name: Build exact game source, manifest and protected advanced-mode Worker
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git -C staradvs-source rev-parse HEAD)" == "$SOURCE_SHA" ]]
+          npm ci --prefix staradvs-source/frontend --no-audit --no-fund
+          npm run build --prefix staradvs-source/frontend
+          test -s staradvs-source/frontend/dist/index.html
+          python3 scripts/staradvs_pages.py manifest --sha "$SOURCE_SHA" --dist staradvs-source/frontend/dist
+          python3 scripts/staradvs_protected_bundle.py prepare --sha "$SOURCE_SHA" --dist staradvs-source/frontend/dist
+          python3 scripts/staradvs_protected_bundle.py verify --sha "$SOURCE_SHA" --dist staradvs-source/frontend/dist
+          test -s staradvs-source/frontend/dist/_worker.js
+      - name: Recheck game main, CI and Infra policy before retaining candidate
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(gh api repos/evilsysadmin/star-adventures/commits/main --jq .sha)" == "$SOURCE_SHA" ]]
+          python3 scripts/staradvs_source_admission.py "$SOURCE_SHA"
+          python3 scripts/staradvs_infra_revision.py "$GITHUB_SHA"             "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)"
+          python3 scripts/staradvs_protected_bundle.py verify --sha "$SOURCE_SHA" --dist staradvs-source/frontend/dist
+          echo "STARADVS_PROTECTED_CANDIDATE_VERIFIED source_sha=$SOURCE_SHA deployment=not-attempted"
+      - name: Retain exact protected candidate for separately approved cutover
+        uses: actions/upload-artifact@v4
+        with:
+          name: staradvs-protected-candidate-${{ steps.source.outputs.sha }}
+          path: staradvs-source/frontend/dist/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Explicit no-deploy attestation
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### Star Adventures protected Identity candidate"
+            echo "Source SHA: $SOURCE_SHA"
+            echo "Prepared: Vite JS, release.json, Infra-owned _worker.js"
+            echo "NOT DEPLOYED. Static Pages publisher remains pending-identity."
+            echo "Cutover needs Access quarantine, unique IdP audience, proof binding,"
+            echo "reviewed protected release and real guest + signed-in browser E2E."
+          } >> "$GITHUB_STEP_SUMMARY"
