@@ -169,6 +169,51 @@ class CutoverReadinessTests(unittest.TestCase):
                 self.assertFalse(state["next_gate_ready"])
 
 
+    def test_security_posture_refuses_preview_bindings_or_conflicting_origin(self):
+        # These settings previously looked 'configured' to the release gate
+        # even though the protected binding CLI would reject the same Pages
+        # project. No user login or provider mutation is involved.
+        for mutation in (
+            "preview-staradvs-proof", "preview-foreign-secret",
+            "preview-plain-text", "production-private-origin",
+            "preview-private-origin", "malformed-preview-flags",
+            "foreign-production-secret",
+        ):
+            with self.subTest(mutation=mutation):
+                p = ready_project()
+                prod = p["deployment_configs"]["production"]
+                preview = p["deployment_configs"]["preview"]
+                if mutation == "preview-staradvs-proof":
+                    preview["env_vars"][r.BINDING] = {"type": "secret_text"}
+                elif mutation == "preview-foreign-secret":
+                    preview["env_vars"]["UNRELATED_SERVICE_TOKEN"] = {"type": "secret_text"}
+                elif mutation == "preview-plain-text":
+                    preview["env_vars"]["DEBUG"] = {"type": "plain_text", "value": "unsafe"}
+                elif mutation == "production-private-origin":
+                    prod["compatibility_flags"].append("global_fetch_private_origin")
+                elif mutation == "preview-private-origin":
+                    preview["compatibility_flags"].append("global_fetch_private_origin")
+                elif mutation == "malformed-preview-flags":
+                    preview["compatibility_flags"].append({"untrusted": True})
+                elif mutation == "foreign-production-secret":
+                    prod["env_vars"]["UNRELATED_SERVICE_TOKEN"] = {"type": "secret_text"}
+                posture, proof = r.pages_posture(p)
+                self.assertEqual(posture, "not-configured")
+                self.assertEqual(proof, "not-bound")
+                report = r.collect(Client(p), public)
+                self.assertFalse(report["next_gate_ready"])
+                self.assertEqual(report["pages_private_policy"], "not-configured")
+                self.assertEqual(report["pages_app_proof"], "not-bound")
+                self.assertFalse(report["can_activate"])
+
+    def test_security_posture_rejects_malformed_preview_environment(self):
+        for vars_ in (["accidental", "credential"], "not-a-dict", 17):
+            with self.subTest(vars_=vars_):
+                p = ready_project()
+                p["deployment_configs"]["preview"]["env_vars"] = vars_
+                with self.assertRaises(r.CutoverBlocked):
+                    r.pages_posture(p)
+
     def test_historical_alias_exposure_blocks_even_when_current_alias_is_closed(self):
         cf = Client(ready_project())
         def guest(url, method):

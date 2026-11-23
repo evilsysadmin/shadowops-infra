@@ -19,6 +19,18 @@ are present, and the actual Pages aliases disclosed by Cloudflare. The
 credential **value is never logged, exported or read**. Unexpected project
 identity, source/branch or alias hostname blocks inspection.
 
+**Private Pages posture is fail-closed on both deployment modes.** A safe
+`production` configuration has `fail_open=false`, the
+`global_fetch_strictly_public` compatibility flag, no
+`global_fetch_private_origin` flag and no bindings other than the dedicated
+`SHADOWOPS_STARADVS_SERVICE_CREDENTIAL` (`secret_text`). A safe `preview`
+configuration requires the same routing and fail-open constraints **and no
+environment bindings at all**. Wrong types, unrelated bindings or conflicting
+private-origin flags now produce `pages_private_policy=not-configured`
+(and never an accepted proof) in the read-only inspection. The protected
+manual publisher uses the same readiness posture and rejects such a state
+before Cloudflare publication.
+
 A public HTTPS GET to the isolated staging Identity login with
 app=staradvs checks that the target is explicitly recognized; a 200
 from some other page is insufficient. Guest GET/HEAD probes then require 401
