@@ -46,6 +46,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Reject invalid operator intent rather than silently skipping apply
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          STARADVS_OPERATION: ${{ inputs.operation }}
+          STARADVS_ACCESS_CONFIRM: ${{ inputs.confirm }}
+          STARADVS_OPERATOR_EMAIL: ${{ inputs.operator_email }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/staradvs_access_quarantine.py validate-intent
       - run: python3 -m unittest discover -s tests -p 'test_staradvs_access_quarantine.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_staradvs_access_challenge.py' -v
       - run: python3 -m py_compile scripts/staradvs_access_challenge.py
