@@ -101,7 +101,39 @@ def bind(client, credential):
     return "bound-by-name-type-only"
 
 
+CONFIRM = "STARADVS_BIND_ISOLATED_IDENTITY"
+
+
+def validate_dispatch_intent(operation, confirmation):
+    """Validate binding operator intent without Cloudflare or OCI access."""
+    if operation == "plan":
+        if confirmation:
+            raise BindingError("Read-only binding plan cannot include confirmation")
+        return operation
+    if operation == "bind":
+        if confirmation != CONFIRM:
+            raise BindingError("Exact isolated binding confirmation is mandatory")
+        return operation
+    raise BindingError("Unknown binding operation")
+
+
 def main(argv):
+    if argv == ["validate-intent"]:
+        try:
+            validate_dispatch_intent(
+                os.environ.get("STARADVS_BIND_OPERATION", ""),
+                os.environ.get("STARADVS_BIND_CONFIRM", ""),
+            )
+        except BindingError:
+            print("STARADVS_BINDING_OPERATOR_INTENT_BLOCKED", file=sys.stderr)
+            return 64
+        print("STARADVS_BINDING_OPERATOR_INTENT_VALIDATED no-provider-operation")
+        return 0
+    if argv == ["bind"] and os.environ.get("STARADVS_BIND_CONFIRM", "") != CONFIRM:
+        # Defense in depth: a direct CLI invocation must not silently bind
+        # a secret merely because OCI/Cloudflare credentials happen to exist.
+        print("STARADVS_BINDING_OPERATOR_INTENT_BLOCKED", file=sys.stderr)
+        return 64
     if argv not in (["plan"], ["bind"]):
         print("Usage: staradvs_identity_binding.py plan|bind", file=sys.stderr)
         return 64
