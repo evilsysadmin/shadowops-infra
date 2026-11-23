@@ -112,3 +112,15 @@ were sampled; `historical_inventory_complete` remains `false` because
 Cloudflare metadata and temporary alias coverage cannot certify universal
 historical isolation. Anonymous content or unproven Identity still blocks
 all release/cutover paths, regardless of CI status.
+
+## Aggregated guest-exposure counts
+
+The sanitized live report also includes `historical_aliases_exposed`,
+`historical_aliases_denied` and `historical_aliases_unverified`.
+Each sampled hostname contributes exactly one count: a 200/206 from either
+`/` or `/release.json` is exposed; only two 404s count as denied;
+other responses (including redirects, 401/403, partial failures or TLS
+errors) remain unverified. The three counts must sum to
+`historical_aliases_scanned`. No hostname, redirect destination, response
+body or user information is printed. These counts are exposure evidence,
+**not** user/session authorization or complete historical coverage.
