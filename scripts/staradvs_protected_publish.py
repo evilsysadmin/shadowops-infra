@@ -44,7 +44,6 @@ class GitHub:
         self.token = token
 
     def get(self, path):
-        prefix = "/repos/" + INFRA_REPO + "/actions/runs/"
         actions = re.fullmatch(
             r"/repos/evilsysadmin/shadowops-infra/actions/runs/[1-9][0-9]{0,14}(?:/artifacts\?per_page=100)?",
             path
@@ -124,7 +123,7 @@ def admit_candidate(reader, run_id, game_sha, infra_sha, *, game_reader):
         raise ReleaseBlocked("Candidate artifacts unavailable")
     wanted = NAME + game_sha
     artifacts = data["artifacts"]
-    # No permissive pagination or duplicate artifact selection.
+    # No permissive pagination, cross-run artifact or duplicate selection.
     if (type(data.get("total_count")) is not int or
             data["total_count"] != len(artifacts) or
             len(artifacts) != 1):
