@@ -250,8 +250,27 @@ def wait_run(kind: str, run_id: int, token: str, *, call=github_api,
              sleep=time.sleep, attempts: int = 135) -> None:
     if kind not in WORKFLOWS or type(run_id) is not int or run_id <= 0:
         raise TrainError("invalid workflow run")
-    for _ in range(attempts):
-        run = call("GET", f"repos/{INFRA}/actions/runs/{run_id}", token)
+    # A workflow_dispatch response can contain a child run ID before GitHub's
+    # GET /actions/runs/{id} endpoint indexes that run. Retry only a *new*
+    # run's initial 404s, for at most 110 seconds; never redispatch it.
+    seen = False
+    for poll in range(attempts):
+        try:
+            run = call("GET", f"repos/{INFRA}/actions/runs/{run_id}", token)
+        except urllib.error.HTTPError as exc:
+            if (exc.code != 404 or seen or poll >= 11
+                    or poll + 1 >= attempts):
+                raise TrainError(
+                    f"{kind} workflow run evidence unavailable "
+                    f"(run={run_id}, http={exc.code})"
+                ) from exc
+            print(
+                f"CHRONICLES_TRAIN_{kind.upper()}_WAIT_VISIBILITY "
+                f"run={run_id} poll={poll + 1}", flush=True
+            )
+            sleep(10)
+            continue
+        seen = True
         if (run.get("id") != run_id
             or run.get("path") != ".github/workflows/" + WORKFLOWS[kind]
             or run.get("event") != "workflow_dispatch"
