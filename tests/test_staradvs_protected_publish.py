@@ -56,7 +56,7 @@ class Tests(unittest.TestCase):
         changes = (
             {"status": "in_progress"}, {"conclusion": "failure"},
             {"event": "pull_request"}, {"head_branch": "feature"},
-            {"head_sha": "c" * 40}, {"path": "evil.yml"},
+            {"path": "evil.yml"},
             {"repository": {"full_name": "evil/foreign"}},
             {"id": int(RUN) + 1},
         )
@@ -71,6 +71,105 @@ class Tests(unittest.TestCase):
             with self.subTest(run_id=bad), self.assertRaises(p.ReleaseBlocked):
                 p.admit_candidate(GitHubFake(), bad, GAME, INFRA,
                                   game_reader=object())
+
+    def test_unrelated_infra_main_advance_accepts_exact_protected_blobs(self):
+        pinned = "c" * 40
+        data = {
+            "truncated": False,
+            "tree": [
+                {"path": ".github/workflows/staradvs-pages-staging.yml",
+                 "type": "blob", "sha": "1" * 40},
+                {"path": ".github/workflows/staradvs-protected-publish.yml",
+                 "type": "blob", "sha": "2" * 40},
+                {"path": "edge/staradvs-identity-gate.mjs",
+                 "type": "blob", "sha": "3" * 40},
+            ],
+        }
+        class TreeReader(GitHubFake):
+            def get(self, url):
+                if "/git/trees/" in url:
+                    self.calls.append(url)
+                    return copy.deepcopy(data)
+                return super().get(url)
+        fake = TreeReader(r={**run(), "head_sha": pinned},
+                          a={**artifact(), "workflow_run": {
+                              "id": int(RUN), "head_sha": pinned,
+                          }})
+        with patch.object(p.source, "admit", return_value=456):
+            result = p.admit_candidate(
+                fake, RUN, GAME, INFRA, game_reader=object())
+        self.assertEqual(result, p.NAME + GAME)
+        self.assertEqual(len([url for url in fake.calls if "/git/trees/" in url]), 2)
+        # The existing strict blob comparison, not a user-controlled flag,
+        # authorizes the unrelated-main advance.
+
+    def test_changed_staging_blob_or_truncated_git_tree_blocks(self):
+        pinned = "c" * 40
+        before = {
+            "truncated": False,
+            "tree": [
+                {"path": ".github/workflows/staradvs-pages-staging.yml",
+                 "type": "blob", "sha": "1" * 40},
+                {"path": "edge/staradvs-identity-gate.mjs",
+                 "type": "blob", "sha": "2" * 40},
+            ],
+        }
+        class TreeReader(GitHubFake):
+            def __init__(self, current):
+                super().__init__(
+                    r={**run(), "head_sha": pinned},
+                    a={**artifact(), "workflow_run": {
+                        "id": int(RUN), "head_sha": pinned,
+                    }},
+                )
+                self.current = current
+            def get(self, url):
+                if "/git/trees/" in url:
+                    self.calls.append(url)
+                    return copy.deepcopy(before if pinned in url else self.current)
+                return super().get(url)
+        changed = copy.deepcopy(before)
+        changed["tree"][1]["sha"] = "4" * 40
+        cases = [changed, {"truncated": True, "tree": before["tree"]},
+                 {"truncated": False, "tree": []}, {"error": "not-a-tree"}]
+        with patch.object(p.source, "admit", return_value=456):
+            for candidate in cases:
+                with self.subTest(tree=candidate):
+                    fake = TreeReader(candidate)
+                    with self.assertRaises(p.ReleaseBlocked):
+                        p.admit_candidate(
+                            fake, RUN, GAME, INFRA, game_reader=object())
+                    # Artifact download is impossible unless both trees pass.
+                    self.assertNotIn(
+                        f"/repos/{p.INFRA_REPO}/actions/runs/{RUN}/artifacts?per_page=100",
+                        fake.calls,
+                    )
+
+    def test_immutable_run_workflow_sha_mismatch_still_rejects(self):
+        pinned = "c" * 40
+        fake = GitHubFake(
+            r={**run(), "head_sha": pinned},
+            a={**artifact(), "workflow_run": {
+                "id": int(RUN), "head_sha": INFRA,
+            }},
+        )
+        with (patch.object(p.source, "admit", return_value=456),
+              patch.object(p.revision, "compare", return_value=(True, []))):
+            with self.assertRaises(p.ReleaseBlocked):
+                p.admit_candidate(fake, RUN, GAME, INFRA, game_reader=object())
+
+    def test_api_reader_allows_only_run_metadata_and_exact_tree_endpoints(self):
+        with patch.object(p.urllib.request, "urlopen",
+                          side_effect=AssertionError("Network must not be called")):
+            reader = p.GitHub("fake-test-token")
+            for path in (
+                "/repos/evil/repo/git/trees/" + INFRA + "?recursive=1",
+                f"/repos/{p.INFRA_REPO}/git/trees/main?recursive=1",
+                f"/repos/{p.INFRA_REPO}/git/trees/{INFRA}?recursive=0",
+                f"/repos/{p.INFRA_REPO}/actions/runs/123/delete",
+            ):
+                with self.subTest(path=path), self.assertRaises(p.ReleaseBlocked):
+                    reader.get(path)
 
     def test_expired_foreign_or_duplicated_artifact_blocks(self):
         variants = (

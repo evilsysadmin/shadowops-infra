@@ -42,11 +42,22 @@ Pages policy, and Identity checks. It cannot publish from a PR or scheduler.
 
 ## Running the separate release
 
+An unrelated Infra merge (Chronicles, Football or generic CI) no longer
+invalidates a correctly built candidate. If its source Infra commit differs
+from current `main`, the admission downloads both **complete, nontruncated
+Git trees** and compares immutable blob IDs for **every** protected Star
+Adventures path (Worker, release scripts/configuration, workflows and tests).
+Any changed, missing, malformed, unverified or truncated tree blocks the
+release; the artifact's own recorded `head_sha` must still match its run.
+This reuses `scripts/staradvs_infra_revision.py` rather than weakening the
+staging policy, and avoids recompilation for unrelated main changes.
+
+
 Launch [the manual protected publisher](https://github.com/evilsysadmin/shadowops-infra/actions/workflows/staradvs-protected-publish.yml)
 on \`main\` with the candidate run ID and operation \`preflight\`. Its
 first job authenticates to GitHub only to verify that the artifact
 belongs to a completed successful trusted-main protected-candidate workflow,
-on **exactly the current Infra main commit**, for the exact current
+on Infra **main**, for the exact current
 green \`star-adventures/main\` SHA. It rejects ambiguous, duplicated,
 expired or mismatched artifacts.
 
