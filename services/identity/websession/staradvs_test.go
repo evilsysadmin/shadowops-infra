@@ -66,78 +66,84 @@ func TestStarAdventuresCannotReuseSnookerOrForeignStagingOrigin(t *testing.T) {
 }
 
 func TestStarAdventuresLogoutConfirmationIsGetOnlyAndPinned(t *testing.T) {
- h := &Handler{enabled: map[issuance.Application]bool{issuance.StarAdventures: true}}
- req := httptest.NewRequest(http.MethodGet, StagingOrigin+"/logout?app=staradvs", nil)
- res := httptest.NewRecorder()
- if !h.page(res, req) || res.Code != http.StatusOK {
-  t.Fatalf("logout confirmation failed: %d", res.Code)
- }
- body := res.Body.String()
- for _, required := range []string{
-  "Cerrar sesión", "Confirmar cierre de sesión",
-  "id=\"logout-form\"", "data-return-url=\"https://staging.staradvs.shadowops.dpdns.org/\"",
-  "/assets/staradvs-logout.js", "Volver a Star Adventures",
- } {
-  if !strings.Contains(body, required) { t.Fatalf("missing logout form field %q",required) }
- }
- if strings.Contains(body,"token=") || strings.Contains(body,"http://") ||
-    res.Header().Get("Set-Cookie")!="" ||
-    !strings.Contains(res.Header().Get("Content-Security-Policy"),"form-action 'self'") {
-  t.Fatal("GET logout must not revoke, set cookies, or issue tokens")
- }
- scriptReq := httptest.NewRequest(http.MethodGet,StagingOrigin+"/assets/staradvs-logout.js",nil)
- scriptRes := httptest.NewRecorder()
- if !h.page(scriptRes,scriptReq) || scriptRes.Code!=200 ||
-    !strings.Contains(scriptRes.Header().Get("Content-Type"),"javascript") {
-  t.Fatal("IdP logout script not served same-origin")
- }
- script := scriptRes.Body.String()
- for _, marker := range []string{
-  "form.addEventListener('submit'",
-  "fetch('/api/identity/logout'",
-  "method: 'POST'",
-  "credentials: 'same-origin'",
-  "redirect: 'error'",
-  "response.status !== 204",
-  "window.location.replace(document.body.dataset.returnUrl)",
- } {
-  if !strings.Contains(script,marker) {t.Fatalf("missing safe logout behavior %q",marker)}
- }
- if strings.Contains(script,"fetch('https://") || strings.Contains(script,"localStorage") ||
-    strings.Contains(script,"sessionStorage") {
-  t.Fatal("logout must remain on IdP with no browser token persistence")
- }
+	h := &Handler{enabled: map[issuance.Application]bool{issuance.StarAdventures: true}}
+	req := httptest.NewRequest(http.MethodGet, StagingOrigin+"/logout?app=staradvs", nil)
+	res := httptest.NewRecorder()
+	if !h.page(res, req) || res.Code != http.StatusOK {
+		t.Fatalf("logout confirmation failed: %d", res.Code)
+	}
+	body := res.Body.String()
+	for _, required := range []string{
+		"Cerrar sesión", "Confirmar cierre de sesión",
+		"id=\"logout-form\"", "data-return-url=\"https://staging.staradvs.shadowops.dpdns.org/\"",
+		"/assets/staradvs-logout.js", "Volver a Star Adventures",
+	} {
+		if !strings.Contains(body, required) {
+			t.Fatalf("missing logout form field %q", required)
+		}
+	}
+	if strings.Contains(body, "token=") || strings.Contains(body, "http://") ||
+		res.Header().Get("Set-Cookie") != "" ||
+		!strings.Contains(res.Header().Get("Content-Security-Policy"), "form-action 'self'") {
+		t.Fatal("GET logout must not revoke, set cookies, or issue tokens")
+	}
+	scriptReq := httptest.NewRequest(http.MethodGet, StagingOrigin+"/assets/staradvs-logout.js", nil)
+	scriptRes := httptest.NewRecorder()
+	if !h.page(scriptRes, scriptReq) || scriptRes.Code != 200 ||
+		!strings.Contains(scriptRes.Header().Get("Content-Type"), "javascript") {
+		t.Fatal("IdP logout script not served same-origin")
+	}
+	script := scriptRes.Body.String()
+	for _, marker := range []string{
+		"form.addEventListener('submit'",
+		"fetch('/api/identity/logout'",
+		"method: 'POST'",
+		"credentials: 'same-origin'",
+		"redirect: 'error'",
+		"response.status !== 204",
+		"window.location.replace(document.body.dataset.returnUrl)",
+	} {
+		if !strings.Contains(script, marker) {
+			t.Fatalf("missing safe logout behavior %q", marker)
+		}
+	}
+	if strings.Contains(script, "fetch('https://") || strings.Contains(script, "localStorage") ||
+		strings.Contains(script, "sessionStorage") {
+		t.Fatal("logout must remain on IdP with no browser token persistence")
+	}
 }
 
 func TestStarAdventuresLogoutRejectsOtherAudiencesAndOpenRedirects(t *testing.T) {
- enabled := &Handler{enabled: map[issuance.Application]bool{issuance.StarAdventures: true}}
- for _, query := range []string{
-  "", "?app=snooker", "?app=bridgesquad", "?app=staradvs&next=https://evil.test",
-  "?app=staradvs&app=staradvs", "?next=https://evil.test", "?app=%73taradvs",
- } {
-  t.Run(query,func(t *testing.T) {
-   req:=httptest.NewRequest(http.MethodGet,StagingOrigin+"/logout"+query,nil)
-   res:=httptest.NewRecorder()
-   if !enabled.page(res,req) || res.Code!=400 ||
-      res.Header().Get("Set-Cookie")!="" ||
-      strings.Contains(res.Body.String(),"data-return-url=") {
-    t.Fatalf("untrusted logout target accepted: query=%q status=%d",query,res.Code)
-   }
-  })
- }
- for _, h:=range []*Handler{
-  {enabled:map[issuance.Application]bool{issuance.StarAdventures:false}},
-  {enabled:map[issuance.Application]bool{issuance.Snooker:true}},
-  {},
- } {
-  req:=httptest.NewRequest(http.MethodGet,StagingOrigin+"/logout?app=staradvs",nil)
-  res:=httptest.NewRecorder()
-  if !h.page(res,req) || res.Code!=400 { t.Fatal("unprovisioned audience accepted logout") }
- }
- req:=httptest.NewRequest(http.MethodPost,StagingOrigin+"/logout?app=staradvs",nil)
- res:=httptest.NewRecorder()
- if !enabled.page(res,req) || res.Code!=http.StatusMethodNotAllowed ||
-    res.Header().Get("Set-Cookie")!="" {
-  t.Fatal("POST /logout page must not mutate IdP sessions")
- }
+	enabled := &Handler{enabled: map[issuance.Application]bool{issuance.StarAdventures: true}}
+	for _, query := range []string{
+		"", "?app=snooker", "?app=bridgesquad", "?app=staradvs&next=https://evil.test",
+		"?app=staradvs&app=staradvs", "?next=https://evil.test", "?app=%73taradvs",
+	} {
+		t.Run(query, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, StagingOrigin+"/logout"+query, nil)
+			res := httptest.NewRecorder()
+			if !enabled.page(res, req) || res.Code != 400 ||
+				res.Header().Get("Set-Cookie") != "" ||
+				strings.Contains(res.Body.String(), "data-return-url=") {
+				t.Fatalf("untrusted logout target accepted: query=%q status=%d", query, res.Code)
+			}
+		})
+	}
+	for _, h := range []*Handler{
+		{enabled: map[issuance.Application]bool{issuance.StarAdventures: false}},
+		{enabled: map[issuance.Application]bool{issuance.Snooker: true}},
+		{},
+	} {
+		req := httptest.NewRequest(http.MethodGet, StagingOrigin+"/logout?app=staradvs", nil)
+		res := httptest.NewRecorder()
+		if !h.page(res, req) || res.Code != 400 {
+			t.Fatal("unprovisioned audience accepted logout")
+		}
+	}
+	req := httptest.NewRequest(http.MethodPost, StagingOrigin+"/logout?app=staradvs", nil)
+	res := httptest.NewRecorder()
+	if !enabled.page(res, req) || res.Code != http.StatusMethodNotAllowed ||
+		res.Header().Get("Set-Cookie") != "" {
+		t.Fatal("POST /logout page must not mutate IdP sessions")
+	}
 }
