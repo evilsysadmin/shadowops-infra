@@ -1,0 +1,24 @@
+groups:
+  - name: chronicles_deploys
+    rules:
+      - alert: ChroniclesDeployExporterUnavailable
+        expr: up{job="chronicles_deploys"} == 0 or shadowops_exporter_up == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Chronicles GitHub Actions telemetry unavailable"
+      - alert: ChroniclesProductionTrainFailed
+        expr: shadowops_deploy_last_completed_success{component="train",environment="production"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Latest Chronicles production release train failed"
+      - alert: ChroniclesProductionTrainStale
+        expr: (time() - shadowops_deploy_last_success_timestamp_seconds{component="train",environment="production"} > 129600) or absent(shadowops_deploy_last_success_timestamp_seconds{component="train",environment="production"})
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No successful Chronicles production train in 36 hours"
