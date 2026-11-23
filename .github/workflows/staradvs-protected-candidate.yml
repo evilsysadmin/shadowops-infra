@@ -56,11 +56,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: staradvs-source/frontend/package-lock.json
       - name: Admit exact Star Adventures green main and pinned Infra policy
         id: source
         shell: bash
@@ -77,6 +72,11 @@ jobs:
           ref: ${{ steps.source.outputs.sha }}
           path: staradvs-source
           persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: staradvs-source/frontend/package-lock.json
       - name: Build exact game source, manifest and protected advanced-mode Worker
         env:
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
