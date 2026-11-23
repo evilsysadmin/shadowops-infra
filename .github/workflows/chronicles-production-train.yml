@@ -1,5 +1,5 @@
 name: Chronicles production · release train
-run-name: Chronicles train · 08:00 Madrid · ${{ inputs.automated && 'external-schedule' || github.event_name }}
+run-name: Chronicles train · 08:00 Madrid · ${{ inputs.dry_run == true && 'dry-run' || (inputs.automated && 'external-schedule' || github.event_name) }}
 
 on:
   pull_request:

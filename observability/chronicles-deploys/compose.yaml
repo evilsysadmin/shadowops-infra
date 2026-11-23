@@ -1,0 +1,41 @@
+services:
+  exporter:
+    build: .
+    restart: unless-stopped
+    environment:
+      POLL_INTERVAL_SECONDS: "300"
+      GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    expose: ["9108"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9108/healthz', timeout=2)"]
+      interval: 1m
+      timeout: 5s
+      retries: 3
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.retention.size=1GB
+      - --web.listen-address=0.0.0.0:9090
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:9098:9090"
+    depends_on:
+      exporter:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+volumes:
+  prometheus_data:
