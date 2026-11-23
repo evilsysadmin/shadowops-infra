@@ -5,14 +5,18 @@ on:
     paths:
       - '.github/workflows/staradvs-access-quarantine.yml'
       - 'scripts/staradvs_access_quarantine.py'
+      - 'scripts/staradvs_access_challenge.py'
       - 'tests/test_staradvs_access_quarantine.py'
+      - 'tests/test_staradvs_access_challenge.py'
       - 'docs/staradvs-access-quarantine.md'
   push:
     branches: [main]
     paths:
       - '.github/workflows/staradvs-access-quarantine.yml'
       - 'scripts/staradvs_access_quarantine.py'
+      - 'scripts/staradvs_access_challenge.py'
       - 'tests/test_staradvs_access_quarantine.py'
+      - 'tests/test_staradvs_access_challenge.py'
   workflow_dispatch:
     inputs:
       operation:
@@ -43,6 +47,8 @@ jobs:
         with:
           persist-credentials: false
       - run: python3 -m unittest discover -s tests -p 'test_staradvs_access_quarantine.py' -v
+      - run: python3 -m unittest discover -s tests -p 'test_staradvs_access_challenge.py' -v
+      - run: python3 -m py_compile scripts/staradvs_access_challenge.py
       - run: python3 -m py_compile scripts/staradvs_access_quarantine.py
 
   plan:
