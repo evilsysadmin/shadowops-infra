@@ -44,7 +44,11 @@ class ProtectedCandidateWorkflowTests(unittest.TestCase):
         self.assertEqual(flow.count("scripts/staradvs_infra_revision.py \"$"), 2)
         self.assertIn("actions/checkout@v4", flow)
         self.assertIn("persist-credentials: false", flow)
-        self.assertIn("GH_TOKEN: ${{ github.token }}", flow)
+        self.assertEqual(flow.count("GH_TOKEN: ${{ github.token }}"), 2)
+        build_step = flow.split("- name: Build exact game source", 1)[1].split("- name: Recheck game main", 1)[0]
+        self.assertNotIn("GH_TOKEN:", build_step)
+        self.assertNotIn("secrets.", build_step)
+        self.assertNotIn("cache: npm", flow)
         self.assertIn("git -C staradvs-source rev-parse HEAD", flow)
 
     def test_prepared_worker_integrity_checked_before_any_artifact(self):
@@ -61,7 +65,7 @@ class ProtectedCandidateWorkflowTests(unittest.TestCase):
         self.assertLess(first_verify, upload)
         self.assertIn("retention-days: 7", flow)
         self.assertIn("name: staradvs-protected-candidate-${{ steps.source.outputs.sha }}", flow)
-        self.assertLess(flow.index("path: staradvs-source"), flow.index("cache-dependency-path: staradvs-source"))
+        self.assertIn("path: staradvs-source", flow)
         self.assertIn("if-no-files-found: error", flow)
 
 
