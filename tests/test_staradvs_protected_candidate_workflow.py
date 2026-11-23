@@ -1,18 +1,52 @@
 """The real protected candidate is built only from admitted immutable sources."""
 from __future__ import annotations
 
+import fnmatch
 import pathlib
+import re
 import sys
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import staradvs_protected_bundle as protected
+import staradvs_infra_revision as revision
 
 WORKFLOW = ROOT / ".github/workflows/staradvs-protected-candidate.yml"
 
 
 class ProtectedCandidateWorkflowTests(unittest.TestCase):
+    def test_push_and_pr_paths_cover_exact_protected_revision_contract(self):
+        flow = WORKFLOW.read_text(encoding="utf-8")
+        event_block = flow.split("\n  workflow_dispatch:", 1)[0]
+        for event in ("pull_request", "push"):
+            part = event_block.split(f"\n  {event}:\n", 1)[1]
+            if event == "pull_request":
+                part = part.split("\n  push:\n", 1)[0]
+            patterns = re.findall(r"^      - '([^']+)'$", part, re.MULTILINE)
+            self.assertTrue(patterns, "Missing " + event + " path filter")
+            roots = ("edge", "scripts", "config", "tests", ".github/workflows")
+            covered = [
+                p.relative_to(ROOT).as_posix()
+                for prefix in roots
+                for p in (ROOT / prefix).rglob("*")
+                if p.is_file() and revision.is_relevant(p.relative_to(ROOT).as_posix())
+            ]
+            self.assertGreater(len(covered), 10)
+            for path in covered + [
+                "scripts/staradvs_future_guard.py",
+                "tests/test_staradvs_future_guard.py",
+                "tests/staradvs-future-guard.test.mjs",
+                "config/staradvs-future-release.json",
+                ".github/workflows/staradvs-future-security.yml",
+            ]:
+                with self.subTest(event=event, path=path):
+                    self.assertTrue(any(fnmatch.fnmatchcase(path, pattern)
+                                        for pattern in patterns),
+                                    f"{event} misses policy-owned path {path}")
+            self.assertFalse(any(fnmatch.fnmatchcase("scripts/chronicles_pages.py", pattern)
+                                 for pattern in patterns))
+
     def test_it_remains_a_non_deployable_candidate(self):
         flow = WORKFLOW.read_text(encoding="utf-8")
         self.assertEqual(protected.policy_status(), "pending-identity")
