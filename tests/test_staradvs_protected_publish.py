@@ -74,7 +74,7 @@ class Tests(unittest.TestCase):
 
     def test_unrelated_infra_main_advance_accepts_exact_protected_blobs(self):
         pinned = "c" * 40
-        data = matching = {
+        data = {
             "truncated": False,
             "tree": [
                 {"path": ".github/workflows/staradvs-pages-staging.yml",
@@ -102,7 +102,6 @@ class Tests(unittest.TestCase):
         self.assertEqual(len([url for url in fake.calls if "/git/trees/" in url]), 2)
         # The existing strict blob comparison, not a user-controlled flag,
         # authorizes the unrelated-main advance.
-        self.assertEqual(data, matching)
 
     def test_changed_staging_blob_or_truncated_git_tree_blocks(self):
         pinned = "c" * 40
