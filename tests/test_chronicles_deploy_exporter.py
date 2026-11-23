@@ -34,6 +34,9 @@ class ExporterTests(unittest.TestCase):
                                                       "pull_request", 1)))
         self.assertEqual(mod.environment("train", run(1, "train", "schedule", 1)),
                          "production")
+        self.assertIsNone(mod.environment("train", run(
+            2, "Chronicles train · 08:00 Madrid · dry-run",
+            "workflow_dispatch", 2)))
         self.assertEqual(mod.environment("api", run(1, "Chronicles API · PRODUCTION",
                                                    "workflow_dispatch", 1)),
                          "production")

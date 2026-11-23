@@ -42,6 +42,10 @@ def environment(component, run):
         return None
     event = run.get("event")
     if component == "train":
+        # New workflow run-name explicitly identifies read-only preflight runs.
+        # A dry run is never evidence of a successful production promotion.
+        if "dry-run" in str(run.get("display_title") or "").lower():
+            return None
         return "production" if event in ("schedule", "workflow_dispatch") else None
     if component == "api":
         title = str(run.get("display_title") or "").upper()

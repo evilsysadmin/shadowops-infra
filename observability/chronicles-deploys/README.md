@@ -38,8 +38,13 @@ Alertmanager/Grafana notification routing separately.
 
 ## Interpretation and limits
 
-- The train metric represents the end-to-end promotion, including API, Pages,
-  receipts and public audit (never equate an API-green child with train-green).
+- New read-only train dry-runs are marked in the workflow title and excluded;
+  older manual dry-runs before that marker cannot be distinguished from a real
+  manual train using only run-list metadata. For strict historical proof, inspect
+  the train job and its archived receipt in GitHub Actions.
+- The train metric represents the release-train *workflow* result, including API,
+  Pages, receipts and public audit when its promotion job actually ran (never
+  equate an API-green child with train-green).
 - `last_run_id` is a GitHub Actions ID, **not** the Chronicles source SHA.
 - Pages manual `workflow_dispatch` runs have no target in the existing run
   title and are labelled `environment="unspecified"`, never incorrectly
