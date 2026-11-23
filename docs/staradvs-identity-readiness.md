@@ -124,3 +124,27 @@ errors) remain unverified. The three counts must sum to
 `historical_aliases_scanned`. No hostname, redirect destination, response
 body or user information is printed. These counts are exposure evidence,
 **not** user/session authorization or complete historical coverage.
+
+## Independent Cloudflare Access posture (GET only)
+
+The trusted-main and scheduled readiness check now also reads the **Star
+Adventures staging** Cloudflare Access policy scopes using an independent
+protected environment secret `CLOUDFLARE_ACCESS_READ_TOKEN` with
+`Access: Apps and Policies Read` permissions. It does **not** reuse the Pages
+credential, obtain a write token, modify Access, or require the other games
+to be configured. It lists all account applications only to detect overlapping
+or malformed declarations, then reads policies only for the three exact
+Star Adventures scopes: base `staradvs-staging.pages.dev`, previews
+`*.staradvs-staging.pages.dev`, and custom
+`staging.staradvs.shadowops.dpdns.org`.
+
+The sanitized `cloudflare_access` and `cloudflare_access_scopes` fields
+report missing, ambiguous, restricted-policy-candidate or unavailable policy
+metadata. A missing/denied Access-read token is `read-token-unconfigured`
+or `inventory-unavailable`; it is never treated as Access protection.
+
+The `next_gate_ready` predicate additionally requires all three Access
+scope policies to be restricted candidates. **This is not proof of live Access
+enforcement, proper signed-in game sessions, or historical alias isolation.**
+`can_activate=false` remains invariant, and the publisher stays paused
+until an approved protected release passes live guest-denial and signed-in E2E.
