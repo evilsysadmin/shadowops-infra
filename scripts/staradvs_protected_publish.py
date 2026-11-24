@@ -14,9 +14,10 @@ import sys
 import urllib.error
 import urllib.request
 
-import pages_access_readiness as access
-import staradvs_access_challenge as challenge
-import staradvs_access_quarantine as quarantine
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from urllib.parse import urlsplit
+from uuid import UUID
 import staradvs_identity_readiness as readiness
 import staradvs_pages as pages
 import staradvs_protected_bundle as bundle
@@ -29,8 +30,6 @@ WORKFLOW = ".github/workflows/staradvs-protected-candidate.yml"
 NAME = "staradvs-protected-candidate-"
 SHA = re.compile(r"[a-f0-9]{40}\Z")
 RUN = re.compile(r"[1-9][0-9]{0,14}\Z")
-ACCEPT = frozenset(("access-login-challenge-candidate",
-                    "all-observed-guest-paths-denied"))
 
 
 class ReleaseBlocked(Exception):
@@ -141,55 +140,174 @@ def admit_candidate(reader, run_id, game_sha, infra_sha, *, game_reader):
     return wanted
 
 
-def verify_posture(pages_client, access_client):
-    """Independently enforce all pre-mutation constraints, no cookie/token reuse."""
-    if pages_client.account != access_client.account:
-        raise ReleaseBlocked("Cloudflare account mismatch")
+def owned_project(client):
     if bundle.policy_status() != "pending-identity":
-        raise ReleaseBlocked("Unreviewed public publisher activation")
-    _, ownership = pages.inspect(pages_client)
-    if ownership != {"dns": "owned", "domain": "owned", "project": "owned"}:
-        raise ReleaseBlocked("Pages DNS or custom domain not owned")
-    report = readiness.collect(pages_client, access_client=access_client)
-    if (report.get("pages_project") != "owned" or
-            report.get("identity_login") != "audience-recognized" or
-            report.get("pages_private_policy") != "configured" or
-            report.get("pages_app_proof") != "bound" or
-            report.get("cloudflare_access") != "restricted-policy-candidate" or
-            report.get("historical_enumeration_status") != "reported-total-observed"):
-        raise ReleaseBlocked("Identity, Pages or Access guard not provisioned")
-    scopes = report.get("cloudflare_access_scopes")
-    if not isinstance(scopes, dict) or set(scopes) != set(readiness.ACCESS_SCOPES) or any(
-        state != "restricted-policy-candidate" for state in scopes.values()
-    ):
-        raise ReleaseBlocked("Access policy inventory incomplete or overlapping")
-    if report.get("historical_aliases_exposed") != 0:
-        raise ReleaseBlocked("Previously published anonymous content still visible")
-    # The second independent Cloudflare Pages history pass is mandatory:
-    # no trust in just a count or a 302 Location.
-    evidence = challenge.collect(pages_client, report)
-    verdict = quarantine.judge_guest_quarantine(report, evidence)
-    if verdict not in ACCEPT:
-        raise ReleaseBlocked("Historical/current guest quarantine not verified")
-    # Return only sanitized proof; never the historical aliases, Access team,
-    # Cloudflare account, operator emails, Vault material or session data.
-    return {
-        "verdict": verdict,
-        "deployment_total": report["historical_deployments_reported_total"],
-        "aliases_checked": evidence["historical"]["hosts"],
-        "aliases_challenged": evidence["historical"]["challenged"],
-        "aliases_denied": evidence["historical"]["denied"],
-        "can_activate": False,
-        "signed_in_e2e": "not-performed",
-    }
+        raise ReleaseBlocked("public-publisher-not-frozen")
+    _, owner = pages.inspect(client)
+    if owner != {"dns": "owned", "domain": "owned", "project": "owned"}:
+        raise ReleaseBlocked("pages-ownership")
+    status, project = client.request("GET", f"/accounts/{client.account}/pages/projects/{pages.PROJECT}")
+    if status != 200 or not isinstance(project, dict) or project.get("subdomain") != pages.TARGET:
+        raise ReleaseBlocked("pages-project")
+    policy, proof = readiness.pages_posture(project)
+    if policy != "configured":
+        raise ReleaseBlocked("pages-fail-closed-policy-not-configured")
+    if proof != "bound":
+        raise ReleaseBlocked("staradvs-identity-proof-not-bound")
+    return project
+
+
+def checked_id(value):
+    try:
+        if str(UUID(value)) == value:
+            return value
+    except (TypeError, ValueError, AttributeError):
+        pass
+    raise ReleaseBlocked("invalid-deployment-id")
+
+
+def checked_host(value):
+    if not isinstance(value, str):
+        raise ReleaseBlocked("invalid-deployment-url")
+    parsed = urlsplit(value)
+    host = parsed.hostname
+    if (parsed.scheme != "https" or parsed.netloc != host or
+            parsed.path not in ("", "/") or parsed.query or parsed.fragment or
+            not host or not (host in (pages.HOST, pages.TARGET) or
+            re.fullmatch(r"[a-z0-9-]+\." + re.escape(pages.TARGET), host))):
+        raise ReleaseBlocked("foreign-deployment-url")
+    return host
+
+
+def inventory(client):
+    path = f"/accounts/{client.account}/pages/projects/{pages.PROJECT}/deployments"
+    rows = {}
+    total = None
+    for number in range(1, readiness.MAX_HISTORY_PAGES + 1):
+        status, batch, meta = client.request_with_info(path + (f"?page={number}" if number > 1 else ""))
+        if (status != 200 or not isinstance(batch, list) or not isinstance(meta, dict) or
+                type(meta.get("total_count")) is not int or
+                type(meta.get("page")) is not int or meta["page"] != number or
+                type(meta.get("count")) is not int or meta["count"] != len(batch) or
+                type(meta.get("per_page")) is not int or meta["per_page"] < len(batch)):
+            raise ReleaseBlocked("history-pagination-unverified")
+        if total is None:
+            total = meta["total_count"]
+        if total != meta["total_count"] or not 1 <= total <= readiness.MAX_HISTORY_ALIASES or not batch:
+            raise ReleaseBlocked("history-total-invalid")
+        for row in batch:
+            if not isinstance(row, dict) or row.get("project_name") not in (None, pages.PROJECT):
+                raise ReleaseBlocked("foreign-deployment")
+            key = checked_id(row.get("id"))
+            host = checked_host(row.get("url"))
+            aliases = row.get("aliases") or []
+            if (key in rows or host in (pages.HOST, pages.TARGET) or
+                    not isinstance(aliases, list) or any(host == x["host"] for x in rows.values())):
+                raise ReleaseBlocked("duplicate-or-nonimmutable-deployment")
+            rows[key] = {"host": host, "aliases": sorted(set(checked_host(x) for x in aliases))}
+        if len(rows) == total:
+            return rows
+        if len(rows) > total:
+            break
+    raise ReleaseBlocked("history-incomplete")
+
+
+def verify_posture(client):
+    project = owned_project(client)
+    code, body = readiness.read_public(readiness.ISSUER + "/login?app=staradvs")
+    if code != 200 or b"https://staging.staradvs.shadowops.dpdns.org/?shadowops=central" not in body:
+        raise ReleaseBlocked("staradvs-identity-audience-not-live")
+    rows = inventory(client)
+    current = checked_id((project.get("canonical_deployment") or {}).get("id"))
+    if current not in rows:
+        raise ReleaseBlocked("canonical-not-in-inventory")
+    return rows
+
+
+def active_deployment(client, sha, snapshot):
+    project = owned_project(client)
+    canonical = project.get("canonical_deployment") or {}
+    latest = project.get("latest_deployment") or {}
+    key = checked_id(canonical.get("id"))
+    metadata = (canonical.get("deployment_trigger") or {}).get("metadata") or {}
+    if (key in snapshot or latest.get("id") != key or
+            canonical.get("environment") != "production" or
+            (canonical.get("latest_stage") or {}).get("status") != "success" or
+            metadata.get("commit_hash") != sha or metadata.get("branch") != "main" or
+            metadata.get("commit_dirty") is not False):
+        raise ReleaseBlocked("new-protected-canonical-not-verified")
+    host = checked_host(canonical.get("url"))
+    if host in (pages.HOST, pages.TARGET):
+        raise ReleaseBlocked("canonical-immutable-host-unverified")
+    return key, host
+
+
+def require_denial(canonical, aliases, probe=readiness.read_public):
+    checks = [(pages.HOST, path, method, 401) for path in readiness.ROUTES for method in readiness.METHODS]
+    checks += [(host, path, method, 404) for host in sorted(set(aliases) | {pages.TARGET, canonical} - {pages.HOST})
+               if host != pages.HOST for path in readiness.ROUTES for method in readiness.METHODS]
+    with ThreadPoolExecutor(max_workers=24) as pool:
+        results = list(pool.map(lambda x: probe("https://" + x[0] + x[1], x[2])[0] == x[3], checks))
+    if not all(results):
+        raise ReleaseBlocked("guest-denial-incomplete")
+
+
+def validate_snapshot(snapshot):
+    if not isinstance(snapshot, dict) or not 1 <= len(snapshot) <= readiness.MAX_HISTORY_ALIASES:
+        raise ReleaseBlocked("invalid-cutover-snapshot")
+    for key, row in snapshot.items():
+        checked_id(key)
+        if not isinstance(row, dict) or set(row) != {"host", "aliases"} or not isinstance(row["aliases"], list):
+            raise ReleaseBlocked("invalid-cutover-snapshot")
+        for host in [row["host"], *row["aliases"]]:
+            if checked_host("https://" + host) != host:
+                raise ReleaseBlocked("invalid-cutover-host")
+        if row["host"] in (pages.HOST, pages.TARGET):
+            raise ReleaseBlocked("invalid-cutover-host")
+    return snapshot
+
+
+def retire_legacy(client, sha, snapshot):
+    """Only explicitly approved staging history, after a new protected canonical is live."""
+    validate_snapshot(snapshot)
+    key, host = active_deployment(client, sha, snapshot)
+    require_denial(host, [])
+    rows = inventory(client)
+    if key not in rows or set(rows) - set(snapshot) != {key}:
+        raise ReleaseBlocked("history-changed-after-publish")
+    for old_id in sorted(set(rows) - {key}):
+        if rows[old_id] != snapshot[old_id]:
+            raise ReleaseBlocked("historical-deployment-changed")
+    for old_id in sorted(set(rows) - {key}):
+        if active_deployment(client, sha, snapshot) != (key, host):
+            raise ReleaseBlocked("canonical-changed-during-retirement")
+        status, _ = client.request("DELETE",
+            f"/accounts/{client.account}/pages/projects/{pages.PROJECT}/deployments/{old_id}?force=true")
+        if status != 200:
+            raise ReleaseBlocked("historical-deletion-not-confirmed")
+    return len(rows) - 1
+
+
+def verify_postflight(client, sha, snapshot):
+    validate_snapshot(snapshot)
+    key, host = active_deployment(client, sha, snapshot)
+    rows = inventory(client)
+    if set(rows) != {key}:
+        raise ReleaseBlocked("legacy-deployments-remain")
+    old_hosts = {h for row in snapshot.values() for h in [row["host"], *row["aliases"]]}
+    old_hosts.update(rows[key]["aliases"])
+    require_denial(host, old_hosts)
+    return {"verdict": "shadowops-id-guest-denial-observed", "retired_aliases_checked": len(old_hosts - {pages.HOST}),
+            "can_activate": False, "signed_in_e2e": "not-performed"}
 
 
 def main(argv):
     parser = argparse.ArgumentParser()
-    parser.add_argument("operation", choices=("admit", "preflight", "postflight"))
+    parser.add_argument("operation", choices=("admit", "preflight", "retire", "postflight"))
     parser.add_argument("--run-id", default="")
     parser.add_argument("--game-sha", default="")
     parser.add_argument("--infra-sha", default="")
+    parser.add_argument("--inventory-file", type=Path)
     args = parser.parse_args(argv)
     try:
         if args.operation == "admit":
@@ -200,21 +318,33 @@ def main(argv):
             )
             print("STARADVS_PROTECTED_CANDIDATE_ADMITTED name=" + result)
             return 0
-        if args.run_id or args.game_sha or args.infra_sha:
-            raise ReleaseBlocked("Provider posture cannot be overridden by inputs")
-        pages_client = pages.CloudflareClient(os.environ)
-        access_client = access.AccessClient(os.environ)
-        state = verify_posture(pages_client, access_client)
-        print(json.dumps({
-            "operation": args.operation, "project": pages.PROJECT, **state,
-        }, sort_keys=True))
-        print("STARADVS_PROTECTED_" + args.operation.upper() +
-              "_GUEST_CANDIDATE authenticated-E2E-still-required")
+        if args.run_id or args.infra_sha:
+            raise ReleaseBlocked("unexpected-provider-input")
+        client = pages.CloudflareClient(os.environ)
+        if args.operation == "preflight":
+            if args.game_sha:
+                raise ReleaseBlocked("unexpected-preflight-sha")
+            snapshot = verify_posture(client)
+            if args.inventory_file:
+                args.inventory_file.write_text(json.dumps(snapshot, sort_keys=True))
+            state = {"legacy_deployments": len(snapshot), "can_activate": False,
+                     "verdict": "ready-for-protected-replacement-and-retirement"}
+        else:
+            if not args.inventory_file or not SHA.fullmatch(args.game_sha):
+                raise ReleaseBlocked("missing-cutover-snapshot-or-sha")
+            snapshot = validate_snapshot(json.loads(args.inventory_file.read_text()))
+            if args.operation == "retire":
+                if os.environ.get("STARADVS_RETIRE_CONFIRM") != "STARADVS_PUBLISH_AND_RETIRE_OLD_DEPLOYMENTS":
+                    raise ReleaseBlocked("retirement-not-approved")
+                state = {"retired": retire_legacy(client, args.game_sha, snapshot), "can_activate": False}
+            else:
+                state = verify_postflight(client, args.game_sha, snapshot)
+        print(json.dumps({"operation": args.operation, "project": pages.PROJECT, **state}, sort_keys=True))
         return 0
     except Exception as exc:
         # Never reveal Cloudflare, OCI Vault, Github API response or URL bodies.
-        print("STARADVS_PROTECTED_RELEASE_BLOCKED kind=" + type(exc).__name__,
-              file=sys.stderr)
+        print("STARADVS_PROTECTED_RELEASE_BLOCKED kind=" + type(exc).__name__ +
+              (" reason=" + str(exc) if type(exc) is ReleaseBlocked else ""), file=sys.stderr)
         return 2
 
 
