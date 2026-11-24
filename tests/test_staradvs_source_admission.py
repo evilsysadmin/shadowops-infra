@@ -7,6 +7,14 @@ spec = importlib.util.spec_from_file_location("staradvs_source_admission", path)
 app = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(app)
 SHA = "a" * 40
+EXPECTED_JOBS = {
+    "Core rules and episode tests",
+    "React build and browser smoke",
+    "Remaining Chrome journeys (shard 2/5)",
+    "Remaining Chrome journeys (shard 3/5)",
+    "Remaining Chrome journeys (shard 4/5)",
+    "Remaining Chrome journeys (shard 5/5)",
+}
 
 
 class Reader:
@@ -29,7 +37,7 @@ class Reader:
                 "event": "push", "status": "completed", "conclusion": self.run,
             }]}
         if path.endswith("/actions/runs/987/jobs?per_page=100"):
-            names = app.NEEDED - ({self.missing} if self.missing else set())
+            names = EXPECTED_JOBS - ({self.missing} if self.missing else set())
             return {"jobs": [{"name": name, "status": self.job_status,
                               "conclusion": "success", "completed_at": self.job_completed_at}
                              for name in names]}
@@ -37,7 +45,10 @@ class Reader:
 
 
 class SourceAdmissionTests(unittest.TestCase):
-    def test_source_ci_exact_sha_and_both_jobs_green(self):
+    def test_admission_requires_all_six_named_jobs(self):
+        self.assertEqual(app.NEEDED, EXPECTED_JOBS)
+
+    def test_source_ci_exact_sha_and_all_six_jobs_green(self):
         reader = Reader()
         self.assertEqual(app.admit(reader, SHA), 987)
         self.assertEqual(len(reader.paths), 3)
@@ -55,7 +66,7 @@ class SourceAdmissionTests(unittest.TestCase):
                 app.admit(Reader(run=state), SHA)
 
     def test_missing_chrome_or_core_ci_refused(self):
-        for name in app.NEEDED:
+        for name in EXPECTED_JOBS:
             with self.assertRaisesRegex(app.SourceAdmissionError, "not yet green"):
                 app.admit(Reader(missing=name), SHA)
 
