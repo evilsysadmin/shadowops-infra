@@ -113,25 +113,25 @@ class ApiBeforePages(unittest.TestCase):
 
     def test_ready_once_is_nonblocking_and_distinguishes_pending_from_drift(self):
         """Automatic Pages must not wait on a runner or hide a wrong live API."""
-        with patch.object(gate.sys, "argv", ["gate", "--ready-once", SHA]), \\
+        with patch.object(gate.sys, "argv", ["gate", "--ready-once", SHA]), \
              patch.dict(gate.os.environ, {"GH_TOKEN": TOKEN}):
-            with patch.object(gate, "api_receipt_available", return_value=False), \\
+            with patch.object(gate, "api_receipt_available", return_value=False), \
                  patch.object(gate, "public_api_healthy") as live:
                 self.assertEqual(gate.main(), 3)  # Pending API receipt: retry by event.
                 live.assert_not_called()
-            with patch.object(gate, "api_receipt_available", return_value=True), \\
+            with patch.object(gate, "api_receipt_available", return_value=True), \
                  patch.object(gate, "public_api_healthy", return_value=False):
                 self.assertEqual(gate.main(), 2)  # Unhealthy after trusted receipt.
-            with patch.object(gate, "api_receipt_available", return_value=True), \\
-                 patch.object(gate, "public_api_healthy", return_value=True), \\
+            with patch.object(gate, "api_receipt_available", return_value=True), \
+                 patch.object(gate, "public_api_healthy", return_value=True), \
                  patch.object(gate, "public_api_revision_state", return_value="different"):
                 self.assertEqual(gate.main(), 2)  # Positive evidence of SHA drift.
-            with patch.object(gate, "api_receipt_available", return_value=True), \\
-                 patch.object(gate, "public_api_healthy", return_value=True), \\
+            with patch.object(gate, "api_receipt_available", return_value=True), \
+                 patch.object(gate, "public_api_healthy", return_value=True), \
                  patch.object(gate, "public_api_revision_state", return_value="unknown"):
                 self.assertEqual(gate.main(), 2)
-            with patch.object(gate, "api_receipt_available", return_value=True), \\
-                 patch.object(gate, "public_api_healthy", return_value=True), \\
+            with patch.object(gate, "api_receipt_available", return_value=True), \
+                 patch.object(gate, "public_api_healthy", return_value=True), \
                  patch.object(gate, "public_api_revision_state", return_value="match"):
                 self.assertEqual(gate.main(), 0)
             with patch.object(gate, "api_receipt_available", side_effect=gate.GateError("bad evidence")):
