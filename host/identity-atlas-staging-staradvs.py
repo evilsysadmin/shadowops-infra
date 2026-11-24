@@ -28,6 +28,8 @@ from importlib.util import spec_from_loader, module_from_spec
 ROOT = Path("/etc/shadowops/identity-staging")
 STATE = Path("/var/lib/shadowops/identity-staging")
 VAULT = re.compile(r"ocid1\.vault\.[A-Za-z0-9._-]{10,200}\Z")
+PINNED_DIGEST = "sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c"
+PINNED_SHA = "349fa673f27d8a8abd5997f2fd55ab430f6db3dd"
 PROJECT = "shadowops-identity-staging"
 HOST = "https://id-staging.shadowops.dpdns.org"
 ORIGINS = {
@@ -100,8 +102,7 @@ def activate_release(previous, candidate, *, old_consumers, new_consumers,
 
 def update(vault, digest, sha, *, load=operator, check_shared=verify_shared_a1_containers):
     if (not isinstance(vault, str) or not VAULT.fullmatch(vault)
-            or not isinstance(digest, str) or not DIGEST.fullmatch(digest)
-            or not isinstance(sha, str) or not SHA.fullmatch(sha)):
+            or digest != PINNED_DIGEST or sha != PINNED_SHA):
         raise ReleaseBlocked("Invalid fixed release request")
     with exclusive(STATE):
         prepare = load("staradvs_prepare", "/usr/local/sbin/shadowops-identity-atlas-prepare")

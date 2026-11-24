@@ -66,6 +66,11 @@ class OperatorTests(unittest.TestCase):
                     self.assertEqual(fake.changes, [candidate])
                 self.assertFalse(journal.path.exists())
 
+    def test_unpinned_image_rejected_before_host_access(self):
+        with self.assertRaises(op.ReleaseBlocked):
+            op.update("ocid1.vault.oc1." + "v" * 24, OLD, "c" * 40,
+                      load=lambda *a: self.fail("unexpected host access"))
+
     def test_foreign_callback_is_not_requested(self):
         self.assertFalse(op.callbacks_ready(lambda *a, **k: self.fail("unexpected request"), {"foreign"}))
 
@@ -76,7 +81,7 @@ class OperatorTests(unittest.TestCase):
         from identity_staging_release import STARADVS_RELEASE_DIGEST, STARADVS_RELEASE_SHA
         sudoers = (ROOT / "host/identity-staging.sudoers").read_text()
         self.assertIn("shadowops-identity-atlas-staradvs deploy ocid1.vault.* "
-                      + STARADVS_RELEASE_DIGEST + " " + STARADVS_RELEASE_SHA, sudoers)
+                      + STARADVS_RELEASE_DIGEST.replace(":", "\\:") + " " + STARADVS_RELEASE_SHA, sudoers)
         self.assertNotIn("shadowops-identity-atlas-staradvs deploy *", sudoers)
 
 
