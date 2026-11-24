@@ -2,7 +2,18 @@
 # Pages must not publish until the matching API generation is admitted.
 # This is the original read-only api-ready job gate, not an independent deployer.
 set -euo pipefail
-if python3 scripts/chronicles_api_before_pages.py "$ADMITTED_SHA"; then
+# Automatic events do not hold a billed runner while the API builds. A
+# successful exact-SHA API workflow completion will re-trigger Pages; hourly
+# reconciliation remains a fallback. Explicit manual force deployments keep
+# their bounded wait so operators can observe one requested release.
+automatic=false
+args=("$ADMITTED_SHA")
+if [[ "$GITHUB_EVENT_NAME" != 'workflow_dispatch' || "${ONLY_IF_NEW:-false}" == 'true' ]]; then
+  automatic=true
+  args=(--ready-once "$ADMITTED_SHA")
+fi
+gate_status=0
+if python3 scripts/chronicles_api_before_pages.py "${args[@]}"; then
   # The API can become ready after a newer Infra main supersedes
   # this workflow. Do not launch the Pages mutation job in that case.
   owner_main="$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)"
@@ -32,6 +43,8 @@ if python3 scripts/chronicles_api_before_pages.py "$ADMITTED_SHA"; then
   fi
   echo 'publish=true' >> "$GITHUB_OUTPUT"
   exit 0
+else
+  gate_status=$?
 fi
 current="$(gh api repos/evilsysadmin/chronicles-of-matthias/commits/main --jq .sha)"
 # A malformed source lookup is not proof that another SHA superseded this run.
@@ -45,5 +58,12 @@ if [[ "$current" != "$ADMITTED_SHA" ]]; then
   echo 'publish=false' >> "$GITHUB_OUTPUT"
   exit 0
 fi
+if [[ "$automatic" == 'true' && "$gate_status" == 3 ]]; then
+  echo 'CHRONICLES_PAGES_API_PENDING_EVENT_OR_SCHEDULE'
+  echo 'publish=false' >> "$GITHUB_OUTPUT"
+  exit 0
+fi
+# Inconclusive health, mismatched live SHA and malformed GitHub evidence
+# are errors, never classified as a normal pending API deployment.
 echo 'API gate failed for current SHA; no Pages mutation' >&2
 exit 1
