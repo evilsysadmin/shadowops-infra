@@ -18,6 +18,7 @@ STATE=Path('/var/lib/shadowops/identity-staging')
 CONFIG=ROOT/'atlas-service.json'
 SNOOKER_CONFIG=ROOT/'atlas-snooker-service.json'
 STARADVS_CONFIG=ROOT/'atlas-staradvs-service.json'
+BRIDGESQUAD_CONFIG=ROOT/'atlas-bridgesquad-service.json'
 IMAGE='ghcr.io/evilsysadmin/shadowops-identity@'
 DIGEST=re.compile(r'sha256:[a-f0-9]{64}')
 SHA=re.compile(r'[a-f0-9]{40}')
@@ -51,10 +52,10 @@ def execute(digest,sha,runner=run,nonce=None,config_path=CONFIG):
     # The isolated path is selected only by the reviewed Atlas release operator;
     # the existing standalone preflight continues to use the legacy config.
     if not isinstance(config_path, (str, Path)) or str(config_path) not in (
-            str(CONFIG), str(SNOOKER_CONFIG), str(STARADVS_CONFIG)):
+            str(CONFIG), str(SNOOKER_CONFIG), str(STARADVS_CONFIG), str(BRIDGESQUAD_CONFIG)):
         raise PreflightError('Untrusted Atlas preflight config')
     config_path = Path(config_path)
-    if config_path in (SNOOKER_CONFIG, STARADVS_CONFIG):
+    if config_path in (SNOOKER_CONFIG, STARADVS_CONFIG, BRIDGESQUAD_CONFIG):
         # Standalone legacy preflight already validates its existing file in
         # trusted_paths(). The opt-in Snooker candidate must be a trusted,
         # read-only, distinct private file before pulling any image.

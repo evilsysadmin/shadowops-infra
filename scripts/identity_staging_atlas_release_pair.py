@@ -8,12 +8,18 @@ from copy import deepcopy
 import re
 
 from identity_staging_atlas_transition import (
-    ALLOWED_CONFIGS, CONFIG, SNOOKER_CONFIG, STARADVS_CONFIG, TARGET, DIGEST,
+    ALLOWED_CONFIGS, CONFIG, SNOOKER_CONFIG, STARADVS_CONFIG, BRIDGESQUAD_CONFIG, TARGET, DIGEST,
     AtlasTransitionBlocked, TransitionCheckpoint, image_from_atlas_container,
 )
 
 SHA = re.compile(r"[a-f0-9]{40}\Z")
 SOURCE = "https://github.com/evilsysadmin/shadowops-infra"
+# Each isolated single-audience candidate may only replace an existing reviewed
+# config, never itself. The two opt-in extensions are independent of order.
+TRANSITIONS = {
+    STARADVS_CONFIG: frozenset({CONFIG, SNOOKER_CONFIG, BRIDGESQUAD_CONFIG}),
+    BRIDGESQUAD_CONFIG: frozenset({CONFIG, SNOOKER_CONFIG, STARADVS_CONFIG}),
+}
 
 
 def live_release(rows):
@@ -48,9 +54,8 @@ def check_pair(previous, candidate):
                 or not isinstance(release["config"], str)
                 or release["config"] not in ALLOWED_CONFIGS):
             raise AtlasTransitionBlocked("Invalid Atlas release identity")
-    if (previous["config"] not in {CONFIG, SNOOKER_CONFIG}
-            or candidate["config"] != STARADVS_CONFIG):
-        raise AtlasTransitionBlocked("Invalid Star Adventures config transition")
+    if previous["config"] not in TRANSITIONS.get(candidate["config"], ()):
+        raise AtlasTransitionBlocked("Invalid isolated audience config transition")
     if (previous["digest"] == candidate["digest"]
             and previous["source_sha"] != candidate["source_sha"]):
         raise AtlasTransitionBlocked("Conflicting image source identity")
