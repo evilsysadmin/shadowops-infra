@@ -108,6 +108,7 @@ jobs:
       - run: bash -n scripts/chronicles_frontend_artifacts.sh
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_public_browser_workflow.py' -v
       - run: bash -n scripts/chronicles_pages_api_gate.sh
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_api_handoff.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_verified_receipt.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_staging_changelog.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_manifest_wait.py' -v
