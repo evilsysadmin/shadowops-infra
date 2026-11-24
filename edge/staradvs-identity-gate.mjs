@@ -89,12 +89,18 @@ export async function handle(request,env,options={}){
   return new Response(null,{status:303,headers:{...headers,Location:CENTRAL_LOGOUT}});
  if(url.pathname==='/_shadowops/session.js'&&request.method==='GET')return new Response(bootstrap,{headers:{...headers,'Content-Type':'text/javascript; charset=utf-8'}});
  try{
-  if(url.pathname==='/api/staradvs/session'&&request.method==='POST'){
+  if(['/api/staradvs/session','/api/staradvs/session/renew'].includes(url.pathname)&&request.method==='POST'){
+   const renewing=url.pathname.endsWith('/renew');
    if(url.search||request.headers.get('Origin')!=='https://'+HOST||request.headers.get('Content-Type')!=='application/json')throw new Denied(403);
    const raw=await limitedBody(request.body,9000,413);
    let body;try{body=JSON.parse(raw);}catch{throw new Denied(400);}
-   if(!body||Object.keys(body).length!==1||!Object.hasOwn(body,'token'))throw new Denied(400);
+   if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).length!==(renewing?2:1)||!Object.hasOwn(body,'token')||
+      (renewing&&(!Object.hasOwn(body,'expected_subject')||typeof body.expected_subject!=='string'||!UUID.test(body.expected_subject))))throw new Denied(400);
    const claims=await authorize(body.token,env,options);
+   // A background renewal must never replace the shared browser cookie with
+   // a different account after a central SSO account switch. Only the signed
+   // and live-verified subject is authoritative; the caller's value is a fence.
+   if(renewing&&claims.sub!==body.expected_subject)throw new Denied(401);
    return json({subject:claims.sub,expires_at:claims.exp,identity:'staradvs'},200,{'Set-Cookie':`${COOKIE}=${body.token}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${Math.max(0,claims.exp-Math.floor(Date.now()/1000))}`});
   }
   if(url.pathname==='/api/staradvs/logout'&&request.method==='POST'){
