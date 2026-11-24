@@ -22,11 +22,26 @@ class ApiCompletionHandoff(unittest.TestCase):
             "ShadowOps OCI · Chronicles API (STAGING / PRODUCTION)"])
         self.assertEqual(triggers["schedule"], [{"cron": "47 * * * *"}])
         guard = workflow["jobs"]["contracts"]["if"]
-        for condition in ("workflow_run.conclusion == 'success'",
-                          "workflow_run.head_branch == 'main'",
-                          "workflow_run.head_repository.full_name == 'evilsysadmin/shadowops-infra'",
-                          "workflow_run.event != 'pull_request'"):
-            self.assertIn(condition, guard)
+        # Cheap event-level filtering must reject stale/foreign completions
+        # before allocating contracts/candidate runners. This is only an
+        # optimization; pages_owner_admission tests prove the deeper gate.
+        for condition in (
+            "github.event_name != 'workflow_run'",
+            "workflow_run.conclusion == 'success'",
+            "workflow_run.status == 'completed'",
+            "workflow_run.head_sha == github.sha",
+            "workflow_run.head_branch == 'main'",
+            "workflow_run.path == '.github/workflows/chronicles-api-staging.yml'",
+            "workflow_run.repository.full_name == 'evilsysadmin/shadowops-infra'",
+            "workflow_run.head_repository.full_name == 'evilsysadmin/shadowops-infra'",
+            "workflow_run.event == 'push'",
+            "workflow_run.event == 'schedule'",
+            "workflow_run.event == 'workflow_dispatch'",
+        ):
+            with self.subTest(condition=condition):
+                self.assertIn(condition, guard)
+        self.assertNotIn("workflow_run.event != 'pull_request'", guard)
+        self.assertIn("github.event_name != 'workflow_run' ||", guard)
         candidate = workflow["jobs"]["staging-candidate"]["if"]
         self.assertIn("github.event_name == 'workflow_run'", candidate)
         self.assertIn("github.ref == 'refs/heads/main'", candidate)
