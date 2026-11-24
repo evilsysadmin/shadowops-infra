@@ -390,8 +390,8 @@ jobs:
           [[ "$sha" =~ ^[a-f0-9]{40}$ ]] || exit 64
           status="$(gh api "repos/$GITHUB_REPOSITORY/compare/${sha}...main" --jq .status)"
           [[ "$status" == identical || "$status" == ahead ]] || exit 65
-          gh api "repos/$GITHUB_REPOSITORY/commits/$sha/check-runs?per_page=100" \
-            | python3 -c 'import json,sys;c=json.load(sys.stdin)["check_runs"];required={"Authenticated TLS runtime and least-privilege Mongo gate","Isolated issuer core tests / Go vet / gofmt","MongoDB ephemeral session CAS / revocation integration","Replica-set atomic suspension and session revocation","Publish SHA-pinned Identity staging image"};good={x["name"] for x in c if x["status"]=="completed" and x["conclusion"]=="success" and x["app"]["slug"]=="github-actions"};assert required <= good'
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/commits/$sha/check-runs?per_page=100" \
+            | python3 -c 'import json,sys;c=[check for page in json.load(sys.stdin) for check in page["check_runs"]];required={"Authenticated TLS runtime and least-privilege Mongo gate","Isolated issuer core tests / Go vet / gofmt","MongoDB ephemeral session CAS / revocation integration","Replica-set atomic suspension and session revocation","Publish SHA-pinned Identity staging image"};good={x["name"] for x in c if x["status"]=="completed" and x["conclusion"]=="success" and x["app"]["slug"]=="github-actions"};assert required <= good'
           manifest="$(docker buildx imagetools inspect "${IMAGE}:staging-${sha}" --format '{{json .Manifest}}')"
           digest="$(printf '%s' "$manifest" | python3 -c 'import json,sys;print(json.load(sys.stdin)["digest"])')"
           [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 66
