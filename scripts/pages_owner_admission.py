@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+from pathlib import Path
 import re
 import sys
 import urllib.error
@@ -58,6 +59,42 @@ class AdmissionError(Exception):
     pass
 
 
+def trusted_api_completion(env: Mapping[str, str]) -> bool:
+    """Workflow completion is a wake-up, never independent deploy evidence.
+
+    GitHub's event payload must identify the exact successful API owner run.
+    The existing protected-main and same-source SHA admission still follows.
+    """
+    event_path = env.get("GITHUB_EVENT_PATH", "")
+    owner_sha = env.get("GITHUB_SHA", "")
+    if not event_path or not SHA.fullmatch(owner_sha):
+        return False
+    try:
+        path = Path(event_path)
+        if not path.is_file() or not 0 < path.stat().st_size <= 1024 * 1024:
+            return False
+        event = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError):
+        return False
+    if not isinstance(event, dict) or event.get("action") != "completed":
+        return False
+    run = event.get("workflow_run")
+    if not isinstance(run, dict):
+        return False
+    return (
+        run.get("conclusion") == "success"
+        and run.get("status") == "completed"
+        and run.get("path") == ".github/workflows/chronicles-api-staging.yml"
+        and run.get("head_sha") == owner_sha
+        and run.get("head_branch") == "main"
+        and (run.get("head_repository") or {}).get("full_name") == OWNER
+        and (run.get("repository") or {}).get("full_name") == OWNER
+        and (event.get("repository") or {}).get("full_name") == OWNER
+        and run.get("event") in {"push", "schedule", "workflow_dispatch"}
+        and type(run.get("id")) is int and run["id"] > 0
+    )
+
+
 def github_read(path: str, token: str) -> tuple[int, dict]:
     # GitHub's compare route uses SHA...main. Reject path traversal as an
     # entire segment, not a substring of a valid three-dot comparison.
@@ -100,8 +137,12 @@ def admit(
 ) -> str:
     if env.get("GITHUB_REPOSITORY") != OWNER or env.get("GITHUB_REF") != "refs/heads/main":
         raise AdmissionError("Only ShadowOps main may own this deployment")
-    if env.get("GITHUB_EVENT_NAME") not in {"workflow_dispatch", "push", "schedule"}:
-        raise AdmissionError("Owner handoff requires protected main dispatch or push")
+    trigger = env.get("GITHUB_EVENT_NAME")
+    if trigger == "workflow_run":
+        if not trusted_api_completion(env):
+            raise AdmissionError("Untrusted or stale Chronicles API completion")
+    elif trigger not in {"workflow_dispatch", "push", "schedule"}:
+        raise AdmissionError("Owner handoff requires protected main dispatch, push or verified API completion")
     owner_sha = env.get("GITHUB_SHA", "").strip()
     source_sha = env.get("CHRONICLES_SOURCE_SHA", "").strip()
     token = env.get("GH_TOKEN", "")
