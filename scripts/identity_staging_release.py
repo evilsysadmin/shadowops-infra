@@ -448,11 +448,81 @@ def execute_atlas_release(sdk, config, digest, sha, pause=time.sleep, clock=time
     raise ReleaseError('Atlas release timed out; check private rollback checkpoint')
 
 
+
+# This one consumer rollout is pinned at both the delegated sudo boundary and
+# the protected runner. A later image requires separately reviewed policy.
+STARADVS_RELEASE_SHA = '349fa673f27d8a8abd5997f2fd55ab430f6db3dd'
+STARADVS_RELEASE_DIGEST = 'sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c'
+STARADVS_RELEASE_SOURCES = {
+    k: v for k, v in ATLAS_RELEASE_SOURCES.items()
+    # ocarun cannot traverse the private root configuration directory. The
+    # root operator validates the trusted Compose file and both rendered plans.
+    if k != 'compose.identity.atlas.staging.yaml'
+}
+STARADVS_RELEASE_SOURCES.update({
+    'host/identity-atlas-staging-staradvs.py': ('/usr/local/sbin/shadowops-identity-atlas-staradvs', '755'),
+    'host/identity-staging-deploy.py': ('/usr/local/sbin/shadowops-identity-staging', '755'),
+    'scripts/identity_staging_bundle.py': ('/usr/local/lib/shadowops/identity_staging_bundle.py', '644'),
+    'scripts/identity_staging_atlas_lock.py': ('/usr/local/lib/shadowops/identity_staging_atlas_lock.py', '644'),
+    'scripts/identity_staging_atlas_custody.py': ('/usr/local/lib/shadowops/identity_staging_atlas_custody.py', '644'),
+    'scripts/identity_staging_atlas_restore.py': ('/usr/local/lib/shadowops/identity_staging_atlas_restore.py', '644'),
+    'scripts/identity_staging_atlas_release_pair.py': ('/usr/local/lib/shadowops/identity_staging_atlas_release_pair.py', '644'),
+    'scripts/identity_staging_atlas_staradvs_config.py': ('/usr/local/lib/shadowops/identity_staging_atlas_staradvs_config.py', '644'),
+})
+
+
+def staradvs_release_host_command(digest, sha, vault, hashes):
+    if (digest != STARADVS_RELEASE_DIGEST or sha != STARADVS_RELEASE_SHA
+            or not isinstance(vault, str) or not VAULT.fullmatch(vault)):
+        raise ReleaseError('Invalid pinned StarAdvs release request')
+    command = installed_source_guard(STARADVS_RELEASE_SOURCES, hashes)
+    return (command + 'sudo --non-interactive /usr/local/sbin/shadowops-identity-atlas-staradvs deploy '
+            + vault + ' ' + digest + ' ' + sha + '\n')
+
+
+def execute_staradvs_release(sdk, config, digest, sha, pause=time.sleep, clock=time.monotonic):
+    if digest != STARADVS_RELEASE_DIGEST or sha != STARADVS_RELEASE_SHA:
+        raise ReleaseError('Unapproved StarAdvs image')
+    inspect(sdk, config)
+    compartment, instance = resolve_existing_host(sdk, config)
+    vault, _, _ = resolve_vault(sdk, config, compartment)
+    command = staradvs_release_host_command(digest, sha, vault,
+                canary_source_digests(sources=STARADVS_RELEASE_SOURCES))
+    models = sdk.compute_instance_agent.models
+    details = models.CreateInstanceAgentCommandDetails(
+        compartment_id=compartment, execution_time_out_in_seconds=1000,
+        target=models.InstanceAgentCommandTarget(instance_id=instance),
+        content=models.InstanceAgentCommandContent(
+            source=models.InstanceAgentCommandSourceViaTextDetails(text=command),
+            output=models.InstanceAgentCommandOutputViaTextDetails(output_type='TEXT')),
+        display_name='identity-staging-atlas-staradvs-release')
+    client = sdk.compute_instance_agent.ComputeInstanceAgentClient(config)
+    created = client.create_instance_agent_command(create_instance_agent_command_details=details).data
+    if not getattr(created, 'id', None):
+        raise ReleaseError('Missing StarAdvs release command reference')
+    deadline = clock() + 1140
+    expected = 'IDENTITY_ATLAS_STARADVS_DEPLOY_OK source_sha=' + sha + ' digest=' + digest
+    while clock() < deadline:
+        execution = client.get_instance_agent_command_execution(
+            instance_agent_command_id=created.id, instance_id=instance).data
+        state = str(getattr(execution, 'lifecycle_state', '')).upper()
+        if state in {'SUCCEEDED', 'FAILED', 'TIMED_OUT', 'CANCELED'}:
+            content = getattr(execution, 'content', None)
+            if (state != 'SUCCEEDED' or getattr(content, 'exit_code', None) != 0
+                    or str(getattr(content, 'text', '') or '').strip() != expected):
+                raise ReleaseError('StarAdvs release not verified; inspect private checkpoint before retry')
+            return expected
+        pause(3)
+    raise ReleaseError('StarAdvs release timed out; inspect private checkpoint before retry')
+
+
 def main():
     try:
         import oci
         config=config_from_env(oci,os.environ)
-        if sys.argv[1:]==['atlas-release']:
+        if sys.argv[1:]==['atlas-staradvs-release']:
+            print(execute_staradvs_release(oci,config,os.environ.get('ADMITTED_DIGEST',''),os.environ.get('ADMITTED_SHA','')))
+        elif sys.argv[1:]==['atlas-release']:
             print(execute_atlas_release(oci,config,os.environ.get('ADMITTED_DIGEST',''),os.environ.get('ADMITTED_SHA','')))
         elif sys.argv[1:]==['atlas-restore-rehearsal']:
             print(execute_atlas_restore_rehearsal(oci,config))

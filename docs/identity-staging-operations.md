@@ -243,3 +243,29 @@ independent protected Snooker Pages publisher, verify guest and all
 `*.pages.dev` aliases deny access, then test real authenticated desktop/mobile
 WebGL, logout and session revocation. Never bypass the edge worker to hurry
 staging.
+
+## Star Adventures Atlas staging handoff
+
+The old local Mongo deploy is intentionally blocked while Atlas is active.
+The Star Adventures consumer requires the separately pinned Atlas operator;
+never delete the Atlas marker. After protected main checks pass, run the
+existing SSH bootstrap to install the reviewed code and fixed sudo policy.
+The bootstrap does not activate Identity.
+
+```sh
+bash host/bootstrap-identity-staging-over-ssh.sh
+gh workflow run identity-staging-operations.yml -R evilsysadmin/shadowops-infra --ref main \\
+  -f action=atlas-staradvs-release \\
+  -f source_sha=349fa673f27d8a8abd5997f2fd55ab430f6db3dd \\
+  -f expected_atlas_digest=sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c
+```
+
+The manual staging job admits the signed image, refreshes the encrypted backup
+and rehearses quarantine restore, then calls only the installed pinned root
+operator. It keeps the current Atlas configuration for rollback, copies only
+the new Vault consumer, validates both Compose plans, and checks public
+release SHA and every previously enabled callback. A failed or ambiguous
+receipt requires inspection of the private checkpoint; do not retry blindly.
+Successful Identity activation is not Pages publication or authenticated E2E.
+Use the independent Star Adventures protected publisher after successful
+public audience verification.

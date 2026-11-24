@@ -14,6 +14,7 @@ on:
       - 'host/identity-atlas-staging-canary.py'
       - 'host/identity-atlas-staging-deploy.py'
       - 'host/identity-atlas-staging-snooker-config.py'
+      - 'host/identity-atlas-staging-staradvs.py'
       - 'host/inspect-identity-atlas-snooker-audience-over-ssh.sh'
       - 'scripts/identity_staging_*.py'
       - 'tests/test_identity_staging_*.py'
@@ -38,6 +39,7 @@ on:
       - 'host/identity-atlas-staging-canary.py'
       - 'host/identity-atlas-staging-deploy.py'
       - 'host/identity-atlas-staging-snooker-config.py'
+      - 'host/identity-atlas-staging-staradvs.py'
       - 'host/inspect-identity-atlas-snooker-audience-over-ssh.sh'
       - 'scripts/identity_staging_*.py'
       - 'tests/test_identity_staging_*.py'
@@ -51,7 +53,7 @@ on:
     inputs:
       action:
         type: choice
-        options: [provision, deploy, inspect, backup, atlas-custody, atlas-prepare, atlas-prepare-database-scoped, atlas-snooker-config, atlas-preflight, atlas-canary, atlas-journey, atlas-restore-rehearsal, atlas-release, atlas-backup, atlas-roles-plan, atlas-roles-apply, atlas-roles-check, atlas-rotate-inventory, atlas-refresh-inventory]
+        options: [provision, deploy, inspect, backup, atlas-custody, atlas-prepare, atlas-prepare-database-scoped, atlas-snooker-config, atlas-preflight, atlas-canary, atlas-journey, atlas-restore-rehearsal, atlas-release, atlas-staradvs-release, atlas-backup, atlas-roles-plan, atlas-roles-apply, atlas-roles-check, atlas-rotate-inventory, atlas-refresh-inventory]
         required: true
         description: Provision local custody, deploy, inspect, backup, or create separate Atlas custody
       cka_consumer:
@@ -91,7 +93,7 @@ on:
       expected_atlas_digest:
         type: string
         required: false
-        description: Required for atlas-release; optional for canary/journey. Bind to exact previously preflighted digest
+        description: Required for atlas-release and atlas-staradvs-release; optional for canary/journey. Bind to exact previously preflighted digest
 permissions:
   contents: read
 jobs:
@@ -361,7 +363,7 @@ jobs:
           esac
   admit:
     needs: contracts
-    if: github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy' || inputs.action == 'atlas-preflight' || inputs.action == 'atlas-canary' || inputs.action == 'atlas-journey' || inputs.action == 'atlas-release') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy' || inputs.action == 'atlas-preflight' || inputs.action == 'atlas-canary' || inputs.action == 'atlas-journey' || inputs.action == 'atlas-release' || inputs.action == 'atlas-staradvs-release') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -397,12 +399,12 @@ jobs:
           [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 66
           # A release MUST use the exact previously validated immutable image.
           # Other actions cannot invent or override this digest binding.
-          if [[ "$REQUESTED_ACTION" == atlas-release && -z "$EXPECTED_ATLAS_DIGEST" ]]; then
+          if [[ ( "$REQUESTED_ACTION" == atlas-release || "$REQUESTED_ACTION" == atlas-staradvs-release ) && -z "$EXPECTED_ATLAS_DIGEST" ]]; then
             echo 'IDENTITY_ATLAS_RELEASE_DIGEST_REQUIRED'
             exit 67
           fi
           if [[ -n "$EXPECTED_ATLAS_DIGEST" ]]; then
-            [[ ( "$REQUESTED_ACTION" == atlas-canary || "$REQUESTED_ACTION" == atlas-journey || "$REQUESTED_ACTION" == atlas-release ) && "$digest" == "$EXPECTED_ATLAS_DIGEST" ]] || {
+            [[ ( "$REQUESTED_ACTION" == atlas-canary || "$REQUESTED_ACTION" == atlas-journey || "$REQUESTED_ACTION" == atlas-release || "$REQUESTED_ACTION" == atlas-staradvs-release ) && "$digest" == "$EXPECTED_ATLAS_DIGEST" ]] || {
               echo 'IDENTITY_ATLAS_DIGEST_MISMATCH'
               exit 67
             }
@@ -512,6 +514,55 @@ jobs:
           assert deployed_identity_sha() == os.environ["EXPECTED_SOURCE_SHA"]
           issuer_ready()
           print("IDENTITY_ATLAS_PUBLIC_SNOOKER_READY")
+          PY
+  atlas-staradvs-release:
+    needs: admit
+    # Never run from a push or merge. Requires deliberate staging-approved dispatch.
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'atlas-staradvs-release' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: staging
+    concurrency:
+      group: shadowops-oci-host-operations
+      cancel-in-progress: false
+    env:
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+      ADMITTED_DIGEST: ${{ needs.admit.outputs.digest }}
+      ADMITTED_SHA: ${{ needs.admit.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Refresh encrypted Atlas backup and rehearse exact restore before release
+        run: |
+          set -euo pipefail
+          python scripts/identity_staging_release.py atlas-backup
+          python scripts/identity_staging_release.py atlas-restore-rehearsal
+      - name: Activate the admitted Star Adventures Atlas release
+        run: python scripts/identity_staging_release.py atlas-staradvs-release
+      - name: Reconfirm exact public Identity SHA and new audience
+        env:
+          EXPECTED_SOURCE_SHA: ${{ needs.admit.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import sys
+          sys.path.insert(0, "scripts")
+          from staradvs_identity_readiness import ISSUER, read_public
+          from snooker_staging_operator import deployed_identity_sha
+          assert deployed_identity_sha() == os.environ["EXPECTED_SOURCE_SHA"]
+          code, body = read_public(ISSUER + "/login?app=staradvs")
+          assert code == 200 and b"https://staging.staradvs.shadowops.dpdns.org/?shadowops=central" in body
+          print("IDENTITY_ATLAS_PUBLIC_STARADVS_READY")
           PY
   deploy:
     needs: admit
