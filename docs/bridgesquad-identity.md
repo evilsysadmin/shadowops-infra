@@ -197,3 +197,34 @@ R2/Pages, configuración de DNS ni una partida completa de doce niveles
 en la URL real. El smoke determinista de los doce niveles sigue en el
 repositorio del juego; para quitar el HTTP 401 se necesita todavía el
 E2E autenticado contra los recursos productivos custodiados.
+
+## Ruta staging con ShadowOps ID staging (decisión 25-11-2026)
+
+Para poder jugar sin esperar al Identity productivo (#611), Bridge Squad sigue
+el mismo patrón que Football, Snooker y Star Adventures: host propio
+`https://staging.bridgesquad.shadowops.dpdns.org`, emisor
+`https://id-staging.shadowops.dpdns.org` y audiencia `bridgesquad` **solo en
+staging**. El nombre de audiencia coincide con el reservado en producción, pero
+los entornos siguen aislados: emisor, origen, cookie, claves de firma, base de
+datos y proof `soc1_` distintos. El host de producción
+`bridgesquad.shadowops.dpdns.org` **no cambia**: sigue en cuarentena 401 y
+nunca aceptará tokens de staging.
+
+**Iteración 1 (esta PR): registro del consumidor, default-off.** El código de
+Identity staging reconoce `bridgesquad` y su origen exacto; login y CORS solo
+se habilitan si el runtime tiene el proof explícito. El bundle de operador
+añade un proof único solo con `identity-staging-operations.yml`,
+`action=provision`, `bridgesquad_consumer=enable` (por defecto `preserve`).
+No cambia Cloudflare, DNS, Pages, Vault ni el runtime en vivo.
+
+Siguientes iteraciones:
+
+1. Derivar la configuración Atlas aislada del candidato con `bridgesquad`
+   (como `identity_staging_atlas_staradvs_config.py`) y liberar la imagen de
+   Identity staging con rollback a la config original.
+2. Worker staging (`edge/bridgesquad-staging-identity-gate.mjs`): host
+   `staging.bridgesquad…`, `iss=id-staging`, `aud=bridgesquad`, aliases 404.
+3. Proyecto Pages `bridgesquad-staging`, release sellado SHA-pinned desde el
+   `main` verde del juego, binding `SHADOWOPS_BRIDGESQUAD_SERVICE_CREDENTIAL`
+   y CNAME proxied tras verificar invitado denegado.
+4. E2E real: login, partida en móvil/escritorio, renovación, logout/revocación.
