@@ -156,7 +156,10 @@ class PublicBrowserWorkflow(unittest.TestCase):
         steps = workflow["jobs"]["release"]["steps"]
         browser = next(step for step in steps if step.get("name") ==
                        "Real public browser smoke (desktop, mobile, login, update deferral)")
-        command = browser["run"].split("bash smoke/ensure-chromium.sh\n", 1)[1]
+        # Preserve the timing variables while replacing only the real
+        # Playwright bootstrap: the fake subprocess must not download Chromium.
+        command = browser["run"].replace("bash smoke/ensure-chromium.sh\n",
+                                         ": # mocked Chromium bootstrap\n", 1)
         self.assertIn('wait "$public_pid"', command)
         self.assertIn('wait "$journey_pid"', command)
         self.assertIn("node smoke/public-staging-combat.mjs || combat_rc=$?", command)
@@ -185,14 +188,17 @@ if [ "$FAIL_BROWSER" = "$id" ]; then exit 17; fi
 exit 0
 """)
             fake.chmod(0o755)
+            summary = root / "step-summary.md"
             for failing in ("", "public", "journey", "combat"):
+                summary.write_text("", encoding="utf-8")
                 with self.subTest(failing=failing):
                     for file in root.glob("*.started"):
                         file.unlink()
                     for file in root.glob("*.finished"):
                         file.unlink()
                     env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
-                           "BROWSER_TEST_DIR": str(root), "FAIL_BROWSER": failing}
+                           "BROWSER_TEST_DIR": str(root), "FAIL_BROWSER": failing,
+                           "GITHUB_STEP_SUMMARY": str(summary)}
                     run = subprocess.run(["bash", "-euo", "pipefail", "-c", command],
                                          cwd=root, env=env, capture_output=True, text=True,
                                          timeout=10)
@@ -202,6 +208,14 @@ exit 0
                     self.assertEqual((root / "combat.finished").exists(),
                                      failing not in ("public", "journey"))
                     self.assertIn("CHRONICLES_PUBLIC_SMOKE_RESULTS", run.stdout)
+                    report = summary.read_text(encoding="utf-8")
+                    self.assertIn("Chronicles public browser smoke duration", report)
+                    self.assertIn("| Chromium bootstrap | Public + journey", report)
+                    self.assertNotIn("CHRONICLES_STAGING_INVITE_CODE", report)
+                    # Timings must be recorded on success AND failure without
+                    # turning a failed required browser journey into a pass.
+                    self.assertRegex(run.stdout,
+                        r"CHRONICLES_PUBLIC_SMOKE_TIMINGS bootstrap=\d+s pair=\d+s combat=\d+s total=\d+s")
                     if failing in ("public", "journey"):
                         self.assertIn("CHRONICLES_PUBLIC_COMBAT_SKIPPED", run.stdout)
                         self.assertIn("combat=125", run.stdout)
@@ -209,6 +223,24 @@ exit 0
                         self.assertIn("combat=17", run.stdout)
                     else:
                         self.assertIn("combat=0", run.stdout)
+
+    def test_public_browser_duration_report_is_nonblocking_and_safe(self):
+        workflow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
+        browser = next(step for step in workflow["jobs"]["release"]["steps"]
+                       if step.get("name") ==
+                       "Real public browser smoke (desktop, mobile, login, update deferral)")
+        command = browser["run"]
+        self.assertIn("smoke_started=$SECONDS", command)
+        self.assertIn("pair_seconds=$((SECONDS - pair_started))", command)
+        self.assertIn("combat_seconds=$((SECONDS - combat_started))", command)
+        self.assertIn("total_seconds=$((SECONDS - smoke_started))", command)
+        self.assertIn("CHRONICLES_PUBLIC_SMOKE_TIMINGS", command)
+        self.assertIn("GITHUB_STEP_SUMMARY:-", command)
+        self.assertNotIn("CHRONICLES_STAGING_INVITE_CODE", command)
+        self.assertLess(command.index("CHRONICLES_PUBLIC_SMOKE_TIMINGS"),
+                        command.index("CHRONICLES_PUBLIC_SMOKE_RESULTS"))
+        self.assertLess(command.index("CHRONICLES_PUBLIC_SMOKE_RESULTS"),
+                        command.index("(( public_rc == 0 && journey_rc == 0 && combat_rc == 0 ))"))
 
     def test_same_sha_can_retry_public_smokes_without_redeployment(self):
         workflow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
