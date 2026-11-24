@@ -22,7 +22,14 @@ class RevisionError(Exception):
 
 def is_relevant(path: str) -> bool:
     return (
-        path == "edge/staradvs-identity-gate.mjs"
+        path in {
+            "edge/staradvs-identity-gate.mjs",
+            "scripts/identity_staging_provision.py",
+            "scripts/identity_staging_bundle.py",
+            "scripts/chronicles_api_provision.py",
+            "scripts/oci_control_plane.py",
+            "scripts/pages_access_readiness.py",
+        }
         or path.startswith(".github/workflows/staradvs-")
         or path.startswith("scripts/staradvs_")
         or path.startswith("config/staradvs-")

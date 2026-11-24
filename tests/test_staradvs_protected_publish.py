@@ -288,6 +288,7 @@ class Tests(unittest.TestCase):
         ):
             self.assertNotIn(banned.replace("DOLLAR", "$"), flow)
         self.assertIn("pending-identity", flow)
+        self.assertEqual(flow.count('scripts/staradvs_infra_revision.py "$GITHUB_SHA"'), 3)
         self.assertLess(flow.index("preflight --inventory-file"), flow.index("pages deploy protected-dist"))
         self.assertLess(flow.index("pages deploy protected-dist"), flow.index("retire --game-sha"))
         self.assertLess(flow.index("retire --game-sha"), flow.index("postflight --game-sha"))

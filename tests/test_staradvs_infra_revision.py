@@ -49,6 +49,17 @@ class InfraRevisionTests(unittest.TestCase):
         new = tree({POLICY: "1" * 40, RELEVANT: "3" * 40})
         self.assertEqual(app.compare(PINNED, CURRENT, reader(old, new)), (False, [RELEVANT]))
 
+    def test_shared_privileged_dependencies_block(self):
+        for name in ("scripts/identity_staging_provision.py",
+                     "scripts/identity_staging_bundle.py",
+                     "scripts/chronicles_api_provision.py",
+                     "scripts/oci_control_plane.py",
+                     "scripts/pages_access_readiness.py"):
+            with self.subTest(name=name):
+                old = tree({POLICY: "1" * 40, name: "2" * 40})
+                new = tree({POLICY: "1" * 40, name: "3" * 40})
+                self.assertEqual(app.compare(PINNED, CURRENT, reader(old, new)), (False, [name]))
+
     def test_staging_hold_or_test_change_blocks(self):
         for name in ("edge/staradvs-identity-gate.mjs",
                      "config/staradvs-protected-release.json",
