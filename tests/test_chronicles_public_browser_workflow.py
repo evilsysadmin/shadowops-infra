@@ -202,6 +202,10 @@ exit 0
                     self.assertEqual((root / "combat.finished").exists(),
                                      failing not in ("public", "journey"))
                     self.assertIn("CHRONICLES_PUBLIC_SMOKE_RESULTS", run.stdout)
+                    # Timings must be recorded on success AND failure without
+                    # turning a failed required browser journey into a pass.
+                    self.assertRegex(run.stdout,
+                        r"CHRONICLES_PUBLIC_SMOKE_TIMINGS bootstrap=\\d+s pair=\\d+s combat=\\d+s total=\\d+s")
                     if failing in ("public", "journey"):
                         self.assertIn("CHRONICLES_PUBLIC_COMBAT_SKIPPED", run.stdout)
                         self.assertIn("combat=125", run.stdout)
@@ -209,6 +213,24 @@ exit 0
                         self.assertIn("combat=17", run.stdout)
                     else:
                         self.assertIn("combat=0", run.stdout)
+
+    def test_public_browser_duration_report_is_nonblocking_and_safe(self):
+        workflow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
+        browser = next(step for step in workflow["jobs"]["release"]["steps"]
+                       if step.get("name") ==
+                       "Real public browser smoke (desktop, mobile, login, update deferral)")
+        command = browser["run"]
+        self.assertIn("smoke_started=$SECONDS", command)
+        self.assertIn("pair_seconds=$((SECONDS - pair_started))", command)
+        self.assertIn("combat_seconds=$((SECONDS - combat_started))", command)
+        self.assertIn("total_seconds=$((SECONDS - smoke_started))", command)
+        self.assertIn("CHRONICLES_PUBLIC_SMOKE_TIMINGS", command)
+        self.assertIn("GITHUB_STEP_SUMMARY:-", command)
+        self.assertNotIn("CHRONICLES_STAGING_INVITE_CODE", command)
+        self.assertLess(command.index("CHRONICLES_PUBLIC_SMOKE_TIMINGS"),
+                        command.index("CHRONICLES_PUBLIC_SMOKE_RESULTS"))
+        self.assertLess(command.index("CHRONICLES_PUBLIC_SMOKE_RESULTS"),
+                        command.index("(( public_rc == 0 && journey_rc == 0 && combat_rc == 0 ))")
 
     def test_same_sha_can_retry_public_smokes_without_redeployment(self):
         workflow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
