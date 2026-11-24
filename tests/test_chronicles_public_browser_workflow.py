@@ -141,6 +141,10 @@ class PublicBrowserWorkflow(unittest.TestCase):
                          "${{ steps.source.outputs.sha }}")
         self.assertEqual(action["env"]["CHRONICLES_STAGING_INVITE_CODE"],
                          "${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}")
+        self.assertEqual(action["env"]["CHRONICLES_PARALLEL_PUBLIC_COMBAT"], "1")
+        self.assertLess(action["run"].index('wait "$journey_pid"'),
+                        action["run"].index("node smoke/public-staging-combat.mjs"),
+                        "Two independent initial public journeys must settle first")
         self.assertEqual(jobs["release"]["environment"]["name"], "staging")
         screenshot = next(step for step in steps if step.get("name") ==
                           "Preserve public-browser screenshots as deployment evidence")
