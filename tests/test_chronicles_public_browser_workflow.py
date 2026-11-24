@@ -240,7 +240,7 @@ exit 0
         self.assertLess(command.index("CHRONICLES_PUBLIC_SMOKE_TIMINGS"),
                         command.index("CHRONICLES_PUBLIC_SMOKE_RESULTS"))
         self.assertLess(command.index("CHRONICLES_PUBLIC_SMOKE_RESULTS"),
-                        command.index("(( public_rc == 0 && journey_rc == 0 && combat_rc == 0 ))")
+                        command.index("(( public_rc == 0 && journey_rc == 0 && combat_rc == 0 ))"))
 
     def test_same_sha_can_retry_public_smokes_without_redeployment(self):
         workflow = yaml.load(PATH.read_text(), Loader=yaml.BaseLoader)
