@@ -37,6 +37,7 @@ on:
       - 'tests/test_chronicles_pages_manifest_wait.py'
       - 'tests/test_chronicles_pages_verified_receipt.py'
       - 'tests/test_chronicles_api_before_pages.py'
+      - 'tests/test_chronicles_pages_api_handoff.py'
       - 'docs/chronicles-pages-handoff.md'
   # Reconcile on EVERY protected Infra main merge. A concurrent unrelated
   # merge can supersede an in-flight Pages owner run after source CI and API
@@ -45,8 +46,13 @@ on:
   push:
     branches: [main]
   schedule:
-    # Cross-repo main updates do not emit workflow_run events here.
+    # Hourly fallback still reconciles missed/malformed completion notifications.
     - cron: '47 * * * *'
+  workflow_run:
+    # The API workflow itself owns the exact-SHA receipt. Never trust only
+    # the triggering run metadata as proof of a deployed/healthy API.
+    workflows: ["ShadowOps OCI · Chronicles API (STAGING / PRODUCTION)"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       environment:
@@ -72,6 +78,13 @@ concurrency:
 jobs:
   contracts:
     name: Static Pages ownership and DNS boundary
+    # Do not spend a runner on failed, forked or PR-only API completions.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == 'evilsysadmin/shadowops-infra' &&
+       github.event.workflow_run.event != 'pull_request')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -95,6 +108,7 @@ jobs:
       - run: bash -n scripts/chronicles_frontend_artifacts.sh
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_public_browser_workflow.py' -v
       - run: bash -n scripts/chronicles_pages_api_gate.sh
+      - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_api_handoff.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_verified_receipt.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_staging_changelog.py' -v
       - run: python3 -m unittest discover -s tests -p 'test_chronicles_pages_manifest_wait.py' -v
@@ -108,6 +122,7 @@ jobs:
     needs: contracts
     if: >-
       (github.event_name == 'schedule' || github.event_name == 'push' ||
+       github.event_name == 'workflow_run' ||
        (github.event_name == 'workflow_dispatch' && inputs.environment != 'production')) &&
       github.ref == 'refs/heads/main' &&
       github.repository == 'evilsysadmin/shadowops-infra'
@@ -134,7 +149,7 @@ jobs:
 
 
   api-ready:
-    name: Wait for exact API; skip obsolete client SHAs
+    name: Verify exact API once for automatic staging; wait only for manual staging
     needs: [contracts, staging-candidate]
     if: needs.staging-candidate.outputs.publish == 'true'
     runs-on: ubuntu-24.04
@@ -146,6 +161,7 @@ jobs:
       publish: ${{ steps.gate.outputs.publish }}
     env:
       GH_TOKEN: ${{ github.token }}
+      ONLY_IF_NEW: ${{ inputs.only_if_new || 'false' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -188,7 +204,7 @@ jobs:
           # just-in-time mutation guards remain mandatory for current SHAs.
           [[ "$GITHUB_REPOSITORY" == 'evilsysadmin/shadowops-infra' &&
              "$GITHUB_REF" == 'refs/heads/main' &&
-             "$GITHUB_EVENT_NAME" =~ ^(push|schedule|workflow_dispatch)$ ]] || {
+             "$GITHUB_EVENT_NAME" =~ ^(push|schedule|workflow_dispatch|workflow_run)$ ]] || {
             echo 'CHRONICLES_PAGES_INVALID_ENTRY_CONTEXT' >&2
             exit 64
           }
