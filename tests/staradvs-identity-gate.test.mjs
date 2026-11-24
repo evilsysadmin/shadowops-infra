@@ -205,3 +205,34 @@ test('signed-in release is protected end to end; logout and live revocation deny
  assert.equal(cleared.status,401);
  assert.equal(assetsFetched,1,'logout clears browser cookie; no guest asset leak');
 });
+
+test('silent renewal is fenced to the expected verified account, including after cookie expiry',async()=>{
+ const f=await signed(), other='123e4567-e89b-42d3-a456-426614174001';
+ let assets=0;
+ const stub=env(()=>assets++);
+ const renew=(body,origin=base)=>handle(url('/api/staradvs/session/renew',{
+  method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},
+  body:JSON.stringify(body),
+ }),stub,f.options);
+ const matched=await renew({token:f.jwt,expected_subject:SUBJECT});
+ assert.equal(matched.status,200);
+ assert.equal((await matched.json()).subject,SUBJECT);
+ assert.match(matched.headers.get('Set-Cookie'),/^__Host-staradvs_staging=/);
+ for(const [body,origin,status] of [
+  [{token:f.jwt,expected_subject:other},base,401],
+  [{token:f.jwt},base,400],
+  [{token:f.jwt,expected_subject:'invalid'},base,400],
+  [{token:f.jwt,expected_subject:SUBJECT,extra:true},base,400],
+  [{token:'a.b.c',expected_subject:SUBJECT},base,401],
+  [{token:f.jwt,expected_subject:SUBJECT},'https://evil.invalid',403],
+ ]){
+  const denied=await renew(body,origin);
+  assert.equal(denied.status,status);
+  assert.equal(denied.headers.get('Set-Cookie'),null);
+ }
+ f.revoke();
+ const revoked=await renew({token:f.jwt,expected_subject:SUBJECT});
+ assert.equal(revoked.status,401);
+ assert.equal(revoked.headers.get('Set-Cookie'),null);
+ assert.equal(assets,0);
+});
