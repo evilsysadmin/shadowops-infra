@@ -103,17 +103,17 @@ jobs:
         with:
           python-version: '3.13'
       - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
-      - name: Verify approved exact Infra main and private Pages policy
+      - name: Verify unchanged protected Infra paths and private Pages policy
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$GITHUB_SHA" == "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" ]]
+          python3 scripts/staradvs_infra_revision.py "$GITHUB_SHA" "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)"
           python scripts/staradvs_identity_binding.py plan
       - name: Read exact staradvs-only proof from Vault and bind as secret_text
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$GITHUB_SHA" == "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" ]]
+          python3 scripts/staradvs_infra_revision.py "$GITHUB_SHA" "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)"
           python scripts/staradvs_identity_binding.py bind
       - name: Confirm secret binding name and type without reading value
         run: python scripts/staradvs_identity_binding.py plan

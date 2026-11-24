@@ -167,6 +167,7 @@ class IdentityBindingTests(unittest.TestCase):
         self.assertIn("github.repository == 'evilsysadmin/shadowops-infra'", flow)
         self.assertIn("environment: staging", flow)
         self.assertIn("shadowops-staradvs-staging-pages", flow)
+        self.assertEqual(flow.count('scripts/staradvs_infra_revision.py "$GITHUB_SHA"'), 2)
         self.assertNotIn("pages deploy", flow)
         self.assertNotIn("wrangler", flow)
         self.assertNotIn("printf '%s' $PROOF", flow)

@@ -22,7 +22,7 @@ on:
         default: preflight
         required: true
       candidate_run_id:
-        description: "Successful protected candidate workflow run ID from SAME Infra main SHA"
+        description: "Successful protected candidate run ID with unchanged protected Infra paths"
         type: string
         required: true
       confirm:
@@ -102,7 +102,7 @@ jobs:
           fi
           [[ "$CANDIDATE_RUN_ID" =~ ^[1-9][0-9]{0,14}$ ]]
           infra_head="$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)"
-          [[ "$GITHUB_SHA" == "$infra_head" ]]
+          python3 scripts/staradvs_infra_revision.py "$GITHUB_SHA" "$infra_head"
           game_sha="$(gh api repos/evilsysadmin/star-adventures/commits/main --jq .sha)"
           [[ "$game_sha" =~ ^[a-f0-9]{40}$ ]]
           python3 scripts/staradvs_protected_publish.py admit --run-id "$CANDIDATE_RUN_ID" --game-sha "$game_sha" --infra-sha "$GITHUB_SHA"
@@ -160,7 +160,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$GITHUB_SHA" == "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" ]]
+          python3 scripts/staradvs_infra_revision.py "$GITHUB_SHA" "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)"
           [[ "$SOURCE_SHA" == "$(gh api repos/evilsysadmin/star-adventures/commits/main --jq .sha)" ]]
           python3 scripts/staradvs_protected_publish.py admit --run-id "$CANDIDATE_RUN_ID" --game-sha "$SOURCE_SHA" --infra-sha "$GITHUB_SHA"
       - name: Download ONLY the admitted candidate produced by verified main
@@ -194,7 +194,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$GITHUB_SHA" == "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)" ]]
+          python3 scripts/staradvs_infra_revision.py "$GITHUB_SHA" "$(gh api repos/evilsysadmin/shadowops-infra/commits/main --jq .sha)"
           [[ "$SOURCE_SHA" == "$(gh api repos/evilsysadmin/star-adventures/commits/main --jq .sha)" ]]
           python3 scripts/staradvs_source_admission.py "$SOURCE_SHA"
       - uses: actions/setup-node@v4
