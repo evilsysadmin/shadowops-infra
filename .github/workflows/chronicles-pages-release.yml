@@ -413,7 +413,10 @@ jobs:
           set -euo pipefail
           # Reuse source CI's pinned browser bootstrap. Install system
           # packages only if Chromium's host-library probe actually needs them.
+          smoke_started=$SECONDS
           bash smoke/ensure-chromium.sh
+          bootstrap_seconds=$((SECONDS - smoke_started))
+          pair_started=$SECONDS
           # These are independent public journeys with unique ephemeral accounts
           # and non-overlapping screenshot names. Run the lightweight pair
           # concurrently; after both finish, exercise real combat separately
@@ -428,6 +431,8 @@ jobs:
           journey_rc=0
           wait "$public_pid" || public_rc=$?
           wait "$journey_pid" || journey_rc=$?
+          pair_seconds=$((SECONDS - pair_started))
+          combat_started=$SECONDS
           combat_rc=0
           if (( public_rc == 0 && journey_rc == 0 )); then
             # The crypt uses its own temporary account and always cleans it up.
@@ -436,6 +441,21 @@ jobs:
           else
             echo 'CHRONICLES_PUBLIC_COMBAT_SKIPPED prerequisite browser smoke failed'
             combat_rc=125
+          fi
+          combat_seconds=$((SECONDS - combat_started))
+          total_seconds=$((SECONDS - smoke_started))
+          printf 'CHRONICLES_PUBLIC_SMOKE_TIMINGS bootstrap=%ss pair=%ss combat=%ss total=%ss\n' \
+            "$bootstrap_seconds" "$pair_seconds" "$combat_seconds" "$total_seconds"
+          # Informational only. Never relax the required three real browser
+          # results or emit account/invite data into build summaries.
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            {
+              printf '\n### Chronicles public browser smoke duration\n'
+              printf '| Chromium bootstrap | Public + journey (parallel) | Combat + rear guard | Total |\n'
+              printf '| ---: | ---: | ---: | ---: |\n'
+              printf '| %ss | %ss | %ss | %ss |\n' \
+                "$bootstrap_seconds" "$pair_seconds" "$combat_seconds" "$total_seconds"
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
           printf 'CHRONICLES_PUBLIC_SMOKE_RESULTS public=%s journey=%s combat=%s\\n' "$public_rc" "$journey_rc" "$combat_rc"
           (( public_rc == 0 && journey_rc == 0 && combat_rc == 0 ))
