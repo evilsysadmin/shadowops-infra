@@ -57,3 +57,25 @@ from the client.
 
 No action in this PR changes OCI, Cloudflare, Vault, DNS, Identity
 runtime, other ShadowOps applications or the live Pages project.
+
+## Single-audience extensions: Star Adventures and Bridge Squad (order-independent)
+
+`identity_staging_atlas_extension.extend()` is the shared pure derivation
+for the two opt-in staging audiences `staradvs` and `bridgesquad`. It adds
+exactly one audience's proof to the actual active Atlas config. If the other
+opt-in audience is already provisioned in Vault but not yet released, that
+proof is **ignored, never copied**; any other unknown, changed or missing
+proof still blocks. So enabling `bridgesquad_consumer` in Vault no longer
+blocks the Star Adventures Atlas release, and vice versa.
+
+`check_pair` now allows exactly these isolated transitions (never a config
+onto itself): `atlas-staradvs-service.json` from legacy/Snooker/Bridge Squad,
+and `atlas-bridgesquad-service.json` from legacy/Snooker/Star Adventures.
+Rollback always restores the exact previous image and config.
+
+Root operator: `shadowops-identity-atlas-staradvs deploy VAULT DIGEST SHA`
+(unchanged) and the fixed entrypoint
+`shadowops-identity-atlas-bridgesquad deploy VAULT DIGEST SHA`, which reuses
+the same reviewed operator with `audience=bridgesquad` and its own config
+path/receipt `IDENTITY_ATLAS_BRIDGESQUAD_DEPLOY_OK`. Neither is delegated
+in sudoers yet; protected workflow admission is a separate step.

@@ -1,5 +1,8 @@
 #!/opt/shadowops/oci-venv/bin/python -I
-"""Explicit root-only Star Adventures Atlas release; no database or tunnel writes.
+"""Explicit root-only single-audience Atlas release (Star Adventures or Bridge Squad).
+
+No database or tunnel writes. Bridge Squad uses the thin
+`identity-atlas-staging-bridgesquad.py` entrypoint over this same operator.
 
 Requires independently admitted signed image and existing Vault custody.
 Do not delegate this executable until the protected workflow admission is wired.
@@ -17,9 +20,10 @@ from identity_staging_atlas_admission import require_atlas_restore_evidence
 from identity_staging_atlas_policy import validate_atlas_compose
 from identity_staging_atlas_release_pair import (
     live_release, guarded_release, ReleaseCheckpoint, check_pair,
-    CONFIG, SNOOKER_CONFIG, STARADVS_CONFIG, DIGEST, SHA,
+    CONFIG, SNOOKER_CONFIG, STARADVS_CONFIG, BRIDGESQUAD_CONFIG, DIGEST, SHA,
 )
 from identity_staging_atlas_staradvs_config import candidate_config
+from identity_staging_atlas_bridgesquad_config import candidate_config as bridgesquad_candidate_config
 from identity_staging_bundle import service_config
 from shared_a1_host_guard import verify_shared_a1_containers
 from importlib.machinery import SourceFileLoader
@@ -28,14 +32,22 @@ from importlib.util import spec_from_loader, module_from_spec
 ROOT = Path("/etc/shadowops/identity-staging")
 STATE = Path("/var/lib/shadowops/identity-staging")
 VAULT = re.compile(r"ocid1\.vault\.[A-Za-z0-9._-]{10,200}\Z")
-PINNED_DIGEST = "sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c"
-PINNED_SHA = "349fa673f27d8a8abd5997f2fd55ab430f6db3dd"
+# One reviewed image supports both opt-in audiences, so either may be released
+# first and the other is then a config-only change on the same image.
+PINNED_DIGEST = "sha256:3cdbaf423208e82ca13364de100acfc7ba57f8f1302bc4537d59cf0f964de92e"
+PINNED_SHA = "9c1c269dc42fe1430d5a0981ded9751aa360521a"
 PROJECT = "shadowops-identity-staging"
 HOST = "https://id-staging.shadowops.dpdns.org"
 ORIGINS = {
     "chess-studio": "chess-studio", "chronicles": "chronicles",
     "cka-simulator": "cka", "football": "football", "pawn-action": "pawnaction",
-    "snooker": "snooker", "staradvs": "staradvs",
+    "snooker": "snooker", "staradvs": "staradvs", "bridgesquad": "bridgesquad",
+}
+# Fixed per-audience candidate path, derivation and receipt; never client input.
+TARGETS = {
+    "staradvs": (STARADVS_CONFIG, candidate_config, "IDENTITY_ATLAS_STARADVS_DEPLOY_OK"),
+    "bridgesquad": (BRIDGESQUAD_CONFIG, bridgesquad_candidate_config,
+                    "IDENTITY_ATLAS_BRIDGESQUAD_DEPLOY_OK"),
 }
 
 
@@ -100,7 +112,11 @@ def activate_release(previous, candidate, *, old_consumers, new_consumers,
     guarded_release(previous, candidate, journal=journal, activate=activate, verify=verify)
 
 
-def update(vault, digest, sha, *, load=operator, check_shared=verify_shared_a1_containers):
+def update(vault, digest, sha, *, load=operator, check_shared=verify_shared_a1_containers,
+           audience="staradvs"):
+    if audience not in TARGETS:
+        raise ReleaseBlocked("Invalid fixed release request")
+    target_config, derive, receipt = TARGETS[audience]
     if (not isinstance(vault, str) or not VAULT.fullmatch(vault)
             or digest != PINNED_DIGEST or sha != PINNED_SHA):
         raise ReleaseBlocked("Invalid fixed release request")
@@ -120,16 +136,16 @@ def update(vault, digest, sha, *, load=operator, check_shared=verify_shared_a1_c
         require_atlas_restore_evidence(backup.private_config(), STATE)
         check_shared()
         previous = observe(release.run)
-        candidate = {"digest": digest, "source_sha": sha, "config": STARADVS_CONFIG}
+        candidate = {"digest": digest, "source_sha": sha, "config": target_config}
         check_pair(previous, candidate)
         if release.public_release_sha(release.run) != previous["source_sha"]:
             raise ReleaseBlocked("Public Identity source differs")
         active_path = Path(previous["config"])
         active = prepare.load_private(active_path, 65532)
-        wanted = candidate_config(active, service_config(local.read_bundle(vault)))
+        wanted = derive(active, service_config(local.read_bundle(vault)))
         if not callbacks_ready(release.run, active["consumers"]):
             raise ReleaseBlocked("Existing public consumer not proven")
-        path = Path(STARADVS_CONFIG)
+        path = Path(target_config)
         try:
             existing = prepare.load_private(path, 65532)
         except FileNotFoundError:
@@ -138,7 +154,7 @@ def update(vault, digest, sha, *, load=operator, check_shared=verify_shared_a1_c
             existing = prepare.load_private(path, 65532)
         if existing != wanted or stat.S_IMODE(path.lstat().st_mode) != 0o400:
             raise ReleaseBlocked("Candidate custody differs")
-        if preflight.execute(digest, sha, config_path=STARADVS_CONFIG) != (
+        if preflight.execute(digest, sha, config_path=target_config) != (
                 "IDENTITY_ATLAS_PREFLIGHT_OK source_sha=" + sha + " digest=" + digest):
             raise ReleaseBlocked("Candidate preflight not proven")
         if (observe(release.run) != previous or prepare.load_private(active_path, 65532) != active
@@ -148,14 +164,14 @@ def update(vault, digest, sha, *, load=operator, check_shared=verify_shared_a1_c
         # fixed commands and a separate narrowly scoped Compose runner for the
         # new candidate path, without weakening legacy operator behavior.
         def run(args, *, digest=None, config_source=None, timeout=180):
-            if config_source == STARADVS_CONFIG:
+            if config_source == target_config:
                 import subprocess
                 if (not DIGEST.fullmatch(digest or "") or args[:2] != ["docker", "compose"]):
                     raise ReleaseBlocked("Unexpected candidate Compose request")
                 result = subprocess.run(args, capture_output=True, text=True, timeout=timeout,
                     env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "NO_PROXY": "*",
                          "IDENTITY_IMAGE_DIGEST": digest,
-                         "IDENTITY_ATLAS_SERVICE_CONFIG": STARADVS_CONFIG})
+                         "IDENTITY_ATLAS_SERVICE_CONFIG": target_config})
                 if result.returncode or len(result.stdout) > 1048576:
                     raise ReleaseBlocked("Fixed candidate operation failed")
                 return result.stdout
@@ -163,7 +179,7 @@ def update(vault, digest, sha, *, load=operator, check_shared=verify_shared_a1_c
         activate_release(previous, candidate, old_consumers=active["consumers"],
                          new_consumers=wanted["consumers"], run=run,
                          public_sha=release.public_release_sha, journal=journal)
-    return "IDENTITY_ATLAS_STARADVS_DEPLOY_OK source_sha=" + sha + " digest=" + digest
+    return receipt + " source_sha=" + sha + " digest=" + digest
 
 
 def main():

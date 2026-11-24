@@ -73,7 +73,8 @@ class Tests(unittest.TestCase):
                     visited.append(path)
                     return (200, None) if path == exposed_path else login(host)
                 evidence = sample([PAGES], probe)
-                self.assertEqual(visited, list(challenge.GUEST_PATHS))
+                # Probes run concurrently: require each route exactly once, in any order.
+                self.assertEqual(sorted(visited), sorted(challenge.GUEST_PATHS))
                 self.assertEqual(evidence["exposed"], 1)
                 self.assertEqual(evidence["challenged"], 0)
 
