@@ -417,7 +417,11 @@ class ParallelReactPagesTest(unittest.TestCase):
             self.assertIn(guard, helper)
         gate = (pathlib.Path(__file__).resolve().parents[1]
                 / "scripts/chronicles_pages_api_gate.sh").read_text(encoding="utf-8")
-        self.assertIn('chronicles_api_before_pages.py "$ADMITTED_SHA"', gate)
+        # Manual staging retains the original bounded gate; automatic staging
+        # only invokes the independently verified one-shot admission.
+        self.assertIn('args=("$ADMITTED_SHA")', gate)
+        self.assertIn('args=(--ready-once "$ADMITTED_SHA")', gate)
+        self.assertIn('chronicles_api_before_pages.py "${args[@]}"', gate)
         self.assertIn("run: bash scripts/chronicles_pages_api_gate.sh", workflow)
         self.assertIn("needs: [contracts, staging-candidate, api-ready]", workflow)
         self.assertIn("if: needs.api-ready.outputs.publish == 'true'", workflow)
