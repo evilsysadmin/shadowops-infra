@@ -79,7 +79,10 @@ def trusted_api_completion(env: Mapping[str, str]) -> bool:
     if not isinstance(event, dict) or event.get("action") != "completed":
         return False
     run = event.get("workflow_run")
-    if not isinstance(run, dict):
+    if not isinstance(run, dict) or any(
+        not isinstance(repo, dict)
+        for repo in (run.get("head_repository"), run.get("repository"), event.get("repository"))
+    ):
         return False
     return (
         run.get("conclusion") == "success"
