@@ -12,7 +12,11 @@ import urllib.request
 
 REPO = "evilsysadmin/star-adventures"
 RUN_WORKFLOW = "ci.yml"
-NEEDED = {"Core rules and episode tests", "React build and browser smoke"}
+NEEDED = {
+    "Core rules and episode tests",
+    "React build and browser smoke",
+    *(f"Remaining Chrome journeys (shard {shard}/5)" for shard in range(2, 6)),
+}
 HEX = re.compile(r"^[a-f0-9]{40}$")
 
 
