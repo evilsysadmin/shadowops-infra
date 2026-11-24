@@ -78,13 +78,22 @@ concurrency:
 jobs:
   contracts:
     name: Static Pages ownership and DNS boundary
-    # Do not spend a runner on failed, forked or PR-only API completions.
+    # Workflow completion wakes Pages only for the CURRENT owner commit.
+    # This inexpensive event filter avoids runner use and false-red owner
+    # failures for old API completions; the signed receipt, current protected
+    # mains and live API/Pages SHA remain independently checked later.
     if: >-
       github.event_name != 'workflow_run' ||
       (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.status == 'completed' &&
+       github.event.workflow_run.head_sha == github.sha &&
        github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.path == '.github/workflows/chronicles-api-staging.yml' &&
+       github.event.workflow_run.repository.full_name == 'evilsysadmin/shadowops-infra' &&
        github.event.workflow_run.head_repository.full_name == 'evilsysadmin/shadowops-infra' &&
-       github.event.workflow_run.event != 'pull_request')
+       (github.event.workflow_run.event == 'push' ||
+        github.event.workflow_run.event == 'schedule' ||
+        github.event.workflow_run.event == 'workflow_dispatch'))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
