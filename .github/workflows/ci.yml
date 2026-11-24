@@ -96,5 +96,6 @@ jobs:
 
       - name: Snooker Atlas historical request and active Identity handoff contracts (offline)
         run: |
+          python3 -m unittest discover -s tests -p test_snooker_atlas_release_request.py -v
           python3 -m unittest discover -s tests -p test_snooker_atlas_release_retry_request.py -v
           python3 -m unittest discover -s tests -p test_identity_staging_atlas_release_handoff.py -v
