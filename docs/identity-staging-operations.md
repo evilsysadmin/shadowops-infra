@@ -255,10 +255,13 @@ The bootstrap does not activate Identity.
 ```sh
 bash host/bootstrap-identity-staging-over-ssh.sh
 gh workflow run identity-staging-operations.yml -R evilsysadmin/shadowops-infra --ref main \\
-  -f action=atlas-staradvs-release \\
-  -f source_sha=349fa673f27d8a8abd5997f2fd55ab430f6db3dd \\
-  -f expected_atlas_digest=sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c
+  -f action=atlas-staradvs-release
 ```
+
+`source_sha`/`expected_atlas_digest` default to the single reviewed image
+pinned for both opt-in audiences (`9c1c269…`, which includes Bridge Squad);
+the previous Star Adventures-only pin `349fa67…` was superseded before use so
+that releasing either game first never downgrades the other.
 
 The manual staging job admits the signed image, refreshes the encrypted backup
 and rehearses quarantine restore, then calls only the installed pinned root
@@ -269,3 +272,29 @@ receipt requires inspection of the private checkpoint; do not retry blindly.
 Successful Identity activation is not Pages publication or authenticated E2E.
 Use the independent Star Adventures protected publisher after successful
 public audience verification.
+
+## Bridge Squad · one-click staging activation
+
+Bridge Squad (`staging.bridgesquad.shadowops.dpdns.org`) uses the same
+order-independent single-audience Atlas operator and the same pinned image.
+After protected main checks pass, install the reviewed code and sudo policy
+once (this does not activate Identity), then dispatch one action:
+
+```sh
+bash host/bootstrap-identity-staging-over-ssh.sh
+gh workflow run identity-staging-operations.yml -R evilsysadmin/shadowops-infra --ref main \
+  -f action=bridgesquad-activate
+```
+
+The run (1) provisions **only** Bridge Squad's isolated service proof in
+Vault, preserving every other consumer and key; (2) admits the exact signed
+arm64 image; (3) refreshes the encrypted Atlas backup and rehearses restore;
+(4) runs the installed pinned `shadowops-identity-atlas-bridgesquad` operator,
+which keeps the current config for rollback and adds only the new consumer;
+(5) verifies the public Identity SHA and the exact
+`/login?app=bridgesquad` callback (`IDENTITY_ATLAS_PUBLIC_BRIDGESQUAD_READY`).
+Each `staging` environment job may require approval. If the installed host
+files do not match main, the source guard stops before any change: rerun the
+bootstrap. A failed release restores the previous image+config; inspect the
+private checkpoint before retrying. Identity activation is not Pages
+publication: the game stays closed until its protected Worker/Pages release.

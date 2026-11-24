@@ -38,6 +38,9 @@ ubuntu ALL=(root) NOPASSWD: SHADOWOPS_IDENTITY_ATLAS_LOCK
 Cmnd_Alias SHADOWOPS_IDENTITY_ATLAS_SNOOKER_STAGE = /usr/local/sbin/shadowops-identity-atlas-snooker-config stage *
 ocarun ALL=(root) NOPASSWD: SHADOWOPS_IDENTITY_ATLAS_SNOOKER_STAGE
 
-# StarAdvs staging-only, exact admitted image; root wrapper validates Vault argument.
-Cmnd_Alias SHADOWOPS_IDENTITY_ATLAS_STARADVS = /usr/local/sbin/shadowops-identity-atlas-staradvs deploy ocid1.vault.* sha256\:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c 349fa673f27d8a8abd5997f2fd55ab430f6db3dd
+# StarAdvs / Bridge Squad staging-only, one exact admitted image supporting both;
+# root wrappers validate the Vault argument and fix their own audience.
+Cmnd_Alias SHADOWOPS_IDENTITY_ATLAS_STARADVS = /usr/local/sbin/shadowops-identity-atlas-staradvs deploy ocid1.vault.* sha256\:3cdbaf423208e82ca13364de100acfc7ba57f8f1302bc4537d59cf0f964de92e 9c1c269dc42fe1430d5a0981ded9751aa360521a
 ocarun ALL=(root) NOPASSWD: SHADOWOPS_IDENTITY_ATLAS_STARADVS
+Cmnd_Alias SHADOWOPS_IDENTITY_ATLAS_BRIDGESQUAD = /usr/local/sbin/shadowops-identity-atlas-bridgesquad deploy ocid1.vault.* sha256\:3cdbaf423208e82ca13364de100acfc7ba57f8f1302bc4537d59cf0f964de92e 9c1c269dc42fe1430d5a0981ded9751aa360521a
+ocarun ALL=(root) NOPASSWD: SHADOWOPS_IDENTITY_ATLAS_BRIDGESQUAD

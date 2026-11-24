@@ -105,8 +105,11 @@ class OperatorTests(unittest.TestCase):
                      "identity_staging_atlas_bridgesquad_config",
                      "identity_staging_atlas_extension"):
             self.assertIn(item, installer)
-        self.assertNotIn("shadowops-identity-atlas-bridgesquad",
-                         (ROOT / "host/identity-staging.sudoers").read_text())
+        sudoers = (ROOT / "host/identity-staging.sudoers").read_text()
+        # Delegated only with the exact pinned image, never a wildcard image or SHA.
+        self.assertNotIn("shadowops-identity-atlas-bridgesquad deploy *", sudoers)
+        self.assertIn("shadowops-identity-atlas-bridgesquad deploy ocid1.vault.* sha256\\:"
+                      + op.PINNED_DIGEST.split(":", 1)[1] + " " + op.PINNED_SHA, sudoers)
 
 
 if __name__ == "__main__":
