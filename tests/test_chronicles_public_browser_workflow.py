@@ -188,14 +188,17 @@ if [ "$FAIL_BROWSER" = "$id" ]; then exit 17; fi
 exit 0
 """)
             fake.chmod(0o755)
+            summary = root / "step-summary.md"
             for failing in ("", "public", "journey", "combat"):
+                summary.write_text("", encoding="utf-8")
                 with self.subTest(failing=failing):
                     for file in root.glob("*.started"):
                         file.unlink()
                     for file in root.glob("*.finished"):
                         file.unlink()
                     env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
-                           "BROWSER_TEST_DIR": str(root), "FAIL_BROWSER": failing}
+                           "BROWSER_TEST_DIR": str(root), "FAIL_BROWSER": failing,
+                           "GITHUB_STEP_SUMMARY": str(summary)}
                     run = subprocess.run(["bash", "-euo", "pipefail", "-c", command],
                                          cwd=root, env=env, capture_output=True, text=True,
                                          timeout=10)
@@ -205,6 +208,10 @@ exit 0
                     self.assertEqual((root / "combat.finished").exists(),
                                      failing not in ("public", "journey"))
                     self.assertIn("CHRONICLES_PUBLIC_SMOKE_RESULTS", run.stdout)
+                    report = summary.read_text(encoding="utf-8")
+                    self.assertIn("Chronicles public browser smoke duration", report)
+                    self.assertIn("| Chromium bootstrap | Public + journey", report)
+                    self.assertNotIn("CHRONICLES_STAGING_INVITE_CODE", report)
                     # Timings must be recorded on success AND failure without
                     # turning a failed required browser journey into a pass.
                     self.assertRegex(run.stdout,
