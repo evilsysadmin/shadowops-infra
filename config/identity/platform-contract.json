@@ -72,6 +72,11 @@
           "audience": "staradvs",
           "origin": "https://staging.staradvs.shadowops.dpdns.org",
           "status": "explicit-opt-in-required-not-activated"
+        },
+        {
+          "audience": "bridgesquad",
+          "origin": "https://staging.bridgesquad.shadowops.dpdns.org",
+          "status": "explicit-opt-in-required-not-activated"
         }
       ]
     },

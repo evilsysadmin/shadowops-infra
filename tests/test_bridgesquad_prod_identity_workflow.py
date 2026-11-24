@@ -46,7 +46,12 @@ class ProductionReadinessWorkflowTests(unittest.TestCase):
             "origin":"https://bridgesquad.shadowops.dpdns.org",
             "status":"not-provisioned",
         })
-        self.assertFalse(any(c["audience"]=="bridgesquad" for c in staging["consumers"]))
+        # Staging may host its own isolated Bridge Squad consumer, but never the production origin.
+        staged=[c for c in staging["consumers"] if c["audience"]=="bridgesquad"]
+        self.assertLessEqual(len(staged),1)
+        for c in staged:
+            self.assertEqual(c["origin"],"https://staging.bridgesquad.shadowops.dpdns.org")
+        self.assertFalse(any(c["origin"]=="https://bridgesquad.shadowops.dpdns.org" for c in staging["consumers"]))
         for key in ("shared_user_database","shared_signing_keys","shared_cookie_scope",
                     "shared_authorization","cross_environment_trust"):
             self.assertIs(self.cfg[key],False)
