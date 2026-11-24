@@ -1,8 +1,10 @@
 """GitHub-only fake admission tests: no real providers and no mutation."""
 import base64
 import io
+import json
 import pathlib
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -67,6 +69,81 @@ class TestPagesHandoff(unittest.TestCase):
         read = Read()
         self.assertEqual(a.admit({**ENV, "GITHUB_EVENT_NAME": "schedule"}, read), SOURCE_SHA)
         self.assertEqual(len(read.calls), 4)
+
+    def test_exact_successful_same_sha_api_completion_can_own_staging_pages(self):
+        # This is the read-only wake-up created by workflow_run. The normal
+        # owner/source branch protection and sole-publisher checks still run.
+        payload = {
+            "action": "completed",
+            "repository": {"full_name": a.OWNER},
+            "workflow_run": {
+                "id": 123, "conclusion": "success", "status": "completed",
+                "path": ".github/workflows/chronicles-api-staging.yml",
+                "event": "workflow_dispatch", "head_sha": OWNER_SHA,
+                "head_branch": "main",
+                "head_repository": {"full_name": a.OWNER},
+                "repository": {"full_name": a.OWNER},
+            },
+        }
+        with tempfile.TemporaryDirectory() as folder:
+            event_file = pathlib.Path(folder) / "event.json"
+            def check(data):
+                event_file.write_text(json.dumps(data), encoding="utf-8")
+                return a.admit({**ENV, "GITHUB_EVENT_NAME": "workflow_run",
+                                "GITHUB_EVENT_PATH": str(event_file)}, Read())
+            self.assertEqual(check(payload), SOURCE_SHA)
+            for event in ("push", "schedule", "workflow_dispatch"):
+                with self.subTest(event=event):
+                    check({**payload, "workflow_run": {**payload["workflow_run"], "event": event}})
+            for name, invalid in (
+                ("failed", {"workflow_run": {**payload["workflow_run"], "conclusion": "failure"}}),
+                ("running", {"workflow_run": {**payload["workflow_run"], "status": "in_progress"}}),
+                ("wrong workflow", {"workflow_run": {**payload["workflow_run"], "path": ".github/workflows/other.yml"}}),
+                ("wrong owner SHA", {"workflow_run": {**payload["workflow_run"], "head_sha": "c" * 40}}),
+                ("fork", {"workflow_run": {**payload["workflow_run"], "head_repository": {"full_name": "attacker/fork"}}}),
+                ("wrong run repository", {"workflow_run": {**payload["workflow_run"], "repository": {"full_name": "attacker/fork"}}}),
+                ("wrong event repository", {"repository": {"full_name": "attacker/fork"}}),
+                ("wrong branch", {"workflow_run": {**payload["workflow_run"], "head_branch": "feature"}}),
+                ("PR completion", {"workflow_run": {**payload["workflow_run"], "event": "pull_request"}}),
+                ("recursive completion", {"workflow_run": {**payload["workflow_run"], "event": "workflow_run"}}),
+                ("wrong action", {"action": "requested"}),
+                ("missing id", {"workflow_run": {**payload["workflow_run"], "id": None}}),
+                ("boolean id", {"workflow_run": {**payload["workflow_run"], "id": True}}),
+                ("invalid repo shape", {"workflow_run": {**payload["workflow_run"], "head_repository": []}}),
+                ("invalid payload", {"workflow_run": []}),
+            ):
+                with self.subTest(name=name), self.assertRaisesRegex(a.AdmissionError, "Untrusted"):
+                    check({**payload, **invalid})
+            event_file.write_text("not json", encoding="utf-8")
+            with self.assertRaisesRegex(a.AdmissionError, "Untrusted"):
+                a.admit({**ENV, "GITHUB_EVENT_NAME": "workflow_run",
+                         "GITHUB_EVENT_PATH": str(event_file)}, Read())
+            event_file.write_text(" " * (1024 * 1024 + 1), encoding="utf-8")
+            with self.assertRaisesRegex(a.AdmissionError, "Untrusted"):
+                a.admit({**ENV, "GITHUB_EVENT_NAME": "workflow_run",
+                         "GITHUB_EVENT_PATH": str(event_file)}, Read())
+
+    def test_workflow_run_requires_event_payload_and_protected_current_mains(self):
+        with self.assertRaisesRegex(a.AdmissionError, "Untrusted"):
+            a.admit({**ENV, "GITHUB_EVENT_NAME": "workflow_run"}, Read())
+        payload = {
+            "action": "completed", "repository": {"full_name": a.OWNER},
+            "workflow_run": {
+                "id": 123, "status": "completed", "conclusion": "success",
+                "path": ".github/workflows/chronicles-api-staging.yml",
+                "event": "push", "head_sha": OWNER_SHA, "head_branch": "main",
+                "repository": {"full_name": a.OWNER},
+                "head_repository": {"full_name": a.OWNER},
+            }
+        }
+        with tempfile.TemporaryDirectory() as folder:
+            file = pathlib.Path(folder) / "event.json"
+            file.write_text(json.dumps(payload))
+            env = {**ENV, "GITHUB_EVENT_NAME": "workflow_run", "GITHUB_EVENT_PATH": str(file)}
+            for changed in ({"owner_protected": False}, {"source_protected": False},
+                            {"old_workflow": True}, {"stale": True}):
+                with self.subTest(changed=changed), self.assertRaises(a.AdmissionError):
+                    a.admit(env, Read(**changed))
 
     def test_fail_closed_if_protection_is_disabled_or_previous_owner_remains(self):
         for case in (
