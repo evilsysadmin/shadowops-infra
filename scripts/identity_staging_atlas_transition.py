@@ -17,7 +17,8 @@ PROJECT = "shadowops-identity-staging"
 IMAGE = "ghcr.io/evilsysadmin/shadowops-identity@"
 CONFIG = "/etc/shadowops/identity-staging/atlas-service.json"
 SNOOKER_CONFIG = "/etc/shadowops/identity-staging/atlas-snooker-service.json"
-ALLOWED_CONFIGS = frozenset({CONFIG, SNOOKER_CONFIG})
+STARADVS_CONFIG = "/etc/shadowops/identity-staging/atlas-staradvs-service.json"
+ALLOWED_CONFIGS = frozenset({CONFIG, SNOOKER_CONFIG, STARADVS_CONFIG})
 TARGET = "/run/secrets/identity-staging.json"
 NETWORKS = frozenset({PROJECT + "-origin", PROJECT + "-atlas-egress"})
 DIGEST = re.compile(r"sha256:[a-f0-9]{64}\Z")
@@ -80,6 +81,8 @@ class TransitionCheckpoint:
     The root-owned 0700 directory and 0600 journal are checked on every use.
     """
 
+    MAX_CHECKPOINT_BYTES = 256
+
     def __init__(self, directory: Path, *, expected_uid: int = 0):
         self.directory = Path(directory)
         self.path = self.directory / "atlas-deploy-pending.json"
@@ -138,7 +141,7 @@ class TransitionCheckpoint:
             with os.fdopen(fd, "r", encoding="ascii") as stream:
                 meta = os.fstat(stream.fileno())
                 if (not stat.S_ISREG(meta.st_mode) or meta.st_uid != self.expected_uid
-                        or meta.st_mode & 0o077 or meta.st_size > 256):
+                        or meta.st_mode & 0o077 or meta.st_size > self.MAX_CHECKPOINT_BYTES):
                     raise AtlasTransitionBlocked("Unsafe Atlas checkpoint")
                 content = json.load(stream)
             if content != {"previous": previous, "candidate": candidate}:
