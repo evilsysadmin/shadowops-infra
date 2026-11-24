@@ -40,10 +40,7 @@ class AliasWatchdogWorkflowTests(unittest.TestCase):
                 self.assertNotIn(forbidden.lower(), self.audit.lower())
 
     def test_completed_one_time_pages_publisher_is_permanently_disabled(self):
-        old = (ROOT / ".github/workflows/bridgesquad-pages-bootstrap.yml").read_text(encoding="utf-8")
-        self.assertNotIn("\n  bootstrap:\n", old)
-        self.assertNotIn("pages deploy", old)
-        self.assertNotIn("secrets.", old)
+        self.assertFalse((ROOT / ".github/workflows/bridgesquad-pages-bootstrap.yml").exists())
         self.assertIn("run: python3 scripts/bridgesquad_alias_watchdog.py audit", self.audit)
 
     def test_watchdog_uses_live_project_and_existing_denial_contract(self):
