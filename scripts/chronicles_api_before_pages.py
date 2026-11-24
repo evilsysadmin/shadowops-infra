@@ -196,10 +196,15 @@ def main() -> int:
         except GateError as exc:
             print(str(exc), file=sys.stderr)
             return 2
-    if len(sys.argv) == 3 and sys.argv[1] == "--receipt-only":
+    if len(sys.argv) == 3 and sys.argv[1] in {"--receipt-only", "--ready-once"}:
+        # --receipt-only retains deploy-admission semantics (1 = missing
+        # receipt or confirmed drift). The new --ready-once is for automatic
+        # Pages reconciliation: 3 = not yet deployed, 2 = inconclusive/drift,
+        # 0 = independently verified exact live revision. Never poll/sleep.
+        nonblocking = sys.argv[1] == "--ready-once"
         try:
             if not api_receipt_available(sys.argv[2], token):
-                return 1  # No trusted receipt: normal deploy admission may proceed.
+                return 3 if nonblocking else 1
             if not public_api_healthy():
                 print("CHRONICLES_API_RECEIPT_LIVE_HEALTH_INCONCLUSIVE", file=sys.stderr)
                 return 2  # Do not redeploy automatically on a transient/outage.
@@ -209,7 +214,7 @@ def main() -> int:
                 return 2
             if state == "different":
                 print("CHRONICLES_API_PUBLIC_SOURCE_MISMATCH", file=sys.stderr)
-                return 1  # Confirmed drift: guarded admission may restore current SHA.
+                return 2 if nonblocking else 1  # Drift is not a pending API on Pages.
             print("CHRONICLES_API_STAGING_ALREADY_VERIFIED sha=" + sys.argv[2])
             return 0
         except GateError as exc:
