@@ -25,6 +25,7 @@ concurrency:
 jobs:
   contracts:
     name: Verify watchdog contracts without external mutations
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -37,6 +38,9 @@ jobs:
     name: Observe staging and reconcile one issue
     needs: contracts
     if: >-
+      !cancelled() &&
+      (needs.contracts.result == 'success' ||
+       (github.event_name == 'schedule' && needs.contracts.result == 'skipped')) &&
       github.ref == 'refs/heads/main' &&
       github.repository == 'evilsysadmin/shadowops-infra' &&
       github.event_name != 'pull_request'
