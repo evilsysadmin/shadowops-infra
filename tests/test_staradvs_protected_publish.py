@@ -195,64 +195,79 @@ class Tests(unittest.TestCase):
             with self.assertRaises(p.ReleaseBlocked):
                 p.admit_candidate(fake, RUN, GAME, INFRA, game_reader=object())
 
-    def test_live_cloudflare_identity_custody_required_without_activation(self):
-        report = {
-            "pages_project": "owned", "identity_login": "audience-recognized",
-            "pages_private_policy": "configured", "pages_app_proof": "bound",
-            "cloudflare_access": "restricted-policy-candidate",
-            "cloudflare_access_scopes": {
-                key: "restricted-policy-candidate" for key in p.readiness.ACCESS_SCOPES
-            },
-            "historical_enumeration_status": "reported-total-observed",
-            "historical_aliases_exposed": 0,
-            "historical_deployments_reported_total": 114,
-        }
-        evidence = {"historical": {"hosts": 114, "challenged": 114, "denied": 0},
-                    "can_activate": False}
+    def test_live_identity_and_fail_closed_pages_required_without_access(self):
         class Client:
             account = "a" * 32
         client = Client()
-        with (patch.object(p.bundle, "policy_status", return_value="pending-identity"),
-              patch.object(p.pages, "inspect", return_value=(
-                  "zone", {"dns": "owned", "domain": "owned", "project": "owned"}
-              )),
-              patch.object(p.readiness, "collect", return_value=report) as audit,
-              patch.object(p.challenge, "collect", return_value=evidence) as second,
-              patch.object(p.quarantine, "judge_guest_quarantine",
-                           return_value="access-login-challenge-candidate")):
-            valid = p.verify_posture(client, client)
-            self.assertEqual(valid["aliases_checked"], 114)
-            self.assertFalse(valid["can_activate"])
-            self.assertEqual(valid["signed_in_e2e"], "not-performed")
-            second.assert_called_once()
-            for change in (
-                {"pages_project": "foreign"},
-                {"identity_login": "unavailable-or-not-provisioned"},
-                {"pages_private_policy": "not-configured"},
-                {"pages_app_proof": "not-bound"},
-                {"cloudflare_access": "remediation-required"},
-                {"historical_enumeration_status": "partial-or-unverified"},
-                {"historical_aliases_exposed": 1},
-                {"cloudflare_access_scopes": {"main": "restricted-policy-candidate"}},
-            ):
-                audit.return_value = dict(report, **change)
-                with self.subTest(change=change), self.assertRaises(p.ReleaseBlocked):
-                    p.verify_posture(client, client)
-            audit.return_value = report
-            with patch.object(p.quarantine, "judge_guest_quarantine",
-                              return_value="guest-denial-unverified"):
-                with self.assertRaises(p.ReleaseBlocked):
-                    p.verify_posture(client, client)
-        class Foreign:
-            account = "b" * 32
+        old = "00000000-0000-4000-8000-000000000001"
+        rows = {old: {"host": "old.staradvs-staging.pages.dev", "aliases": []}}
+        project = {"canonical_deployment": {"id": old}}
+        with (patch.object(p, "owned_project", return_value=project),
+              patch.object(p, "inventory", return_value=rows),
+              patch.object(p.readiness, "read_public", return_value=(
+                  200, b"https://staging.staradvs.shadowops.dpdns.org/?shadowops=central")) as probe):
+            self.assertEqual(p.verify_posture(client), rows)
+            probe.return_value = (401, b"")
+            with self.assertRaises(p.ReleaseBlocked):
+                p.verify_posture(client)
+
+    def test_retirement_never_deletes_new_or_uninventoried_deployment(self):
+        from unittest.mock import Mock
+        old = "00000000-0000-4000-8000-000000000001"
+        new = "00000000-0000-4000-8000-000000000002"
+        foreign = "00000000-0000-4000-8000-000000000003"
+        snapshot = {old: {"host": "old.staradvs-staging.pages.dev", "aliases": []}}
+        current = {"host": "new.staradvs-staging.pages.dev", "aliases": []}
+        client = Mock(account="a" * 32)
+        client.request.return_value = (200, None)
+        with (patch.object(p, "active_deployment", return_value=(new, current["host"])),
+              patch.object(p, "require_denial") as denial,
+              patch.object(p, "inventory", return_value={**snapshot, new: current}) as inv):
+            self.assertEqual(p.retire_legacy(client, GAME, snapshot), 1)
+            denial.assert_called_once()
+            client.request.assert_called_once_with("DELETE",
+                f"/accounts/{client.account}/pages/projects/staradvs-staging/deployments/{old}?force=true")
+            client.request.reset_mock()
+            inv.return_value = {**snapshot, new: current, foreign: current}
+            with self.assertRaises(p.ReleaseBlocked):
+                p.retire_legacy(client, GAME, snapshot)
+            client.request.assert_not_called()
+            inv.return_value = {**snapshot, new: current}
+            denial.side_effect = p.ReleaseBlocked("guest")
+            with self.assertRaises(p.ReleaseBlocked):
+                p.retire_legacy(client, GAME, snapshot)
+            client.request.assert_not_called()
+
+    def test_postflight_checks_retired_hosts_and_rejects_remaining_history(self):
+        old = "00000000-0000-4000-8000-000000000001"
+        new = "00000000-0000-4000-8000-000000000002"
+        snapshot = {old: {"host": "old.staradvs-staging.pages.dev", "aliases": []}}
+        current = {"host": "new.staradvs-staging.pages.dev", "aliases": []}
+        with (patch.object(p, "active_deployment", return_value=(new, current["host"])),
+              patch.object(p, "inventory", return_value={new: current}) as inv,
+              patch.object(p, "require_denial") as denial):
+            result = p.verify_postflight(object(), GAME, snapshot)
+            self.assertFalse(result["can_activate"])
+            denial.assert_called_once_with(current["host"], {"old.staradvs-staging.pages.dev"})
+            inv.return_value = {**snapshot, new: current}
+            with self.assertRaises(p.ReleaseBlocked):
+                p.verify_postflight(object(), GAME, snapshot)
+
+    def test_guest_denial_includes_all_routes_and_methods(self):
+        calls = []
+        def probe(url, method):
+            calls.append((url, method))
+            return (401 if url.startswith("https://" + p.pages.HOST + "/") else 404, b"")
+        p.require_denial("new.staradvs-staging.pages.dev", ["old.staradvs-staging.pages.dev"], probe)
+        self.assertEqual(len(calls), 32)
         with self.assertRaises(p.ReleaseBlocked):
-            p.verify_posture(client, Foreign())
+            p.require_denial("new.staradvs-staging.pages.dev", [], lambda *_: (200, b""))
 
     def test_manual_only_release_without_public_publisher_or_secrets_in_game_build(self):
         flow = (ROOT / ".github/workflows/staradvs-protected-publish.yml").read_text()
         for term in (
             "workflow_dispatch:", "inputs.operation == 'publish'",
-            "STARADVS_PUBLISH_PROTECTED_WORKER",
+            "STARADVS_PUBLISH_AND_RETIRE_OLD_DEPLOYMENTS",
             "github.ref == 'refs/heads/main'", "environment: staging",
             "shadowops-staradvs-staging-pages",
             "scripts/staradvs_protected_publish.py preflight",
@@ -265,7 +280,7 @@ class Tests(unittest.TestCase):
         ):
             self.assertIn(term.replace("DOLLAR", "$"), flow, term)
         for banned in (
-            "contents: write", "CLOUDFLARE_ACCESS_WRITE_TOKEN",
+            "contents: write", "CLOUDFLARE_ACCESS_WRITE_TOKEN", "CLOUDFLARE_ACCESS_READ_TOKEN",
             "scripts/staradvs_pages.py verify",
             "staradvs_pages.py domain",
             "SHADOWOPS_STARADVS_SERVICE_CREDENTIAL: DOLLAR{{ secrets.",
@@ -273,17 +288,20 @@ class Tests(unittest.TestCase):
         ):
             self.assertNotIn(banned.replace("DOLLAR", "$"), flow)
         self.assertIn("pending-identity", flow)
+        self.assertLess(flow.index("preflight --inventory-file"), flow.index("pages deploy protected-dist"))
+        self.assertLess(flow.index("pages deploy protected-dist"), flow.index("retire --game-sha"))
+        self.assertLess(flow.index("retire --game-sha"), flow.index("postflight --game-sha"))
         # A publish request without the exact confirmation must fail the
         # whole workflow at admission, not silently skip the publish job.
         admission = flow.split("\n  admit:\n", 1)[1].split("\n  preflight:\n", 1)[0]
         self.assertIn('REQUESTED_OPERATION: DOLLAR{{ inputs.operation }}'.replace("DOLLAR", "$"), admission)
         self.assertIn('PUBLISH_CONFIRM: DOLLAR{{ inputs.confirm }}'.replace("DOLLAR", "$"), admission)
-        self.assertIn('if [[ "$PUBLISH_CONFIRM" != "STARADVS_PUBLISH_PROTECTED_WORKER" ]]', admission)
+        self.assertIn('if [[ "$PUBLISH_CONFIRM" != "STARADVS_PUBLISH_AND_RETIRE_OLD_DEPLOYMENTS" ]]', admission)
         self.assertIn('exit 64', admission)
         self.assertIn('if [[ -n "$PUBLISH_CONFIRM" ]]', admission)
         publish = flow.split("\n  publish:\n", 1)[1]
         self.assertIn("needs: [contracts, admit, preflight]", publish)
-        self.assertIn("inputs.confirm == 'STARADVS_PUBLISH_PROTECTED_WORKER'", publish)
+        self.assertIn("inputs.confirm == 'STARADVS_PUBLISH_AND_RETIRE_OLD_DEPLOYMENTS'", publish)
         install = publish.split(
             "- name: Install exact reviewed Wrangler version WITHOUT Cloudflare or GitHub tokens", 1
         )[1].split("- name: Publish exact Infra-owned advanced-mode Worker", 1)[0]
@@ -293,7 +311,7 @@ class Tests(unittest.TestCase):
         self.assertNotIn("CLOUDFLARE_ACCOUNT_ID", install)
         self.assertNotIn("GH_TOKEN", install)
         deploy = publish.split("- name: Publish exact Infra-owned advanced-mode Worker", 1)[1]
-        deploy_step = deploy.split("- name: Fail closed if Access/quarantine/Identity", 1)[0]
+        deploy_step = deploy.split("- name: Fail closed unless old deployments are retired", 1)[0]
         self.assertNotIn("npx ", deploy_step)
         self.assertNotIn("npm ", deploy_step)
         self.assertLess(publish.index("scripts/staradvs_protected_bundle.py verify"),

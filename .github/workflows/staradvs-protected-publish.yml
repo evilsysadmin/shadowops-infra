@@ -26,7 +26,7 @@ on:
         type: string
         required: true
       confirm:
-        description: "For publish only: STARADVS_PUBLISH_PROTECTED_WORKER"
+        description: "For publish only: STARADVS_PUBLISH_AND_RETIRE_OLD_DEPLOYMENTS"
         type: string
         required: false
 
@@ -87,7 +87,7 @@ jobs:
           # the previous job condition only skipped the publisher, leaving an
           # apparently successful preflight run. Wrong intent must FAIL.
           if [[ "$REQUESTED_OPERATION" == "publish" ]]; then
-            if [[ "$PUBLISH_CONFIRM" != "STARADVS_PUBLISH_PROTECTED_WORKER" ]]; then
+            if [[ "$PUBLISH_CONFIRM" != "STARADVS_PUBLISH_AND_RETIRE_OLD_DEPLOYMENTS" ]]; then
               echo "STARADVS_PUBLISH_BLOCKED operator confirmation missing or incorrect" >&2
               exit 64
             fi
@@ -111,7 +111,7 @@ jobs:
           echo "run_id=$CANDIDATE_RUN_ID" >> "$GITHUB_OUTPUT"
 
   preflight:
-    name: GET-only Access quarantine, active Identity audience and private Pages credential
+    name: GET-only Active Identity audience, private Pages credential and historical inventory
     needs: [contracts, admit]
     runs-on: ubuntu-24.04
     timeout-minutes: 12
@@ -119,18 +119,16 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_ACCESS_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_READ_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Demand operator-provisioned quarantine and Identity without Cloudflare writes
+      - name: Inspect owned Pages and live Identity without Cloudflare writes
         shell: bash
         run: |
           set -euo pipefail
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
-          test -n "$CLOUDFLARE_ACCESS_READ_TOKEN"
           python3 scripts/staradvs_protected_publish.py preflight
 
   publish:
@@ -139,11 +137,11 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' &&
       inputs.operation == 'publish' &&
-      inputs.confirm == 'STARADVS_PUBLISH_PROTECTED_WORKER' &&
+      inputs.confirm == 'STARADVS_PUBLISH_AND_RETIRE_OLD_DEPLOYMENTS' &&
       github.repository == 'evilsysadmin/shadowops-infra' &&
       github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    timeout-minutes: 23
+    timeout-minutes: 35
     permissions:
       contents: read
       actions: read
@@ -180,16 +178,15 @@ jobs:
           set -euo pipefail
           python3 scripts/staradvs_protected_bundle.py verify --sha "$SOURCE_SHA" --dist protected-dist
           test -s protected-dist/_worker.js
-      - name: Final GET-only Access + IdP + Pages custody check before mutation
+      - name: Capture complete legacy deployment inventory before mutation
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_ACCESS_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_READ_TOKEN }}
           SOURCE_SHA: ${{ needs.admit.outputs.game_sha }}
         run: |
           set -euo pipefail
           python3 scripts/staradvs_protected_bundle.py verify --sha "$SOURCE_SHA" --dist protected-dist
-          python3 scripts/staradvs_protected_publish.py preflight
+          python3 scripts/staradvs_protected_publish.py preflight --inventory-file "$RUNNER_TEMP/staradvs-before.json"
       - name: Revalidate unchanged reviewed Infra main and current game SHA immediately before Pages mutation
         env:
           GH_TOKEN: ${{ github.token }}
@@ -221,23 +218,33 @@ jobs:
           python3 scripts/staradvs_protected_bundle.py verify --sha "$SOURCE_SHA" --dist protected-dist
           test -x "$RUNNER_TEMP/staradvs-wrangler/node_modules/.bin/wrangler"
           "$RUNNER_TEMP/staradvs-wrangler/node_modules/.bin/wrangler" pages deploy protected-dist --project-name staradvs-staging --branch main --commit-hash "$SOURCE_SHA" --commit-dirty=false
-      - name: Fail closed if Access/quarantine/Identity no longer pass after live Pages upload
+      - name: Retire only previously inventoried staging deployments after protected canonical is live
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_ACCESS_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_READ_TOKEN }}
+          SOURCE_SHA: ${{ needs.admit.outputs.game_sha }}
+          STARADVS_RETIRE_CONFIRM: ${{ inputs.confirm }}
         shell: bash
         run: |
           set -euo pipefail
-          # A protected 302 does NOT authenticate a player. Never report E2E success.
+          python3 scripts/staradvs_protected_publish.py retire --game-sha "$SOURCE_SHA" --inventory-file "$RUNNER_TEMP/staradvs-before.json"
+      - name: Fail closed unless old deployments are retired and guest routes deny
+        env:
+          SOURCE_SHA: ${{ needs.admit.outputs.game_sha }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Guest denial does NOT authenticate a player. Never report E2E success.
           for attempt in 1 2 3; do
-            if python3 scripts/staradvs_protected_publish.py postflight; then
+            if python3 scripts/staradvs_protected_publish.py postflight --game-sha "$SOURCE_SHA" --inventory-file "$RUNNER_TEMP/staradvs-before.json"; then
               echo "STARADVS_PROTECTED_PAGES_GUEST_QUARANTINED e2e=pending"
               exit 0
             fi
             sleep 10
           done
-          echo "STARADVS_PROTECTED_PAGES_PENDING postflight inconclusive; retain Access quarantine, do not auto-revert to public" >&2
+          echo "STARADVS_PROTECTED_PAGES_PENDING postflight inconclusive; do not auto-revert to public" >&2
           exit 1
       - name: Record limited receipt, never actual signed-in acceptance
         env:
