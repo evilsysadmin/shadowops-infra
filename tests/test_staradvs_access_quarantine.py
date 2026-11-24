@@ -252,6 +252,31 @@ class Tests(unittest.TestCase):
                     with self.assertRaises(q.QuarantineError):
                         q.validate_dispatch_intent(operation, confirm, email)
 
+    def test_safe_block_reason_is_allowlisted_and_never_echoes_provider_text(self):
+        import contextlib
+        import io
+        cases = (
+            ("Access inventory rejected: HTTP 403", "access-http-403"),
+            ("Access inventory rejected: HTTP 401", "access-http-401"),
+            ("Access pagination not independently verified", "access-pagination-missing"),
+            ("Access applications inventory partial", "access-pagination-partial"),
+            ("Access returned no approved inventory", "access-provider-unsuccessful"),
+            ("provider sent private@example.invalid secret=unit-test", "access-unclassified"),
+        )
+        for message, expected in cases:
+            with self.subTest(expected=expected):
+                with patch.object(q, "AccessWriter", side_effect=q.access.ReadinessError(message)):
+                    stderr = io.StringIO()
+                    with contextlib.redirect_stderr(stderr):
+                        self.assertEqual(q.main(["plan"]), 2)
+                    self.assertEqual(stderr.getvalue(),
+                        "STARADVS_ACCESS_QUARANTINE_BLOCKED kind=ReadinessError reason=" + expected + "\n")
+                    self.assertNotIn("private@example.invalid", stderr.getvalue())
+                    self.assertNotIn("unit-test", stderr.getvalue())
+        self.assertEqual(q.safe_block_reason(q.QuarantineError("Ambiguous or broad Access policy")),
+                         "access-policy-conflict")
+        self.assertEqual(q.safe_block_reason(RuntimeError("arbitrary private content")), "unclassified")
+
     def test_workflow_never_writes_unattended(self):
         flow = (ROOT / ".github/workflows/staradvs-access-quarantine.yml").read_text()
         for text in ("workflow_dispatch:", "STARADVS_QUARANTINE_ACCESS",
