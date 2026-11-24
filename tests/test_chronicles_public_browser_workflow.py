@@ -156,7 +156,10 @@ class PublicBrowserWorkflow(unittest.TestCase):
         steps = workflow["jobs"]["release"]["steps"]
         browser = next(step for step in steps if step.get("name") ==
                        "Real public browser smoke (desktop, mobile, login, update deferral)")
-        command = browser["run"].split("bash smoke/ensure-chromium.sh\n", 1)[1]
+        # Preserve the timing variables while replacing only the real
+        # Playwright bootstrap: the fake subprocess must not download Chromium.
+        command = browser["run"].replace("bash smoke/ensure-chromium.sh\n",
+                                         ": # mocked Chromium bootstrap\n", 1)
         self.assertIn('wait "$public_pid"', command)
         self.assertIn('wait "$journey_pid"', command)
         self.assertIn("node smoke/public-staging-combat.mjs || combat_rc=$?", command)
@@ -205,7 +208,7 @@ exit 0
                     # Timings must be recorded on success AND failure without
                     # turning a failed required browser journey into a pass.
                     self.assertRegex(run.stdout,
-                        r"CHRONICLES_PUBLIC_SMOKE_TIMINGS bootstrap=\\d+s pair=\\d+s combat=\\d+s total=\\d+s")
+                        r"CHRONICLES_PUBLIC_SMOKE_TIMINGS bootstrap=\d+s pair=\d+s combat=\d+s total=\d+s")
                     if failing in ("public", "journey"):
                         self.assertIn("CHRONICLES_PUBLIC_COMBAT_SKIPPED", run.stdout)
                         self.assertIn("combat=125", run.stdout)
