@@ -269,6 +269,43 @@ def validate_dispatch_intent(operation, confirmation, operator_email):
     raise QuarantineError("Unrecognized Access quarantine operation")
 
 
+def safe_block_reason(exc):
+    """Return only fixed diagnostic codes, never provider error text."""
+    if isinstance(exc, access.ReadinessError):
+        messages = {
+            "Access read-only account/token not configured": "access-credential-unconfigured",
+            "Access endpoint outside approved account": "access-endpoint-account",
+            "Access endpoint not allowlisted": "access-endpoint-not-allowlisted",
+            "Access inventory rejected: HTTP 401": "access-http-401",
+            "Access inventory rejected: HTTP 403": "access-http-403",
+            "Access inventory rejected: HTTP 404": "access-http-404",
+            "Access inventory rejected: HTTP 429": "access-http-429",
+            "Access API unavailable": "access-api-unavailable",
+            "Access inventory response not bounded HTTP 200": "access-response-unbounded",
+            "Access response invalid JSON": "access-invalid-json",
+            "Access returned no approved inventory": "access-provider-unsuccessful",
+            "Access applications missing": "access-apps-missing",
+            "Access app inventory too large": "access-apps-too-large",
+            "Access pagination not independently verified": "access-pagination-missing",
+            "Access applications inventory partial": "access-pagination-partial",
+        }
+        return messages.get(str(exc), "access-unclassified")
+    if isinstance(exc, QuarantineError):
+        messages = {
+            "Dedicated Access write token unavailable": "access-write-credential-unconfigured",
+            "Cloudflare account mismatch": "account-mismatch",
+            "Unexpected Pages owner": "pages-owner-unverified",
+            "Pages project unavailable": "pages-project-unavailable",
+            "Unexpected Pages project identity": "pages-project-identity",
+            "Foreign Pages domain": "pages-domain-conflict",
+            "Access project mismatch": "access-project-mismatch",
+            "Ambiguous or broad Access policy": "access-policy-conflict",
+            "Cloudflare Access write rejected": "access-write-rejected",
+        }
+        return messages.get(str(exc), "quarantine-unclassified")
+    return "unclassified"
+
+
 def main(argv):
     if argv == ["validate-intent"]:
         try:
@@ -333,8 +370,8 @@ def main(argv):
         return 0
     except Exception as exc:
         # No Access/Pages data, operator emails or credentials in logs.
-        print("STARADVS_ACCESS_QUARANTINE_BLOCKED kind=" + type(exc).__name__,
-              file=sys.stderr)
+        print("STARADVS_ACCESS_QUARANTINE_BLOCKED kind=" + type(exc).__name__ +
+              " reason=" + safe_block_reason(exc), file=sys.stderr)
         return 2
 
 
