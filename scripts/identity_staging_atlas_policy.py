@@ -11,7 +11,8 @@ TUNNEL = 'cloudflare/cloudflared@sha256:b269e8abd07a5bf6f3f4be65d5050b2174eca89c
 PROJECT = 'shadowops-identity-staging'
 LEGACY_CONFIG = '/etc/shadowops/identity-staging/atlas-service.json'
 SNOOKER_CONFIG = '/etc/shadowops/identity-staging/atlas-snooker-service.json'
-ALLOWED_CONFIGS = frozenset({LEGACY_CONFIG, SNOOKER_CONFIG})
+STARADVS_CONFIG = '/etc/shadowops/identity-staging/atlas-staradvs-service.json'
+ALLOWED_CONFIGS = frozenset({LEGACY_CONFIG, SNOOKER_CONFIG, STARADVS_CONFIG})
 
 class AtlasPolicyError(ValueError):
     pass
