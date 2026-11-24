@@ -408,6 +408,9 @@ jobs:
         env:
           CHRONICLES_SOURCE_SHA: ${{ steps.source.outputs.sha }}
           CHRONICLES_STAGING_INVITE_CODE: ${{ secrets.CHRONICLES_STAGING_INVITE_CODE }}
+          # Crypt + rear shooter use independent accounts and cleanup. The
+          # sourced script keeps the default serial path without this opt-in.
+          CHRONICLES_PARALLEL_PUBLIC_COMBAT: '1'
         shell: bash
         run: |
           set -euo pipefail
