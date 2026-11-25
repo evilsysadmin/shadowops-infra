@@ -42,7 +42,13 @@ def snapshot(value, network, runner=subprocess.run):
                         text=True, capture_output=True, timeout=90,
                         env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin'})
         if result.returncode != 0 or not isinstance(result.stdout, str) or len(result.stdout.encode()) > MAX_BYTES:
-            raise BackupError('Atlas snapshot failed')
-        return encrypt_snapshot(json.loads(result.stdout), value['backup_key'])
+            raise BackupError('Atlas snapshot transport failed')
+        try:
+            value_json = json.loads(result.stdout)
+        except (ValueError, TypeError):
+            raise BackupError('Atlas snapshot JSON invalid') from None
+        return encrypt_snapshot(value_json, value['backup_key'])
+    except BackupError:
+        raise
     except (OSError, subprocess.SubprocessError, ValueError, TypeError):
-        raise BackupError('Atlas snapshot failed') from None
+        raise BackupError('Atlas snapshot transport failed') from None

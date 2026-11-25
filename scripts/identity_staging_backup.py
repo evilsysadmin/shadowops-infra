@@ -10,6 +10,8 @@ DATABASE='shadowops_identity_staging'
 LEGACY_COLLECTIONS={'pending_accounts','sessions','staging_cka_tokens'}
 ADMIN_COLLECTIONS={'admin_inventory_audit','staging_application_access_history'}
 COLLECTIONS=LEGACY_COLLECTIONS | ADMIN_COLLECTIONS
+APPLICATIONS=frozenset({'chess-studio','chronicles','cka-simulator','football','pawn-action',
+                        'snooker','staradvs','bridgesquad'})
 MAX_BYTES=16*1024*1024
 
 
@@ -38,7 +40,7 @@ def validate_snapshot(value):
         for row in collections['staging_application_access_history']:
             subject=valid_subject(row.get('subject'))
             application=row.get('application')
-            if row.get('environment')!='staging' or application not in {'chess-studio','chronicles','cka-simulator','football','pawn-action'} or row.get('_id')!=subject+':'+application:
+            if row.get('environment')!='staging' or application not in APPLICATIONS or row.get('_id')!=subject+':'+application:
                 raise BackupError('Invalid application access summary')
             if ejson_date(row.get('first_at'))>ejson_date(row.get('last_at')):
                 raise BackupError('Invalid application access timestamps')
