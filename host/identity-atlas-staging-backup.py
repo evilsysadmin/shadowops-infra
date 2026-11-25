@@ -90,13 +90,20 @@ def write_private(path, data):
 
 def main():
     try:
-        if os.geteuid() != 0 or sys.argv[1:] not in (['backup'], ['rehearse']):
+        if os.geteuid() != 0 or sys.argv[1:] not in (['backup'], ['rehearse'], ['verify']):
             raise BackupError('Invalid Atlas backup request')
         trusted(STATE, directory=True)
-        DIRECTORY.mkdir(mode=0o700, exist_ok=True)
+        # Verification is read-only; do not create a missing backup directory.
+        if sys.argv[1] != 'verify':
+            DIRECTORY.mkdir(mode=0o700, exist_ok=True)
         trusted(DIRECTORY, directory=True)
         with atlas_lock(STATE):
             config = private_config()
+            if sys.argv[1] == 'verify':
+                from identity_staging_atlas_admission import require_recent_atlas_backup
+                require_recent_atlas_backup(config, STATE)
+                print('IDENTITY_ATLAS_STAGING_BACKUP_VERIFIED')
+                return 0
             if sys.argv[1]=='rehearse':
                 from identity_staging_atlas_admission import require_recent_atlas_backup
                 from identity_staging_atlas_restore import rehearse, MARKER

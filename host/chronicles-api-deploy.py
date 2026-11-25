@@ -237,6 +237,37 @@ def verify_identity_backup(path: Path = Path('/var/lib/shadowops/identity-stagin
         raise ReleaseError('A recent verified Identity staging backup is required') from None
 
 
+def verify_active_identity_backup(
+    state: Path = Path('/var/lib/shadowops/identity-staging'), *,
+    runner: Callable = subprocess.run,
+) -> None:
+    """Use Identity's root-owned takeover marker; never fall back from Atlas."""
+    marker = state / 'atlas-active'
+    try:
+        metadata = marker.lstat()
+    except FileNotFoundError:
+        verify_identity_backup(state / 'last-backup.json')
+        return
+    except OSError:
+        raise ReleaseError('Identity staging backup mode unavailable') from None
+    # The marker is the same private authority that forbids local Mongo
+    # Identity releases. An unsafe marker is an error, not a legacy fallback.
+    if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != 0
+            or metadata.st_mode & 0o077):
+        raise ReleaseError('Identity staging backup mode unavailable')
+    wrapper = Path('/usr/local/sbin/shadowops-identity-atlas-backup')
+    check_root_file(wrapper)
+    try:
+        result = runner([str(wrapper), 'verify'], capture_output=True,
+                        text=True, timeout=60,
+                        env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin'})
+        if (result.returncode != 0
+                or result.stdout.strip() != 'IDENTITY_ATLAS_STAGING_BACKUP_VERIFIED'):
+            raise ReleaseError('A recent authenticated Atlas Identity staging backup is required')
+    except (OSError, subprocess.SubprocessError):
+        raise ReleaseError('A recent authenticated Atlas Identity staging backup is required') from None
+
+
 def _common_hardening(service: dict, user: str) -> bool:
     return (service.get("platform") == "linux/arm64" and service.get("user") == user
             and service.get("read_only") is True and service.get("init") is True
@@ -411,7 +442,7 @@ def deploy(
         stamps.append(clock())
         bundle = bundle_reader(vault_id, runner, target)
         if require_root and target.name == 'staging' and bundle.get('SHADOWOPS_IDENTITY_SERVICE_CREDENTIAL'):
-            verify_identity_backup()
+            verify_active_identity_backup(runner=runner)
         stamps.append(clock())
         write_runtime(bundle, runtime, target)
         stamps.append(clock())
