@@ -71,3 +71,21 @@ class AtlasNetworkOwnershipTests(unittest.TestCase):
    self.assertEqual(receipt['backend'],'atlas')
    self.assertEqual(receipt['cluster_sha256'],__import__('hashlib').sha256(cfg['host'].encode()).hexdigest())
    self.assertNotIn(cfg['password'],json.dumps(receipt))
+
+ def test_verify_only_admits_existing_authenticated_snapshot(self):
+  import importlib.util
+  import io
+  import tempfile
+  from contextlib import redirect_stdout, nullcontext
+  from unittest.mock import patch
+  path=Path(__file__).resolve().parents[1]/'host'/'identity-atlas-staging-backup.py'
+  spec=importlib.util.spec_from_file_location('atlas_backup_verify_test',path)
+  module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+  with tempfile.TemporaryDirectory() as temp:
+   state=Path(temp);directory=state/'atlas-backups';directory.mkdir()
+   before=list(state.rglob('*'))
+   with patch.object(module,'STATE',state),patch.object(module,'DIRECTORY',directory),patch.object(module,'trusted'),patch.object(module,'private_config',return_value={'fixture':True}),patch.object(module,'capture_snapshot',side_effect=AssertionError('verify cannot capture')),patch.object(module,'write_private',side_effect=AssertionError('verify cannot write')),patch.object(module.os,'geteuid',return_value=0),patch.object(sys,'argv',['runner','verify']),patch.object(module,'atlas_lock',return_value=nullcontext()),patch('identity_staging_atlas_admission.require_recent_atlas_backup',return_value={}) as admit,redirect_stdout(io.StringIO()) as output:
+    self.assertEqual(module.main(),0)
+    admit.assert_called_once_with({'fixture':True},state)
+    self.assertEqual(output.getvalue().strip(),'IDENTITY_ATLAS_STAGING_BACKUP_VERIFIED')
+   self.assertEqual(before,list(state.rglob('*')))

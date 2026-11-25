@@ -48,6 +48,46 @@ def policy(digest=DIGEST):
     }}
 
 
+class ActiveIdentityBackupTests(unittest.TestCase):
+    def test_no_atlas_marker_uses_existing_local_gate(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as temp:
+            state = pathlib.Path(temp)
+            with patch.object(api, 'verify_identity_backup') as local:
+                api.verify_active_identity_backup(state, runner=lambda *a, **k: self.fail('unexpected Atlas verifier'))
+                local.assert_called_once_with(state / 'last-backup.json')
+
+    def test_atlas_marker_requires_exact_success_and_never_falls_back(self):
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        state = pathlib.Path('/private/identity-fixture')
+        metadata = SimpleNamespace(st_mode=0o100600, st_uid=0)
+        with patch.object(pathlib.Path, 'lstat', return_value=metadata), \
+                patch.object(api, 'check_root_file') as trusted, \
+                patch.object(api, 'verify_identity_backup') as local:
+            def run(args, **kwargs):
+                self.assertEqual(args, ['/usr/local/sbin/shadowops-identity-atlas-backup', 'verify'])
+                self.assertEqual(kwargs['env'], {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin'})
+                return subprocess.CompletedProcess(args, 0, 'IDENTITY_ATLAS_STAGING_BACKUP_VERIFIED\n', '')
+            api.verify_active_identity_backup(state, runner=run)
+            trusted.assert_called_once_with(pathlib.Path('/usr/local/sbin/shadowops-identity-atlas-backup'))
+            for result in [subprocess.CompletedProcess([], 1, 'IDENTITY_ATLAS_STAGING_BACKUP_VERIFIED', ''),
+                           subprocess.CompletedProcess([], 0, 'wrong marker', '')]:
+                with self.assertRaises(api.ReleaseError):
+                    api.verify_active_identity_backup(state, runner=lambda *a, **k: result)
+            local.assert_not_called()
+
+    def test_unsafe_atlas_marker_never_falls_back(self):
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        for mode, uid in [(0o120777, 0), (0o100644, 0), (0o100600, 1000)]:
+            with patch.object(pathlib.Path, 'lstat', return_value=SimpleNamespace(st_mode=mode, st_uid=uid)), \
+                    patch.object(api, 'verify_identity_backup') as local:
+                with self.assertRaises(api.ReleaseError):
+                    api.verify_active_identity_backup(runner=lambda *a, **k: self.fail('unsafe marker reached verifier'))
+                local.assert_not_called()
+
+
 class Runner:
     def __init__(self, config=None, vault_out=None, fail_at=None):
         self.config = config or policy()
