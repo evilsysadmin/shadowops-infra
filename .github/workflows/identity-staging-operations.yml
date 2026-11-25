@@ -403,7 +403,16 @@ jobs:
           [[ "$status" == identical || "$status" == ahead ]] || exit 65
           gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/commits/$sha/check-runs?per_page=100" \
             | python3 -c 'import json,sys;c=[check for page in json.load(sys.stdin) for check in page["check_runs"]];required={"Authenticated TLS runtime and least-privilege Mongo gate","Isolated issuer core tests / Go vet / gofmt","MongoDB ephemeral session CAS / revocation integration","Replica-set atomic suspension and session revocation","Publish SHA-pinned Identity staging image"};good={x["name"] for x in c if x["status"]=="completed" and x["conclusion"]=="success" and x["app"]["slug"]=="github-actions"};assert required <= good'
-          manifest="$(docker buildx imagetools inspect "${IMAGE}:staging-${sha}" --format '{{json .Manifest}}')"
+          # StarAdvs is a deliberately pinned rollout. A rebuilt SHA tag is
+          # not the release identity: inspect the previously admitted content
+          # address directly, and still verify its protected source attestation.
+          image_ref="${IMAGE}:staging-${sha}"
+          if [[ "$REQUESTED_ACTION" == atlas-staradvs-release ]]; then
+            [[ "$EXPECTED_ATLAS_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 67
+            python3 -c 'import ast,sys;from pathlib import Path; names={"STARADVS_RELEASE_SHA","STARADVS_RELEASE_DIGEST"}; values={n.targets[0].id:ast.literal_eval(n.value) for n in ast.parse(Path("scripts/identity_staging_release.py").read_text()).body if isinstance(n,ast.Assign) and len(n.targets)==1 and isinstance(n.targets[0],ast.Name) and n.targets[0].id in names};assert sys.argv[1:]==[values["STARADVS_RELEASE_SHA"],values["STARADVS_RELEASE_DIGEST"]]' "$sha" "$EXPECTED_ATLAS_DIGEST"
+            image_ref="${IMAGE}@${EXPECTED_ATLAS_DIGEST}"
+          fi
+          manifest="$(docker buildx imagetools inspect "$image_ref" --format '{{json .Manifest}}')"
           digest="$(printf '%s' "$manifest" | python3 -c 'import json,sys;print(json.load(sys.stdin)["digest"])')"
           [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 66
           # A release MUST use the exact previously validated immutable image.
