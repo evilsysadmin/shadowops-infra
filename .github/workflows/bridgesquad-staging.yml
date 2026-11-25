@@ -1,0 +1,144 @@
+name: Bridge Squad · staging behind ShadowOps ID (one-click)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/bridgesquad-staging.yml'
+      - 'scripts/bridgesquad_staging.py'
+      - 'scripts/bridgesquad_source_admission.py'
+      - 'scripts/bridgesquad_source_snapshot.py'
+      - 'scripts/bridgesquad_alias_bootstrap.py'
+      - 'scripts/bridgesquad_pages_readiness.py'
+      - 'edge/bridgesquad-staging-identity-gate.mjs'
+      - 'tests/test_bridgesquad_staging*.py'
+      - 'tests/bridgesquad-staging-identity-gate.test.mjs'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/bridgesquad-staging.yml'
+      - 'scripts/bridgesquad_staging.py'
+      - 'edge/bridgesquad-staging-identity-gate.mjs'
+      - 'tests/test_bridgesquad_staging*.py'
+      - 'tests/bridgesquad-staging-identity-gate.test.mjs'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'activate = provision + sealed deploy + proof + DNS + audit (idempotent; also releases new game SHAs). inspect/audit = read-only.'
+        type: choice
+        options: [activate, inspect, audit]
+        default: activate
+      game_sha:
+        description: 'Optional exact green Bridge Squad main SHA (default: current main)'
+        required: false
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: bridgesquad-staging
+  cancel-in-progress: false
+
+jobs:
+  contracts:
+    name: Staging Worker, packaging and Cloudflare allowlist contracts (no secrets)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_bridgesquad_staging*.py' -v
+      - run: python3 -m py_compile scripts/bridgesquad_staging.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check edge/bridgesquad-staging-identity-gate.mjs
+      - run: node --test tests/bridgesquad-staging-identity-gate.test.mjs
+
+  inspect:
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && (inputs.action == 'inspect' || inputs.action == 'audit') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    environment: staging
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read-only inventory or guest audit
+        env:
+          ACTION: ${{ inputs.action }}
+        run: |
+          set -euo pipefail
+          [[ "$ACTION" == inspect || "$ACTION" == audit ]]
+          python3 scripts/bridgesquad_staging.py "$ACTION"
+      - run: python3 scripts/bridgesquad_staging.py identity
+
+  activate:
+    needs: contracts
+    # Manual, protected main only. Never from a PR, push or merge.
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'activate' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: staging
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REQUESTED_SHA: ${{ inputs.game_sha }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Admit the exact green game main SHA and seal index.html with the staging Worker
+        id: sealed
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="${REQUESTED_SHA:-$(python3 scripts/bridgesquad_staging.py current-sha)}"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          python3 scripts/bridgesquad_staging.py package "$sha" "$RUNNER_TEMP/bridgesquad-staging"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: Ensure the dedicated fail-closed Pages project (never adopts foreign resources)
+        run: python3 scripts/bridgesquad_staging.py provision
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Upload only the sealed staging bundle
+        env:
+          SHA: ${{ steps.sealed.outputs.sha }}
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.127.1 pages deploy "$RUNNER_TEMP/bridgesquad-staging" \
+            --project-name bridgesquad-staging --branch main \
+            --commit-hash "$SHA" --commit-dirty=false
+      - name: Verify exact canonical SHA and that every Pages alias denies guests
+        env:
+          SHA: ${{ steps.sealed.outputs.sha }}
+        run: python3 scripts/bridgesquad_staging.py postdeploy "$SHA"
+      - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Bind only Bridge Squad's own staging proof from the operator Vault (pending if not provisioned)
+        run: python scripts/bridgesquad_staging.py bind
+      - name: Attach staging.bridgesquad.shadowops.dpdns.org (domain + proxied CNAME) after guest denial
+        run: python3 scripts/bridgesquad_staging.py attach
+      - name: Audit real HTTPS guest denial on the canonical host (waits for DNS/TLS)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 40); do
+            if python3 scripts/bridgesquad_staging.py audit; then exit_ok=1; break; fi
+            sleep 15
+          done
+          [[ "${exit_ok:-0}" == 1 ]]
+      - name: Report whether id-staging already serves the bridgesquad login callback
+        run: python3 scripts/bridgesquad_staging.py identity
