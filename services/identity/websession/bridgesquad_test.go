@@ -1,6 +1,7 @@
 package websession
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -62,5 +63,49 @@ func TestBridgeSquadCannotReuseStarAdventuresOrForeignStagingOrigin(t *testing.T
 	response := httptest.NewRecorder()
 	if !h.page(response, request) || response.Code != 400 {
 		t.Fatal("Bridge Squad must not activate Star Adventures")
+	}
+}
+
+func TestBridgeSquadLogoutConfirmationIsPinnedAndDefaultOff(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		h := &Handler{enabled: map[issuance.Application]bool{issuance.BridgeSquad: enabled}}
+		req := httptest.NewRequest(http.MethodGet, StagingOrigin+"/logout?app=bridgesquad", nil)
+		res := httptest.NewRecorder()
+		if !h.page(res, req) {
+			t.Fatal("Bridge Squad logout unhandled")
+		}
+		if !enabled {
+			if res.Code != 400 || strings.Contains(res.Body.String(), "data-return-url=") {
+				t.Fatal("unprovisioned Bridge Squad logout admitted")
+			}
+			continue
+		}
+		body := res.Body.String()
+		for _, required := range []string{
+			"Confirmar cierre de sesión", "id=\"logout-form\"",
+			"data-return-url=\"https://staging.bridgesquad.shadowops.dpdns.org/\"",
+			"Volver a Matthias Bridge Squad", "MATTHIAS BRIDGE SQUAD",
+		} {
+			if !strings.Contains(body, required) {
+				t.Fatalf("missing logout field %q", required)
+			}
+		}
+		if strings.Contains(body, "staradvs.shadowops") || res.Header().Get("Set-Cookie") != "" {
+			t.Fatal("Bridge Squad logout must not reuse Star Adventures origin or mutate state")
+		}
+	}
+}
+
+func TestBridgeSquadLogoutRejectsForeignAndOpenRedirects(t *testing.T) {
+	h := &Handler{enabled: map[issuance.Application]bool{issuance.BridgeSquad: true}}
+	for _, query := range []string{
+		"?app=staradvs", "?app=bridgesquad&next=https://evil.test",
+		"?app=bridgesquad&app=bridgesquad", "?app=%62ridgesquad", "?app=BRIDGESQUAD",
+	} {
+		req := httptest.NewRequest(http.MethodGet, StagingOrigin+"/logout"+query, nil)
+		res := httptest.NewRecorder()
+		if !h.page(res, req) || res.Code != 400 || strings.Contains(res.Body.String(), "data-return-url=") {
+			t.Fatalf("untrusted logout target accepted: %q", query)
+		}
 	}
 }
