@@ -4,6 +4,7 @@ import (
 	"embed"
 	"html/template"
 	"net/http"
+	"strings"
 
 	"github.com/evilsysadmin/shadowops-infra/services/identity/issuance"
 )
@@ -13,6 +14,16 @@ var assets embed.FS
 
 var loginTemplate = template.Must(template.ParseFS(assets, "assets/login.html"))
 var staradvsLogoutTemplate = template.Must(template.ParseFS(assets, "assets/staradvs-logout.html"))
+
+// Fixed staging logout confirmations: exact query, label and return origin.
+// Never a query-supplied return URL or wildcard audience.
+var logoutConsumers = map[string]struct {
+	App              issuance.Application
+	Label, ReturnURL string
+}{
+	"app=staradvs":    {issuance.StarAdventures, "Star Adventures", "https://staging.staradvs.shadowops.dpdns.org/"},
+	"app=bridgesquad": {issuance.BridgeSquad, "Matthias Bridge Squad", "https://staging.bridgesquad.shadowops.dpdns.org/"},
+}
 
 func (h *Handler) page(w http.ResponseWriter, r *http.Request) bool {
 	var asset, contentType string
@@ -44,16 +55,17 @@ func (h *Handler) page(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 	// GET-only confirmation: never revoke a session through navigation.
-	// Only an explicitly enabled Star Adventures staging consumer may use
-	// this return route. No query-supplied return URL or wildcard audience.
+	// Only an explicitly enabled staging consumer listed in logoutConsumers
+	// may use its fixed return route.
 	if r.URL.Path == "/logout" {
-		if r.URL.RawQuery != "app=staradvs" || h.enabled == nil || !h.enabled[issuance.StarAdventures] {
+		consumer, ok := logoutConsumers[r.URL.RawQuery]
+		if !ok || h.enabled == nil || !h.enabled[consumer.App] {
 			http.Error(w, "application denied", http.StatusBadRequest)
 			return true
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = staradvsLogoutTemplate.Execute(w, struct{ ReturnURL string }{
-			ReturnURL: "https://staging.staradvs.shadowops.dpdns.org/",
+		_ = staradvsLogoutTemplate.Execute(w, struct{ Label, Brand, ReturnURL string }{
+			Label: consumer.Label, Brand: strings.ToUpper(consumer.Label), ReturnURL: consumer.ReturnURL,
 		})
 		return true
 	}

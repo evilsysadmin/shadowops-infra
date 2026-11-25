@@ -3,20 +3,20 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Cerrar sesión · Star Adventures · ShadowOps ID</title>
+  <title>Cerrar sesión · {{.Label}} · ShadowOps ID</title>
   <link rel="stylesheet" href="/assets/login.css">
   <script src="/assets/staradvs-logout.js" defer></script>
 </head>
 <body data-return-url="{{.ReturnURL}}">
   <main>
-    <div class="brand">SHADOWOPS ID <span>STAR ADVENTURES</span></div>
+    <div class="brand">SHADOWOPS ID <span>{{.Brand}}</span></div>
     <h1>Cerrar sesión</h1>
     <p>Se revocará tu sesión central de ShadowOps ID y dejarán de ser válidos los tokens asociados, también para otros juegos. Tu progreso no se borrará.</p>
     <form id="logout-form">
       <button class="primary" id="logout-submit" type="submit">Confirmar cierre de sesión</button>
     </form>
     <p id="status" role="status" aria-live="polite"></p>
-    <a class="return-link" href="{{.ReturnURL}}">Volver a Star Adventures sin cerrar sesión</a>
+    <a class="return-link" href="{{.ReturnURL}}">Volver a {{.Label}} sin cerrar sesión</a>
   </main>
 </body>
 </html>
