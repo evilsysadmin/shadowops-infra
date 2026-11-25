@@ -37,6 +37,17 @@ class StarAdvsHandoffTests(unittest.TestCase):
                     self.assertNotIn("synthetic-private", str(e.exception))
             self.assertEqual(observed[0].display_name, "identity-staging-atlas-staradvs-release")
 
+    def test_staradvs_admission_resolves_immutable_digest_not_mutable_tag(self):
+        workflow = (ROOT / ".github/workflows/identity-staging-operations.yml").read_text()
+        admission = workflow.split("  admit:\n", 1)[1].split("  atlas-preflight:\n", 1)[0]
+        self.assertIn('image_ref="${IMAGE}:staging-${sha}"', admission)
+        self.assertIn('if [[ "$REQUESTED_ACTION" == atlas-staradvs-release ]]; then', admission)
+        self.assertIn('image_ref="${IMAGE}@${EXPECTED_ATLAS_DIGEST}"', admission)
+        self.assertIn('imagetools inspect "$image_ref"', admission)
+        self.assertIn('"$digest" == "$EXPECTED_ATLAS_DIGEST"', admission)
+        self.assertIn('gh attestation verify "oci://${IMAGE}@${digest}"', admission)
+        self.assertIn('--source-ref refs/heads/main --source-digest "$sha"', admission)
+
     def test_workflow_manual_only_and_recovery_first(self):
         workflow = (ROOT / ".github/workflows/identity-staging-operations.yml").read_text()
         self.assertIn("github.event_name == 'workflow_dispatch' && inputs.action == 'atlas-staradvs-release'", workflow)
