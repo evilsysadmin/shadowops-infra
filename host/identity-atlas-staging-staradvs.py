@@ -28,8 +28,8 @@ from importlib.util import spec_from_loader, module_from_spec
 ROOT = Path("/etc/shadowops/identity-staging")
 STATE = Path("/var/lib/shadowops/identity-staging")
 VAULT = re.compile(r"ocid1\.vault\.[A-Za-z0-9._-]{10,200}\Z")
-PINNED_DIGEST = "sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c"
-PINNED_SHA = "349fa673f27d8a8abd5997f2fd55ab430f6db3dd"
+PINNED_DIGEST = "sha256:3cdbaf423208e82ca13364de100acfc7ba57f8f1302bc4537d59cf0f964de92e"
+PINNED_SHA = "9c1c269dc42fe1430d5a0981ded9751aa360521a"
 PROJECT = "shadowops-identity-staging"
 HOST = "https://id-staging.shadowops.dpdns.org"
 ORIGINS = {

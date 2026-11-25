@@ -256,8 +256,8 @@ The bootstrap does not activate Identity.
 bash host/bootstrap-identity-staging-over-ssh.sh
 gh workflow run identity-staging-operations.yml -R evilsysadmin/shadowops-infra --ref main \\
   -f action=atlas-staradvs-release \\
-  -f source_sha=349fa673f27d8a8abd5997f2fd55ab430f6db3dd \\
-  -f expected_atlas_digest=sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c
+  -f source_sha=9c1c269dc42fe1430d5a0981ded9751aa360521a \\
+  -f expected_atlas_digest=sha256:3cdbaf423208e82ca13364de100acfc7ba57f8f1302bc4537d59cf0f964de92e
 ```
 
 The manual staging job admits the signed image, refreshes the encrypted backup

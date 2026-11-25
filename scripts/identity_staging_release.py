@@ -451,8 +451,8 @@ def execute_atlas_release(sdk, config, digest, sha, pause=time.sleep, clock=time
 
 # This one consumer rollout is pinned at both the delegated sudo boundary and
 # the protected runner. A later image requires separately reviewed policy.
-STARADVS_RELEASE_SHA = '349fa673f27d8a8abd5997f2fd55ab430f6db3dd'
-STARADVS_RELEASE_DIGEST = 'sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c'
+STARADVS_RELEASE_SHA = '9c1c269dc42fe1430d5a0981ded9751aa360521a'
+STARADVS_RELEASE_DIGEST = 'sha256:3cdbaf423208e82ca13364de100acfc7ba57f8f1302bc4537d59cf0f964de92e'
 STARADVS_RELEASE_SOURCES = {
     k: v for k, v in ATLAS_RELEASE_SOURCES.items()
     # ocarun cannot traverse the private root configuration directory. The
