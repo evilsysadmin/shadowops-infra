@@ -122,7 +122,25 @@ def main():
         print('IDENTITY_ATLAS_STAGING_BACKUP_OK encrypted_bytes=' + str(len(encrypted)))
         return 0
     except Exception as exc:
-        print('IDENTITY_ATLAS_STAGING_BACKUP_BLOCKED type=' + type(exc).__name__, file=sys.stderr)
+        # Fixed categories only: never print exception text, Docker output or records.
+        reasons = {
+            'Invalid application access summary': 'access-summary',
+            'Invalid application access timestamps': 'access-timestamps',
+            'Invalid staging snapshot envelope': 'envelope',
+            'Invalid staging snapshot collections': 'collections',
+            'Invalid or oversized staging snapshot records': 'records',
+            'Invalid staging account reference': 'account-reference',
+            'Invalid inventory audit record': 'inventory-audit',
+            'Invalid subject': 'subject',
+            'Invalid snapshot timestamp': 'timestamp',
+            'Invalid snapshot version': 'version',
+            'Atlas snapshot transport failed': 'transport',
+            'Atlas snapshot JSON invalid': 'json',
+            'Snapshot exceeds bounded pilot size': 'size',
+            'Invalid independent backup key': 'key',
+        }
+        reason = reasons.get(str(exc), 'unclassified') if isinstance(exc, BackupError) else 'unclassified'
+        print('IDENTITY_ATLAS_STAGING_BACKUP_BLOCKED type=' + type(exc).__name__ + ' reason=' + reason, file=sys.stderr)
         return 1
 
 

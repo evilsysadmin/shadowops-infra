@@ -40,6 +40,20 @@ class BackupTests(unittest.TestCase):
   self.assertEqual(restored['collections']['pending_accounts'][0]['state'],'restore-review')
   self.assertEqual(restored['collections']['pending_accounts'][0]['role'],'user')
 
+ def test_v2_round_trip_all_registered_applications(self):
+  value=snapshot_v2();key=Fernet.generate_key()
+  expected={'chess-studio','chronicles','cka-simulator','football','pawn-action','snooker','staradvs','bridgesquad'}
+  self.assertEqual(backup.APPLICATIONS,expected)
+  template=value['collections']['staging_application_access_history'][0]
+  value['collections']['staging_application_access_history']=[{**template,'application':app,'_id':template['subject']+':'+app} for app in sorted(expected)]
+  self.assertEqual(backup.decrypt_snapshot(backup.encrypt_snapshot(value,key),key),value)
+  self.assertEqual(backup.quarantine_restore(value)['collections']['staging_application_access_history'],value['collections']['staging_application_access_history'])
+
+ def test_registered_applications_match_identity_issuer(self):
+  import re
+  source=(Path(__file__).resolve().parents[1]/'services/identity/issuance/applications.go').read_text()
+  self.assertEqual(backup.APPLICATIONS,set(re.findall(r'\bApplication\s*=\s*"([a-z0-9-]+)"',source)))
+
  def test_v2_rejects_bad_admin_records_and_missing_collections(self):
   for mutate in [lambda v:v['collections'].pop('admin_inventory_audit'),lambda v:v['collections']['staging_application_access_history'][0].update(environment='production'),lambda v:v['collections']['staging_application_access_history'][0].update(application='unknown'),lambda v:v['collections']['admin_inventory_audit'][0].update(actor='invalid'),lambda v:v['collections']['admin_inventory_audit'][0].update(returned=51),lambda v:v['collections']['staging_application_access_history'][0].update(last_at={'$date':{'$numberLong':'1'}})]:
    value=snapshot_v2();mutate(value)

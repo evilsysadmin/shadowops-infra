@@ -21,6 +21,13 @@ class AtlasBackupTests(unittest.TestCase):
   encrypted=snapshot(cfg,'shadowops-identity-atlas-backup-'+'a'*24,runner=run)
   self.assertNotIn(b'pending_accounts',encrypted)
   self.assertEqual(decrypt_snapshot(encrypted,cfg['backup_key']),value)
+ def test_snapshot_preserves_safe_validation_failure_and_hides_raw_json(self):
+  cfg={'environment':'staging','host':'cluster.mongodb.net','username':'backup_fixture','password':'synthetic-secret-password-123','backup_key':base64.urlsafe_b64encode(b'k'*32).decode()}
+  for raw,reason in [(json.dumps({'secret':'synthetic-secret'}),'Invalid staging snapshot envelope'),('synthetic-secret','Atlas snapshot JSON invalid')]:
+   def run(*args,**kwargs):return type('Result',(),{'returncode':0,'stdout':raw})()
+   with self.subTest(reason=reason),self.assertRaisesRegex(BackupError,'^'+reason+'$'):
+    snapshot(cfg,'shadowops-identity-atlas-backup-'+'a'*24,runner=run)
+
  def test_unsafe_host_or_authentication_never_starts_container(self):
   good={'environment':'staging','host':'cluster.mongodb.net','username':'backup_fixture','password':'synthetic-secret-password-123','backup_key':base64.urlsafe_b64encode(b'k'*32).decode()}
   for field,value in [('host','evil.example'),('host','cluster.mongodb.net.attacker.net'),('environment','production'),('username','identity_root'),('password','bad')]:
