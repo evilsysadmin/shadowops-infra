@@ -406,6 +406,7 @@ jobs:
             echo 'IDENTITY_STARADVS_PIN_BLOCKED provide both pinned values or leave both blank' >&2
             exit 67
           fi
+          EXPECTED_ATLAS_DIGEST="$expected_digest"
           [[ "$sha" =~ ^[a-f0-9]{40}$ ]] || exit 64
           status="$(gh api "repos/$GITHUB_REPOSITORY/compare/${sha}...main" --jq .status)"
           [[ "$status" == identical || "$status" == ahead ]] || exit 65
@@ -418,7 +419,7 @@ jobs:
           if [[ "$REQUESTED_ACTION" == atlas-staradvs-release ]]; then
             [[ "$expected_digest" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 67
             python3 -c 'import ast,sys;from pathlib import Path; names={"STARADVS_RELEASE_SHA","STARADVS_RELEASE_DIGEST"}; values={n.targets[0].id:ast.literal_eval(n.value) for n in ast.parse(Path("scripts/identity_staging_release.py").read_text()).body if isinstance(n,ast.Assign) and len(n.targets)==1 and isinstance(n.targets[0],ast.Name) and n.targets[0].id in names};assert sys.argv[1:]==[values["STARADVS_RELEASE_SHA"],values["STARADVS_RELEASE_DIGEST"]]' "$sha" "$expected_digest"
-            image_ref="${IMAGE}@${expected_digest}"
+            image_ref="${IMAGE}@${EXPECTED_ATLAS_DIGEST}"
           fi
           manifest="$(docker buildx imagetools inspect "$image_ref" --format '{{json .Manifest}}')"
           digest="$(printf '%s' "$manifest" | python3 -c 'import json,sys;print(json.load(sys.stdin)["digest"])')"
@@ -430,7 +431,7 @@ jobs:
             exit 67
           fi
           if [[ -n "$expected_digest" ]]; then
-            [[ ( "$REQUESTED_ACTION" == atlas-canary || "$REQUESTED_ACTION" == atlas-journey || "$REQUESTED_ACTION" == atlas-release || "$REQUESTED_ACTION" == atlas-staradvs-release ) && "$digest" == "$expected_digest" ]] || {
+            [[ ( "$REQUESTED_ACTION" == atlas-canary || "$REQUESTED_ACTION" == atlas-journey || "$REQUESTED_ACTION" == atlas-release || "$REQUESTED_ACTION" == atlas-staradvs-release ) && "$digest" == "$EXPECTED_ATLAS_DIGEST" ]] || {
               echo 'IDENTITY_ATLAS_DIGEST_MISMATCH'
               exit 67
             }
