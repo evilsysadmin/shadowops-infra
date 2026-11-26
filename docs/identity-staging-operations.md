@@ -255,15 +255,18 @@ The bootstrap does not activate Identity.
 ```sh
 bash host/bootstrap-identity-staging-over-ssh.sh
 gh workflow run identity-staging-operations.yml -R evilsysadmin/shadowops-infra --ref main \\
-  -f action=atlas-staradvs-release
+  -f action=staradvs-activate
 ```
 
-For `atlas-staradvs-release`, leave `source_sha` and `expected_atlas_digest`
-blank to use the reviewed SHA/digest pair pinned in
-`scripts/identity_staging_release.py`. The workflow admits that exact image,
-refreshes and rehearses the encrypted Atlas backup, then deploys it through the
-installed StarAdvs operator. Supplying only one value is rejected; supplying
-both still requires an exact match to the reviewed pin.
+`staradvs-activate` is the single reviewed dispatch for the initial handoff.
+It admits the SHA/digest pair pinned in `scripts/identity_staging_release.py`,
+then, inside one protected staging job, provisions only the StarAdvs audience,
+preserves every other consumer, refreshes and rehearses the encrypted Atlas
+backup, activates the pinned Identity release and checks the public audience.
+There is no SHA or digest to copy. The normal `atlas-staradvs-release` action
+remains available for a separately provisioned consumer; it also uses the
+pinned pair when both fields are blank. If a deployment step reports an
+ambiguous receipt or checkpoint, inspect it before retrying.
 
 The manual staging job admits the signed image, refreshes the encrypted backup
 and rehearses quarantine restore, then calls only the installed pinned root

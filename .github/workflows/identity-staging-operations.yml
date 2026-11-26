@@ -55,7 +55,7 @@ on:
     inputs:
       action:
         type: choice
-        options: [provision, deploy, inspect, backup, atlas-custody, atlas-prepare, atlas-prepare-database-scoped, atlas-snooker-config, atlas-preflight, atlas-canary, atlas-journey, atlas-restore-rehearsal, atlas-release, atlas-staradvs-release, atlas-backup, atlas-roles-plan, atlas-roles-apply, atlas-roles-check, atlas-rotate-inventory, atlas-refresh-inventory]
+        options: [provision, deploy, inspect, backup, atlas-custody, atlas-prepare, atlas-prepare-database-scoped, atlas-snooker-config, atlas-preflight, atlas-canary, atlas-journey, atlas-restore-rehearsal, atlas-release, atlas-staradvs-release, staradvs-activate, atlas-backup, atlas-roles-plan, atlas-roles-apply, atlas-roles-check, atlas-rotate-inventory, atlas-refresh-inventory]
         required: true
         description: Provision local custody, deploy, inspect, backup, or create separate Atlas custody
       cka_consumer:
@@ -96,11 +96,11 @@ on:
       source_sha:
         type: string
         required: false
-        description: Atlas StarAdvs release may use its reviewed pinned SHA when left blank
+        description: Atlas StarAdvs release/activation uses its reviewed pinned SHA when left blank
       expected_atlas_digest:
         type: string
         required: false
-        description: Atlas StarAdvs release may use its reviewed pinned digest when left blank; atlas-release still requires its proven digest
+        description: Atlas StarAdvs release/activation uses its reviewed pinned digest when left blank; atlas-release still requires its proven digest
 permissions:
   contents: read
 jobs:
@@ -211,6 +211,67 @@ jobs:
       - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
       - name: Preserve existing keys; provision only Identity staging resources
         run: python scripts/identity_staging_provision.py
+  staradvs-activate:
+    name: Provision StarAdvs audience and activate the pinned Atlas Identity
+    needs: admit
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'staradvs-activate' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: staging
+    concurrency:
+      group: shadowops-oci-host-operations
+      cancel-in-progress: false
+    env:
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      ADMITTED_DIGEST: ${{ needs.admit.outputs.digest }}
+      ADMITTED_SHA: ${{ needs.admit.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'oci==2.185.2'
+      - name: Provision only the StarAdvs staging audience; preserve every other consumer
+        env:
+          IDENTITY_STAGING_CKA: preserve
+          IDENTITY_STAGING_FOOTBALL: preserve
+          IDENTITY_STAGING_PAWN_ACTION: preserve
+          IDENTITY_STAGING_SNOOKER: preserve
+          IDENTITY_STAGING_STARADVS: enable
+          IDENTITY_STAGING_BRIDGESQUAD: preserve
+          IDENTITY_STAGING_ADMIN_INVENTORY: preserve
+        run: python scripts/identity_staging_provision.py
+      - name: Refresh encrypted Atlas backup and rehearse exact restore before release
+        run: |
+          set -euo pipefail
+          python scripts/identity_staging_release.py atlas-backup
+          python scripts/identity_staging_release.py atlas-restore-rehearsal
+      - name: Activate only the admitted StarAdvs Atlas release
+        run: python scripts/identity_staging_release.py atlas-staradvs-release
+      - name: Verify public Identity source SHA and provisioned StarAdvs audience
+        env:
+          EXPECTED_SOURCE_SHA: ${{ needs.admit.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import sys
+          sys.path.insert(0, "scripts")
+          from staradvs_identity_readiness import ISSUER, read_public
+          from snooker_staging_operator import deployed_identity_sha
+          assert deployed_identity_sha() == os.environ["EXPECTED_SOURCE_SHA"]
+          code, body = read_public(ISSUER + "/login?app=staradvs")
+          assert code == 200 and b"https://staging.staradvs.shadowops.dpdns.org/?shadowops=central" in body
+          print("IDENTITY_ATLAS_PUBLIC_STARADVS_READY")
+          PY
   atlas-custody:
     needs: contracts
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'atlas-custody' && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
@@ -372,7 +433,7 @@ jobs:
           esac
   admit:
     needs: contracts
-    if: github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy' || inputs.action == 'atlas-preflight' || inputs.action == 'atlas-canary' || inputs.action == 'atlas-journey' || inputs.action == 'atlas-release' || inputs.action == 'atlas-staradvs-release') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
+    if: github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy' || inputs.action == 'atlas-preflight' || inputs.action == 'atlas-canary' || inputs.action == 'atlas-journey' || inputs.action == 'atlas-release' || inputs.action == 'atlas-staradvs-release' || inputs.action == 'staradvs-activate') && github.ref == 'refs/heads/main' && github.repository == 'evilsysadmin/shadowops-infra'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -399,6 +460,9 @@ jobs:
           set -euo pipefail
           sha="$REQUESTED_SHA"
           expected_digest="$EXPECTED_ATLAS_DIGEST"
+          if [[ "$REQUESTED_ACTION" == staradvs-activate ]]; then
+            REQUESTED_ACTION=atlas-staradvs-release
+          fi
           if [[ "$REQUESTED_ACTION" == atlas-staradvs-release && -z "$sha" && -z "$expected_digest" ]]; then
             read -r sha expected_digest < <(python3 -c 'import ast; from pathlib import Path; names={"STARADVS_RELEASE_SHA","STARADVS_RELEASE_DIGEST"}; values={n.targets[0].id:ast.literal_eval(n.value) for n in ast.parse(Path("scripts/identity_staging_release.py").read_text()).body if isinstance(n,ast.Assign) and len(n.targets)==1 and isinstance(n.targets[0],ast.Name) and n.targets[0].id in names}; print(values["STARADVS_RELEASE_SHA"], values["STARADVS_RELEASE_DIGEST"])')
             echo "Using reviewed StarAdvs release pin: $sha $expected_digest" >> "$GITHUB_STEP_SUMMARY"
