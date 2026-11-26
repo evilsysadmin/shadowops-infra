@@ -484,8 +484,8 @@ def staradvs_release_host_command(digest, sha, vault, hashes):
     guarded += ('sudo --non-interactive /usr/local/sbin/shadowops-identity-atlas-staradvs deploy '
                 + vault + ' ' + digest + ' ' + sha + '\n')
     payload = base64.b64encode(zlib.compress(guarded.encode('utf-8'), level=9)).decode('ascii')
-    command = ('set -eu\npython3 -c \'import base64,zlib;exec(zlib.decompress(base64.b64decode("'
-               + payload + '")))\'\n')
+    command = ('set -eu\npython3 -c \'import base64,subprocess,zlib;raise SystemExit(subprocess.run(["bash","-s"],input=zlib.decompress(base64.b64decode("'
+               + payload + '"))).returncode)\'\n')
     if len(command.encode('utf-8')) > 4096:
         raise ReleaseError('StarAdvs Run Command exceeds the OCI text limit')
     return command
