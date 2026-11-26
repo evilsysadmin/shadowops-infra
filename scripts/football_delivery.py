@@ -172,17 +172,40 @@ def publish_runtime(root,sha):
   r2_request('PUT',uri,data=path.read_bytes(),content_type=content_type)
  print('FOOTBALL_R2_IMMUTABLE_RELEASE_UPLOADED source_sha='+sha)
 
-def verify_public(sha):
+def verify_runtime_bytes(release):
+ # All four core objects come from the exact validated source artifact.
+ # Stream bounded bytes; a stale CDN object cannot pass on HTTP 200 alone.
+ base=release['runtime']['index'].rsplit('/',1)[0]+'/'
+ for name in ('index.html','index.js','index.wasm','index.pck'):
+  expected=release['files'][name];uri=base+name
+  request=urllib.request.Request(uri,headers={**PUBLIC_HEADERS,'Cache-Control':'no-cache','Accept-Encoding':'identity'})
+  with urllib.request.urlopen(request,timeout=45) as response:
+   if response.status!=200 or response.geturl()!=uri:raise DeliveryError('Public runtime HTTP or redirect mismatch: '+name)
+   digest=hashlib.sha256();size=0
+   while True:
+    chunk=response.read(min(262144,expected['bytes']-size+1))
+    if not chunk:break
+    size+=len(chunk)
+    if size>expected['bytes']:raise DeliveryError('Public runtime size mismatch: '+name)
+    digest.update(chunk)
+   if size!=expected['bytes'] or digest.hexdigest()!=expected['sha256']:
+    raise DeliveryError('Public runtime bytes mismatch: '+name)
+  print('FOOTBALL_PUBLIC_RUNTIME_BYTES_VERIFIED file='+name+' bytes='+str(size)+' sha256='+expected['sha256'])
+
+
+def verify_public(sha,root):
  if not HEX.fullmatch(sha):raise DeliveryError('Exact source SHA required')
+ expected=validate(root,sha)
  deadline=time.monotonic()+420
  while time.monotonic()<deadline:
   current=public_release()
   if current and current.get('application')=='football-of-matthias' and current.get('environment')=='staging' and current.get('source_sha')==sha and current.get('authentication')==AUTHENTICATION:
    runtime=current.get('runtime',{});uri=runtime.get('index','')
    if uri!=f'{CDN}/{PREFIX}/releases/{runtime.get("release")}/index.html' or runtime.get('sourceSha')!=sha:raise DeliveryError('Public runtime identity mismatch')
-   with urllib.request.urlopen(urllib.request.Request(uri,headers=PUBLIC_HEADERS),timeout=20) as response:
-    if response.status==200 and b'Engine' in response.read(100000):
-     print('FOOTBALL_STAGING_PUBLIC_VERIFIED source_sha='+sha+' host='+HOST);return
+   if runtime!=expected['runtime'] or current.get('files')!=expected['files']:
+    raise DeliveryError('Public release manifest differs from admitted artifact')
+   verify_runtime_bytes(expected)
+   print('FOOTBALL_STAGING_PUBLIC_VERIFIED source_sha='+sha+' host='+HOST);return
   time.sleep(8)
  raise DeliveryError('Public Football staging did not converge')
 
@@ -201,7 +224,7 @@ def main():
   print('FOOTBALL_SOURCE_ADMITTED source_sha='+candidate['source_sha']+' publish='+str(publish).lower())
  elif action=='validate':validate(Path(sys.argv[2]),sys.argv[3]);print('FOOTBALL_ARTIFACT_BYTES_VERIFIED')
  elif action=='runtime':publish_runtime(Path(sys.argv[2]),sys.argv[3])
- elif action=='verify':verify_public(sys.argv[2])
+ elif action=='verify':verify_public(sys.argv[2],Path(sys.argv[3]))
  else:raise DeliveryError('Unknown Football delivery operation')
 
 if __name__=='__main__':
