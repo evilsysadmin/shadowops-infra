@@ -3,10 +3,12 @@
 from __future__ import annotations
 import os
 import hashlib
+import base64
 from pathlib import Path
 import re
 import sys
 import time
+import zlib
 
 from chronicles_api_provision import resolve_vault
 from oci_control_plane import config_from_env, inspect, resolve_existing_host
@@ -475,9 +477,15 @@ def staradvs_release_host_command(digest, sha, vault, hashes):
     if (digest != STARADVS_RELEASE_DIGEST or sha != STARADVS_RELEASE_SHA
             or not isinstance(vault, str) or not VAULT.fullmatch(vault)):
         raise ReleaseError('Invalid pinned StarAdvs release request')
-    command = installed_source_guard(STARADVS_RELEASE_SOURCES, hashes)
-    return (command + 'sudo --non-interactive /usr/local/sbin/shadowops-identity-atlas-staradvs deploy '
-            + vault + ' ' + digest + ' ' + sha + '\n')
+    guarded = installed_source_guard(STARADVS_RELEASE_SOURCES, hashes)
+    guarded += ('sudo --non-interactive /usr/local/sbin/shadowops-identity-atlas-staradvs deploy '
+                + vault + ' ' + digest + ' ' + sha + '\n')
+    payload = base64.b64encode(zlib.compress(guarded.encode('utf-8'), level=9)).decode('ascii')
+    command = ('set -eu\npython3 -c \'import base64,zlib;exec(zlib.decompress(base64.b64decode("'
+               + payload + '")))\'\n')
+    if len(command.encode('utf-8')) > 4096:
+        raise ReleaseError('StarAdvs Run Command exceeds the OCI text limit')
+    return command
 
 
 def execute_staradvs_release(sdk, config, digest, sha, pause=time.sleep, clock=time.monotonic):
