@@ -65,6 +65,19 @@ class AutonomousStagingPlaytestContracts(unittest.TestCase):
         self.assertIn("chronicles-playtest-report.json", artifacts["with"]["path"])
         self.assertIn("chronicles-playtest-*.png", artifacts["with"]["path"])
 
+    def test_summary_is_bounded_and_runs_before_artifact_upload(self):
+        steps = self.workflow["jobs"]["playtest"]["steps"]
+        named = {step.get("name", ""): step for step in steps}
+        summary = named["Summarize bounded playtest"]
+        self.assertEqual(summary["if"], "always()")
+        self.assertNotIn("env", summary)
+        self.assertIn("GITHUB_STEP_SUMMARY", summary["run"])
+        self.assertIn("262144", summary["run"])
+        self.assertIn("chronicles-playtest-v1", summary["run"])
+        self.assertIn("Number.isFinite", summary["run"])
+        self.assertLess(steps.index(named["Play the real campaign with reproducible aggressive and cautious policies"]), steps.index(summary))
+        self.assertLess(steps.index(summary), steps.index(named["Preserve bounded QA reports and browser captures"]))
+
     def test_never_mutates_infrastructure_or_weakens_the_existing_auth_gate(self):
         for forbidden in (
             "wrangler pages deploy", "OCI_PRIVATE_KEY", "CLOUDFLARE_API_TOKEN",
