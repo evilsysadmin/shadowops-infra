@@ -39,7 +39,7 @@ DEPLOY_PHASES = frozenset((
 DEPLOY_BLOCKED = re.compile(
     r'IDENTITY_STAGING_DEPLOY_BLOCKED type=[A-Za-z]{1,40}(?: phase=([a-z-]{1,32}))?\Z'
 )
-STARADVS_BLOCKED = re.compile(r'IDENTITY_ATLAS_STARADVS_BLOCKED reason=(authority|unverified)\\Z')
+STARADVS_BLOCKED = re.compile(r'IDENTITY_ATLAS_STARADVS_BLOCKED reason=(authority|unverified)\Z')
 
 
 def failure_reason(output):
