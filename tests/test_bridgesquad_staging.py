@@ -161,6 +161,20 @@ class StagingTests(unittest.TestCase):
             with self.assertRaises(st.StagingError):
                 st.verify_posture(project)
 
+    def test_package_rejects_literal_service_credential_before_writing(self):
+        from unittest.mock import patch
+        reviewed = st.trusted_worker()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            worker = root / "worker.mjs"
+            worker.write_bytes(reviewed + b"\n// " + PROOF.encode("ascii") + b"\n")
+            out = root / "dist"
+            with patch.object(st, "EDGE", worker):
+                with self.assertRaisesRegex(st.StagingError, "literal service credential") as caught:
+                    st.package(SHA, out, fetch=lambda sha: GOOD_HTML)
+                self.assertNotIn(PROOF, str(caught.exception))
+            self.assertFalse(out.exists())
+
     def test_package_seals_exact_html_and_reviewed_worker(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "dist"

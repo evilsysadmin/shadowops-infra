@@ -204,6 +204,11 @@ def verify_posture(project) -> dict:
 def trusted_worker() -> bytes:
     data = EDGE.read_bytes()
     text = data.decode("utf-8")
+    # The package contains source code only. Service proofs belong exclusively
+    # to the runtime binding; reject accidentally embedded literal proofs
+    # before creating any package files, without logging the offending value.
+    if re.search(r"soc1_[A-Za-z0-9_-]{43}", text):
+        raise StagingError("Staging Worker contains a literal service credential")
     if any(marker not in text for marker in WORKER_MARKERS) or "id.shadowops.dpdns.org'" in text:
         raise StagingError("Staging Worker does not match the reviewed contract")
     return data
