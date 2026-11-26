@@ -19,6 +19,7 @@ class StarAdvsHandoffTests(unittest.TestCase):
         import re
         import zlib
         self.assertLessEqual(len(cmd.encode("utf-8")), 4096)
+        self.assertIn('subprocess.run(["bash","-s"]', cmd)
         payload = re.search(r'b64decode\("([^"]+)"\)', cmd).group(1)
         guarded = zlib.decompress(base64.b64decode(payload)).decode("utf-8")
         self.assertIn("sha256sum --check --status", guarded)
