@@ -15,9 +15,17 @@ class StarAdvsHandoffTests(unittest.TestCase):
         vault = "ocid1.vault.oc1." + "v" * 24
         hashes = r.canary_source_digests(sources=r.STARADVS_RELEASE_SOURCES)
         cmd = r.staradvs_release_host_command(r.STARADVS_RELEASE_DIGEST, r.STARADVS_RELEASE_SHA, vault, hashes)
-        self.assertIn("sha256sum --check --status", cmd)
+        import base64
+        import re
+        import zlib
+        self.assertLessEqual(len(cmd.encode("utf-8")), 4096)
+        payload = re.search(r'b64decode\("([^"]+)"\)', cmd).group(1)
+        guarded = zlib.decompress(base64.b64decode(payload)).decode("utf-8")
+        self.assertIn("sha256sum --check --status", guarded)
+        for _, (target, _) in r.STARADVS_RELEASE_SOURCES.items():
+            self.assertIn(target, guarded)
         self.assertIn("sudo --non-interactive /usr/local/sbin/shadowops-identity-atlas-staradvs deploy "
-                      + vault + " " + r.STARADVS_RELEASE_DIGEST + " " + r.STARADVS_RELEASE_SHA, cmd)
+                      + vault + " " + r.STARADVS_RELEASE_DIGEST + " " + r.STARADVS_RELEASE_SHA, guarded)
         for digest, sha, v in (("sha256:" + "a"*64, r.STARADVS_RELEASE_SHA, vault),
                                (r.STARADVS_RELEASE_DIGEST, "a"*40, vault),
                                (r.STARADVS_RELEASE_DIGEST, r.STARADVS_RELEASE_SHA, vault+";id")):
