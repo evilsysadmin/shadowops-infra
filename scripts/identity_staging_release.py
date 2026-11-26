@@ -483,37 +483,54 @@ def staradvs_release_host_command(digest, sha, vault, hashes):
 def execute_staradvs_release(sdk, config, digest, sha, pause=time.sleep, clock=time.monotonic):
     if digest != STARADVS_RELEASE_DIGEST or sha != STARADVS_RELEASE_SHA:
         raise ReleaseError('Unapproved StarAdvs image')
-    inspect(sdk, config)
-    compartment, instance = resolve_existing_host(sdk, config)
-    vault, _, _ = resolve_vault(sdk, config, compartment)
-    command = staradvs_release_host_command(digest, sha, vault,
-                canary_source_digests(sources=STARADVS_RELEASE_SOURCES))
-    models = sdk.compute_instance_agent.models
-    details = models.CreateInstanceAgentCommandDetails(
-        compartment_id=compartment, execution_time_out_in_seconds=1000,
-        target=models.InstanceAgentCommandTarget(instance_id=instance),
-        content=models.InstanceAgentCommandContent(
-            source=models.InstanceAgentCommandSourceViaTextDetails(text=command),
-            output=models.InstanceAgentCommandOutputViaTextDetails(output_type='TEXT')),
-        display_name='identity-staging-atlas-staradvs-release')
-    client = sdk.compute_instance_agent.ComputeInstanceAgentClient(config)
-    created = client.create_instance_agent_command(create_instance_agent_command_details=details).data
-    if not getattr(created, 'id', None):
-        raise ReleaseError('Missing StarAdvs release command reference')
-    deadline = clock() + 1140
-    expected = 'IDENTITY_ATLAS_STARADVS_DEPLOY_OK source_sha=' + sha + ' digest=' + digest
-    while clock() < deadline:
-        execution = client.get_instance_agent_command_execution(
-            instance_agent_command_id=created.id, instance_id=instance).data
-        state = str(getattr(execution, 'lifecycle_state', '')).upper()
-        if state in {'SUCCEEDED', 'FAILED', 'TIMED_OUT', 'CANCELED'}:
-            content = getattr(execution, 'content', None)
-            if (state != 'SUCCEEDED' or getattr(content, 'exit_code', None) != 0
-                    or str(getattr(content, 'text', '') or '').strip() != expected):
-                raise ReleaseError('StarAdvs release not verified; inspect private checkpoint before retry')
-            return expected
-        pause(3)
-    raise ReleaseError('StarAdvs release timed out; inspect private checkpoint before retry')
+    phase = 'inspect'
+    try:
+        inspect(sdk, config)
+        phase = 'resolve-host'
+        compartment, instance = resolve_existing_host(sdk, config)
+        phase = 'resolve-vault'
+        vault, _, _ = resolve_vault(sdk, config, compartment)
+        phase = 'build-command'
+        command = staradvs_release_host_command(digest, sha, vault,
+                    canary_source_digests(sources=STARADVS_RELEASE_SOURCES))
+        models = sdk.compute_instance_agent.models
+        details = models.CreateInstanceAgentCommandDetails(
+            compartment_id=compartment, execution_time_out_in_seconds=1000,
+            target=models.InstanceAgentCommandTarget(instance_id=instance),
+            content=models.InstanceAgentCommandContent(
+                source=models.InstanceAgentCommandSourceViaTextDetails(text=command),
+                output=models.InstanceAgentCommandOutputViaTextDetails(output_type='TEXT')),
+            display_name='identity-staging-atlas-staradvs-release')
+        client = sdk.compute_instance_agent.ComputeInstanceAgentClient(config)
+        phase = 'submit-command'
+        created = client.create_instance_agent_command(create_instance_agent_command_details=details).data
+        if not getattr(created, 'id', None):
+            raise ReleaseError('Missing StarAdvs release command reference')
+        deadline = clock() + 1140
+        expected = 'IDENTITY_ATLAS_STARADVS_DEPLOY_OK source_sha=' + sha + ' digest=' + digest
+        phase = 'poll-command'
+        while clock() < deadline:
+            execution = client.get_instance_agent_command_execution(
+                instance_agent_command_id=created.id, instance_id=instance).data
+            state = str(getattr(execution, 'lifecycle_state', '')).upper()
+            if state in {'SUCCEEDED', 'FAILED', 'TIMED_OUT', 'CANCELED'}:
+                content = getattr(execution, 'content', None)
+                if (state != 'SUCCEEDED' or getattr(content, 'exit_code', None) != 0
+                        or str(getattr(content, 'text', '') or '').strip() != expected):
+                    raise ReleaseError('StarAdvs release not verified; inspect private checkpoint before retry')
+                return expected
+            pause(3)
+        raise ReleaseError('StarAdvs release timed out; inspect private checkpoint before retry')
+    except Exception as exc:
+        if type(exc).__name__ != 'ServiceError':
+            raise
+        # Emit only an allow-listed phase and bounded SDK fields. Do not expose
+        # OCI messages, request IDs, command output, or configuration values.
+        raw_status = getattr(exc, 'status', None)
+        status = str(raw_status) if type(raw_status) is int and 100 <= raw_status <= 599 else 'unknown'
+        raw_code = getattr(exc, 'code', None)
+        code = raw_code if isinstance(raw_code, str) and re.fullmatch(r'[A-Za-z][A-Za-z0-9]{0,63}', raw_code) else 'unknown'
+        raise ReleaseError('OCI request failed phase=' + phase + ' status=' + status + ' code=' + code) from None
 
 
 def main():
