@@ -161,7 +161,7 @@ jobs:
           test "$(gh api repos/evilsysadmin/football-of-matthias/commits/main --jq .sha)" = "$SOURCE_SHA"
           npx --yes wrangler@4.127.1 pages deploy football-release/web --project-name football-staging --branch main --commit-hash "$SOURCE_SHA" --commit-dirty=false
           python3 scripts/football_pages.py domain
-          python3 scripts/football_delivery.py verify "$SOURCE_SHA"
+          python3 scripts/football_delivery.py verify "$SOURCE_SHA" football-release
   browser:
     name: Football · public ShadowOps ID gate
     needs: [contracts, candidate, publish]

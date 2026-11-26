@@ -30,6 +30,36 @@ def fixture(root):
  return release
 
 class FootballDelivery(unittest.TestCase):
+ def test_public_runtime_exact_bytes_and_manifest(self):
+  import io
+  with tempfile.TemporaryDirectory() as directory:
+   root=Path(directory);release=fixture(root)
+   seen=[]
+   def response(request,**kwargs):
+    name=request.full_url.rsplit('/',1)[-1];seen.append(name)
+    result=io.BytesIO((root/'runtime'/name).read_bytes())
+    result.status=200;result.geturl=lambda:request.full_url
+    return result
+   with patch.object(delivery,'public_release',return_value=release),patch.object(delivery.urllib.request,'urlopen',side_effect=response):
+    delivery.verify_public(SHA,root)
+   self.assertEqual(seen,['index.html','index.js','index.wasm','index.pck'])
+   stale=copy.deepcopy(release);stale['files']['index.pck']['sha256']='b'*64
+   with patch.object(delivery,'public_release',return_value=stale),patch.object(delivery.urllib.request,'urlopen') as request:
+    with self.assertRaisesRegex(delivery.DeliveryError,'manifest differs'):delivery.verify_public(SHA,root)
+    request.assert_not_called()
+   for fault in ['same_size','oversize','truncated','redirect','status']:
+    with self.subTest(fault=fault):
+     def corrupt(request,**kwargs):
+      result=response(request,**kwargs)
+      if request.full_url.endswith('/index.pck'):
+       if fault in ['same_size','oversize','truncated']:
+        result=io.BytesIO({'same_size':b'old','oversize':b'oldpack','truncated':b'p'}[fault])
+        result.status=200;result.geturl=lambda:request.full_url
+       elif fault=='redirect':result.geturl=lambda:'https://example.invalid/index.pck'
+       else:result.status=206
+      return result
+     with patch.object(delivery,'public_release',return_value=release),patch.object(delivery.urllib.request,'urlopen',side_effect=corrupt):
+      with self.assertRaisesRegex(delivery.DeliveryError,'index.pck'):delivery.verify_public(SHA,root)
  def test_exact_artifact_and_immutable_runtime_hash(self):
   with tempfile.TemporaryDirectory() as directory:
    root=Path(directory);release=fixture(root)
