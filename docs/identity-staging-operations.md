@@ -268,6 +268,16 @@ remains available for a separately provisioned consumer; it also uses the
 pinned pair when both fields are blank. If a deployment step reports an
 ambiguous receipt or checkpoint, inspect it before retrying.
 
+If activation blocks at `stage=live-container`, first run the protected-main
+read-only detail probe with `bash host/inspect-identity-atlas-container-detail-over-ssh.sh`. It reports only
+finite categories for the mounted consumer config (`atlas`, `local`,
+`snooker`, `staradvs`, `other`) and network profile (`atlas`, `local`,
+`other`); it never prints mount paths, network names, Docker environment or
+logs. The active StarAdvs release requires an existing Atlas or Snooker Atlas
+config mount and `networks=atlas`, with a running container. Any other result
+requires operator reconciliation before retry;
+never remove the Atlas marker or restart Identity to bypass this gate.
+
 The manual staging job admits the signed image, refreshes the encrypted backup
 and rehearses quarantine restore, then calls only the installed pinned root
 operator. It keeps the current Atlas configuration for rollback, copies only
