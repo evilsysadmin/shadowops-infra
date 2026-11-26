@@ -96,6 +96,34 @@ jobs:
             exit 1
           fi
           node smoke/public-staging-playtest.mjs
+      - name: Summarize bounded playtest
+        if: always()
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { existsSync, statSync, readFileSync, appendFileSync } from 'node:fs';
+          const path = 'chronicles-source/frontend/chronicles-playtest-report.json';
+          const lines = ['## Chronicles staging playtest', ''];
+          try {
+            if (!existsSync(path) || statSync(path).size > 262144) throw new Error();
+            const report = JSON.parse(readFileSync(path, 'utf8'));
+            if (report.schema !== 'chronicles-playtest-v1' || report.environment !== 'staging' ||
+                !/^[a-f0-9]{40}$/.test(report.sourceSha) || !Array.isArray(report.episodes) ||
+                report.episodes.length > 8) throw new Error();
+            const numeric = value => Number.isFinite(value) && value >= 0 ? String(value) : 'n/a';
+            lines.push('Source SHA: `' + report.sourceSha + '`', '',
+              'Episodes: ' + report.episodes.length,
+              'Wins: ' + numeric(report.summary?.wins),
+              'Average HP lost: ' + numeric(report.summary?.averageHpLost), '',
+              '| Episode | Combat actions | HP lost |', '|---|---:|---:|');
+            report.episodes.forEach((episode, i) => lines.push(
+              '| ' + (i + 1) + ' | ' + numeric(episode?.combatActions) + ' | ' + numeric(episode?.hpLost) + ' |'));
+            lines.push('', 'Defeats are balance observations, not automatic CI failures.');
+          } catch {
+            lines.push('No valid bounded report available. Inspect the playtest logs and artifacts.');
+          }
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join('\n') + '\n');
+          NODE
       - name: Preserve bounded QA reports and browser captures
         if: always()
         uses: actions/upload-artifact@v4
