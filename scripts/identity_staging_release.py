@@ -39,10 +39,13 @@ DEPLOY_PHASES = frozenset((
 DEPLOY_BLOCKED = re.compile(
     r'IDENTITY_STAGING_DEPLOY_BLOCKED type=[A-Za-z]{1,40}(?: phase=([a-z-]{1,32}))?\Z'
 )
+STARADVS_BLOCKED = re.compile(r'IDENTITY_ATLAS_STARADVS_BLOCKED reason=(authority|unverified)\\Z')
 
 
 def failure_reason(output):
     for line in output.splitlines():
+        if STARADVS_BLOCKED.fullmatch(line):
+            return line
         match = DEPLOY_BLOCKED.fullmatch(line)
         if match and (match.group(1) is None or match.group(1) in DEPLOY_PHASES):
             return line
@@ -77,7 +80,7 @@ def inspect_previous(sdk,config):
     rows=client.list_instance_agent_command_executions(compartment_id=compartment,instance_id=instance,
         limit=25,sort_by='TIMECREATED',sort_order='DESC').data
     for row in rows:
-        if getattr(row,'display_name','') != 'identity-staging-admitted-release' or getattr(row,'instance_id','') != instance:
+        if getattr(row,'display_name','') not in {'identity-staging-admitted-release','identity-staging-atlas-staradvs-release'} or getattr(row,'instance_id','') != instance:
             continue
         command_id=getattr(row,'instance_agent_command_id','')
         if not command_id:
