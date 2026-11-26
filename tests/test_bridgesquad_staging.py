@@ -195,6 +195,24 @@ class StagingTests(unittest.TestCase):
             with self.assertRaises(st.StagingError):
                 st.audit(cf, web=bad, guest=deny, resolve=lambda *a, **k: [1])
 
+    def test_login_shell_requires_real_exact_staging_anchor(self):
+        target = st.ISSUER + "/login?app=bridgesquad"
+        self.assertTrue(st.valid_login_shell_links(
+            ('<a href="' + target + '">Login</a><a href="/_shadowops/logout">Logout</a>').encode()))
+        for html in (
+            target,
+            '<!-- <a href="' + target + '">Login</a> -->',
+            '<a href="https://evil.example/?next=' + target + '">Login</a>',
+            '<a href="' + target.replace("https:", "http:") + '">Login</a>',
+            '<a href="' + target.replace("id-staging.", "id.") + '">Login</a>',
+            '<a href="' + target + '" href="https://evil.example/">Login</a>',
+            '<a href="' + target + '#other">Login</a>',
+            '<a href="' + target + '&other=1">Login</a>',
+            '<a href="' + target + '">Login</a><a href="https://id.shadowops.dpdns.org/login">Other</a>',
+        ):
+            with self.subTest(html=html):
+                self.assertFalse(st.valid_login_shell_links(html.encode()))
+
     def test_identity_ready_requires_exact_staging_callback(self):
         good = ("https://" + st.HOST + "/?shadowops=central").encode()
         self.assertTrue(st.identity_ready(lambda url: (200, b"x" + good)))

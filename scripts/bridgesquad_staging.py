@@ -21,6 +21,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from html.parser import HTMLParser
 
 import bridgesquad_pages_readiness as readiness
 import bridgesquad_source_admission as source
@@ -348,6 +349,47 @@ def https_probe(path: str, method: str = "GET"):
         raise StagingError("Staging HTTPS not yet reachable") from None
 
 
+class _LoginShellLinks(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.valid_login = False
+        self.invalid_link = False
+
+    def handle_starttag(self, tag, attrs):
+        if tag != "a":
+            return
+        hrefs = [value for name, value in attrs if name == "href"]
+        if len(hrefs) != 1 or not hrefs[0]:
+            self.invalid_link = True
+            return
+        href = hrefs[0]
+        if href == "/_shadowops/logout":
+            return
+        try:
+            url = urllib.parse.urlsplit(href)
+            if (url.scheme == "https"
+                    and url.netloc == urllib.parse.urlsplit(ISSUER).netloc
+                    and url.path == "/login"
+                    and url.query == "app=bridgesquad"
+                    and not url.fragment
+                    and href == ISSUER + "/login?app=bridgesquad"):
+                self.valid_login = True
+            else:
+                self.invalid_link = True
+        except ValueError:
+            self.invalid_link = True
+
+
+def valid_login_shell_links(body: bytes) -> bool:
+    parser = _LoginShellLinks()
+    try:
+        parser.feed(body.decode("utf-8"))
+        parser.close()
+    except (UnicodeError, ValueError):
+        return False
+    return parser.valid_login and not parser.invalid_link
+
+
 def audit(client, *, web=https_probe, guest=guest_status, resolve=socket.getaddrinfo) -> dict:
     inv = inventory(client)
     if inv["project"] is None or inv["domain"] is None or inv["dns"] is None:
@@ -362,8 +404,8 @@ def audit(client, *, web=https_probe, guest=guest_status, resolve=socket.getaddr
         status, headers, body = web(path)
         lower = body.lower()
         if (status != 401 or b"Tu cuenta ShadowOps ID" not in body
-                or (ISSUER + "/login?app=bridgesquad").encode() not in body
-                or b"<canvas" in lower or b"id.shadowops.dpdns.org/" in body
+                or not valid_login_shell_links(body)
+                or b"<canvas" in lower
                 or "default-src 'none'" not in str(headers.get("Content-Security-Policy", ""))):
             raise StagingError("Guest root is not the id-staging login shell")
     for path in GUEST_JSON_PATHS:
