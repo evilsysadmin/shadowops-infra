@@ -237,6 +237,40 @@ class Tests(unittest.TestCase):
             with self.assertRaises(p.ReleaseBlocked):
                 p.retire_legacy(client, GAME, snapshot)
             client.request.assert_not_called()
+            inv.return_value = {**snapshot, new: current}
+            denial.side_effect = p.ReleaseBlocked("guest")
+            with self.assertRaises(p.ReleaseBlocked):
+                p.retire_legacy(client, GAME, snapshot)
+            client.request.assert_not_called()
+
+    def test_retirement_preserves_aliases_when_pages_moves_them(self):
+        from unittest.mock import Mock
+        old = "00000000-0000-4000-8000-000000000001"
+        new = "00000000-0000-4000-8000-000000000002"
+        old_alias = "previous.staradvs-staging.pages.dev"
+        moved_alias = "main.staradvs-staging.pages.dev"
+        snapshot = {old: {"host": "old.staradvs-staging.pages.dev", "aliases": [old_alias]}}
+        current = {"host": "new.staradvs-staging.pages.dev", "aliases": [moved_alias]}
+        changed_old = {"host": snapshot[old]["host"], "aliases": []}
+        client = Mock(account="a" * 32)
+        client.request.return_value = (200, None)
+        with (patch.object(p, "active_deployment", return_value=(new, current["host"])),
+              patch.object(p, "require_denial") as denial,
+              patch.object(p, "inventory", return_value={old: changed_old, new: current})):
+            self.assertEqual(p.retire_legacy(client, GAME, snapshot), 1)
+            self.assertEqual(snapshot[old]["aliases"], [old_alias])
+            denial.assert_called_once()
+            client.request.assert_called_once_with("DELETE",
+                f"/accounts/{client.account}/pages/projects/staradvs-staging/deployments/{old}?force=true")
+
+        snapshot = {old: {"host": "old.staradvs-staging.pages.dev", "aliases": [old_alias]}}
+        changed_old = {"host": snapshot[old]["host"], "aliases": [moved_alias]}
+        client.request.reset_mock()
+        with (patch.object(p, "active_deployment", return_value=(new, current["host"])),
+              patch.object(p, "require_denial"),
+              patch.object(p, "inventory", return_value={old: changed_old, new: current})):
+            self.assertEqual(p.retire_legacy(client, GAME, snapshot), 1)
+            self.assertEqual(snapshot[old]["aliases"], sorted([old_alias, moved_alias]))
 
     def test_postflight_checks_retired_hosts_and_rejects_remaining_history(self):
         old = "00000000-0000-4000-8000-000000000001"

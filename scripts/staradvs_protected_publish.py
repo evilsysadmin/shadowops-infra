@@ -276,8 +276,14 @@ def retire_legacy(client, sha, snapshot):
     if key not in rows or set(rows) - set(snapshot) != {key}:
         raise ReleaseBlocked("history-changed-after-publish")
     for old_id in sorted(set(rows) - {key}):
-        if rows[old_id] != snapshot[old_id]:
+        # Pages moves branch aliases when a new canonical deployment is
+        # published. The deployment ID and immutable deployment URL must stay
+        # the same; alias metadata may change as routing moves to the new
+        # protected canonical. Preserve both observations for postflight.
+        if rows[old_id]["host"] != snapshot[old_id]["host"]:
             raise ReleaseBlocked("historical-deployment-changed")
+        snapshot[old_id]["aliases"] = sorted(set(snapshot[old_id]["aliases"]) |
+                                               set(rows[old_id]["aliases"]))
     for old_id in sorted(set(rows) - {key}):
         if active_deployment(client, sha, snapshot) != (key, host):
             raise ReleaseBlocked("canonical-changed-during-retirement")
@@ -337,6 +343,7 @@ def main(argv):
                 if os.environ.get("STARADVS_RETIRE_CONFIRM") != "STARADVS_PUBLISH_AND_RETIRE_OLD_DEPLOYMENTS":
                     raise ReleaseBlocked("retirement-not-approved")
                 state = {"retired": retire_legacy(client, args.game_sha, snapshot), "can_activate": False}
+                args.inventory_file.write_text(json.dumps(snapshot, sort_keys=True))
             else:
                 state = verify_postflight(client, args.game_sha, snapshot)
         print(json.dumps({"operation": args.operation, "project": pages.PROJECT, **state}, sort_keys=True))
