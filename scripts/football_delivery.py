@@ -113,8 +113,18 @@ def validate(root,sha):
  if any(p.stat().st_size>25*1024**2 for p in (root/'web').rglob('*') if p.is_file()):raise DeliveryError('Pages static-file budget exceeded')
  return release
 
-def r2_request(method,path,*,data=None,content_type='application/json'):
- req=urllib.request.Request(pages.API+path,method=method,data=data,headers={'Authorization':'Bearer '+pages.required('FOOTBALL_R2_API_TOKEN'),'Content-Type':content_type,'Accept':'application/json','cf-r2-storage-class':'Standard'})
+# R2 object HTTP metadata: Wrangler's remote upload uses the same
+# Cache-Control request header on PUT. Keep this scoped to our release
+# objects; do not change shared zone configuration or disable WAF.
+RUNTIME_CACHE_CONTROL='public, max-age=31536000, immutable, no-transform'
+
+def r2_request(method,path,*,data=None,content_type='application/json',cache_control=None):
+ headers={'Authorization':'Bearer '+pages.required('FOOTBALL_R2_API_TOKEN'),'Content-Type':content_type,'Accept':'application/json','cf-r2-storage-class':'Standard'}
+ if cache_control is not None:
+  if method!='PUT' or '/objects/'+PREFIX+'/releases/' not in path:
+   raise DeliveryError('Runtime cache metadata outside Football release upload')
+  headers['Cache-Control']=cache_control
+ req=urllib.request.Request(pages.API+path,method=method,data=data,headers=headers)
  try:
   with urllib.request.urlopen(req,timeout=60) as response:body=json.load(response)
  except urllib.error.HTTPError as error:raise DeliveryError('R2 operation rejected HTTP '+str(error.code)) from None
@@ -169,7 +179,7 @@ def publish_runtime(root,sha):
   # Immutable payloads are never repointed to another game's path.
   content_type={'.wasm':'application/wasm','.pck':'application/octet-stream','.js':'text/javascript; charset=utf-8','.html':'text/html; charset=utf-8'}.get(path.suffix,mimetypes.guess_type(name)[0] or 'application/octet-stream')
   uri=f'/accounts/{account}/r2/buckets/{BUCKET}/objects/'+urllib.parse.quote(key,safe='/-._~')
-  r2_request('PUT',uri,data=path.read_bytes(),content_type=content_type)
+  r2_request('PUT',uri,data=path.read_bytes(),content_type=content_type,cache_control=RUNTIME_CACHE_CONTROL)
  print('FOOTBALL_R2_IMMUTABLE_RELEASE_UPLOADED source_sha='+sha)
 
 def verify_runtime_bytes(release):
@@ -183,7 +193,7 @@ def verify_runtime_bytes(release):
    if response.status!=200 or response.geturl()!=uri:raise DeliveryError('Public runtime HTTP or redirect mismatch: '+name)
    # Report only bounded response metadata, never HTML bodies, cookies or secrets.
    headers=getattr(response,'headers',{})
-   details=' expected_bytes='+str(expected['bytes'])+' content_length='+str(headers.get('Content-Length','unknown'))[:32]+' content_encoding='+str(headers.get('Content-Encoding','identity'))[:32]+' content_type='+str(headers.get('Content-Type','unknown'))[:80]+' cache_status='+str(headers.get('CF-Cache-Status','unknown'))[:32]
+   details=' expected_bytes='+str(expected['bytes'])+' content_length='+str(headers.get('Content-Length','unknown'))[:32]+' content_encoding='+str(headers.get('Content-Encoding','identity'))[:32]+' content_type='+str(headers.get('Content-Type','unknown'))[:80]+' cache_status='+str(headers.get('CF-Cache-Status','unknown'))[:32]+' cache_control='+str(headers.get('Cache-Control','unknown'))[:120]
    digest=hashlib.sha256();size=0
    while True:
     chunk=response.read(min(262144,expected['bytes']-size+1))
