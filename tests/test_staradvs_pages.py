@@ -220,6 +220,12 @@ class StagingPagesTests(unittest.TestCase):
             (dist / "assets").mkdir()
             js = b"console.log('exact deployed bundle')"
             (dist / "assets/index-genuine.js").write_bytes(js)
+            (dist / "_headers").write_text(
+                "/version.json\n  Cache-Control: no-store\n"
+                "  Cloudflare-CDN-Cache-Control: no-store\n\n"
+                "/index.html\n  Cache-Control: no-cache, max-age=0, must-revalidate\n",
+                encoding="utf-8",
+            )
             (dist / "index.html").write_bytes(
                 b'<div id="root"></div><script type="module" src="/assets/index-genuine.js"></script>'
             )
@@ -231,7 +237,18 @@ class StagingPagesTests(unittest.TestCase):
                 "path": "/assets/index-genuine.js",
                 "sha256": hashlib.sha256(js).hexdigest(),
             })
-            self.assertIn("no-store", (dist / "_headers").read_text())
+            headers = (dist / "_headers").read_text()
+            self.assertIn("/version.json\n  Cache-Control: no-store", headers)
+            self.assertIn("Cloudflare-CDN-Cache-Control: no-store", headers)
+            self.assertIn("/index.html\n  Cache-Control: no-cache", headers)
+            self.assertIn("/release.json\n  Cache-Control: no-store, max-age=0", headers)
+            self.assertIn("Cloudflare-CDN-Cache-Control: no-store", headers)
+
+            # Rebuilding the release manifest is idempotent and never stacks
+            # duplicate Cache-Control directives for the same asset.
+            s.write_manifest(dist, sha)
+            headers = (dist / "_headers").read_text()
+            self.assertEqual(headers.count("/release.json\n"), 1)
 
     def test_manifest_rejects_missing_external_or_ambiguous_js_entries(self):
         sha = "b" * 40
@@ -352,6 +369,13 @@ class StarAdventuresWorkflowOwnershipTests(unittest.TestCase):
         self.assertIn("docs/staradvs-staging.md", pr_paths)
         self.assertNotIn("docs/staradvs-staging.md", push_paths,
                          "Docs-only main merges should not request a live deployment")
+
+    def test_deployed_builds_embed_the_exact_sha_used_by_release_manifest(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        candidate = (root / ".github" / "workflows" / "staradvs-protected-candidate.yml").read_text()
+        staging = (root / ".github" / "workflows" / "staradvs-pages-staging.yml").read_text()
+        self.assertIn("VITE_BUILD_SHA: ${{ needs.admit.outputs.sha }}", candidate)
+        self.assertIn("VITE_BUILD_SHA: ${{ needs.candidate.outputs.source_sha }}", staging)
 
 if __name__ == "__main__":
     unittest.main()
