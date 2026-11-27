@@ -73,6 +73,34 @@ class FootballDelivery(unittest.TestCase):
     with self.assertRaisesRegex(delivery.DeliveryError,'index.html'):delivery.verify_before_publish(root,SHA)
     self.assertEqual(verify.call_count,3)
     self.assertEqual([x.args[0] for x in sleep.call_args_list],[5,15])
+ def test_runtime_upload_preserves_origin_no_transform_metadata(self):
+  with tempfile.TemporaryDirectory() as directory:
+   root=Path(directory);release=fixture(root)
+   with patch.dict(os.environ,{'CLOUDFLARE_ACCOUNT_ID':'a'*32}),patch.object(delivery,'inventory',return_value={}),patch.object(delivery,'r2_request') as request:
+    delivery.publish_runtime(root,SHA)
+   self.assertEqual(request.call_count,len(release['files']))
+   for call in request.call_args_list:
+    self.assertEqual(call.args[0],'PUT')
+    self.assertIn('/objects/'+delivery.PREFIX+'/releases/'+release['runtime']['release']+'/',call.args[1])
+    self.assertIn('no-transform',call.kwargs['cache_control'])
+    self.assertIn('immutable',call.kwargs['cache_control'])
+    name=call.args[1].rsplit('/',1)[-1]
+    self.assertEqual(call.kwargs['data'],(root/'runtime'/name).read_bytes())
+ def test_cache_metadata_is_sent_only_for_owned_runtime_put(self):
+  import io
+  seen=[]
+  def response(request,**kwargs):
+   seen.append(request)
+   return io.BytesIO(b'{"success":true}')
+  uri='/accounts/'+'a'*32+'/r2/buckets/'+delivery.BUCKET+'/objects/'+delivery.PREFIX+'/releases/1234567890abcdef/index.html'
+  with patch.object(pages,'required',return_value='test-token'),patch.object(delivery.urllib.request,'urlopen',side_effect=response):
+   delivery.r2_request('PUT',uri,data=b'html',content_type='text/html',cache_control=delivery.RUNTIME_CACHE_CONTROL)
+   self.assertEqual(seen[0].get_header('Cache-control'),delivery.RUNTIME_CACHE_CONTROL)
+   with self.assertRaises(delivery.DeliveryError):
+    delivery.r2_request('PUT','/objects/other-game/index.html',data=b'html',cache_control=delivery.RUNTIME_CACHE_CONTROL)
+   with self.assertRaises(delivery.DeliveryError):
+    delivery.r2_request('GET',uri,cache_control=delivery.RUNTIME_CACHE_CONTROL)
+   self.assertEqual(len(seen),1)
  def test_exact_artifact_and_immutable_runtime_hash(self):
   with tempfile.TemporaryDirectory() as directory:
    root=Path(directory);release=fixture(root)
