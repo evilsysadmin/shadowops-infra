@@ -135,6 +135,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       SOURCE_SHA: ${{ needs.candidate.outputs.source_sha }}
+      VITE_BUILD_SHA: ${{ needs.candidate.outputs.source_sha }}
     steps:
       - uses: actions/checkout@v4
         with:

@@ -124,6 +124,7 @@ jobs:
       - name: Build exact game source, manifest and protected advanced-mode Worker
         env:
           SOURCE_SHA: ${{ needs.admit.outputs.sha }}
+          VITE_BUILD_SHA: ${{ needs.admit.outputs.sha }}
         shell: bash
         run: |
           set -euo pipefail

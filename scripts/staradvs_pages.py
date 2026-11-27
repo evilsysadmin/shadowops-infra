@@ -217,7 +217,10 @@ def write_manifest(dist: Path, expected_sha: str) -> None:
     # The source build may carry its own Pages cache rules (for example the
     # version marker and application shell). Add the release rule without
     # replacing those rules in the published artifact.
-    set_header_rule(dist, "/release.json", ["Cache-Control: no-store, max-age=0"])
+    set_header_rule(dist, "/release.json", [
+        "Cache-Control: no-store, max-age=0",
+        "Cloudflare-CDN-Cache-Control: no-store",
+    ])
     print("STARADVS_STAGING_MANIFEST_READY sha=" + expected_sha)
 
 
