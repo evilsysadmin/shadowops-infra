@@ -137,6 +137,8 @@ jobs:
           # Only after HTTP 200 / exact source hash / staging CORS are proven
           # may this job mutate the shared delivery bucket or Pages.
           python3 scripts/football_delivery.py runtime football-release "$SOURCE_SHA"
+          # Do not move the Pages pointer to CDN objects that fail integrity.
+          python3 scripts/football_delivery.py verify-runtime football-release "$SOURCE_SHA"
           python3 scripts/football_pages.py project
           python3 scripts/football_pages.py identity-policy
       - uses: actions/setup-python@v5
