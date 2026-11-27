@@ -60,6 +60,19 @@ class FootballDelivery(unittest.TestCase):
       return result
      with patch.object(delivery,'public_release',return_value=release),patch.object(delivery.urllib.request,'urlopen',side_effect=corrupt):
       with self.assertRaisesRegex(delivery.DeliveryError,'index.pck'):delivery.verify_public(SHA,root)
+ def test_prepublish_runtime_is_bounded_and_fail_closed(self):
+  with tempfile.TemporaryDirectory() as directory:
+   root=Path(directory);release=fixture(root)
+   failure=delivery.DeliveryError('Public runtime size mismatch: index.html')
+   with patch.object(delivery,'verify_runtime_bytes',side_effect=[failure,None]) as verify,patch.object(delivery.time,'sleep') as sleep:
+    delivery.verify_before_publish(root,SHA)
+    self.assertEqual(verify.call_count,2)
+    self.assertEqual(verify.call_args.args,(release,))
+    sleep.assert_called_once_with(5)
+   with patch.object(delivery,'verify_runtime_bytes',side_effect=failure) as verify,patch.object(delivery.time,'sleep') as sleep:
+    with self.assertRaisesRegex(delivery.DeliveryError,'index.html'):delivery.verify_before_publish(root,SHA)
+    self.assertEqual(verify.call_count,3)
+    self.assertEqual([x.args[0] for x in sleep.call_args_list],[5,15])
  def test_exact_artifact_and_immutable_runtime_hash(self):
   with tempfile.TemporaryDirectory() as directory:
    root=Path(directory);release=fixture(root)

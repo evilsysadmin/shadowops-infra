@@ -178,19 +178,39 @@ def verify_runtime_bytes(release):
  base=release['runtime']['index'].rsplit('/',1)[0]+'/'
  for name in ('index.html','index.js','index.wasm','index.pck'):
   expected=release['files'][name];uri=base+name
-  request=urllib.request.Request(uri,headers={**PUBLIC_HEADERS,'Cache-Control':'no-cache','Accept-Encoding':'identity'})
+  request=urllib.request.Request(uri,headers={**PUBLIC_HEADERS,'Cache-Control':'no-cache, no-transform','Accept-Encoding':'identity'})
   with urllib.request.urlopen(request,timeout=45) as response:
    if response.status!=200 or response.geturl()!=uri:raise DeliveryError('Public runtime HTTP or redirect mismatch: '+name)
+   # Report only bounded response metadata, never HTML bodies, cookies or secrets.
+   headers=getattr(response,'headers',{})
+   details=' expected_bytes='+str(expected['bytes'])+' content_length='+str(headers.get('Content-Length','unknown'))[:32]+' content_encoding='+str(headers.get('Content-Encoding','identity'))[:32]+' content_type='+str(headers.get('Content-Type','unknown'))[:80]+' cache_status='+str(headers.get('CF-Cache-Status','unknown'))[:32]
    digest=hashlib.sha256();size=0
    while True:
     chunk=response.read(min(262144,expected['bytes']-size+1))
     if not chunk:break
     size+=len(chunk)
-    if size>expected['bytes']:raise DeliveryError('Public runtime size mismatch: '+name)
+    if size>expected['bytes']:raise DeliveryError('Public runtime size mismatch: '+name+details+' observed_at_least='+str(size))
     digest.update(chunk)
    if size!=expected['bytes'] or digest.hexdigest()!=expected['sha256']:
-    raise DeliveryError('Public runtime bytes mismatch: '+name)
+    raise DeliveryError('Public runtime bytes mismatch: '+name+details+' observed_bytes='+str(size))
   print('FOOTBALL_PUBLIC_RUNTIME_BYTES_VERIFIED file='+name+' bytes='+str(size)+' sha256='+expected['sha256'])
+
+
+def verify_before_publish(root,sha):
+ # Validate against trusted artifact, never the CDN's own assertions.
+ # R2 can precede edge availability; allow a bounded retry, but do not
+ # publish the Pages pointer until every exact byte matches.
+ release=validate(root,sha)
+ for attempt in range(3):
+  try:
+   verify_runtime_bytes(release)
+   print('FOOTBALL_PREPUBLISH_RUNTIME_BYTES_VERIFIED source_sha='+sha)
+   return
+  except (OSError,DeliveryError) as error:
+   if attempt==2:raise
+   reason=str(error) if isinstance(error,DeliveryError) else 'transport '+type(error).__name__
+   print('FOOTBALL_PREPUBLISH_RUNTIME_RETRY attempt='+str(attempt+1)+' '+reason)
+   time.sleep(5 if attempt==0 else 15)
 
 
 def verify_public(sha,root):
@@ -224,6 +244,7 @@ def main():
   print('FOOTBALL_SOURCE_ADMITTED source_sha='+candidate['source_sha']+' publish='+str(publish).lower())
  elif action=='validate':validate(Path(sys.argv[2]),sys.argv[3]);print('FOOTBALL_ARTIFACT_BYTES_VERIFIED')
  elif action=='runtime':publish_runtime(Path(sys.argv[2]),sys.argv[3])
+ elif action=='verify-runtime':verify_before_publish(Path(sys.argv[2]),sys.argv[3])
  elif action=='verify':verify_public(sys.argv[2],Path(sys.argv[3]))
  else:raise DeliveryError('Unknown Football delivery operation')
 
