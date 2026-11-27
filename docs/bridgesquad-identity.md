@@ -228,3 +228,40 @@ Siguientes iteraciones:
    `main` verde del juego, binding `SHADOWOPS_BRIDGESQUAD_SERVICE_CREDENTIAL`
    y CNAME proxied tras verificar invitado denegado.
 4. E2E real: login, partida en móvil/escritorio, renovación, logout/revocación.
+
+## Staging Pages + DNS en un clic (`bridgesquad-staging.yml`)
+
+Workflow **Bridge Squad · staging behind ShadowOps ID (one-click)**, solo por
+dispatch manual desde `main`, en el entorno protegido `staging`:
+
+```sh
+gh workflow run bridgesquad-staging.yml -R evilsysadmin/shadowops-infra --ref main -f action=activate
+```
+
+`activate` es idempotente y sirve también para publicar un SHA nuevo del juego:
+
+1. Admite el `main` verde actual del juego (o `game_sha`) y sella `index.html`
+   de ese commit exacto con el Worker auditado
+   `edge/bridgesquad-staging-identity-gate.mjs` (`iss=id-staging`,
+   `aud=bridgesquad`, host exacto, aliases `*.pages.dev` → 404).
+2. Crea o verifica el proyecto Pages **dedicado** `bridgesquad-staging`, con
+   `fail_open=false` en producción y en previews. Nunca adopta recursos ajenos ni DNS huérfano.
+3. Despliega solo el paquete sellado, comprueba el SHA canónico y que **todos**
+   los aliases devuelven el 404 del Worker.
+4. Vincula `SHADOWOPS_BRIDGESQUAD_SERVICE_CREDENTIAL` (secret_text, solo en
+   producción) desde el bundle de Vault del operador. Si aún no existe
+   (`bridgesquad-activate` de Identity no se ha ejecutado), informa
+   `PROOF_PENDING` y sigue cerrado.
+5. Solo después asigna `staging.bridgesquad.shadowops.dpdns.org` (dominio +
+   CNAME proxied a `bridgesquad-staging.pages.dev`).
+6. Audita HTTPS real: `/` y `/index.html` → 401 con el shell de login de
+   `id-staging`, assets/API → 401 JSON, HEAD → 401, aliases → 404.
+
+`inspect` y `audit` son de solo lectura. El host de producción
+`bridgesquad.shadowops.dpdns.org` y su proyecto no se tocan.
+
+Orden recomendado: `identity-staging-operations.yml action=bridgesquad-activate`
+(audiencia y proof) → `bridgesquad-staging.yml action=activate`. En el orden
+inverso también es seguro: el juego queda cerrado hasta que se vincule el proof
+(volver a lanzar `activate`). Falta el E2E real con cuenta: login, partida,
+renovación y logout.
