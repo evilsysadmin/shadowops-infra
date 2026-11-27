@@ -179,6 +179,19 @@ def entrypoint_path(html: bytes) -> str:
     return matches[0].decode("ascii")
 
 
+def set_header_rule(dist: Path, path: str, lines: list[str]) -> None:
+    """Replace one Pages header block while preserving the game's own rules."""
+    headers_file = dist / "_headers"
+    try:
+        existing = headers_file.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        existing = ""
+    blocks = [block for block in re.split(r"\n[ \t]*\n", existing.strip()) if block.strip()]
+    blocks = [block for block in blocks if block.splitlines()[0].strip() != path]
+    blocks.append("\n".join([path, *(f"  {line}" for line in lines)]))
+    headers_file.write_text("\n\n".join(blocks) + "\n", encoding="utf-8")
+
+
 def write_manifest(dist: Path, expected_sha: str) -> None:
     """Describe the actual built JS bytes, not a guessed asset name or mutable ref."""
     if not SHA_PATTERN.fullmatch(expected_sha):
@@ -201,9 +214,10 @@ def write_manifest(dist: Path, expected_sha: str) -> None:
     (dist / "release.json").write_text(
         json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8"
     )
-    (dist / "_headers").write_text(
-        "/release.json\n  Cache-Control: no-store, max-age=0\n", encoding="utf-8"
-    )
+    # The source build may carry its own Pages cache rules (for example the
+    # version marker and application shell). Add the release rule without
+    # replacing those rules in the published artifact.
+    set_header_rule(dist, "/release.json", ["Cache-Control: no-store, max-age=0"])
     print("STARADVS_STAGING_MANIFEST_READY sha=" + expected_sha)
 
 

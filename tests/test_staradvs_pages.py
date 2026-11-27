@@ -220,6 +220,12 @@ class StagingPagesTests(unittest.TestCase):
             (dist / "assets").mkdir()
             js = b"console.log('exact deployed bundle')"
             (dist / "assets/index-genuine.js").write_bytes(js)
+            (dist / "_headers").write_text(
+                "/version.json\n  Cache-Control: no-store\n"
+                "  Cloudflare-CDN-Cache-Control: no-store\n\n"
+                "/index.html\n  Cache-Control: no-cache, max-age=0, must-revalidate\n",
+                encoding="utf-8",
+            )
             (dist / "index.html").write_bytes(
                 b'<div id="root"></div><script type="module" src="/assets/index-genuine.js"></script>'
             )
@@ -231,7 +237,17 @@ class StagingPagesTests(unittest.TestCase):
                 "path": "/assets/index-genuine.js",
                 "sha256": hashlib.sha256(js).hexdigest(),
             })
-            self.assertIn("no-store", (dist / "_headers").read_text())
+            headers = (dist / "_headers").read_text()
+            self.assertIn("/version.json\n  Cache-Control: no-store", headers)
+            self.assertIn("Cloudflare-CDN-Cache-Control: no-store", headers)
+            self.assertIn("/index.html\n  Cache-Control: no-cache", headers)
+            self.assertIn("/release.json\n  Cache-Control: no-store, max-age=0", headers)
+
+            # Rebuilding the release manifest is idempotent and never stacks
+            # duplicate Cache-Control directives for the same asset.
+            s.write_manifest(dist, sha)
+            headers = (dist / "_headers").read_text()
+            self.assertEqual(headers.count("/release.json\n"), 1)
 
     def test_manifest_rejects_missing_external_or_ambiguous_js_entries(self):
         sha = "b" * 40
