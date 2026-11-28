@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { pagesReleasePublished, PAGES_RELEASE_JOB } from '../scripts/staradvs_browser_release_gate.mjs';
+import { pagesReleasePublished, PAGES_RELEASE_JOB,
+  protectedReleasePublished, PROTECTED_RELEASE_JOB } from '../scripts/staradvs_browser_release_gate.mjs';
 
 const release = (conclusion, status = 'completed') => ({
   name: PAGES_RELEASE_JOB, conclusion, status,
@@ -38,6 +39,18 @@ test('truncated, malformed or paginated GitHub responses fail closed', () => {
     { total_count: 1, jobs: null }, response(), { total_count: 1, jobs: [null] }]) {
     assert.equal(pagesReleasePublished(payload), false);
   }
+});
+
+test('protected browser QA follows only a real protected Pages publish', () => {
+  const published = { name: PROTECTED_RELEASE_JOB, status: 'completed', conclusion: 'success' };
+  assert.equal(protectedReleasePublished(response({ name: 'contracts' }, published)), true);
+  for (const job of [
+    { ...published, conclusion: 'skipped' },
+    { ...published, conclusion: 'failure' },
+    { ...published, status: 'in_progress' },
+  ]) assert.equal(protectedReleasePublished(response(job)), false);
+  assert.equal(protectedReleasePublished(response(published, published)), false);
+  assert.equal(protectedReleasePublished({ total_count: 2, jobs: [published] }), false);
 });
 
 test('workflow requires the publication gate only for upstream workflow_run', () => {

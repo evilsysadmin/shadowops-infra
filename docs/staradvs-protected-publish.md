@@ -16,4 +16,6 @@ The workflow captures a complete inventory before uploading the exact verified p
 
 Guest denial is not signed-in acceptance. Test actual ShadowOps ID login, bridge, reload, assets, renewal, global logout, revocation, expiry and cross-audience denial on staging. Production is not promoted. No Access credentials are needed by this publisher. The old Access quarantine workflow is optional, not part of this cutover.
 
+The `Star Adventures protected staging guest browser` workflow runs after an actual protected publication job, or by manual dispatch. It opens the real 401 login shell in Chrome at mobile and desktop widths and checks that guest requests to the game, bridge, manifest and assets are denied. A green result covers the anonymous browser path only; the signed-in journey above remains a separate acceptance step.
+
 The candidate provenance, exact Worker/bundle checks, protected staging environment, source CI and Infra revision checks remain unchanged. Use the approved Pages token; Pages Write is required for deployment deletion. No new service or token family.

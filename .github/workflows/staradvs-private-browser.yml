@@ -1,0 +1,94 @@
+name: Star Adventures protected staging guest browser
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/staradvs-private-browser.yml'
+      - 'scripts/staradvs_private_browser_smoke.mjs'
+      - 'scripts/staradvs_browser_release_gate.mjs'
+      - 'tests/staradvs-browser-release-gate.test.mjs'
+      - 'docs/staradvs-protected-publish.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/staradvs-private-browser.yml'
+      - 'scripts/staradvs_private_browser_smoke.mjs'
+      - 'scripts/staradvs_browser_release_gate.mjs'
+      - 'tests/staradvs-browser-release-gate.test.mjs'
+      - 'docs/staradvs-protected-publish.md'
+  workflow_run:
+    workflows: ['Star Adventures · protected ShadowOps ID Pages staging publish (manual only)']
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  contracts:
+    name: Verify protected guest browser contract
+    runs-on: ubuntu-24.04
+    outputs:
+      published: ${{ steps.published.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: node --check scripts/staradvs_private_browser_smoke.mjs
+      - run: node --test tests/staradvs-browser-release-gate.test.mjs
+      - id: published
+        name: Admit only a completed protected publication
+        if: >-
+          github.event_name == 'workflow_run' &&
+          github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.head_branch == 'main' &&
+          github.event.workflow_run.repository.full_name == 'evilsysadmin/shadowops-infra' &&
+          github.event.workflow_run.event == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM_RUN_ID: ${{ github.event.workflow_run.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/evilsysadmin/shadowops-infra/actions/runs/${UPSTREAM_RUN_ID}/jobs?per_page=100" > "${RUNNER_TEMP}/staradvs-protected-jobs.json"
+          node --input-type=module - <<'NODE'
+          import { appendFileSync, readFileSync } from 'node:fs';
+          import { protectedReleasePublished } from './scripts/staradvs_browser_release_gate.mjs';
+          const jobs = JSON.parse(readFileSync(process.env.RUNNER_TEMP + '/staradvs-protected-jobs.json', 'utf8'));
+          const published = protectedReleasePublished(jobs);
+          appendFileSync(process.env.GITHUB_OUTPUT, `value=${published}\n`);
+          console.log(published ? 'Protected Pages publication verified' : 'No protected Pages publication; browser check skipped');
+          NODE
+
+  live:
+    name: Real protected guest shell on desktop and mobile
+    needs: contracts
+    if: >-
+      github.repository == 'evilsysadmin/shadowops-infra' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'workflow_run' && needs.contracts.outputs.published == 'true'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: evilsysadmin/star-adventures
+          path: staradvs-source
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned game Playwright dependency
+        run: npm ci --prefix staradvs-source/frontend --ignore-scripts --no-audit --no-fund
+      - name: Verify real protected guest routes and login shell
+        env:
+          STARADVS_PRIVATE_LIVE_BROWSER: '1'
+        shell: bash
+        run: |
+          cd staradvs-source/frontend
+          node --input-type=module - < ../../scripts/staradvs_private_browser_smoke.mjs
